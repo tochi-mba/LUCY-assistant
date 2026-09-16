@@ -21,10 +21,10 @@ skip `make install`. Pass `--dry-run` to print the plan. `--check` runs `make ch
 per checkout and prints a table; Environments-api is marked `needs Linux` when the
 host is not Linux.
 
-Bootstrap asks you to sign in to GitHub by browser or pasted token, then configures
-`gh` as git's credential helper. Non-interactive shells can supply `GH_TOKEN`.
-Use `gh auth status` to check access; [private-repos.md](docs/private-repos.md) explains
-developer sign-in, CI's read-only secret, and image builds.
+Bootstrap opens a browser (`gh auth login --web`) and configures `gh` as git's
+credential helper. GitHub Actions cannot open a browser; after you are signed in,
+`python scripts/share_github.py` gives CI the same login. Use `gh auth status`
+to check access; [private-repos.md](docs/private-repos.md) explains the handoff.
 
 Work in the [multi-root workspace](LUCY-assistant.code-workspace) or the
 [devcontainer](.devcontainer/devcontainer.json).

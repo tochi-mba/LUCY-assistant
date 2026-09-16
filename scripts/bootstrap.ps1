@@ -226,25 +226,25 @@ function Test-Interactive {
 
 function Ensure-GitHub {
     Set-Tool "github" "not signed in"
-    $instruction = "Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
+    $instruction = "Sign in to GitHub in your browser so bootstrap can clone the family's private repositories"
     if (-not (Test-Have "gh")) {
         Write-Say $instruction
-        Write-Say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"
+        Write-Say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https --web"
         return
     }
     & gh auth status --hostname github.com 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         if ($DryRun) {
-            Write-Would "gh auth login --hostname github.com --git-protocol https (when a terminal is available)"
+            Write-Would "gh auth login --hostname github.com --git-protocol https --web (when a terminal is available)"
             Write-Would "gh auth setup-git --hostname github.com (after signing in)"
             return
         }
         Write-Say $instruction
         if (-not (Test-Interactive)) {
-            Write-Say "bootstrap: no terminal; run gh auth login in a terminal or set GH_TOKEN, then rerun bootstrap"
+            Write-Say "bootstrap: no terminal; run gh auth login --hostname github.com --git-protocol https --web, then rerun bootstrap"
             return
         }
-        & gh auth login --hostname github.com --git-protocol https
+        & gh auth login --hostname github.com --git-protocol https --web
         if ($LASTEXITCODE -ne 0) {
             Write-Say "bootstrap: not signed in; continuing with the checkouts available to this account"
             return

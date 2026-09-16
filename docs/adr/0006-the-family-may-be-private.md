@@ -16,9 +16,9 @@ credentials without putting a token in a project file:
 
 | Caller | Authentication |
 | --- | --- |
-| Developer | `gh auth login`, then `gh auth setup-git` for git and uv |
-| Non-interactive shell / devcontainer | `GH_TOKEN` supplied in the environment |
-| GitHub Actions | `FAMILY_GITHUB_TOKEN`, Contents read-only on the nine repositories, inherited by service callers |
+| Developer | `gh auth login --web`, then `gh auth setup-git` for git and uv |
+| Devcontainer | the same browser login, or `gh auth login --web` inside the container |
+| GitHub Actions | `scripts/share_github.py` copies that login into `FAMILY_GITHUB_TOKEN` |
 | Local Docker build | `gh auth token` passed as a BuildKit secret by Make / Compose |
 
 The private reusable workflow explicitly allows access from repositories under the
@@ -33,14 +33,15 @@ client tags where access is available.
 
 ## Consequences
 
-The owner maintains one fine-grained token, rotates its nine Actions secrets, and grants
-new repositories access explicitly. A public caller cannot use a private reusable
-workflow, so service visibility changes precede the meta repository's change.
-Visibility and token creation remain owner actions. The rollout order and permissions
-are documented in [private-repos.md](../private-repos.md).
+The owner signs in through the browser. CI cannot; `share_github.py` is the
+handoff. Adding a repository is a manifest line plus re-running that command.
+A public caller cannot use a private reusable workflow, so service visibility
+changes precede the meta repository's change. The rollout order is documented
+in [private-repos.md](../private-repos.md).
 
 ## What would change our minds
 
-A GitHub App installation token could replace the personal token if the family grows
-beyond a single owner or needs automated rotation. Publishing the clients could remove
-git authentication for packages, while clones and private CI reuse would still need it.
+A GitHub App installation token would rotate credentials per job without copying
+a user session into Actions, at the cost of creating and installing an app.
+Publishing the clients could remove git authentication for packages, while clones
+and private CI reuse would still need a GitHub login.

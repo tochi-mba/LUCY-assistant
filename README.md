@@ -101,9 +101,9 @@ except the assistant sitting in front.
    cannot.
 2. `bash scripts/bootstrap.sh` or `pwsh scripts/bootstrap.ps1`. That checks for `uv`,
    Python 3.11/3.12, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
-   installing it, asks you to sign in to GitHub by browser or pasted token, clones any
-   missing checkout your account can read from `repos.txt`, and runs `make install`
-   unless you pass `--no-install`. **Never pass a live token into the command line.**
+   installing it, opens a browser for GitHub sign-in if you are not already signed in,
+   clones any missing checkout your account can read from `repos.txt`, and runs
+   `make install` unless you pass `--no-install`.
 3. In Keyring-api: copy `.env.example`, set `KEYRING_MASTER_KEY`, `make run`.
 4. Mint a service token for the service you are working on
    (`POST /v1/auth/service-token` with that service's audience) and put the Bearer on
@@ -122,21 +122,20 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 
 ## Signing in to GitHub
 
-Bootstrap calls `gh auth login --hostname github.com --git-protocol https` when you
-are not signed in and a terminal is available. Choose the browser or paste a token at
-GitHub CLI's prompt. It then runs `gh auth setup-git`, so both `git clone` and `uv`'s
-git fetches use your sign-in. `gh auth status` tells you which account is active.
+Bootstrap opens a browser (`gh auth login --web`) when you are not signed in and a
+terminal is available. It then runs `gh auth setup-git`, so both `git clone` and
+`uv`'s git fetches use that login. `gh auth status` tells you which account is active.
+There is no personal access token to create.
 
-In a non-interactive shell, inject `GH_TOKEN` through your environment or secret manager.
-The devcontainer forwards the host's `GH_TOKEN`. Without it, open a terminal in the
-container, run `gh auth login`, then `bash scripts/bootstrap.sh --no-install`. The attach
-hook also retries bootstrap. A repository your account cannot see is reported and
-skipped; existing checkouts are left alone. Dependency installation still needs access
-to the Keyring-api and Settings-api client tags.
+The devcontainer can use the same login. If it is not forwarded, open a terminal in
+the container, run `gh auth login --web`, then `bash scripts/bootstrap.sh --no-install`.
+The attach hook also retries bootstrap. A repository your account cannot see is
+reported and skipped; existing checkouts are left alone.
 
-`make images` obtains the token from `gh auth token` and supplies a BuildKit secret.
-Never put `GH_TOKEN`, `GITHUB_TOKEN`, or `FAMILY_GITHUB_TOKEN` in `.env.family`, a
-Docker build argument, or a committed file. See [the token guide](docs/private-repos.md).
+`make images` uses that browser session. GitHub Actions cannot open a browser, so
+once you are signed in run `python scripts/share_github.py` to give CI the same
+login. Never put a GitHub credential in `.env.family`, a Docker build argument, or
+a committed file. See [the sign-in guide](docs/private-repos.md).
 On native Windows, run Make recipes in Git Bash; bootstrap also has a PowerShell version.
 
 ## Adding a repository to the family
@@ -158,10 +157,10 @@ jobs:
     secrets: inherit
 ```
 
-Add the repository to the fine-grained token's selected repository list, install the
-`FAMILY_GITHUB_TOKEN` Actions secret there, and run `python scripts/parity.py --repo
-<folder>`. Bootstrap discovery needs only the manifest line; adding a running service
-to Compose or a folder to the IDE workspace is a separate choice.
+Run `python scripts/share_github.py` so Actions can read the new repository, then
+`python scripts/parity.py --repo <folder>`. Bootstrap discovery needs only the
+manifest line; adding a running service to Compose or a folder to the IDE
+workspace is a separate choice.
 
 ## Keeping your copy private / Forking
 
@@ -184,11 +183,10 @@ remotes. `--ref REF` selects a workflow ref (default `v1`); `--keep-sources` ret
 upstream client URLs when your account can still read them. Relock on a machine signed
 in to the destination owner and push the resulting changes to your copies.
 
-Create your own read-only token and set `FAMILY_GITHUB_TOKEN` in all nine repositories
-with `gh secret set FAMILY_GITHUB_TOKEN --repo YOUR_OWNER/REPOSITORY` (hidden prompt).
-Publish the meta workflow's `v1` tag and allow the private meta repository's Actions
-to be used by your other repositories. The [token and rollout guide](docs/private-repos.md)
-has the exact permissions, commands, and order.
+Sign in with `gh auth login --web` on the destination owner, then run
+`python scripts/share_github.py`. Publish the meta workflow's `v1` tag and allow
+the private meta repository's Actions to be used by your other repositories.
+The [sign-in and rollout guide](docs/private-repos.md) has the order.
 
 ## Links
 

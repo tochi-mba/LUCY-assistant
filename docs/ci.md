@@ -62,10 +62,11 @@ Spotify-api passes dummy `SPOTIFY_API_KEYRING_*` boot configuration with `docker
 
 ## Private repositories
 
-Install `FAMILY_GITHUB_TOKEN` as an Actions repository secret in every repository:
-a fine-grained PAT with Contents read-only on exactly the nine repositories. Callers
-pass it with `secrets: inherit`. Every uv fetch job configures git before fetching;
-the privileged test container installs git first. Docker receives it as a BuildKit
+Sign in with `gh auth login --web`, then run `python scripts/share_github.py`.
+That copies the browser login into the `FAMILY_GITHUB_TOKEN` Actions secret on
+every family repository. There is no PAT to mint. Callers pass it with
+`secrets: inherit`. Every uv fetch job configures git before fetching; the
+privileged test container installs git first. Docker receives it as a BuildKit
 secret; parity's meta checkout uses it with `persist-credentials: false`.
 
 The reusable workflow declares the secret required. Inherited secrets can still be empty
