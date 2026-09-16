@@ -43,14 +43,19 @@ for that lesson.
 `genenv.py` writes `.env.family` and prints a count. Bootstrap never dumps
 the environment. Do not `export KEYRING_*` in a ticket.
 
-**Disclosure goes to the maintainer directly**, by the address in
-[SECURITY.md](../SECURITY.md) or through GitHub's private vulnerability reporting on
-this repository. Either way the report is readable only by maintainers, and a fix
-can be prepared before anything is published.
+**Disclosure goes to the maintainer by email**, at the address in
+[SECURITY.md](../SECURITY.md). GitHub's private vulnerability reporting is only
+available on public repositories.
+
+**GitHub credentials are build credentials.** Developer sign-in stays in GitHub CLI's
+credential store; CI reads `FAMILY_GITHUB_TOKEN` from Actions secrets. Docker receives
+a BuildKit secret for each dependency-install RUN. The token must never be a build
+argument, an image environment variable, or part of `.env.family`, which all running
+services receive. See [private-repos.md](private-repos.md).
 
 ## What this meta-repo must not do
 
-- It must not contain a service token, master key, or `.env.family`.
+- It must not contain a service token, GitHub token, master key, or `.env.family`.
 - It must not pull, reset, or checkout an existing service clone. Other people
   are working in those repositories.
 - It must not vendor `keyring_client` or `settings_client`. They live in the hub.

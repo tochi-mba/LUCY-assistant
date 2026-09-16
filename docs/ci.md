@@ -9,7 +9,7 @@ drift, the Docker probe, `pip-audit` (continue-on-error), and family parity
 Action majors used here: `actions/checkout@v4`, `astral-sh/setup-uv@v6`,
 `actions/upload-artifact@v4`. Bump them in `service.yml`, not in every caller.
 
-## Default caller (ten lines)
+## Default caller
 
 ```yaml
 name: CI
@@ -19,11 +19,12 @@ on:
   pull_request:
 jobs:
   service:
-    uses: tochi-mba/LUCY-assistant/.github/workflows/service.yml@main
+    uses: tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1
+    secrets: inherit
 ```
 
-That is Keyring-api, User-api, Persona-api, Settings-api, and Spotify-api once they
-have switched. Settings-api also regenerates committed files:
+The callers use the moving, tested `v1` workflow tag. Only advance it after the
+meta workflow changes pass their checks; client dependency tags remain immutable. Settings-api also regenerates committed files:
 
 ```yaml
     with:
@@ -54,11 +55,24 @@ Both drive Chromium, so turn the live-browser job on:
       extras: "--all-extras --group dev"
 ```
 
-Both now have a `dev` dependency group, a `make imports` target and both probes, so
-the caller above is all either one needs. Web-search-api's Dockerfile healthcheck still
-calls `/health`; `/healthy` is served as an alias, and the two can be reconciled whenever
-that image is next touched.
+Web-search-api also sets `live-browser-marker: browser`; Media-tool uses the default
+`live_browser`. Both have a `dev` group, `make imports`, and both health probes.
 
-Spotify-api's image needs `SPOTIFY_API_KEYRING_*` to boot. Until the Dockerfile can
-start with baked-in dummies, set `run-docker: false` and keep the service's own
-probe, or pass the dummy environment in that service's wrapper job.
+Spotify-api passes dummy `SPOTIFY_API_KEYRING_*` boot configuration with `docker-env`.
+
+## Private repositories
+
+Install `FAMILY_GITHUB_TOKEN` as an Actions repository secret in every repository:
+a fine-grained PAT with Contents read-only on exactly the nine repositories. Callers
+pass it with `secrets: inherit`. Every uv fetch job configures git before fetching;
+the privileged test container installs git first. Docker receives it as a BuildKit
+secret; parity's meta checkout uses it with `persist-credentials: false`.
+
+The reusable workflow declares the secret required. Inherited secrets can still be empty
+on a public fork: authentication then skips configuration and public dependencies fetch
+anonymously. Private sources need the secret. Fork pull requests do not normally receive
+repository secrets. See [private-repos.md](private-repos.md) for setup and rotation.
+
+When the meta repository is private, allow Actions access from repositories under the
+same owner. Public callers cannot use a private reusable workflow. For a copy, run
+`scripts/retarget.py OWNER` and publish its `v1` tag; `--ref` chooses a different ref.

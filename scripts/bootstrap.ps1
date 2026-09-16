@@ -68,6 +68,17 @@ function Set-Tool([string]$Tool, [string]$Status) {
     $ToolStatus[$Tool] = $Status
 }
 
+function Update-SystemPath {
+    # Installers update the registry, not the environment of this running shell.
+    # Keep process-only entries (for example a dev shell) while adding new binaries.
+    $paths = @($env:PATH)
+    foreach ($scope in @("Machine", "User")) {
+        $registered = [Environment]::GetEnvironmentVariable("Path", $scope)
+        if ($registered) { $paths += [Environment]::ExpandEnvironmentVariables($registered) }
+    }
+    $env:PATH = $paths -join [IO.Path]::PathSeparator
+}
+
 function Install-SystemBinary {
     param(
         [Parameter(Mandatory = $true)][string]$Binary,
@@ -95,6 +106,17 @@ function Install-SystemBinary {
             Set-Tool $Binary "installed"
             return
         }
+    } elseif ($IsWindows -and (Test-Have "winget")) {
+        $wingetIds = @{ gh = "GitHub.cli"; git = "Git.Git"; jq = "jqlang.jq" }
+        if ($wingetIds.ContainsKey($Binary)) {
+            & winget install --id $wingetIds[$Binary] --exact --source winget `
+                --accept-package-agreements --accept-source-agreements --disable-interactivity
+            Update-SystemPath
+            if (Test-Have $Binary) {
+                Set-Tool $Binary "installed"
+                return
+            }
+        }
     }
     Write-Say "bootstrap: $Binary is not installed and this OS has no automatic installer for it"
     Set-Tool $Binary "missing"
@@ -112,6 +134,11 @@ function Ensure-Uv {
     }
     if ($IsWindows) {
         powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+        Update-SystemPath
+        $local = Join-Path $HOME ".local/bin"
+        if (Test-Path $local) {
+            $env:PATH = "$local$([IO.Path]::PathSeparator)$env:PATH"
+        }
     } elseif (Test-Have "curl") {
         curl -LsSf https://astral.sh/uv/install.sh | sh
         $local = Join-Path $HOME ".local/bin"
@@ -193,6 +220,52 @@ function Get-RepoRows {
     }
 }
 
+function Test-Interactive {
+    return [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+}
+
+function Ensure-GitHub {
+    Set-Tool "github" "not signed in"
+    $instruction = "Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
+    if (-not (Test-Have "gh")) {
+        Write-Say $instruction
+        Write-Say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"
+        return
+    }
+    & gh auth status --hostname github.com 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        if ($DryRun) {
+            Write-Would "gh auth login --hostname github.com --git-protocol https (when a terminal is available)"
+            Write-Would "gh auth setup-git --hostname github.com (after signing in)"
+            return
+        }
+        Write-Say $instruction
+        if (-not (Test-Interactive)) {
+            Write-Say "bootstrap: no terminal; run gh auth login in a terminal or set GH_TOKEN, then rerun bootstrap"
+            return
+        }
+        & gh auth login --hostname github.com --git-protocol https
+        if ($LASTEXITCODE -ne 0) {
+            Write-Say "bootstrap: not signed in; continuing with the checkouts available to this account"
+            return
+        }
+    }
+    $login = & gh api user --hostname github.com --jq .login 2>$null
+    if ($LASTEXITCODE -eq 0 -and $login) {
+        Set-Tool "github" "signed in as $login"
+    } else {
+        Set-Tool "github" "signed in (account name unavailable)"
+    }
+    if ($DryRun) {
+        Write-Would "gh auth setup-git --hostname github.com"
+    } else {
+        & gh auth setup-git --hostname github.com
+        if ($LASTEXITCODE -ne 0) {
+            Write-Say "bootstrap: could not configure git; run gh auth setup-git --hostname github.com"
+        }
+    }
+}
+
 function Clone-Missing {
     foreach ($row in Get-RepoRows) {
         $dest = Join-Path $Root $row.Name
@@ -208,7 +281,17 @@ function Clone-Missing {
             Write-Say "bootstrap: git is missing; cannot clone $($row.Name)"
             continue
         }
-        & git clone $row.Url $dest
+        # Authentication was handled above. Never hang a devcontainer on a git prompt.
+        $previousPrompt = $env:GIT_TERMINAL_PROMPT
+        try {
+            $env:GIT_TERMINAL_PROMPT = "0"
+            & git clone $row.Url $dest
+            if ($LASTEXITCODE -ne 0) {
+                Write-Say "$($row.Name): your account cannot see $($row.Url); ask for access, or check gh auth status"
+            }
+        } finally {
+            $env:GIT_TERMINAL_PROMPT = $previousPrompt
+        }
     }
 }
 
@@ -264,7 +347,7 @@ function Write-ToolTable {
     Write-Say "tools"
     Write-Say "-----"
     Write-Output ("{0,-10}  {1}" -f "tool", "status")
-    foreach ($tool in @("uv", "python", "make", "git", "gh", "jq", "sqlite3", "docker")) {
+    foreach ($tool in @("uv", "python", "make", "git", "gh", "jq", "sqlite3", "docker", "github")) {
         $status = if ($ToolStatus.Contains($tool)) { $ToolStatus[$tool] } else { "missing" }
         Write-Output ("{0,-10}  {1}" -f $tool, $status)
     }
@@ -278,6 +361,7 @@ Install-SystemBinary -Binary "gh"
 Install-SystemBinary -Binary "jq"
 Install-SystemBinary -Binary "sqlite3"
 Ensure-Docker
+Ensure-GitHub
 Clone-Missing
 Install-Repos
 Check-Repos

@@ -1,14 +1,9 @@
 # LUCY-assistant family. Eight services, one network.
 #
-# Bring-up is unverified locally: Docker Engine cannot run on the machine that
-# wrote this file (WSL/virtualization off). Paths are ./<Repo> because this
-# file lives in the family root beside the checkouts.
-#
+# Paths are ./<Repo> because this file lives beside the service checkouts.
 #   python scripts/genenv.py
-#   docker compose up --build
-#
-# Host ports are the family assignments (8001–8008). Container listen ports
-# stay whatever each image already uses, so Dockerfiles are not rewritten.
+#   make images && make up
+# Host and container ports match the family assignments (8001-8008).
 
 name: lucy-family
 
@@ -24,9 +19,17 @@ volumes:
   media-data:
   environments-data:
 
+# Build-time only. Never put GITHUB_TOKEN in .env.family: env_file is passed
+# to all eight running containers, which do not need GitHub credentials.
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
+
 services:
   keyring:
-    build: ./Keyring-api
+    build:
+      context: ./Keyring-api
+      secrets: [github_token]
     ports:
       - "8001:8001"
     env_file:
@@ -55,7 +58,9 @@ services:
     networks: [lucy]
 
   user:
-    build: ./User-api
+    build:
+      context: ./User-api
+      secrets: [github_token]
     ports:
       - "8002:8002"
     env_file:
@@ -87,7 +92,9 @@ services:
     networks: [lucy]
 
   settings:
-    build: ./Settings-api
+    build:
+      context: ./Settings-api
+      secrets: [github_token]
     ports:
       - "8003:8003"
     env_file:
@@ -119,7 +126,9 @@ services:
     networks: [lucy]
 
   persona:
-    build: ./Persona-api
+    build:
+      context: ./Persona-api
+      secrets: [github_token]
     ports:
       - "8004:8004"
     env_file:
@@ -151,7 +160,9 @@ services:
     networks: [lucy]
 
   media-tool:
-    build: ./Media-tool
+    build:
+      context: ./Media-tool
+      secrets: [github_token]
     ports:
       - "8005:8005"
     env_file:
@@ -185,7 +196,9 @@ services:
     networks: [lucy]
 
   web-search:
-    build: ./Web-search-api
+    build:
+      context: ./Web-search-api
+      secrets: [github_token]
     ports:
       - "8006:8006"
     env_file:
@@ -213,7 +226,9 @@ services:
     networks: [lucy]
 
   spotify:
-    build: ./Spotify-api
+    build:
+      context: ./Spotify-api
+      secrets: [github_token]
     ports:
       - "8007:8007"
     env_file:
@@ -241,7 +256,9 @@ services:
     networks: [lucy]
 
   environments:
-    build: ./Environments-api
+    build:
+      context: ./Environments-api
+      secrets: [github_token]
     ports:
       - "8008:8008"
     privileged: true

@@ -15,6 +15,24 @@ import parity  # noqa: E402
 
 GOLDEN_NAME = "Demo-api"
 
+GOLDEN_CI = """\
+name: CI
+jobs:
+  service:
+    uses: owner/LUCY-assistant/.github/workflows/service.yml@v1
+    secrets: inherit
+"""
+
+GOLDEN_DOCKERFILE = """\
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+RUN --mount=type=secret,id=github_token,required=false \\
+    uv sync --no-install-project --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \\
+    --mount=id=github_token,type=secret \\
+    uv sync --no-cache
+"""
+
 GOLDEN_MAKEFILE = """\
 help:
 install:
@@ -60,7 +78,7 @@ type = "layers"
 layers = ["demo"]
 """
 
-GOLDEN_CONFIG = '''\
+GOLDEN_CONFIG = """\
 from keyring_client import ExactAudience
 
 env_prefix = "DEMO_"
@@ -72,7 +90,7 @@ def check_for_unknown_env_vars() -> None:
 
 
 ROUTES = ("/healthy", "/ready")
-'''
+"""
 
 DOCS = (
     "README.md",
@@ -96,6 +114,8 @@ def write_lines(path: Path, count: int) -> None:
 
 
 def write_golden(root: Path) -> Path:
+    write_text(root / ".github/workflows/ci.yml", GOLDEN_CI)
+    write_text(root / "Dockerfile", GOLDEN_DOCKERFILE)
     write_text(root / "Makefile", GOLDEN_MAKEFILE)
     write_text(root / "pyproject.toml", GOLDEN_PYPROJECT)
     write_text(root / ".python-version", "3.11\n")
@@ -126,7 +146,10 @@ def fail(root: Path, check_id: str) -> None:
     if check_id == "make-targets":
         write_text(root / "Makefile", GOLDEN_MAKEFILE.replace("docker:\n", ""))
     elif check_id == "make-check":
-        write_text(root / "Makefile", GOLDEN_MAKEFILE.replace("check: lint type imports test", "check: lint"))
+        write_text(
+            root / "Makefile",
+            GOLDEN_MAKEFILE.replace("check: lint type imports test", "check: lint"),
+        )
     elif check_id == "python-version":
         write_text(root / ".python-version", "3.10\n")
     elif check_id == "claude-md":
@@ -139,20 +162,36 @@ def fail(root: Path, check_id: str) -> None:
         (root / ".pre-commit-config.yaml").unlink()
     elif check_id == "editorconfig":
         (root / ".editorconfig").unlink()
+    elif check_id == "ci-secrets":
+        write_text(
+            root / ".github/workflows/ci.yml", GOLDEN_CI.replace("    secrets: inherit\n", "")
+        )
+    elif check_id == "docker-secret":
+        write_text(
+            root / "Dockerfile",
+            GOLDEN_DOCKERFILE.replace("    --mount=id=github_token,type=secret \\\n", ""),
+        )
     elif check_id == "dev-group":
         write_text(
             root / "pyproject.toml",
             GOLDEN_PYPROJECT.replace(
-                "[dependency-groups]\ndev = [\"pytest\"]\n",
-                "[project.optional-dependencies]\ndev = [\"pytest\"]\n",
+                '[dependency-groups]\ndev = ["pytest"]\n',
+                '[project.optional-dependencies]\ndev = ["pytest"]\n',
             ),
         )
     elif check_id == "ruff":
-        write_text(root / "pyproject.toml", GOLDEN_PYPROJECT.replace("line-length = 100", "line-length = 88"))
+        write_text(
+            root / "pyproject.toml",
+            GOLDEN_PYPROJECT.replace("line-length = 100", "line-length = 88"),
+        )
     elif check_id == "mypy-strict":
-        write_text(root / "pyproject.toml", GOLDEN_PYPROJECT.replace("strict = true", "strict = false"))
+        write_text(
+            root / "pyproject.toml", GOLDEN_PYPROJECT.replace("strict = true", "strict = false")
+        )
     elif check_id == "coverage":
-        write_text(root / "pyproject.toml", GOLDEN_PYPROJECT.replace("fail_under = 100", "fail_under = 80"))
+        write_text(
+            root / "pyproject.toml", GOLDEN_PYPROJECT.replace("fail_under = 100", "fail_under = 80")
+        )
     elif check_id == "pytest-warnings":
         write_text(
             root / "pyproject.toml",
@@ -164,7 +203,9 @@ def fail(root: Path, check_id: str) -> None:
             GOLDEN_PYPROJECT.split("[[tool.importlinter.contracts]]")[0],
         )
     elif check_id == "config":
-        write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG.replace('env_prefix = "DEMO_"\n', ""))
+        write_text(
+            root / "src/demo/core/config.py", GOLDEN_CONFIG.replace('env_prefix = "DEMO_"\n', "")
+        )
     elif check_id == "unknown-env":
         write_text(
             root / "src/demo/core/config.py",
@@ -183,7 +224,10 @@ def fail(root: Path, check_id: str) -> None:
     elif check_id == "health-routes":
         write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG.replace('"/ready"', '"/live"'))
     elif check_id == "keyring-client":
-        write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG.replace("from keyring_client import ExactAudience\n", ""))
+        write_text(
+            root / "src/demo/core/config.py",
+            GOLDEN_CONFIG.replace("from keyring_client import ExactAudience\n", ""),
+        )
         write_text(
             root / "pyproject.toml",
             GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
@@ -237,7 +281,10 @@ def test_keyring_client_is_na_on_the_issuer(tmp_path: Path) -> None:
         root / "pyproject.toml",
         GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
     )
-    write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG.replace("from keyring_client import ExactAudience\n", ""))
+    write_text(
+        root / "src/demo/core/config.py",
+        GOLDEN_CONFIG.replace("from keyring_client import ExactAudience\n", ""),
+    )
     result = outcome_for(root, "keyring-client", name="Keyring-api")
     assert result.status == parity.NOT_APPLICABLE
 
@@ -260,8 +307,12 @@ def test_render_json_round_trips(tmp_path: Path) -> None:
     assert "max-file-lines" in ids
 
 
-def test_cli_unknown_repo_is_usage_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code = parity.main(["--root", str(tmp_path), "--repos-file", str(ROOT / "repos.txt"), "--repo", "NotARepo"])
+def test_cli_unknown_repo_is_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = parity.main(
+        ["--root", str(tmp_path), "--repos-file", str(ROOT / "repos.txt"), "--repo", "NotARepo"]
+    )
     assert code == 2
     err = capsys.readouterr().err
     assert "unknown repository" in err
@@ -270,7 +321,9 @@ def test_cli_unknown_repo_is_usage_error(tmp_path: Path, capsys: pytest.CaptureF
 def test_cli_json_exit_zero_on_golden(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     write_golden(tmp_path / GOLDEN_NAME)
     manifest = tmp_path / "repos.txt"
-    manifest.write_text(f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8")
+    manifest.write_text(
+        f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8"
+    )
     code = parity.main(["--root", str(tmp_path), "--repos-file", str(manifest), "--json"])
     assert code == 0
     document = json.loads(capsys.readouterr().out)
@@ -281,7 +334,9 @@ def test_cli_exit_one_on_drift(tmp_path: Path) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     fail(root, "max-file-lines")
     manifest = tmp_path / "repos.txt"
-    manifest.write_text(f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8")
+    manifest.write_text(
+        f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8"
+    )
     code = parity.main(["--root", str(tmp_path), "--repos-file", str(manifest)])
     assert code == 1
 
@@ -290,3 +345,99 @@ def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
     manifest = tmp_path / "repos.txt"
     manifest.write_text("# header\n\nAlpha https://x\n  Bravo https://y\n", encoding="utf-8")
     assert parity.read_repo_names(manifest) == ["Alpha", "Bravo"]
+
+
+@pytest.mark.parametrize(
+    "ci",
+    [
+        None,
+        "# secrets: inherit\n" + GOLDEN_CI.replace("    secrets: inherit\n", ""),
+        GOLDEN_CI.replace("secrets: inherit", "secrets: {}"),
+        GOLDEN_CI.replace("    secrets: inherit", "    with:\n      secrets: inherit"),
+        GOLDEN_CI.replace("    secrets: inherit", "  unrelated:\n    secrets: inherit"),
+        GOLDEN_CI.replace(
+            "    secrets: inherit", "    with:\n      text: |\n        secrets: inherit"
+        ),
+        GOLDEN_CI + "  another:\n    uses: owner/LUCY-assistant/.github/workflows/service.yml@v1\n",
+        "jobs:\n  local:\n    steps:\n      - run: echo 'secrets: inherit'\n",
+    ],
+)
+def test_ci_secrets_rejects_missing_or_unrelated_inheritance(
+    tmp_path: Path, ci: str | None
+) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    if ci is None:
+        (root / ".github/workflows/ci.yml").unlink()
+    else:
+        write_text(root / ".github/workflows/ci.yml", ci)
+    assert outcome_for(root, "ci-secrets").status == parity.FAIL
+
+
+def test_ci_secrets_accepts_quoted_values_and_other_jobs(tmp_path: Path) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(
+        root / ".github/workflows/ci.yml",
+        GOLDEN_CI.replace(
+            "uses: owner/LUCY-assistant/.github/workflows/service.yml@v1",
+            "uses: 'owner/LUCY-assistant/.github/workflows/service.yml@v1' # family",
+        ).replace("secrets: inherit", 'secrets: "inherit" # shared')
+        + ("  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"),
+    )
+    assert outcome_for(root, "ci-secrets").status == parity.PASS
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        None,
+        GOLDEN_DOCKERFILE.replace("# syntax=docker/dockerfile:1\n", ""),
+        "\n" + GOLDEN_DOCKERFILE,
+        GOLDEN_DOCKERFILE.replace("id=github_token", "id=another_token"),
+        GOLDEN_DOCKERFILE.replace("type=secret", "type=cache"),
+        GOLDEN_DOCKERFILE + "RUN uv sync --no-cache\n",
+        "# syntax=docker/dockerfile:1\n# --mount=type=secret,id=github_token\nRUN uv sync\n",
+        '# syntax=docker/dockerfile:1\nRUN echo "--mount=type=secret,id=github_token" && uv sync\n',
+        "# syntax=docker/dockerfile:1\nRUN uv sync # --mount=type=secret,id=github_token\n",
+        "# syntax=docker/dockerfile:1\nRUN --mount=type=secret,id=github_token uv --version\nRUN uv sync\n",
+        "# syntax=docker/dockerfile:1\nRUN uv sync \\",
+        '# syntax=docker/dockerfile:1\nRUN uv sync "unterminated\n',
+        "# syntax=docker/dockerfile:1\nRUN [invalid json]\n",
+        "# syntax=docker/dockerfile:1\nFROM python:3.11\n",
+    ],
+)
+def test_docker_secret_rejects_unprotected_syncs(tmp_path: Path, dockerfile: str | None) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    if dockerfile is None:
+        (root / "Dockerfile").unlink()
+    else:
+        write_text(root / "Dockerfile", dockerfile)
+    assert outcome_for(root, "docker-secret").status == parity.FAIL
+
+
+def test_docker_secret_handles_continuations_and_comments(tmp_path: Path) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(
+        root / "Dockerfile",
+        GOLDEN_DOCKERFILE
+        + (
+            'RUN echo "uv sync does not run here"\n'
+            "RUN echo okay # uv sync is only a comment\n"
+            "RUN --mount=type=secret,id=github_token \\\n"
+            "    # an explanatory comment\n"
+            "    if true; then uv \\\n"
+            "      sync --no-cache; fi\n"
+        ),
+    )
+    assert outcome_for(root, "docker-secret").status == parity.PASS
+
+
+def test_docker_secret_accepts_json_run_with_other_flags(tmp_path: Path) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(
+        root / "Dockerfile",
+        (
+            "# syntax=docker/dockerfile:1.7\n"
+            'RUN --network=host --mount=type=secret,id=github_token ["uv", "sync", "--no-dev"]\n'
+        ),
+    )
+    assert outcome_for(root, "docker-secret").status == parity.PASS

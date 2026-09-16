@@ -63,7 +63,7 @@ def test_eight_services_on_one_network() -> None:
     assert list(document["services"]) == list(FAMILY)
     for name, service in document["services"].items():
         assert "lucy" in service["networks"]
-        assert service["build"] == CONTEXTS[name]
+        assert service["build"] == {"context": CONTEXTS[name], "secrets": ["github_token"]}
         assert HOST_PORTS[name] in service["ports"]
         assert "healthcheck" in service
         assert service["healthcheck"]["test"]
@@ -79,6 +79,15 @@ def test_each_service_is_told_to_listen_on_its_own_port() -> None:
         for key, value in env.items():
             if key.endswith("_PORT") and "EMAIL" not in key:
                 assert str(value) == port, f"{name}: {key}={value}, container port is {port}"
+
+
+def test_github_credential_is_only_a_build_secret() -> None:
+    document = load()
+    assert document["secrets"] == {"github_token": {"environment": "GITHUB_TOKEN"}}
+    for service in document["services"].values():
+        assert "secrets" not in service
+        assert all("GITHUB" not in key for key in service.get("environment", {}))
+        assert "args" not in service["build"]
 
 
 def test_consumers_depend_on_keyring() -> None:

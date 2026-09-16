@@ -21,6 +21,11 @@ skip `make install`. Pass `--dry-run` to print the plan. `--check` runs `make ch
 per checkout and prints a table; Environments-api is marked `needs Linux` when the
 host is not Linux.
 
+Bootstrap asks you to sign in to GitHub by browser or pasted token, then configures
+`gh` as git's credential helper. Non-interactive shells can supply `GH_TOKEN`.
+Use `gh auth status` to check access; [private-repos.md](docs/private-repos.md) explains
+developer sign-in, CI's read-only secret, and image builds.
+
 Work in the [multi-root workspace](LUCY-assistant.code-workspace) or the
 [devcontainer](.devcontainer/devcontainer.json).
 
@@ -48,6 +53,9 @@ fail is not a check; `tests/test_parity.py` refuses one.
   CHANGELOG (Keep a Changelog), the `docs/` set, `.editorconfig`, `.pre-commit-config.yaml`.
 - **Size:** no file under `src/`, `app/`, `tests/`, `scripts/`, or `clients/` may
   exceed 1000 lines. Split the module. [ADR-0005](docs/adr/0005-no-file-over-1000-lines.md).
+- **CI secrets:** `ci-secrets` requires `secrets: inherit` on the reusable workflow job.
+- **Docker secrets:** `docker-secret` requires the BuildKit syntax directive on line 1
+  and a `github_token` secret mount on every `uv sync` RUN.
 
 Do not add `pragma: no cover`. 100% means every line is tested.
 
@@ -66,7 +74,8 @@ the decision is about the family — for anything future-you would otherwise re-
 ## What this repository may contain
 
 Bootstrap, parity, compose, the reusable workflow, family docs, ADRs about the family.
-Not a copier template. Not copies of the eight services. Not `.env.family`.
+Not a copier template. Not copies of the eight services. Not `.env.family`, and not
+a GitHub token. Run `make test` for the family tooling and configuration tests.
 
 ## Pull requests
 

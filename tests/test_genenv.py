@@ -88,7 +88,9 @@ def test_main_stdout_contains_no_secret(tmp_path: Path, capsys: pytest.CaptureFi
     assert str(path.name) in stdout
 
 
-def test_main_does_not_print_secret_on_refuse(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_does_not_print_secret_on_refuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     path = tmp_path / ".env.family"
     path.write_text("SECRETVALUE_should_not_leak=1\n", encoding="utf-8")
     code = genenv.main(["--output", str(path)])
@@ -104,3 +106,14 @@ def test_master_key_is_32_decoded_bytes() -> None:
     env = genenv.build_env()
     raw = base64.b64decode(env["KEYRING_MASTER_KEY"], validate=True)
     assert len(raw) == genenv.MASTER_KEY_BYTES
+
+
+def test_generated_environment_never_contains_github_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "FAMILY_GITHUB_TOKEN"):
+        monkeypatch.setenv(name, "test-only-github-secret")
+    rendered = genenv.render(genenv.build_env())
+    assert "GITHUB" not in rendered
+    assert "GH_TOKEN" not in rendered
+    assert "test-only-github-secret" not in rendered

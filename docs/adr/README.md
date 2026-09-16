@@ -12,3 +12,4 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0003](0003-bearer-canonical.md) | `Authorization: Bearer` is the canonical identity header |
 | [0004](0004-port-assignments.md) | Family ports 8001–8008 |
 | [0005](0005-no-file-over-1000-lines.md) | No source, test, script, or client file over 1000 lines |
+| [0006](0006-the-family-may-be-private.md) | All nine repositories may be private; one developer sign-in and one read-only CI token |

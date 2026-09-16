@@ -1,3 +1,7 @@
+# One repository per line: <folder> <https clone URL>, private or public.
+# Bootstrap clones each repository with your signed-in GitHub account.
+# To add one, append a line and re-run bootstrap; see README.md for CI setup.
+# For a fork, scripts/retarget.py OWNER rewrites the GitHub owner.
 Keyring-api https://github.com/tochi-mba/Keyring-api.git
 Settings-api https://github.com/tochi-mba/Settings-api.git
 User-api https://github.com/tochi-mba/User-api.git

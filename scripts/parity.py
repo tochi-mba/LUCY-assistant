@@ -26,6 +26,7 @@ import argparse
 import ast
 import json
 import re
+import shlex
 import sys
 from dataclasses import dataclass
 from functools import cached_property
@@ -328,6 +329,107 @@ def check_editorconfig(repo: Repo) -> Result:
     return passed() if repo.exists(".editorconfig") else failed(".editorconfig is missing")
 
 
+def check_ci_secrets(repo: Repo) -> Result:
+    """The job calling the family workflow must pass its repository's secrets."""
+    source = repo.read(".github/workflows/ci.yml")
+    if source is None:
+        return failed(".github/workflows/ci.yml is missing")
+    # The family uses block mappings. Track their indentation so inheritance on an
+    # unrelated job, a step, a comment, or a multiline string cannot satisfy this check.
+    stack: list[tuple[int, str]] = []
+    jobs: dict[str, dict[str, str]] = {}
+    for line in source.splitlines():
+        match = re.fullmatch(r"( *)([A-Za-z0-9_-]+):(?:[ \t]+(.*))?", line)
+        if match is None:
+            continue
+        indent, key = len(match[1]), match[2]
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        path = [item[1] for item in stack] + [key]
+        if len(path) == 3 and path[0] == "jobs":
+            value = re.sub(r"\s+#.*$", "", match[3] or "").strip().strip("'\"")
+            jobs.setdefault(path[1], {})[key] = value
+        stack.append((indent, key))
+    callers = {
+        name: job
+        for name, job in jobs.items()
+        if re.fullmatch(
+            r"[A-Za-z0-9-]+/LUCY-assistant/\.github/workflows/service\.yml@[^\s]+",
+            job.get("uses", ""),
+        )
+    }
+    if not callers:
+        return failed("ci.yml has no job calling the family reusable workflow")
+    missing = [name for name, job in callers.items() if job.get("secrets") != "inherit"]
+    return (
+        failed("missing secrets: inherit on job(s): " + ", ".join(missing)) if missing else passed()
+    )
+
+
+def _docker_instructions(source: str) -> Iterator[tuple[int, str]]:
+    """Join Docker's continued instruction lines, ignoring full-line comments."""
+    pending = ""
+    start = 0
+    for number, line in enumerate(source.splitlines(), 1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        if not pending:
+            start = number
+        continued = text.endswith("\\")
+        pending += (text[:-1] if continued else text) + " "
+        if not continued:
+            yield start, pending.strip()
+            pending = ""
+    if pending:
+        yield start, pending.strip()
+
+
+def check_docker_secret(repo: Repo) -> Result:
+    """Every uv sync RUN receives its own BuildKit token mount, including later layers."""
+    source = repo.read("Dockerfile")
+    if source is None:
+        return failed("Dockerfile is missing")
+    lines = source.splitlines()
+    if not lines or not re.fullmatch(r"#\s*syntax=docker/dockerfile:1(?:[.\w-]*)\s*", lines[0]):
+        return failed("Dockerfile line 1 must declare # syntax=docker/dockerfile:1")
+    count = 0
+    unprotected = []
+    for number, instruction in _docker_instructions(source):
+        match = re.match(r"RUN\s+(.*)", instruction, re.IGNORECASE)
+        if match is None:
+            continue
+        command = match[1]
+        mounted = False
+        while flag := re.match(r"--([\w-]+)=([^\s]+)\s+", command):
+            if flag[1] == "mount":
+                options = dict(part.split("=", 1) for part in flag[2].split(",") if "=" in part)
+                mounted |= options.get("type") == "secret" and options.get("id") == "github_token"
+            command = command[flag.end() :]
+        try:
+            if command.startswith("["):
+                words = json.loads(command)
+            else:
+                lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+                lexer.whitespace_split = True
+                words = list(lexer)
+        except (ValueError, TypeError) as exc:
+            return failed(f"Dockerfile:{number}: cannot read RUN: {exc}")
+        if any(first == "uv" and second == "sync" for first, second in zip(words, words[1:])):
+            count += 1
+            if not mounted:
+                unprotected.append(str(number))
+    if unprotected:
+        return failed(
+            "uv sync RUN missing github_token secret mount at line(s): " + ", ".join(unprotected)
+        )
+    return (
+        passed(f"{count} protected uv sync RUN(s)")
+        if count
+        else failed("Dockerfile has no uv sync RUN")
+    )
+
+
 def check_dev_group(repo: Repo) -> Result:
     data = _pyproject(repo)
     if dig(data, "project", "optional-dependencies", "dev") is not None:
@@ -405,9 +507,7 @@ def check_unknown_env(repo: Repo) -> Result:
     except SyntaxError as exc:
         return failed(f"{relative} does not parse (line {exc.lineno})")
     defined = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     if "check_for_unknown_env_vars" in defined:
         return passed(relative)
@@ -498,6 +598,8 @@ CHECKS: tuple[Check, ...] = (
     Check("changelog", "CHANGELOG.md follows Keep a Changelog", check_changelog),
     Check("pre-commit", ".pre-commit-config.yaml exists", check_pre_commit),
     Check("editorconfig", ".editorconfig exists", check_editorconfig),
+    Check("ci-secrets", "family workflow caller inherits secrets", check_ci_secrets),
+    Check("docker-secret", "every uv sync RUN mounts the GitHub token secret", check_docker_secret),
     Check("dev-group", "dev dependencies in [dependency-groups] dev", check_dev_group),
     Check("ruff", "ruff line-length 100, target py311", check_ruff),
     Check("mypy-strict", "mypy strict = true", check_mypy_strict),

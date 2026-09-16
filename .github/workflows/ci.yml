@@ -22,7 +22,7 @@ jobs:
         with:
           enable-cache: true
       - name: Run the family checker tests
-        run: uv run --with pytest pytest tests -q
+        run: uv run --with pytest --with pyyaml pytest tests -q
 
   shellcheck:
     name: Shellcheck bootstrap.sh

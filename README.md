@@ -9,8 +9,8 @@ service is its own git repository, cloned beside this file by `scripts/bootstrap
 100% branch coverage. `python scripts/parity.py` is how we notice when a checkout has
 drifted.
 
-Docker Compose is documented here and **has not been verified locally** — Docker Engine
-cannot run on the machine that wrote this file (WSL/virtualization off).
+The family can be private. Sign in once to GitHub; bootstrap, dependency installation,
+and local image builds use that account. CI uses a separate read-only repository secret.
 
 ## Services
 
@@ -101,7 +101,8 @@ except the assistant sitting in front.
    cannot.
 2. `bash scripts/bootstrap.sh` or `pwsh scripts/bootstrap.ps1`. That checks for `uv`,
    Python 3.11/3.12, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
-   installing it, clones any missing checkout from `repos.txt`, and runs `make install`
+   installing it, asks you to sign in to GitHub by browser or pasted token, clones any
+   missing checkout your account can read from `repos.txt`, and runs `make install`
    unless you pass `--no-install`. **Never pass a live token into the command line.**
 3. In Keyring-api: copy `.env.example`, set `KEYRING_MASTER_KEY`, `make run`.
 4. Mint a service token for the service you are working on
@@ -110,14 +111,84 @@ except the assistant sitting in front.
 5. `make check` in that repository. `python scripts/parity.py --repo <name>` from here
    if you want the family scoreboard.
 
-To run all eight (unverified here):
+To run all eight with Docker Engine running:
 
 ```bash
 python scripts/genenv.py          # writes .env.family; never prints the values
-docker compose up --build         # host ports 8001–8008
+make images && make up           # host ports 8001–8008; up reuses the build cache
 ```
 
 Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.
+
+## Signing in to GitHub
+
+Bootstrap calls `gh auth login --hostname github.com --git-protocol https` when you
+are not signed in and a terminal is available. Choose the browser or paste a token at
+GitHub CLI's prompt. It then runs `gh auth setup-git`, so both `git clone` and `uv`'s
+git fetches use your sign-in. `gh auth status` tells you which account is active.
+
+In a non-interactive shell, inject `GH_TOKEN` through your environment or secret manager.
+The devcontainer forwards the host's `GH_TOKEN`. Without it, open a terminal in the
+container, run `gh auth login`, then `bash scripts/bootstrap.sh --no-install`. The attach
+hook also retries bootstrap. A repository your account cannot see is reported and
+skipped; existing checkouts are left alone. Dependency installation still needs access
+to the Keyring-api and Settings-api client tags.
+
+`make images` obtains the token from `gh auth token` and supplies a BuildKit secret.
+Never put `GH_TOKEN`, `GITHUB_TOKEN`, or `FAMILY_GITHUB_TOKEN` in `.env.family`, a
+Docker build argument, or a committed file. See [the token guide](docs/private-repos.md).
+On native Windows, run Make recipes in Git Bash; bootstrap also has a PowerShell version.
+
+## Adding a repository to the family
+
+Append one line to `repos.txt`: `<folder> <https clone URL>`. Private and public
+repositories use the same format. Re-run bootstrap to clone it with your account.
+For the family checks, give the service this caller in `.github/workflows/ci.yml`:
+
+```yaml
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  service:
+    uses: tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1
+    secrets: inherit
+```
+
+Add the repository to the fine-grained token's selected repository list, install the
+`FAMILY_GITHUB_TOKEN` Actions secret there, and run `python scripts/parity.py --repo
+<folder>`. Bootstrap discovery needs only the manifest line; adding a running service
+to Compose or a folder to the IDE workspace is a separate choice.
+
+## Keeping your copy private / Forking
+
+Copy all nine repositories under one owner, keeping their names and client tags.
+GitHub forks inherit their network's visibility: a fork of a public repository cannot
+be made private by itself. Use private standalone copies when the upstream is public,
+or private forks when GitHub permits them. See [GitHub's fork rules](https://docs.github.com/en/pull-requests/reference/forks).
+
+From your copy of this meta-repo, with the service checkouts present:
+
+```bash
+python scripts/retarget.py YOUR_OWNER --dry-run
+python scripts/retarget.py YOUR_OWNER
+# Run each printed `uv lock --directory ...` command, review and commit the lockfiles.
+```
+
+The script changes manifest clone URLs, CI callers, the meta parity checkout, and
+tagged client source URLs. It preserves line endings and never edits `uv.lock` or git
+remotes. `--ref REF` selects a workflow ref (default `v1`); `--keep-sources` retains
+upstream client URLs when your account can still read them. Relock on a machine signed
+in to the destination owner and push the resulting changes to your copies.
+
+Create your own read-only token and set `FAMILY_GITHUB_TOKEN` in all nine repositories
+with `gh secret set FAMILY_GITHUB_TOKEN --repo YOUR_OWNER/REPOSITORY` (hidden prompt).
+Publish the meta workflow's `v1` tag and allow the private meta repository's Actions
+to be used by your other repositories. The [token and rollout guide](docs/private-repos.md)
+has the exact permissions, commands, and order.
 
 ## Links
 
@@ -127,6 +198,7 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
+| GitHub sign-in and private copies | [docs/private-repos.md](docs/private-repos.md) |
 | ADRs | [docs/adr/README.md](docs/adr/README.md) |
 | Parity checker | `python scripts/parity.py` |
 | Shared clients | `Keyring-api/clients/python`, `Settings-api/clients/python` |
@@ -139,7 +211,7 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 | macOS | Seven; Environments-api directory tier only | Expected to work | Namespace/user tiers are Linux. |
 | Windows via WSL2 | Same as Linux | Expected to work | Preferred Windows path. |
 | Windows via [devcontainer](.devcontainer/devcontainer.json) | Same as Linux | Expected to work | Docker-in-Docker plus Playwright libraries. |
-| Native Windows | Seven | Unverified | No Environments-api. Docker Engine was **not running** when this family file was written. |
+| Native Windows | Seven | Requires Docker Desktop's Linux engine | Run Make recipes in Git Bash. Environments-api runs in Linux containers. |
 
 `--check` on bootstrap marks Environments-api **needs Linux** when the host is not Linux,
 rather than running a suite that cannot pass.

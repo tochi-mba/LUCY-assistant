@@ -44,6 +44,7 @@ STATUS_GH="missing"
 STATUS_JQ="missing"
 STATUS_SQLITE3="missing"
 STATUS_DOCKER="missing"
+STATUS_GITHUB="not signed in"
 
 say() { printf '%s\n' "$*"; }
 would() { say "dry-run: $*"; }
@@ -83,6 +84,7 @@ mark() {
     jq) STATUS_JQ="$status" ;;
     sqlite3) STATUS_SQLITE3="$status" ;;
     docker) STATUS_DOCKER="$status" ;;
+    github) STATUS_GITHUB="$status" ;;
     *) say "bootstrap: unknown tool $tool" >&2 ;;
   esac
 }
@@ -181,6 +183,44 @@ ensure_docker() {
   mark "docker" "missing"
 }
 
+is_interactive() { [[ -t 0 && -t 1 ]]; }
+
+ensure_github() {
+  local login
+  local instruction="Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
+  if ! have gh; then
+    say "$instruction"
+    say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"
+    return 0
+  fi
+  if ! gh auth status --hostname github.com >/dev/null 2>&1; then
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      would "gh auth login --hostname github.com --git-protocol https (when a terminal is available)"
+      would "gh auth setup-git --hostname github.com (after signing in)"
+      return 0
+    fi
+    say "$instruction"
+    if ! is_interactive; then
+      say "bootstrap: no terminal; run gh auth login in a terminal or set GH_TOKEN, then rerun bootstrap"
+      return 0
+    fi
+    if ! gh auth login --hostname github.com --git-protocol https; then
+      say "bootstrap: not signed in; continuing with the checkouts available to this account"
+      return 0
+    fi
+  fi
+  if login="$(gh api user --hostname github.com --jq .login 2>/dev/null)" && [[ -n "$login" ]]; then
+    mark "github" "signed in as $login"
+  else
+    mark "github" "signed in (account name unavailable)"
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    would "gh auth setup-git --hostname github.com"
+  elif ! gh auth setup-git --hostname github.com; then
+    say "bootstrap: could not configure git; run gh auth setup-git --hostname github.com"
+  fi
+}
+
 clone_missing() {
   local line name url
   if [[ ! -f "$ROOT/repos.txt" ]]; then
@@ -205,7 +245,10 @@ clone_missing() {
       say "bootstrap: git is missing; cannot clone $name"
       continue
     fi
-    git clone "$url" "$ROOT/$name"
+    # Authentication was handled above. Never hang a devcontainer on a git prompt.
+    if ! GIT_TERMINAL_PROMPT=0 git clone "$url" "$ROOT/$name"; then
+      say "$name: your account cannot see $url; ask for access, or check gh auth status"
+    fi
   done < "$ROOT/repos.txt"
 }
 
@@ -279,6 +322,7 @@ print_tool_table() {
   printf '%-10s  %s\n' "jq" "$STATUS_JQ"
   printf '%-10s  %s\n' "sqlite3" "$STATUS_SQLITE3"
   printf '%-10s  %s\n' "docker" "$STATUS_DOCKER"
+  printf '%-10s  %s\n' "github" "$STATUS_GITHUB"
 }
 
 ensure_uv
@@ -289,6 +333,7 @@ install_system gh gh
 install_system jq jq
 install_system sqlite3 sqlite3
 ensure_docker
+ensure_github
 clone_missing
 install_repos
 check_repos
