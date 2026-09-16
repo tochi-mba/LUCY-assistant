@@ -14,7 +14,9 @@ add a repository, and a private copy of the whole family that keeps working.
 
 ## Decision
 
-All nine repositories may be private. `repos.txt` keeps its `<folder> <https clone URL>`
+Any of the nine repositories may be private; a copy under another owner may make all of
+them private. (The canonical meta-repo itself is public, [ADR-0007](0007-public-base-hubs.md),
+so that other owners can call its workflow.) `repos.txt` keeps its `<folder> <https clone URL>`
 format. Four readers, four credentials, none of them in a project file:
 
 | Reader | Credential | Configured by |
