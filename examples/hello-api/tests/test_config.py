@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -38,7 +39,7 @@ def test_load_settings_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HELLO_KEYRING_ISSUER", "https://keyring.test")
     monkeypatch.setenv("HELLO_KEYRING_JWKS_URL", "https://keyring.test/.well-known/jwks.json")
     monkeypatch.setenv("HELLO_AUDIENCE", "hello")
-    for key in list(__import__("os").environ):
+    for key in list(os.environ):
         if key.startswith("HELLO_") and key not in {
             "HELLO_ENVIRONMENT",
             "HELLO_LOG_FORMAT",

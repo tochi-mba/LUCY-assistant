@@ -345,7 +345,7 @@ def check_editorconfig(repo: Repo) -> Result:
     )
 
 
-def check_ci_secrets(repo: Repo) -> Result:
+def check_ci_identity(repo: Repo) -> Result:
     """The caller grants OIDC; the shared app's private key never enters a repository."""
     source = repo.read(".github/workflows/ci.yml")
     if source is None:
@@ -650,9 +650,9 @@ CHECKS: tuple[Check, ...] = (
     Check("pre-commit", ".pre-commit-config.yaml exists", check_pre_commit),
     Check("editorconfig", ".editorconfig exists", check_editorconfig),
     Check(
-        "ci-secrets",
+        "ci-identity",
         "family workflow caller uses OIDC, not shared secrets",
-        check_ci_secrets,
+        check_ci_identity,
     ),
     Check(
         "docker-secret",

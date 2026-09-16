@@ -114,21 +114,18 @@ async function fixture() {
     return { calls, env, fetcher, token };
 }
 
-function request(
-    token,
-    repositories = ["Keyring-api", "Settings-api", "LUCY-assistant"],
-) {
+function request(token, body = "{}") {
     return new Request("https://broker.example/v1/token", {
         method: "POST",
         headers: {
             authorization: `Bearer ${token}`,
             "content-type": "application/json",
         },
-        body: JSON.stringify({ repositories }),
+        body,
     });
 }
 
-test("mints a token only for requested repositories under the caller's installation", async () => {
+test("mints a read-only token for the caller owner's installation", async () => {
     const f = await fixture();
     const response = await handle(request(await f.token()), f.env, f.fetcher);
     assert.equal(response.status, 200);
@@ -137,13 +134,8 @@ test("mints a token only for requested repositories under the caller's installat
         expires_at: "2026-09-16T16:00:00Z",
     });
     const mint = f.calls.find((call) => call.url.endsWith("/access_tokens"));
+    // No repository list: the owner drew that boundary when installing the app.
     assert.deepEqual(JSON.parse(mint.init.body), {
-        repositories: [
-            "Persona-api",
-            "Keyring-api",
-            "Settings-api",
-            "LUCY-assistant",
-        ],
         permissions: { contents: "read", metadata: "read" },
     });
     assert.match(
@@ -189,23 +181,23 @@ test("rejects the wrong audience, an expired token, and a forged signature", asy
     assert.equal((await handle(request(forged), f.env, f.fetcher)).status, 403);
 });
 
-test("validates request shape without echoing input", async () => {
+test("ignores the request body and refuses requests without an identity", async () => {
     const f = await fixture();
     const identity = await f.token();
-    const bad = request(identity, ["valid", "../not-valid"]);
-    const response = await handle(bad, f.env, f.fetcher);
-    assert.equal(response.status, 400);
-    assert.equal(
-        JSON.stringify(await response.json()).includes("../not-valid"),
-        false,
+    const odd = await handle(
+        request(identity, '{"repositories": ["../ignored"]}'),
+        f.env,
+        f.fetcher,
     );
+    assert.equal(odd.status, 200);
+    assert.doesNotMatch(JSON.stringify(f.calls), /ignored/);
 
     const missing = await handle(
         new Request("https://broker.example/v1/token", { method: "POST" }),
         f.env,
         f.fetcher,
     );
-    assert.equal(missing.status, 415);
+    assert.equal(missing.status, 401);
     assert.equal(
         (await handle(new Request("https://broker.example/nope"), f.env))
             .status,

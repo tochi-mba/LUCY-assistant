@@ -57,7 +57,7 @@ fail is not a check; `tests/test_parity.py` refuses one.
   CHANGELOG (Keep a Changelog), the `docs/` set, `.editorconfig`, `.pre-commit-config.yaml`.
 - **Size:** no file under `src/`, `app/`, `tests/`, `scripts/`, or `clients/` may
   exceed 1000 lines. Split the module. [ADR-0005](docs/adr/0005-no-file-over-1000-lines.md).
-- **CI identity:** `ci-secrets` requires top-level `id-token: write`; app keys and
+- **CI identity:** `ci-identity` requires top-level `id-token: write`; app keys and
   long-lived tokens are forbidden in service repositories.
 - **Docker secrets:** `docker-secret` requires the BuildKit syntax directive on line 1
   and a `github_token` secret mount on every `uv sync` RUN.

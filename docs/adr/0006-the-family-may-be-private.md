@@ -26,12 +26,15 @@ format. Four readers, four credentials, none of them in a project file:
 
 In CI the caller grants `id-token: write`. The broker verifies GitHub's OIDC signature,
 issuer, audience, expiry, repository owner, and canonical reusable-workflow identity,
-then mints a token scoped to repositories in that owner's app installation. The token
-reaches git through `url.insteadOf` configuration before each `uv sync`,
+then mints a read-only token for the repositories that owner chose when installing the
+app. The token reaches git through `url.insteadOf` configuration before each `uv sync`,
 the Docker build through a `--mount=type=secret` scoped to the `uv sync` RUN, and the
-parity job's checkout through `token:` with `persist-credentials: false`. Without the app,
-the broker is unavailable CI fails closed. Two parity checks, `ci-secrets` and
-`docker-secret`, hold every service to this shape.
+parity job's checkout through `token:` with `persist-credentials: false`. When no token
+can be minted (a pull request from a fork has no OIDC identity; the owner has not
+installed the app; the broker is down) the action says why in a warning and the job
+continues without one, so public sources still fetch and private ones fail with git's
+own message. Two parity checks, `ci-identity` and `docker-secret`, hold every service
+to this shape.
 
 CI does not get a developer's `gh` session. That session carries the `repo` and
 `workflow` scopes, which is write access to every repository on the account, and a
@@ -41,8 +44,8 @@ expires, and it is one long-lived value copied into nine places. The public app 
 installed by any GitHub owner, but installing it does not disclose its private key.
 That key exists only as a Cloudflare Worker secret. The broker can mint only read-only,
 one-hour installation tokens, and only after a job running the canonical public family
-workflow presents a valid GitHub OIDC identity. `--create-app` remains for an operator
-that also runs an isolated broker.
+workflow presents a valid GitHub OIDC identity. [broker/README.md](../../broker/README.md)
+is the operator's page: deploying, rotating the key, and running a separate broker.
 
 `scripts/retarget.py OWNER` rewrites the owner in a copy's clone URLs and uv source
 URLs. It deliberately keeps callers on the canonical public workflow because the

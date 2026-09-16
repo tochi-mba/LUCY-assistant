@@ -74,8 +74,7 @@ python scripts/connect_github.py        # or: make github-ci
 3. Return to the terminal and press Enter. The script starts one CI run.
 
 That is all. The script creates no token and writes no Actions secret. `--dry-run`
-explains the plan and touches nothing. `--create-app` is only for an isolated deployment
-that also operates its own broker.
+explains the plan and touches nothing.
 
 Afterwards the installation is listed under Settings → Applications → Installed GitHub
 Apps. To let CI read a repository you add to the family later, add it there under
@@ -87,13 +86,26 @@ The caller grants `id-token: write`. GitHub signs a short-lived OIDC identity na
 repository and the exact reusable workflow. The action sends that proof to the
 Cloudflare Worker token broker. The broker verifies GitHub's signature, issuer,
 audience, expiry, repository owner, and trusted workflow; then it mints a one-hour
-installation token scoped to the current repository plus `Keyring-api`, `Settings-api`,
-and `LUCY-assistant`. It never returns a token for another account's installation.
+read-only token for the repositories that owner chose when installing the app. It never
+returns a token for another account's installation.
+
+When no token can be minted, the action prints a warning saying why and the job goes on
+without one: public sources still fetch anonymously, private ones fail at `uv sync` with
+git's own message. The three reasons are a pull request from a fork (GitHub issues no
+OIDC identity for those), an owner who has not installed the app yet, and a broker that
+is unreachable.
 
 The shared app's private key exists only as a Cloudflare Worker secret. A developer's
 repository receives neither that key nor a long-lived token. The one-hour token reaches
 git through process configuration and Docker through a BuildKit secret; it is masked in
 Actions logs and never enters an image layer.
+
+### Operating the broker (family owner only)
+
+The broker is a Cloudflare Worker in [broker/](../broker/). Its page,
+[broker/README.md](../broker/README.md), covers deploying it, giving it the app's
+private key, rotating that key, and the two settings that pin which workflow it trusts.
+Nobody else needs to touch it: installing the app is all a copy needs.
 
 ## Your own copy
 

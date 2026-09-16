@@ -2,7 +2,6 @@ const GITHUB_API = "https://api.github.com";
 const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 const OIDC_JWKS = `${OIDC_ISSUER}/.well-known/jwks`;
 const TOKEN_TTL_SECONDS = 540;
-const MAX_REPOSITORIES = 50;
 
 let cachedJwks;
 
@@ -277,25 +276,6 @@ async function installationFor(owner, jwt, fetcher) {
     );
 }
 
-function requestedRepositories(body, claims) {
-    if (!body || !Array.isArray(body.repositories)) {
-        throw new BrokerError(400, "repositories must be a JSON array");
-    }
-    const current = claims.repository.split("/")[1];
-    const repositories = [...new Set([current, ...body.repositories])];
-    if (
-        repositories.length > MAX_REPOSITORIES ||
-        repositories.some(
-            (name) =>
-                typeof name !== "string" ||
-                !/^[A-Za-z0-9_.-]{1,100}$/.test(name),
-        )
-    ) {
-        throw new BrokerError(400, "a repository name is not valid");
-    }
-    return repositories;
-}
-
 export async function handle(request, env, fetcher = fetch) {
     if (
         request.method === "GET" &&
@@ -309,28 +289,21 @@ export async function handle(request, env, fetcher = fetch) {
     ) {
         return json(404, { error: "not found" });
     }
-    if (
-        !request.headers
-            .get("content-type")
-            ?.toLowerCase()
-            .startsWith("application/json")
-    ) {
-        return json(415, { error: "content type must be application/json" });
-    }
     const authorization = request.headers.get("authorization") || "";
     if (!authorization.startsWith("Bearer ") || authorization.length > 20_000) {
         return json(401, { error: "a GitHub identity token is required" });
     }
     try {
         const claims = await verifyOidc(authorization.slice(7), env, fetcher);
-        const body = await request.json().catch(() => null);
-        const repositories = requestedRepositories(body, claims);
         const jwt = await appJwt(env);
         const installation = await installationFor(
             claims.repository_owner,
             jwt,
             fetcher,
         );
+        // The token covers exactly the repositories the owner chose when installing the
+        // app, read-only. Naming repositories here would 422 for an owner who does not
+        // have copies of the hubs, and the owner already drew the boundary at install.
         const { response, body: token } = await github(
             fetcher,
             `/app/installations/${installation.id}/access_tokens`,
@@ -338,7 +311,6 @@ export async function handle(request, env, fetcher = fetch) {
             {
                 method: "POST",
                 body: JSON.stringify({
-                    repositories,
                     permissions: { contents: "read", metadata: "read" },
                 }),
             },

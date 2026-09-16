@@ -51,8 +51,8 @@ vulnerability reporting or by email at the address in [SECURITY.md](../SECURITY.
 helper. That is also how someone runs Lucy on their own machine after cloning. CI uses
 the public family GitHub App, installed on each owner's selected repositories with
 Contents read-only. A Cloudflare broker holds the app key and accepts only GitHub-signed
-OIDC identities from the canonical `service.yml@v1`; it returns a one-hour token scoped
-to the caller's installation and requested repositories. No user's repository receives
+OIDC identities from the canonical `service.yml@v1`; it returns a one-hour read-only
+token for the repositories in the caller owner's installation. No user's repository receives
 the app key or a long-lived personal token. Docker builds receive the result as a
 BuildKit secret mounted for the `uv sync` RUN only. It is never a build argument, an
 image environment variable, or a line in `.env.family`, which every running service

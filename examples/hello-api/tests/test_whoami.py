@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from keyring_client import KeyringUnreachableError as KeysUnavailableError
 from keyring_client.testing import FakeKeyring, mint
 
-from hello_api.auth.verifier import KEYS_UNAVAILABLE, KeyringUnreachableError, TokenVerifier
+from hello_api.auth.verifier import KEYS_UNAVAILABLE
 from hello_api.core.config import Settings
 
 if TYPE_CHECKING:
@@ -44,35 +43,22 @@ async def test_whoami_refuses_wrong_audience(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verifier_maps_unreachable_keys() -> None:
-    from keyring_client import ExactAudience
-
-    inner = AsyncMock()
-    inner.verify = AsyncMock(side_effect=KeysUnavailableError("down"))
-    verifier = TokenVerifier.__new__(TokenVerifier)
-    object.__setattr__(verifier, "_verifier", inner)
-    object.__setattr__(verifier, "_audience", ExactAudience("hello"))
-    with pytest.raises(KeyringUnreachableError, match=KEYS_UNAVAILABLE):
-        await verifier.verify("not-used")
-
-
-@pytest.mark.asyncio
-async def test_whoami_503_when_keys_unavailable(settings: Settings, keyring: FakeKeyring) -> None:
+async def test_whoami_503_when_keyring_keys_cannot_be_fetched(
+    settings: Settings, keyring: FakeKeyring
+) -> None:
+    # A valid token, but keyring is down before its keys were ever cached: the service
+    # cannot tell whether the token is good, and says so with 503 rather than 401.
     from asgi_lifespan import LifespanManager
     from httpx import ASGITransport, AsyncClient
 
     from hello_api.api.app import create_app
 
+    keyring.error = httpx.ConnectError("down")
     app = create_app(settings, transport=keyring.transport())
-
-    async with LifespanManager(app):
-        container = app.state.container
-
-        async def boom(_token: str) -> None:
-            raise KeyringUnreachableError(KEYS_UNAVAILABLE)
-
-        object.__setattr__(container.verifier, "verify", boom)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-            response = await http.get("/v1/whoami", headers=_bearer())
+    async with (
+        LifespanManager(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
+    ):
+        response = await http.get("/v1/whoami", headers=_bearer())
     assert response.status_code == 503
     assert response.json()["detail"] == KEYS_UNAVAILABLE

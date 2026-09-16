@@ -164,7 +164,7 @@ def fail(root: Path, check_id: str) -> None:
         (root / ".pre-commit-config.yaml").unlink()
     elif check_id == "editorconfig":
         (root / ".editorconfig").unlink()
-    elif check_id == "ci-secrets":
+    elif check_id == "ci-identity":
         write_text(
             root / ".github/workflows/ci.yml",
             GOLDEN_CI.replace("  id-token: write\n", ""),
@@ -394,7 +394,7 @@ def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
         "jobs:\n  local:\n    steps:\n      - run: echo 'id-token: write'\n",
     ],
 )
-def test_ci_secrets_rejects_missing_unrelated_or_secret_based_auth(
+def test_ci_identity_rejects_missing_unrelated_or_secret_based_auth(
     tmp_path: Path, ci: str | None
 ) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
@@ -402,10 +402,10 @@ def test_ci_secrets_rejects_missing_unrelated_or_secret_based_auth(
         (root / ".github/workflows/ci.yml").unlink()
     else:
         write_text(root / ".github/workflows/ci.yml", ci)
-    assert outcome_for(root, "ci-secrets").status == parity.FAIL
+    assert outcome_for(root, "ci-identity").status == parity.FAIL
 
 
-def test_ci_secrets_accepts_quoted_oidc_permission_and_other_jobs(
+def test_ci_identity_accepts_quoted_oidc_permission_and_other_jobs(
     tmp_path: Path,
 ) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
@@ -419,7 +419,7 @@ def test_ci_secrets_accepts_quoted_oidc_permission_and_other_jobs(
             "  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"
         ),
     )
-    assert outcome_for(root, "ci-secrets").status == parity.PASS
+    assert outcome_for(root, "ci-identity").status == parity.PASS
 
 
 @pytest.mark.parametrize(

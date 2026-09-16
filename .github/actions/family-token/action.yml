@@ -1,18 +1,14 @@
 name: LUCY family installation token
-description: Exchange this GitHub Actions job's OIDC identity for a one-hour read-only token.
+description: Exchange this job's GitHub OIDC identity for a one-hour read-only token from the family token broker.
 
 inputs:
   broker-url:
     description: The LUCY family token broker endpoint
     required: true
-  repositories:
-    description: Comma-separated dependency repositories in this installation
-    required: false
-    default: Keyring-api,Settings-api,LUCY-assistant
 
 outputs:
   token:
-    description: A one-hour token scoped to the requested repositories
+    description: A one-hour read-only token for the repositories the family app is installed on; empty when none could be minted
     value: ${{ steps.exchange.outputs.token }}
 
 runs:
@@ -23,57 +19,54 @@ runs:
       shell: bash
       env:
         BROKER_URL: ${{ inputs.broker-url }}
-        REPOSITORIES: ${{ inputs.repositories }}
         OIDC_AUDIENCE: lucy-assistant-family-ci
       run: |
+        # Every exit leaves `token` set. Empty means "fetch anonymously", which is right for
+        # public sources and fails, with git's own message, for private ones. A warning says why.
         set -euo pipefail
+        skip() {
+          echo "::warning::$1 Continuing without a family token; private git sources will not be readable."
+          echo "token=" >> "$GITHUB_OUTPUT"
+          exit 0
+        }
+        field() {  # $1: a key; reads JSON on stdin and prints its string value, or nothing
+          python3 -c '
+        import json, sys
+        try:
+            value = json.load(sys.stdin).get(sys.argv[1])
+        except ValueError:
+            value = None
+        print(value if isinstance(value, str) else "")
+        ' "$1"
+        }
         if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-          echo "::error::This job needs 'permissions: id-token: write'."
-          exit 1
+          skip "This job has no OIDC identity: a pull request from a fork, or the caller lacks 'permissions: id-token: write'."
         fi
-        identity_response="$(
+        identity="$(
           curl --fail --silent --show-error --location \
             --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}"
-        )"
-        identity="$(
-          IDENTITY_RESPONSE="$identity_response" python - <<'PY'
-        import json
-        import os
-
-        value = json.loads(os.environ["IDENTITY_RESPONSE"]).get("value")
-        if not isinstance(value, str) or not value:
-            raise SystemExit("GitHub did not issue an OIDC identity token")
-        print(value)
-        PY
-        )"
-        payload="$(
-          python - <<'PY'
-        import json
-        import os
-
-        names = [name.strip() for name in os.environ["REPOSITORIES"].split(",")]
-        print(json.dumps({"repositories": [name for name in names if name]}))
-        PY
-        )"
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | field value
+        )" || identity=""
+        if [ -z "$identity" ]; then
+          skip "GitHub did not issue an OIDC identity token."
+        fi
         response="$(
-          curl --fail-with-body --silent --show-error \
-            --request POST \
+          curl --silent --show-error --request POST \
             --header "Authorization: Bearer ${identity}" \
             --header "Content-Type: application/json" \
-            --data "$payload" \
+            --data '{}' \
+            --write-out '\n%{http_code}' \
             "$BROKER_URL"
-        )"
-        token="$(
-          RESPONSE="$response" python - <<'PY'
-        import json
-        import os
-
-        value = json.loads(os.environ["RESPONSE"]).get("token")
-        if not isinstance(value, str) or not value:
-            raise SystemExit("The family token broker returned no token")
-        print(value)
-        PY
-        )"
+        )" || response=$'\n000'
+        status="${response##*$'\n'}"
+        body="${response%$'\n'*}"
+        if [ "$status" != "200" ]; then
+          reason="$(printf '%s' "$body" | field error)"
+          skip "The family token broker answered HTTP ${status}${reason:+: $reason}."
+        fi
+        token="$(printf '%s' "$body" | field token)"
+        if [ -z "$token" ]; then
+          skip "The family token broker returned no token."
+        fi
         echo "::add-mask::$token"
         echo "token=$token" >> "$GITHUB_OUTPUT"

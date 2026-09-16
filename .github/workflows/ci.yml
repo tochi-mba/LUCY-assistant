@@ -39,6 +39,17 @@ jobs:
       - name: Run the family checker tests
         run: uv run --with pytest --with pyyaml --with cryptography pytest tests -q
 
+  example:
+    name: Example service (make check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: The template for a new service must pass its own four gates
+        run: make -C examples/hello-api check
+
   shellcheck:
     name: Shellcheck bootstrap.sh
     runs-on: ubuntu-latest
