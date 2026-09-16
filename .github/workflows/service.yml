@@ -31,6 +31,10 @@ on:
         description: Build the Dockerfile and probe the health path
         type: boolean
         default: true
+      docker-env:
+        description: Newline-separated KEY=VALUE pairs the probe container boots with
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -155,13 +159,19 @@ jobs:
       - name: Boot and probe the health path
         env:
           HEALTH_PATH: ${{ inputs.docker-image-healthcheck-path }}
+          DOCKER_ENV: ${{ inputs.docker-env }}
         run: |
-          docker run -d --name probe -p 8000:8000 service:ci
+          # Each service listens on its family port (ADR-0004); the Dockerfile says which.
+          port=$(grep -oE '^EXPOSE +[0-9]+' Dockerfile | awk '{print $2}' | head -1)
+          test -n "$port"
+          printf '%s
+' "$DOCKER_ENV" > probe.env
+          docker run -d --name probe --env-file probe.env -p "${port}:${port}" service:ci
           for _ in $(seq 1 30); do
-            curl -sf "localhost:8000${HEALTH_PATH}" && break
+            curl -sf "localhost:${port}${HEALTH_PATH}" && break
             sleep 1
           done
-          curl -sf "localhost:8000${HEALTH_PATH}"
+          curl -sf "localhost:${port}${HEALTH_PATH}"
           docker rm -f probe
 
   audit:
