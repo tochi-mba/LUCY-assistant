@@ -214,7 +214,7 @@ def test_failed_clone_continues_and_existing_checkout_still_installs(bootstrap) 
 
 def test_no_terminal_does_not_prompt_or_configure_unauthenticated_helper(bootstrap) -> None:
     output, calls, root = bootstrap(auth=False)
-    assert "Sign in to GitHub in your browser so bootstrap can clone" in output
+    assert "Sign in to GitHub so bootstrap can clone" in output
     assert "not signed in" in output
     assert not any(call.startswith(("gh auth login", "gh auth setup-git")) for call in calls)
     assert (root / "Allowed").is_dir()
@@ -232,10 +232,11 @@ def test_dry_run_never_logs_in_changes_helper_clones_or_installs(bootstrap, auth
     assert not (root / "Allowed").exists()
 
 
-def test_interactive_login_opens_the_browser_and_then_configures_git(bootstrap) -> None:
+def test_interactive_login_offers_browser_or_token_and_then_configures_git(bootstrap) -> None:
     output, calls, _ = bootstrap(auth=False, interactive=True)
-    assert "in your browser" in output
-    assert "gh auth login --hostname github.com --git-protocol https --web" in calls
+    assert "choose the browser, or paste a token" in output
+    # No --web: gh itself asks "browser or paste a token", which is the one prompt we want.
+    assert "gh auth login --hostname github.com --git-protocol https" in calls
     assert any(call.startswith("gh auth setup-git") for call in calls)
     assert "signed in as test-owner" in output
 

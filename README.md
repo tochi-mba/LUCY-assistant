@@ -101,8 +101,8 @@ except the assistant sitting in front.
    cannot.
 2. `bash scripts/bootstrap.sh` or `pwsh scripts/bootstrap.ps1`. That checks for `uv`,
    Python 3.11/3.12, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
-   installing it, opens a browser for GitHub sign-in if you are not already signed in,
-   clones any missing checkout your account can read from `repos.txt`, and runs
+   installing it, asks you to sign in to GitHub (browser or a pasted token) if you are
+   not already, clones any missing checkout your account can read from `repos.txt`, and runs
    `make install` unless you pass `--no-install`.
 3. In Keyring-api: copy `.env.example`, set `KEYRING_MASTER_KEY`, `make run`.
 4. Mint a service token for the service you are working on
@@ -122,32 +122,26 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 
 ## Signing in to GitHub
 
-Day to day:
-
 ```bash
-gh auth login --web          # only if `gh auth status` says you are not signed in
-bash scripts/bootstrap.sh
-make images                  # uses the same browser session
+gh auth status               # which account is active
+gh auth login                # a browser window, or paste a token: gh asks which
+bash scripts/bootstrap.sh    # signs you in if you skipped that, then clones
+make images                  # local builds use the same sign-in
 ```
 
-If you ever log out of `gh`, sign in in the browser again, then run
-`python scripts/share_github.py` (or `make github-ci`) so Actions keeps the same login.
+Bootstrap runs `gh auth login` when you are not signed in and a terminal is available,
+then `gh auth setup-git`, so `git clone` and `uv`'s fetches of the client packages use
+that account. A repository your account cannot see is reported and skipped; existing
+checkouts are left alone. Without a terminal, set `GH_TOKEN`; the devcontainer forwards
+yours and re-runs bootstrap when a terminal attaches.
 
-Bootstrap opens a browser (`gh auth login --web`) when you are not signed in and a
-terminal is available. It then runs `gh auth setup-git`, so both `git clone` and
-`uv`'s git fetches use that login. `gh auth status` tells you which account is active.
-There is no personal access token to create.
-
-The devcontainer can use the same login. If it is not forwarded, open a terminal in
-the container, run `gh auth login --web`, then `bash scripts/bootstrap.sh --no-install`.
-The attach hook also retries bootstrap. A repository your account cannot see is
-reported and skipped; existing checkouts are left alone.
-
-`make images` uses that browser session. GitHub Actions cannot open a browser, so
-once you are signed in run `python scripts/share_github.py` to give CI the same
-login. Never put a GitHub credential in `.env.family`, a Docker build argument, or
-a committed file. See [the sign-in guide](docs/private-repos.md).
-On native Windows, run Make recipes in Git Bash; bootstrap also has a PowerShell version.
+CI cannot open a browser, so it has its own token: fine-grained, read-only, limited to
+the family. Create it once and install it on all nine repositories with
+`python scripts/share_github.py`, which checks that the token can read them and never
+prints it. Never put a GitHub credential in `.env.family`, a Docker build argument, or a
+committed file. [docs/private-repos.md](docs/private-repos.md) is the full walkthrough,
+including the order for making the family private. On native Windows, run Make recipes
+in Git Bash; bootstrap also has a PowerShell version.
 
 ## Adding a repository to the family
 
@@ -168,10 +162,11 @@ jobs:
     secrets: inherit
 ```
 
-Run `python scripts/share_github.py` so Actions can read the new repository, then
-`python scripts/parity.py --repo <folder>`. Bootstrap discovery needs only the
-manifest line; adding a running service to Compose or a folder to the IDE
-workspace is a separate choice.
+Add the new repository to the CI token's repository list (GitHub → Settings → Developer
+settings → Fine-grained tokens → the family token → Repository access) so Actions can
+read it, then `python scripts/parity.py --repo <folder>`. Bootstrap discovery needs only
+the manifest line; adding a running service to Compose or a folder to the IDE workspace
+is a separate choice.
 
 ## Keeping your copy private / Forking
 
@@ -194,10 +189,10 @@ remotes. `--ref REF` selects a workflow ref (default `v1`); `--keep-sources` ret
 upstream client URLs when your account can still read them. Relock on a machine signed
 in to the destination owner and push the resulting changes to your copies.
 
-Sign in with `gh auth login --web` on the destination owner, then run
-`python scripts/share_github.py`. Publish the meta workflow's `v1` tag and allow
-the private meta repository's Actions to be used by your other repositories.
-The [sign-in and rollout guide](docs/private-repos.md) has the order.
+Sign in with `gh auth login` as the destination owner, create that owner's read-only
+token and install it with `python scripts/share_github.py`. Publish the meta workflow's
+`v1` tag and allow the private meta repository's Actions to be used by your other
+repositories. The [sign-in and rollout guide](docs/private-repos.md) has the order.
 
 ## Links
 

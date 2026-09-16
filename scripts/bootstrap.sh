@@ -187,24 +187,24 @@ is_interactive() { [[ -t 0 && -t 1 ]]; }
 
 ensure_github() {
   local login
-  local instruction="Sign in to GitHub in your browser so bootstrap can clone the family's private repositories"
+  local instruction="Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
   if ! have gh; then
     say "$instruction"
-    say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https --web"
+    say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"
     return 0
   fi
   if ! gh auth status --hostname github.com >/dev/null 2>&1; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      would "gh auth login --hostname github.com --git-protocol https --web (when a terminal is available)"
+      would "gh auth login --hostname github.com --git-protocol https (when a terminal is available)"
       would "gh auth setup-git --hostname github.com (after signing in)"
       return 0
     fi
     say "$instruction"
     if ! is_interactive; then
-      say "bootstrap: no terminal; run gh auth login --hostname github.com --git-protocol https --web, then rerun bootstrap"
+      say "bootstrap: no terminal; run gh auth login --hostname github.com --git-protocol https, then rerun bootstrap"
       return 0
     fi
-    if ! gh auth login --hostname github.com --git-protocol https --web; then
+    if ! gh auth login --hostname github.com --git-protocol https; then
       say "bootstrap: not signed in; continuing with the checkouts available to this account"
       return 0
     fi

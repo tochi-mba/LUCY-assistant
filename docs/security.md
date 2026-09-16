@@ -47,13 +47,14 @@ the environment. Do not `export KEYRING_*` in a ticket.
 [SECURITY.md](../SECURITY.md). GitHub's private vulnerability reporting is only
 available on public repositories.
 
-**GitHub credentials are a browser login.** `gh auth login --web` stores the
-session in the OS credential store. `scripts/share_github.py` copies that session
-into Actions as `FAMILY_GITHUB_TOKEN` because a runner cannot open a browser.
-Docker receives a BuildKit secret for each dependency-install RUN. The credential
-must never be a build argument, an image environment variable, or part of
-`.env.family`, which all running services receive. See
-[private-repos.md](private-repos.md). There is no personal access token to mint.
+**GitHub credentials are a sign-in, not a file.** A developer uses `gh auth login`;
+`gh` keeps the session in the OS credential store and acts as git's credential
+helper. CI uses `FAMILY_GITHUB_TOKEN`, a fine-grained token that can read the nine
+family repositories and nothing else, never a developer's `gh` session, which can
+write to every repository on the account. Docker builds receive the credential as a
+BuildKit secret mounted for the `uv sync` RUN only. It is never a build argument, an
+image environment variable, or a line in `.env.family`, which every running service
+receives. See [private-repos.md](private-repos.md).
 
 ## What this meta-repo must not do
 

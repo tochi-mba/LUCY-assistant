@@ -4,8 +4,8 @@
 help: ## Show family commands
 	@echo "test       Run the family tooling and configuration tests"
 	@echo "parity     Check all service repositories against the family standard"
-	@echo "images     Build all images with your GitHub browser login"
-	@echo "github-ci  Copy that login into Actions (no PAT)"
+	@echo "images     Build all images with your gh sign-in (browser or token)"
+	@echo "github-ci  Install the read-only family token as the CI secret on all nine repos"
 	@echo "up         Build and start all eight services (requires .env.family)"
 	@echo "down       Stop the family, keeping its data volumes"
 

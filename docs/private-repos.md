@@ -1,95 +1,124 @@
 # Private repositories and GitHub sign-in
 
-All nine repositories can be private. You sign in to GitHub **in the browser**.
-There is no personal access token to mint.
+Every repository in this family can be private. Three things need to read them, and each
+signs in differently:
 
-Application tokens in `.env.family` are unrelated: those are keyring and
-settings-api service tokens.
-
-Day to day:
-
-```bash
-gh auth login --web          # only if `gh auth status` says you are not signed in
-bash scripts/bootstrap.sh
-make images                  # uses the same browser session
-```
-
-If you ever log out of `gh`, sign in in the browser again, then run
-`python scripts/share_github.py` (or `make github-ci`) so Actions keeps the same login.
-
-| Where you are working | How you sign in | What reads it |
+| Who | Signs in with | What it is used for |
 | --- | --- | --- |
-| Developer machine | `gh auth login --web` (browser window), then `gh auth setup-git` | git clone and uv's git fetches |
-| Devcontainer | the same browser login on the host, or `gh auth login --web` inside the container | GitHub CLI's git credential helper |
-| Local image build | `make images` / `make docker`, which call `gh auth token` from that login | BuildKit's temporary `github_token` mount |
-| GitHub Actions | `python scripts/share_github.py` copies the browser login into the `FAMILY_GITHUB_TOKEN` repository secret | git during uv fetches, parity's meta checkout, Docker BuildKit |
+| You, on your machine | `gh auth login`: a browser window, or a pasted token | `git clone` in bootstrap, `uv`'s fetch of the client packages, `make images` |
+| The devcontainer | the same login, forwarded as `GH_TOKEN`, or `gh auth login` inside it | the same |
+| GitHub Actions | the `FAMILY_GITHUB_TOKEN` secret: a fine-grained token, read-only, family only | `uv` fetches in CI, the Docker build, the parity job's checkout of this repository |
 
-Actions cannot open a browser. That is the only reason a repository secret exists.
-It is your existing GitHub CLI session, not a separately created PAT. Re-run
-`share_github.py` after `gh auth login --web` if you ever log out of `gh`.
+Nothing else needs a GitHub credential. The running services never receive one.
 
-Bootstrap opens the browser when you are not signed in. `--dry-run` never signs
-in, configures credentials, or clones. Never put `GH_TOKEN`, `GITHUB_TOKEN`, or
-`FAMILY_GITHUB_TOKEN` in `.env.family`, a Docker `ARG`/`ENV`, or a committed file.
-
-## Give Actions the same login
-
-From the family root, already signed in via the browser:
+## Sign in once
 
 ```bash
-python scripts/share_github.py --dry-run
-python scripts/share_github.py
+gh auth status              # which account is active, or "not logged in"
+gh auth login               # gh asks: "Login with a web browser" or "Paste an authentication token"
+bash scripts/bootstrap.sh   # runs that same login for you if you skipped it
 ```
 
-That sets `FAMILY_GITHUB_TOKEN` on `LUCY-assistant` and every repository in
-`repos.txt`. The credential travels on standard input to `gh secret set`. It is
-not printed and not placed in process arguments. Adding a repository is: append
-a line to `repos.txt`, then run the command again.
+Bootstrap runs `gh auth login` when you are not signed in and a terminal is available,
+then `gh auth setup-git`, which makes `gh` the credential helper for `github.com`. From
+then on `git clone`, `uv sync` (which fetches the client packages with git) and
+`make images` (which hands `gh auth token` to the build) all use that account. A
+repository your account cannot see is reported and skipped; nothing already cloned is
+touched. `--dry-run` never signs in, configures git, or clones.
 
-`gh secret list --repo OWNER/REPO` shows names, never values. `gh auth status`
-shows which account is signed in locally.
+Without a terminal, such as a devcontainer's create hook or a script, set `GH_TOKEN` in
+the environment; `gh` treats it as a login. The devcontainer forwards your host `GH_TOKEN`
+and re-runs bootstrap each time a terminal attaches, so running `gh auth login` in that
+terminal is enough.
 
-Without the secret, CI still runs while the family is public (anonymous git
-fetches). Private client tags fail until you run `share_github.py`. Parity's
-meta checkout falls back to that job's `github.token`, which cannot read another
-private repository.
+## Give CI a read-only token
+
+Actions cannot open a browser, and it must not hold your account's session. It gets its
+own token, which can read the family and nothing else.
+
+1. Open <https://github.com/settings/personal-access-tokens/new>.
+2. **Resource owner:** the account or organisation that owns the family.
+3. **Repository access:** *Only select repositories*, then pick all nine: this repository
+   and the eight listed in `repos.txt`.
+4. **Permissions → Repository permissions → Contents:** *Read-only*. Metadata is added
+   automatically. Nothing else.
+5. **Expiration:** up to a year. Note the date; rotating is one command, below.
+6. Generate it and copy the value. It starts with `github_pat_`.
+
+Then, from this directory, signed in with your own account:
+
+```bash
+python scripts/share_github.py --dry-run   # asks for the token, checks it reads all nine, sets nothing
+python scripts/share_github.py             # sets FAMILY_GITHUB_TOKEN on all nine repositories
+```
+
+`make github-ci` is the same command. The script reads the token from a hidden prompt,
+from `$FAMILY_GITHUB_TOKEN`, or from `--stdin` (a password manager), never from an
+argument, and it never prints it. It refuses a classic token or a `gh` session
+(`ghp_`/`gho_`): those can write to every repository on the account, and CI only needs to
+read nine. It stops, naming the repository, when the token cannot read one of them.
+
+To rotate, generate a new token and run the script again. `gh secret list --repo
+OWNER/REPO` shows the names of the secrets that are set, never their values.
+
+### What CI does with it
+
+The reusable workflow declares the secret and each caller passes it with
+`secrets: inherit`. Every job that runs `uv sync` first tells git to use it for
+`github.com`, through git's configuration rather than the log. The Docker job passes it as
+a BuildKit secret, mounted only while `uv sync` runs, so it never lands in an image layer.
+The parity job checks out this repository with it and does not persist it.
+
+When the secret is empty, as on a fork without it, CI still runs: git fetches anonymously,
+which works while the sources are public and fails with a clear message when they are not.
+
+## Local image builds
+
+```bash
+make images    # here: GITHUB_TOKEN="$(gh auth token)" docker compose build
+make docker    # in a service: the same, for that one image
+```
+
+Compose declares a build-time `github_token` secret sourced from `GITHUB_TOKEN`. It is a
+build secret, not part of `.env.family`, and no running container sees it. Nothing
+GitHub-related belongs in `.env.family`, a Docker `ARG`/`ENV`, or a committed file.
 
 ## Make the family private
 
-Do this in the browser if you prefer: each repository → Settings → General →
-Danger zone → Change repository visibility → Private. Order still matters.
+Order matters: a public repository cannot call a private reusable workflow, so this
+repository goes last.
 
-1. Run `python scripts/share_github.py` and confirm one consumer CI workflow
-   fetched its client packages.
-2. Make the **eight services** private.
-3. Make **LUCY-assistant** private last, then allow the reusable workflow to be
-   used by your other repositories (Settings → Actions → General → Access →
-   repositories in this account). The equivalent CLI, using the same browser
-   login, is:
+1. Install the token as above.
+2. Make the **eight services** private. In the browser: repository → Settings → General →
+   Danger zone → Change visibility. Or:
+
+   ```bash
+   gh repo edit OWNER/Keyring-api --visibility private --accept-visibility-change-consequences
+   ```
+
+   Re-run one consumer's CI; it now fetches private client tags with the token.
+3. Make **LUCY-assistant** private, then allow its workflows to be used by your other
+   repositories: Settings → Actions → General → Access → *Accessible from repositories
+   owned by the user*. Or:
 
    ```bash
    gh api --method PUT repos/OWNER/LUCY-assistant/actions/permissions/access -f access_level=user
    ```
 
-A public repository cannot call a private reusable workflow, which is why the
-meta repository goes last. See [GitHub's workflow access rules](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+   Use `organization` instead of `user` for an organisation. Re-run one caller.
 
-`user` is for a personal account; use `organization` for an organization owner.
+Private vulnerability reporting is a public-repository feature, so
+[SECURITY.md](../SECURITY.md) gives an email address instead.
 
-## Verify the image boundary
+## Check the image boundary
 
-Run `make test`, `make parity`, both bootstrap dry runs, and each service's
-`make check`. Then `python scripts/genenv.py` (once), `make images`, and
-`make up`. Probe ports 8001–8008 at `/ready`. `docker compose down` stops
-without deleting data.
-
-For a leak check, use a disposable sentinel credential and inspect image
-history, config, and saved layers for its exact bytes. The literal string
-`x-access-token` can occur in Dockerfile command metadata; its presence
-alone is not a credential leak. BuildKit's
-[secret mounts](https://docs.docker.com/build/building/secrets/) keep the
-mounted contents out of the resulting layers.
+`make test` covers the compose file, the workflow, the Makefiles and both bootstraps with
+fake tools, without touching your GitHub session. Two opt-in checks use Docker:
 
 ```bash
-LUCY_TEST_DOCKER=1 uv run --with pytest pytest tests/test_build_secrets.py -q
+LUCY_TEST_DOCKER=1 uv run --with pytest pytest tests/test_build_secrets.py -q          # a sentinel secret never reaches a layer
+LUCY_TEST_FAMILY_IMAGES=1 uv run --with pytest pytest tests/test_image_runtime.py -q  # after make images
 ```
+
+The string `x-access-token` appears in Dockerfile metadata by design; a leak would be the
+token's value inside a layer, which the first test looks for byte by byte.

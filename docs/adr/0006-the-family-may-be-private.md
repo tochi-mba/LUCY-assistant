@@ -4,44 +4,54 @@
 
 ## Context
 
-Anonymous clones and tagged client fetches made public visibility a requirement.
-The family needs to work under one private owner, including a private copy whose
-repository names and client tags match the originals.
+The family only worked as public repositories. Bootstrap cloned anonymously; every
+`uv sync` fetched the two client packages from GitHub anonymously, locally, in CI and
+inside Docker builds; each service's CI called the reusable workflow in this repository,
+and GitHub forbids a public repository calling a private one; the devcontainer cloned
+before anyone could sign in. The owner wants the opposite: everything private, one sign-in
+for a developer, one documented line to add a repository, and a private copy of the whole
+family that keeps working.
 
 ## Decision
 
-All eight services and the meta repository may be private. The manifest remains
-`<folder> <https clone URL>`; adding a repository is one line. Four mechanisms supply
-credentials without putting a token in a project file:
+All nine repositories may be private. `repos.txt` keeps its `<folder> <https clone URL>`
+format. Four readers, four credentials, none of them in a project file:
 
-| Caller | Authentication |
-| --- | --- |
-| Developer | `gh auth login --web`, then `gh auth setup-git` for git and uv |
-| Devcontainer | the same browser login, or `gh auth login --web` inside the container |
-| GitHub Actions | `scripts/share_github.py` copies that login into `FAMILY_GITHUB_TOKEN` |
-| Local Docker build | `gh auth token` passed as a BuildKit secret by Make / Compose |
+| Reader | Credential | Configured by |
+| --- | --- | --- |
+| A developer | `gh auth login` (browser or pasted token), then `gh auth setup-git` makes `gh` git's credential helper | `scripts/bootstrap.sh` / `.ps1`, once |
+| A shell without a terminal; the devcontainer | `GH_TOKEN` in the environment | `devcontainer.json` `remoteEnv` |
+| GitHub Actions | `FAMILY_GITHUB_TOKEN`: a fine-grained token, Contents read-only, only the family repositories | `scripts/share_github.py` sets it on all nine; callers `secrets: inherit` |
+| A local image build | the developer's `gh auth token`, as a BuildKit secret | `make images` / `make docker` |
 
-The private reusable workflow explicitly allows access from repositories under the
-same owner. Docker mounts the secret only for `uv sync`; git reads a process-scoped
-configuration and leaves no credential in a layer. Empty credentials permit anonymous
-fetches when all referenced repositories are public.
+In CI the token reaches git through `url.insteadOf` configuration before each `uv sync`,
+the Docker build through a `--mount=type=secret` scoped to the `uv sync` RUN, and the
+parity job's checkout through `token:` with `persist-credentials: false`. An empty
+credential falls back to an anonymous fetch, so a public fork without the secret still
+builds. Two parity checks, `ci-secrets` and `docker-secret`, hold every service to this
+shape.
 
-`scripts/retarget.py OWNER` rewrites clone URLs, workflow references, the parity checkout,
-and uv source URLs. It never rewrites lockfiles; the developer runs the printed relock
-commands while signed in to their copy. `--keep-sources` supports retaining upstream
-client tags where access is available.
+CI does not get a developer's `gh` session. That session carries the `repo` and
+`workflow` scopes, which is write access to every repository on the account, and a
+secret is readable by any workflow in the repository that holds it. The fine-grained
+token can read nine repositories and nothing else, and it expires.
+
+`scripts/retarget.py OWNER` rewrites the owner in a copy's clone URLs, workflow
+references, parity checkout and uv source URLs. It never rewrites lockfiles; it prints
+the `uv lock` commands to run.
 
 ## Consequences
 
-The owner signs in through the browser. CI cannot; `share_github.py` is the
-handoff. Adding a repository is a manifest line plus re-running that command.
-A public caller cannot use a private reusable workflow, so service visibility
-changes precede the meta repository's change. The rollout order is documented
-in [private-repos.md](../private-repos.md).
+A developer signs in once. The owner creates one token, installs it with one command and
+rotates it the same way before it expires. Adding a repository is a manifest line plus
+adding it to the token's repository list. Service repositories go private before this
+one, because a public caller cannot use a private reusable workflow, and this repository
+then has to allow access from the owner's other repositories. Private vulnerability
+reporting is unavailable, so disclosure is by email.
 
 ## What would change our minds
 
-A GitHub App installation token would rotate credentials per job without copying
-a user session into Actions, at the cost of creating and installing an app.
-Publishing the clients could remove git authentication for packages, while clones
-and private CI reuse would still need a GitHub login.
+A GitHub App installation would mint a short-lived token per job and remove the expiry
+chore, at the cost of creating and installing an app. Publishing the clients to a package
+index would take git authentication out of `uv sync`, though clones and the private
+reusable workflow would still need a login.

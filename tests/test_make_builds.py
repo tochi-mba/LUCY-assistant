@@ -45,6 +45,10 @@ def test_build_recipe_passes_token_only_to_builds(tmp_path: Path, repo: str, tar
     bash = Path("C:/Program Files/Git/bin/bash.exe") if os.name == "nt" else shutil.which("bash")
     if not bash or not Path(bash).is_file() or not shutil.which("make"):
         pytest.skip("bash and make are required for the isolated recipe test")
+    if os.name == "nt" and target in {"up", "down"}:
+        # GNU make on Windows runs a recipe line with no shell characters directly, so a
+        # bash function cannot stand in for docker there. The build recipes contain $( ).
+        pytest.skip("make on Windows bypasses the shell for plain recipe lines")
     (tmp_path / "Makefile").write_bytes(source.read_bytes())
     env = os.environ.copy()
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "FAMILY_GITHUB_TOKEN"):

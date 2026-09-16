@@ -62,18 +62,20 @@ Spotify-api passes dummy `SPOTIFY_API_KEYRING_*` boot configuration with `docker
 
 ## Private repositories
 
-Sign in with `gh auth login --web`, then run `python scripts/share_github.py`.
-That copies the browser login into the `FAMILY_GITHUB_TOKEN` Actions secret on
-every family repository. There is no PAT to mint. Callers pass it with
-`secrets: inherit`. Every uv fetch job configures git before fetching; the
-privileged test container installs git first. Docker receives it as a BuildKit
-secret; parity's meta checkout uses it with `persist-credentials: false`.
+CI authenticates with `FAMILY_GITHUB_TOKEN`: a fine-grained personal access token with
+*Contents: read-only* on the nine family repositories, installed on each of them by
+`python scripts/share_github.py`. The reusable workflow declares it as a required secret
+and callers pass it with `secrets: inherit`. Every job that runs `uv sync` configures git
+with it first (the privileged test container installs git before that); the Docker job
+passes it as a BuildKit secret; the parity job checks out this repository with it and
+`persist-credentials: false`.
 
-The reusable workflow declares the secret required. Inherited secrets can still be empty
-on a public fork: authentication then skips configuration and public dependencies fetch
-anonymously. Private sources need the secret. Fork pull requests do not normally receive
-repository secrets. See [private-repos.md](private-repos.md) for setup and rotation.
+An inherited secret can still be empty, on a fork without it or a pull request from a
+fork, and the workflow then fetches anonymously, which works while the sources are public.
+Private sources need the secret. [private-repos.md](private-repos.md) covers creating and
+rotating the token.
 
-When the meta repository is private, allow Actions access from repositories under the
-same owner. Public callers cannot use a private reusable workflow. For a copy, run
-`scripts/retarget.py OWNER` and publish its `v1` tag; `--ref` chooses a different ref.
+When this repository is private, allow its workflows to be used by repositories under the
+same owner (Settings → Actions → General → Access). A public repository cannot call a
+private reusable workflow. For a copy under another owner, run `scripts/retarget.py OWNER`
+and publish that copy's `v1` tag; `--ref` chooses a different ref.
