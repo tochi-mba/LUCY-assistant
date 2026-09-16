@@ -117,6 +117,10 @@ jobs:
       UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Give the privileged container git and curl
+        # The slim image has neither; uv needs git for the family's client packages.
+        if: ${{ inputs.privileged-container }}
+        run: apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/*
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
