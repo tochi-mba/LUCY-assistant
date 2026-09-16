@@ -5,18 +5,18 @@ help: ## Show family commands
 	@echo "test       Run the family tooling and configuration tests"
 	@echo "parity     Check all service repositories against the family standard"
 	@echo "images     Build all images with your gh sign-in (browser or token)"
-	@echo "github-ci  Install the read-only family token as the CI secret on all nine repos"
+	@echo "github-ci  Connect CI to GitHub from the browser (creates and installs the family app)"
 	@echo "up         Build and start all eight services (requires .env.family)"
 	@echo "down       Stop the family, keeping its data volumes"
 
 test:
-	uv run --with pytest --with pyyaml pytest tests -q
+	uv run --with pytest --with pyyaml --with cryptography pytest tests -q
 
 parity:
 	python scripts/parity.py
 
 github-ci:
-	python scripts/share_github.py
+	uv run scripts/connect_github.py
 
 images:
 	@GITHUB_TOKEN="$$(gh auth token)" docker compose build

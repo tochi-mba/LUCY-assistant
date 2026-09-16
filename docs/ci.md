@@ -62,18 +62,20 @@ Spotify-api passes dummy `SPOTIFY_API_KEYRING_*` boot configuration with `docker
 
 ## Private repositories
 
-CI authenticates with `FAMILY_GITHUB_TOKEN`: a fine-grained personal access token with
-*Contents: read-only* on the nine family repositories, installed on each of them by
-`python scripts/share_github.py`. The reusable workflow declares it as a required secret
-and callers pass it with `secrets: inherit`. Every job that runs `uv sync` configures git
-with it first (the privileged test container installs git before that); the Docker job
-passes it as a BuildKit secret; the parity job checks out this repository with it and
-`persist-credentials: false`.
+CI authenticates as the family's GitHub App, installed on the nine repositories with
+*Contents: read-only*. `uv run scripts/connect_github.py` creates and installs it from
+the browser and stores its client id and private key as the secrets
+`FAMILY_APP_CLIENT_ID` and `FAMILY_APP_PRIVATE_KEY` on every family repository. The
+reusable workflow declares both as optional secrets and callers pass them with
+`secrets: inherit`. Every job that runs `uv sync` first mints a one-hour token with
+`actions/create-github-app-token` and configures git with it (the privileged test
+container installs git before that); the Docker job passes the token as a BuildKit
+secret; the parity job checks out this repository with it and `persist-credentials: false`.
 
-An inherited secret can still be empty, on a fork without it or a pull request from a
+Inherited secrets can still be empty, on a fork without the app or a pull request from a
 fork, and the workflow then fetches anonymously, which works while the sources are public.
-Private sources need the secret. [private-repos.md](private-repos.md) covers creating and
-rotating the token.
+Private sources need the app. [private-repos.md](private-repos.md) covers connecting and
+rotating it.
 
 When this repository is private, allow its workflows to be used by repositories under the
 same owner (Settings → Actions → General → Access). A public repository cannot call a

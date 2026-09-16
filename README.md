@@ -135,13 +135,13 @@ that account. A repository your account cannot see is reported and skipped; exis
 checkouts are left alone. Without a terminal, set `GH_TOKEN`; the devcontainer forwards
 yours and re-runs bootstrap when a terminal attaches.
 
-CI cannot open a browser, so it has its own token: fine-grained, read-only, limited to
-the family. Create it once and install it on all nine repositories with
-`python scripts/share_github.py`, which checks that the token can read them and never
-prints it. Never put a GitHub credential in `.env.family`, a Docker build argument, or a
-committed file. [docs/private-repos.md](docs/private-repos.md) is the full walkthrough,
-including the order for making the family private. On native Windows, run Make recipes
-in Git Bash; bootstrap also has a PowerShell version.
+CI cannot open a browser, so it gets a GitHub App of its own. Run
+`uv run scripts/connect_github.py` once: your browser opens, you click **Create GitHub
+App**, then **Install** on the family repositories, and every CI job mints a one-hour
+read-only token from it. Never put a GitHub credential in `.env.family`, a Docker build
+argument, or a committed file. [docs/private-repos.md](docs/private-repos.md) is the full
+walkthrough, including the order for making the family private. On native Windows, run
+Make recipes in Git Bash; bootstrap also has a PowerShell version.
 
 ## Adding a repository to the family
 
@@ -162,11 +162,11 @@ jobs:
     secrets: inherit
 ```
 
-Add the new repository to the CI token's repository list (GitHub → Settings → Developer
-settings → Fine-grained tokens → the family token → Repository access) so Actions can
-read it, then `python scripts/parity.py --repo <folder>`. Bootstrap discovery needs only
-the manifest line; adding a running service to Compose or a folder to the IDE workspace
-is a separate choice.
+Add the new repository to the family app's installation (GitHub → Settings →
+Applications → Installed GitHub Apps → the family app → Repository access) so CI can read
+it, then `python scripts/parity.py --repo <folder>`. Bootstrap discovery needs only the
+manifest line; adding a running service to Compose or a folder to the IDE workspace is a
+separate choice.
 
 ## Keeping your copy private / Forking
 
@@ -189,10 +189,11 @@ remotes. `--ref REF` selects a workflow ref (default `v1`); `--keep-sources` ret
 upstream client URLs when your account can still read them. Relock on a machine signed
 in to the destination owner and push the resulting changes to your copies.
 
-Sign in with `gh auth login` as the destination owner, create that owner's read-only
-token and install it with `python scripts/share_github.py`. Publish the meta workflow's
-`v1` tag and allow the private meta repository's Actions to be used by your other
-repositories. The [sign-in and rollout guide](docs/private-repos.md) has the order.
+Sign in with `gh auth login` as the destination owner and run
+`uv run scripts/connect_github.py` there to create that owner's own family app. Publish
+the meta workflow's `v1` tag and allow the private meta repository's Actions to be used by
+your other repositories. The [sign-in and rollout guide](docs/private-repos.md) has the
+order.
 
 ## Links
 

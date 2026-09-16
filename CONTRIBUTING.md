@@ -23,8 +23,9 @@ host is not Linux.
 
 Bootstrap runs `gh auth login` (browser or a pasted token) when you are not signed in
 and makes `gh` git's credential helper, so private checkouts and `uv`'s client fetches
-use your account. CI has its own read-only token, installed with
-`python scripts/share_github.py`; [private-repos.md](docs/private-repos.md) explains both.
+use your account. CI has a read-only GitHub App of its own, connected from the browser
+with `uv run scripts/connect_github.py`; [private-repos.md](docs/private-repos.md)
+explains both.
 
 Work in the [multi-root workspace](LUCY-assistant.code-workspace) or the
 [devcontainer](.devcontainer/devcontainer.json).

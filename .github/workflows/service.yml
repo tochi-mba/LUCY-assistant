@@ -3,9 +3,14 @@ name: Service
 on:
   workflow_call:
     secrets:
-      FAMILY_GITHUB_TOKEN:
-        description: Contents read access to the family repositories
-        required: true
+      # Set on every family repository by scripts/connect_github.py. Each job mints a
+      # one-hour token from the app; without them (a fork), git fetches anonymously.
+      FAMILY_APP_CLIENT_ID:
+        description: The family GitHub App's client id
+        required: false
+      FAMILY_APP_PRIVATE_KEY:
+        description: The family GitHub App's private key (PEM)
+        required: false
     inputs:
       python-versions:
         description: JSON list of Python versions for the test matrix
@@ -63,10 +68,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -81,10 +101,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -100,10 +135,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -119,10 +169,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -138,10 +203,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -169,10 +249,25 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -202,10 +297,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -222,8 +332,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Build
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # BuildKit mounts the token for the uv sync steps only; it never lands in a layer.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: docker build --secret id=github_token,env=FAMILY_GITHUB_TOKEN -t service:ci .
       - name: Boot and probe the health path
         env:
@@ -261,10 +387,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: ${{ github.event.repository.name }}
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - uses: actions/checkout@v4
         with:
           repository: tochi-mba/LUCY-assistant
-          token: ${{ secrets.FAMILY_GITHUB_TOKEN || github.token }}
+          token: ${{ steps.family-token.outputs.token || github.token }}
           persist-credentials: false
           path: family
       - uses: astral-sh/setup-uv@v6
@@ -282,10 +423,25 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Prove this job may read the family
+        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
+        # Absent on a fork without the app: the token below then stays empty.
+        id: family-app
+        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
+        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Mint a one-hour read-only token from the family's GitHub App
+        id: family-token
+        if: ${{ steps.family-app.outputs.installed == 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
-        # Empty on a public fork with no secret: git then fetches anonymously.
-        env: { FAMILY_GITHUB_TOKEN: "${{ secrets.FAMILY_GITHUB_TOKEN }}" }
+        # Empty on a fork without the app: git then fetches anonymously.
+        env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
         run: |
           if [ -n "$FAMILY_GITHUB_TOKEN" ]; then
             git config --global url."https://x-access-token:${FAMILY_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"

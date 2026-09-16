@@ -49,9 +49,10 @@ available on public repositories.
 
 **GitHub credentials are a sign-in, not a file.** A developer uses `gh auth login`;
 `gh` keeps the session in the OS credential store and acts as git's credential
-helper. CI uses `FAMILY_GITHUB_TOKEN`, a fine-grained token that can read the nine
-family repositories and nothing else, never a developer's `gh` session, which can
-write to every repository on the account. Docker builds receive the credential as a
+helper. CI uses the family GitHub App, installed on the nine repositories with Contents
+read-only; each job mints a one-hour token from it. CI never holds a developer's `gh`
+session, which can write to every repository on the account, and never a long-lived
+personal access token. Docker builds receive the credential as a
 BuildKit secret mounted for the `uv sync` RUN only. It is never a build argument, an
 image environment variable, or a line in `.env.family`, which every running service
 receives. See [private-repos.md](private-repos.md).

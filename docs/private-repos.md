@@ -7,7 +7,7 @@ signs in differently:
 | --- | --- | --- |
 | You, on your machine | `gh auth login`: a browser window, or a pasted token | `git clone` in bootstrap, `uv`'s fetch of the client packages, `make images` |
 | The devcontainer | the same login, forwarded as `GH_TOKEN`, or `gh auth login` inside it | the same |
-| GitHub Actions | the `FAMILY_GITHUB_TOKEN` secret: a fine-grained token, read-only, family only | `uv` fetches in CI, the Docker build, the parity job's checkout of this repository |
+| GitHub Actions | the **family GitHub App**, installed on the family repositories | a one-hour read-only token per CI job: `uv` fetches, the Docker build, the parity job's checkout of this repository |
 
 Nothing else needs a GitHub credential. The running services never receive one.
 
@@ -31,46 +31,46 @@ the environment; `gh` treats it as a login. The devcontainer forwards your host 
 and re-runs bootstrap each time a terminal attaches, so running `gh auth login` in that
 terminal is enough.
 
-## Give CI a read-only token
+## Connect CI: one command, two clicks
 
-Actions cannot open a browser, and it must not hold your account's session. It gets its
-own token, which can read the family and nothing else.
-
-1. Open <https://github.com/settings/personal-access-tokens/new>.
-2. **Resource owner:** the account or organisation that owns the family.
-3. **Repository access:** *Only select repositories*, then pick all nine: this repository
-   and the eight listed in `repos.txt`.
-4. **Permissions → Repository permissions → Contents:** *Read-only*. Metadata is added
-   automatically. Nothing else.
-5. **Expiration:** up to a year. Note the date; rotating is one command, below.
-6. Generate it and copy the value. It starts with `github_pat_`.
-
-Then, from this directory, signed in with your own account:
+Actions cannot open a browser, and it must not hold your account's session. It gets a
+GitHub App of its own, which can read the family repositories and nothing else.
 
 ```bash
-python scripts/share_github.py --dry-run   # asks for the token, checks it reads all nine, sets nothing
-python scripts/share_github.py             # sets FAMILY_GITHUB_TOKEN on all nine repositories
+uv run scripts/connect_github.py        # or: make github-ci
 ```
 
-`make github-ci` is the same command. The script reads the token from a hidden prompt,
-from `$FAMILY_GITHUB_TOKEN`, or from `--stdin` (a password manager), never from an
-argument, and it never prints it. It refuses a classic token or a `gh` session
-(`ghp_`/`gho_`): those can write to every repository on the account, and CI only needs to
-read nine. It stops, naming the repository, when the token cannot read one of them.
+1. Your browser opens GitHub with the app already described. Click **Create GitHub App**.
+2. GitHub sends you back and the script opens the app's install page. Choose **Only
+   select repositories**, pick the nine (this repository and the eight in `repos.txt`),
+   and click **Install**. If you miss one, the script names it and waits while you add
+   it.
 
-To rotate, generate a new token and run the script again. `gh secret list --repo
-OWNER/REPO` shows the names of the secrets that are set, never their values.
+That is all. The script then stores the app's client id and private key as the Actions
+secrets `FAMILY_APP_CLIENT_ID` and `FAMILY_APP_PRIVATE_KEY` on all nine repositories,
+using your own `gh` login; removes the retired `FAMILY_GITHUB_TOKEN` secret where it finds
+one; and triggers one CI run so you can watch it pass. The key goes from GitHub's reply
+straight to `gh secret set` on standard input. It is never written to disk or printed.
+
+`--dry-run` explains the plan and touches nothing. `--name` picks the app's name; GitHub
+requires it to be unique, and the default is `<owner> family CI`.
+
+Afterwards the app is listed under Settings → Developer settings → GitHub Apps, and its
+installation under Settings → Applications → Installed GitHub Apps. To let CI read a
+repository you add to the family later, add it there under *Repository access*. To
+rotate the key, delete the app and run the command again.
 
 ### What CI does with it
 
-The reusable workflow declares the secret and each caller passes it with
-`secrets: inherit`. Every job that runs `uv sync` first tells git to use it for
-`github.com`, through git's configuration rather than the log. The Docker job passes it as
-a BuildKit secret, mounted only while `uv sync` runs, so it never lands in an image layer.
-The parity job checks out this repository with it and does not persist it.
+Each job checks that the secrets are present, mints a token from the app with
+`actions/create-github-app-token` (Contents: read, one hour, revoked when the job ends),
+and tells git to use it for `github.com`, through git's configuration rather than the
+log. The Docker job passes it as a BuildKit secret, mounted only while `uv sync` runs, so
+it never lands in an image layer. The parity job checks out this repository with it and
+does not persist it. Callers pass the secrets down with `secrets: inherit`.
 
-When the secret is empty, as on a fork without it, CI still runs: git fetches anonymously,
-which works while the sources are public and fails with a clear message when they are not.
+Without the app, as on a fork, CI still runs: git fetches anonymously, which works while
+the sources are public and fails with a clear message when they are not.
 
 ## Local image builds
 
@@ -88,7 +88,7 @@ GitHub-related belongs in `.env.family`, a Docker `ARG`/`ENV`, or a committed fi
 Order matters: a public repository cannot call a private reusable workflow, so this
 repository goes last.
 
-1. Install the token as above.
+1. Connect CI as above and let the triggered run finish green.
 2. Make the **eight services** private. In the browser: repository → Settings → General →
    Danger zone → Change visibility. Or:
 
@@ -96,7 +96,7 @@ repository goes last.
    gh repo edit OWNER/Keyring-api --visibility private --accept-visibility-change-consequences
    ```
 
-   Re-run one consumer's CI; it now fetches private client tags with the token.
+   Re-run one consumer's CI; it now fetches private client tags with the app's token.
 3. Make **LUCY-assistant** private, then allow its workflows to be used by your other
    repositories: Settings → Actions → General → Access → *Accessible from repositories
    owned by the user*. Or:
@@ -112,8 +112,9 @@ Private vulnerability reporting is a public-repository feature, so
 
 ## Check the image boundary
 
-`make test` covers the compose file, the workflow, the Makefiles and both bootstraps with
-fake tools, without touching your GitHub session. Two opt-in checks use Docker:
+`make test` covers the compose file, the workflow, the Makefiles, both bootstraps and the
+connect script with fake tools and a fake GitHub, without touching your account. Two
+opt-in checks use Docker:
 
 ```bash
 LUCY_TEST_DOCKER=1 uv run --with pytest pytest tests/test_build_secrets.py -q          # a sentinel secret never reaches a layer
