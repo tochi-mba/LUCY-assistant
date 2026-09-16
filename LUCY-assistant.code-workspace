@@ -1,0 +1,42 @@
+{
+  "folders": [
+    { "name": "family", "path": "." },
+    { "name": "Keyring-api", "path": "Keyring-api" },
+    { "name": "User-api", "path": "User-api" },
+    { "name": "Settings-api", "path": "Settings-api" },
+    { "name": "Persona-api", "path": "Persona-api" },
+    { "name": "Media-tool", "path": "Media-tool" },
+    { "name": "Web-search-api", "path": "Web-search-api" },
+    { "name": "Spotify-api", "path": "Spotify-api" },
+    { "name": "Environments-api", "path": "Environments-api" }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "files.eol": "\n",
+    "files.insertFinalNewline": true,
+    "files.trimTrailingWhitespace": true,
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "[python]": {
+      "editor.defaultFormatter": "charliermarsh.ruff",
+      "editor.codeActionsOnSave": {
+        "source.fixAll.ruff": "explicit",
+        "source.organizeImports.ruff": "explicit"
+      }
+    },
+    "[yaml]": {
+      "editor.tabSize": 2,
+      "editor.insertSpaces": true
+    },
+    "ruff.nativeServer": "on",
+    "mypy-type-checker.importStrategy": "fromEnvironment",
+    "mypy-type-checker.preferDaemon": true
+  },
+  "extensions": {
+    "recommendations": [
+      "charliermarsh.ruff",
+      "ms-python.mypy-type-checker",
+      "ms-python.python",
+      "editorconfig.editorconfig"
+    ]
+  }
+}

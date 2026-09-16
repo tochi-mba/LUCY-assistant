@@ -1,0 +1,209 @@
+name: Service
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: JSON list of Python versions for the test matrix
+        type: string
+        default: '["3.11","3.12"]'
+      extras:
+        description: Extra arguments passed to `uv sync` (for example `--all-extras`)
+        type: string
+        default: "--all-extras --group dev"
+      privileged-container:
+        description: Run the test job in a privileged container (Environments-api)
+        type: boolean
+        default: false
+      live-browser-job:
+        description: Run a Playwright live-browser job (Media-tool, Web-search-api)
+        type: boolean
+        default: false
+      generated-files-command:
+        description: Shell that regenerates committed files; git diff --exit-code follows
+        type: string
+        default: ""
+      docker-image-healthcheck-path:
+        description: Path probed after `docker build` (liveness, not readiness)
+        type: string
+        default: /healthy
+      run-docker:
+        description: Build the Dockerfile and probe the health path
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  lock:
+    name: Lockfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv lock --check
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - run: uv run ruff format --check .
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - run: uv run ruff check --output-format=github .
+
+  types:
+    name: Types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - run: uv run mypy
+
+  imports:
+    name: Imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - run: uv run lint-imports
+
+  tests:
+    name: Tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    container: ${{ inputs.privileged-container && fromJSON('{"image":"python:3.11-slim","options":"--privileged"}') || fromJSON('null') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    env:
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync ${{ inputs.extras }}
+      - name: Tests with coverage and junit
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --junitxml=junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-${{ matrix.python-version }}
+          path: junit.xml
+          if-no-files-found: ignore
+
+  generated:
+    name: Generated files
+    if: ${{ inputs.generated-files-command != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - name: Regenerate and refuse drift
+        run: |
+          ${{ inputs.generated-files-command }}
+          git diff --exit-code
+
+  docker:
+    name: Docker image
+    if: ${{ inputs.run-docker }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t service:ci .
+      - name: Boot and probe the health path
+        env:
+          HEALTH_PATH: ${{ inputs.docker-image-healthcheck-path }}
+        run: |
+          docker run -d --name probe -p 8000:8000 service:ci
+          for _ in $(seq 1 30); do
+            curl -sf "localhost:8000${HEALTH_PATH}" && break
+            sleep 1
+          done
+          curl -sf "localhost:8000${HEALTH_PATH}"
+          docker rm -f probe
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uvx pip-audit
+
+  parity:
+    name: Family parity
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ github.event.repository.name }}
+      - uses: actions/checkout@v4
+        with:
+          repository: tochi-mba/LUCY-assistant
+          path: family
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Check this repository against the family standard
+        run: python family/scripts/parity.py --root . --repos-file family/repos.txt --repo ${{ github.event.repository.name }}
+
+  live-browser:
+    name: Live browser
+    if: ${{ inputs.live-browser-job }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync ${{ inputs.extras }}
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+      - name: Drive a real browser
+        run: uv run pytest -m live_browser --no-cov -ra

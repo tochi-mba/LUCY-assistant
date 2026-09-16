@@ -1,0 +1,8 @@
+Keyring-api https://github.com/tochi-mba/Keyring-api.git
+Settings-api https://github.com/tochi-mba/Settings-api.git
+User-api https://github.com/tochi-mba/User-api.git
+Persona-api https://github.com/tochi-mba/Persona-api.git
+Media-tool https://github.com/tochi-mba/Media-tool.git
+Web-search-api https://github.com/tochi-mba/Web-search-api.git
+Spotify-api https://github.com/tochi-mba/Spotify-api.git
+Environments-api https://github.com/tochi-mba/Environments-api.git

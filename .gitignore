@@ -1,0 +1,29 @@
+# The eight service repositories are separate git repositories. scripts/bootstrap.sh
+# clones them here from repos.txt; they are never part of this repository.
+/Keyring-api/
+/Settings-api/
+/User-api/
+/Persona-api/
+/Media-tool/
+/Web-search-api/
+/Spotify-api/
+/Environments-api/
+
+# Secrets generated for docker compose by scripts/genenv.py. Never commit them.
+.env.family
+.env
+
+# Logs, including bootstrap's per-repository logs
+*.log
+/.logs/
+
+# Caches and test output
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.coverage
+coverage.xml
+junit.xml
+htmlcov/

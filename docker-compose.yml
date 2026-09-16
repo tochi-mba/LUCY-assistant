@@ -1,0 +1,273 @@
+# LUCY-assistant family. Eight services, one network.
+#
+# Bring-up is unverified locally: Docker Engine cannot run on the machine that
+# wrote this file (WSL/virtualization off). Paths are ./<Repo> because this
+# file lives in the family root beside the checkouts.
+#
+#   python scripts/genenv.py
+#   docker compose up --build
+#
+# Host ports are the family assignments (8001–8008). Container listen ports
+# stay whatever each image already uses, so Dockerfiles are not rewritten.
+
+name: lucy-family
+
+networks:
+  lucy:
+    name: lucy-family
+
+volumes:
+  keyring-data:
+  user-data:
+  settings-data:
+  persona-data:
+  media-data:
+  environments-data:
+
+services:
+  keyring:
+    build: ./Keyring-api
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env.family
+    environment:
+      KEYRING_HOST: "0.0.0.0"
+      KEYRING_PORT: "8001"
+      KEYRING_ISSUER: "http://127.0.0.1:8001"
+      KEYRING_DATABASE_PATH: /var/lib/keyring/keyring.db
+      KEYRING_SIGNING_KEY_PATH: /var/lib/keyring/keys/signing.pem
+      KEYRING_LOG_FORMAT: json
+    volumes:
+      - keyring-data:/var/lib/keyring
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [lucy]
+
+  user:
+    build: ./User-api
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env.family
+    environment:
+      USER_API_HOST: "0.0.0.0"
+      USER_API_PORT: "8002"
+      USER_API_DATABASE_PATH: /var/lib/user-api/user.db
+      USER_API_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
+      USER_API_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      USER_API_LOG_FORMAT: json
+    volumes:
+      - user-data:/var/lib/user-api
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8002/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
+  settings:
+    build: ./Settings-api
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env.family
+    environment:
+      SETTINGS_API_HOST: "0.0.0.0"
+      SETTINGS_API_PORT: "8003"
+      SETTINGS_API_DATABASE_PATH: /var/lib/settings-api/settings.db
+      SETTINGS_API_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
+      SETTINGS_API_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      SETTINGS_API_LOG_FORMAT: json
+    volumes:
+      - settings-data:/var/lib/settings-api
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8003/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
+  persona:
+    build: ./Persona-api
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env.family
+    environment:
+      PERSONA_HOST: "0.0.0.0"
+      PERSONA_PORT: "8002"
+      PERSONA_DATABASE_PATH: /var/lib/persona/persona.db
+      PERSONA_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
+      PERSONA_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      PERSONA_LOG_FORMAT: json
+    volumes:
+      - persona-data:/var/lib/persona
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8004/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
+  media-tool:
+    build: ./Media-tool
+    ports:
+      - "8005:8005"
+    env_file:
+      - .env.family
+    environment:
+      MEDIA_TOOL_HOST: "0.0.0.0"
+      MEDIA_TOOL_PORT: "8000"
+      MEDIA_TOOL_KEYRING_BASE_URL: http://keyring:8001
+      MEDIA_TOOL_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      MEDIA_TOOL_KEYRING_AUDIENCE: media-tool
+      MEDIA_TOOL_SETTINGS_API_BASE_URL: http://settings:8003
+      MEDIA_TOOL_ARTIFACT_DIR: /var/lib/media-tool/artifacts
+      MEDIA_TOOL_LOG_FORMAT: json
+    volumes:
+      - media-data:/var/lib/media-tool/artifacts
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8005/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [lucy]
+
+  web-search:
+    build: ./Web-search-api
+    ports:
+      - "8006:8006"
+    env_file:
+      - .env.family
+    environment:
+      WSA_KEYRING_BASE_URL: http://keyring:8001
+      WSA_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      WSA_KEYRING_SERVICE_NAME: web-search-api
+      WSA_JSON_LOGS: "true"
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8006/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [lucy]
+
+  spotify:
+    build: ./Spotify-api
+    ports:
+      - "8007:8007"
+    env_file:
+      - .env.family
+    environment:
+      SPOTIFY_API_KEYRING_BASE_URL: http://keyring:8001
+      SPOTIFY_API_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      SPOTIFY_API_KEYRING_AUDIENCE: spotify-api
+      SPOTIFY_API_LOG_FORMAT: json
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8007/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
+  environments:
+    build: ./Environments-api
+    ports:
+      - "8008:8008"
+    privileged: true
+    env_file:
+      - .env.family
+    environment:
+      ENVAPI_ROOT: /var/lib/envapi
+      ENVAPI_KEYRING_BASE_URL: http://keyring:8001
+      ENVAPI_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      ENVAPI_KEYRING_SERVICE_NAME: environments-api
+      ENVAPI_MIN_SANDBOX_TIER: directory
+    volumes:
+      - environments-data:/var/lib/envapi
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8008/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]

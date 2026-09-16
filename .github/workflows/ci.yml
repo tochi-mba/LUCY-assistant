@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: Parity tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Run the family checker tests
+        run: uv run --with pytest pytest tests -q
+
+  shellcheck:
+    name: Shellcheck bootstrap.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+      - run: shellcheck scripts/bootstrap.sh
+
+  bootstrap-dry-run:
+    name: Bootstrap dry-run (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            command: bash scripts/bootstrap.sh --dry-run --no-install
+          - os: macos-latest
+            command: bash scripts/bootstrap.sh --dry-run --no-install
+          - os: windows-latest
+            command: pwsh -File scripts/bootstrap.ps1 -DryRun -NoInstall
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dry-run bootstrap
+        run: ${{ matrix.command }}
