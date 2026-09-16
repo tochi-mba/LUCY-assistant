@@ -164,8 +164,7 @@ jobs:
           # Each service listens on its family port (ADR-0004); the Dockerfile says which.
           port=$(grep -oE '^EXPOSE +[0-9]+' Dockerfile | awk '{print $2}' | head -1)
           test -n "$port"
-          printf '%s
-' "$DOCKER_ENV" > probe.env
+          echo "$DOCKER_ENV" > probe.env
           docker run -d --name probe --env-file probe.env -p "${port}:${port}" service:ci
           for _ in $(seq 1 30); do
             curl -sf "localhost:${port}${HEALTH_PATH}" && break
