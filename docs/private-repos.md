@@ -11,6 +11,27 @@ signs in differently:
 
 Nothing else needs a GitHub credential. The running services never receive one.
 
+## Running Lucy on your machine
+
+Clone this repository, sign in, and bootstrap. That is the whole login:
+
+```bash
+gh auth login                 # browser, or paste a token — gh asks which
+bash scripts/bootstrap.sh     # clones the eight services with that account
+make images && make up        # optional: the family on ports 8001–8008
+```
+
+You do **not** install or use the family GitHub App to run Lucy. The app exists only so
+GitHub Actions can fetch private git sources without holding a person's session. On a
+laptop, `gh` already is that session.
+
+If you were invited to *this* family's repositories, the same login is enough: GitHub
+lets your account clone them, and CI on those repositories already uses the owner's app.
+
+If you copied the family under *your* GitHub account, local runs still use your `gh`
+login. For CI, install the same public app on *your* repositories — see
+[Your own copy](#your-own-copy).
+
 ## Sign in once
 
 ```bash
@@ -31,46 +52,57 @@ the environment; `gh` treats it as a login. The devcontainer forwards your host 
 and re-runs bootstrap each time a terminal attaches, so running `gh auth login` in that
 terminal is enough.
 
-## Connect CI: one command, two clicks
+## Connect CI: one command, one Install click
 
-Actions cannot open a browser, and it must not hold your account's session. It gets a
-GitHub App of its own, which can read the family repositories and nothing else.
+Actions cannot open a browser, and it must not hold your account's session. It uses the
+public, read-only **lucy-assistant family CI** app plus the family token broker.
 
 ```bash
-uv run scripts/connect_github.py        # or: make github-ci
+python scripts/connect_github.py        # or: make github-ci
 ```
 
-1. Your browser opens GitHub with the app already described. Click **Create GitHub App**.
-2. GitHub sends you back and the script opens the app's install page. Choose **Only
-   select repositories**, pick the nine (this repository and the eight in `repos.txt`),
-   and click **Install**. If you miss one, the script names it and waits while you add
-   it.
+1. Sign in with `gh` if you have not already (browser or a pasted token).
+2. Your browser opens [the app's Install page](https://github.com/apps/lucy-assistant-family-ci).
+   Click **Install**, choose **Only select repositories**, pick the repositories in this
+   family, and confirm.
+3. Return to the terminal and press Enter. The script starts one CI run.
 
-That is all. The script then stores the app's client id and private key as the Actions
-secrets `FAMILY_APP_CLIENT_ID` and `FAMILY_APP_PRIVATE_KEY` on all nine repositories,
-using your own `gh` login; removes the retired `FAMILY_GITHUB_TOKEN` secret where it finds
-one; and triggers one CI run so you can watch it pass. The key goes from GitHub's reply
-straight to `gh secret set` on standard input. It is never written to disk or printed.
+That is all. The script creates no token and writes no Actions secret. `--dry-run`
+explains the plan and touches nothing. `--create-app` is only for an isolated deployment
+that also operates its own broker.
 
-`--dry-run` explains the plan and touches nothing. `--name` picks the app's name; GitHub
-requires it to be unique, and the default is `<owner> family CI`.
-
-Afterwards the app is listed under Settings → Developer settings → GitHub Apps, and its
-installation under Settings → Applications → Installed GitHub Apps. To let CI read a
-repository you add to the family later, add it there under *Repository access*. To
-rotate the key, delete the app and run the command again.
+Afterwards the installation is listed under Settings → Applications → Installed GitHub
+Apps. To let CI read a repository you add to the family later, add it there under
+*Repository access*.
 
 ### What CI does with it
 
-Each job checks that the secrets are present, mints a token from the app with
-`actions/create-github-app-token` (Contents: read, one hour, revoked when the job ends),
-and tells git to use it for `github.com`, through git's configuration rather than the
-log. The Docker job passes it as a BuildKit secret, mounted only while `uv sync` runs, so
-it never lands in an image layer. The parity job checks out this repository with it and
-does not persist it. Callers pass the secrets down with `secrets: inherit`.
+The caller grants `id-token: write`. GitHub signs a short-lived OIDC identity naming the
+repository and the exact reusable workflow. The action sends that proof to the
+Cloudflare Worker token broker. The broker verifies GitHub's signature, issuer,
+audience, expiry, repository owner, and trusted workflow; then it mints a one-hour
+installation token scoped to the current repository plus `Keyring-api`, `Settings-api`,
+and `LUCY-assistant`. It never returns a token for another account's installation.
 
-Without the app, as on a fork, CI still runs: git fetches anonymously, which works while
-the sources are public and fails with a clear message when they are not.
+The shared app's private key exists only as a Cloudflare Worker secret. A developer's
+repository receives neither that key nor a long-lived token. The one-hour token reaches
+git through process configuration and Docker through a BuildKit secret; it is masked in
+Actions logs and never enters an image layer.
+
+## Your own copy
+
+Another developer clones this repository, adds their own API repositories to `repos.txt`,
+and signs in with `gh auth login`. Local `make run` / `make up` use that login only.
+
+For **their** GitHub Actions they install the **same** public app on **their**
+repositories: `python scripts/connect_github.py` opens
+<https://github.com/apps/lucy-assistant-family-ci>, they click Install, and the broker
+mints tokens only for their installation. They never receive the app's private key.
+
+`scripts/retarget.py THEIR_OWNER` rewrites clone URLs and tagged client source URLs.
+The callers deliberately keep using the canonical public workflow at
+`tochi-mba/LUCY-assistant@v1`, because that immutable workflow identity is what the
+broker trusts. `--self-host-ci` is for operators running their own app and broker.
 
 ## Local image builds
 
@@ -83,29 +115,14 @@ Compose declares a build-time `github_token` secret sourced from `GITHUB_TOKEN`.
 build secret, not part of `.env.family`, and no running container sees it. Nothing
 GitHub-related belongs in `.env.family`, a Docker `ARG`/`ENV`, or a committed file.
 
-## Make the family private
+## Keep your copy private
 
-Order matters: a public repository cannot call a private reusable workflow, so this
-repository goes last.
-
-1. Connect CI as above and let the triggered run finish green.
-2. Make the **eight services** private. In the browser: repository → Settings → General →
-   Danger zone → Change visibility. Or:
-
-   ```bash
-   gh repo edit OWNER/Keyring-api --visibility private --accept-visibility-change-consequences
-   ```
-
-   Re-run one consumer's CI; it now fetches private client tags with the app's token.
-3. Make **LUCY-assistant** private, then allow its workflows to be used by your other
-   repositories: Settings → Actions → General → Access → *Accessible from repositories
-   owned by the user*. Or:
-
-   ```bash
-   gh api --method PUT repos/OWNER/LUCY-assistant/actions/permissions/access -f access_level=user
-   ```
-
-   Use `organization` instead of `user` for an organisation. Re-run one caller.
+Your service repositories and your copy of this repository may all be private. Their CI
+callers should still reference the canonical public reusable workflow at
+`tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1`; public reusable workflows
+can be called by private repositories. The canonical meta repository stays public
+because it contains the audited workflow, broker client action, bootstrap, and
+documentation—not service code or credentials.
 
 Private vulnerability reporting is a public-repository feature, so
 [SECURITY.md](../SECURITY.md) gives an email address instead.

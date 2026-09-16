@@ -43,16 +43,17 @@ for that lesson.
 `genenv.py` writes `.env.family` and prints a count. Bootstrap never dumps
 the environment. Do not `export KEYRING_*` in a ticket.
 
-**Disclosure goes to the maintainer by email**, at the address in
-[SECURITY.md](../SECURITY.md). GitHub's private vulnerability reporting is only
-available on public repositories.
+**Disclosure goes to the maintainer** through this public repository's private
+vulnerability reporting or by email at the address in [SECURITY.md](../SECURITY.md).
 
 **GitHub credentials are a sign-in, not a file.** A developer uses `gh auth login`;
 `gh` keeps the session in the OS credential store and acts as git's credential
-helper. CI uses the family GitHub App, installed on the nine repositories with Contents
-read-only; each job mints a one-hour token from it. CI never holds a developer's `gh`
-session, which can write to every repository on the account, and never a long-lived
-personal access token. Docker builds receive the credential as a
+helper. That is also how someone runs Lucy on their own machine after cloning. CI uses
+the public family GitHub App, installed on each owner's selected repositories with
+Contents read-only. A Cloudflare broker holds the app key and accepts only GitHub-signed
+OIDC identities from the canonical `service.yml@v1`; it returns a one-hour token scoped
+to the caller's installation and requested repositories. No user's repository receives
+the app key or a long-lived personal token. Docker builds receive the result as a
 BuildKit secret mounted for the `uv sync` RUN only. It is never a build argument, an
 image environment variable, or a line in `.env.family`, which every running service
 receives. See [private-repos.md](private-repos.md).

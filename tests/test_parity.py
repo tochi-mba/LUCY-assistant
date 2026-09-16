@@ -17,10 +17,12 @@ GOLDEN_NAME = "Demo-api"
 
 GOLDEN_CI = """\
 name: CI
+permissions:
+  contents: read
+  id-token: write
 jobs:
   service:
     uses: owner/LUCY-assistant/.github/workflows/service.yml@v1
-    secrets: inherit
 """
 
 GOLDEN_DOCKERFILE = """\
@@ -164,12 +166,15 @@ def fail(root: Path, check_id: str) -> None:
         (root / ".editorconfig").unlink()
     elif check_id == "ci-secrets":
         write_text(
-            root / ".github/workflows/ci.yml", GOLDEN_CI.replace("    secrets: inherit\n", "")
+            root / ".github/workflows/ci.yml",
+            GOLDEN_CI.replace("  id-token: write\n", ""),
         )
     elif check_id == "docker-secret":
         write_text(
             root / "Dockerfile",
-            GOLDEN_DOCKERFILE.replace("    --mount=id=github_token,type=secret \\\n", ""),
+            GOLDEN_DOCKERFILE.replace(
+                "    --mount=id=github_token,type=secret \\\n", ""
+            ),
         )
     elif check_id == "dev-group":
         write_text(
@@ -186,16 +191,20 @@ def fail(root: Path, check_id: str) -> None:
         )
     elif check_id == "mypy-strict":
         write_text(
-            root / "pyproject.toml", GOLDEN_PYPROJECT.replace("strict = true", "strict = false")
+            root / "pyproject.toml",
+            GOLDEN_PYPROJECT.replace("strict = true", "strict = false"),
         )
     elif check_id == "coverage":
         write_text(
-            root / "pyproject.toml", GOLDEN_PYPROJECT.replace("fail_under = 100", "fail_under = 80")
+            root / "pyproject.toml",
+            GOLDEN_PYPROJECT.replace("fail_under = 100", "fail_under = 80"),
         )
     elif check_id == "pytest-warnings":
         write_text(
             root / "pyproject.toml",
-            GOLDEN_PYPROJECT.replace('filterwarnings = ["error"]', 'filterwarnings = ["ignore"]'),
+            GOLDEN_PYPROJECT.replace(
+                'filterwarnings = ["error"]', 'filterwarnings = ["ignore"]'
+            ),
         )
     elif check_id == "import-linter":
         write_text(
@@ -204,7 +213,8 @@ def fail(root: Path, check_id: str) -> None:
         )
     elif check_id == "config":
         write_text(
-            root / "src/demo/core/config.py", GOLDEN_CONFIG.replace('env_prefix = "DEMO_"\n', "")
+            root / "src/demo/core/config.py",
+            GOLDEN_CONFIG.replace('env_prefix = "DEMO_"\n', ""),
         )
     elif check_id == "unknown-env":
         write_text(
@@ -222,7 +232,10 @@ def fail(root: Path, check_id: str) -> None:
     elif check_id == "max-file-lines":
         write_lines(root / "tests/huge.py", parity.MAX_FILE_LINES + 1)
     elif check_id == "health-routes":
-        write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG.replace('"/ready"', '"/live"'))
+        write_text(
+            root / "src/demo/core/config.py",
+            GOLDEN_CONFIG.replace('"/ready"', '"/live"'),
+        )
     elif check_id == "keyring-client":
         write_text(
             root / "src/demo/core/config.py",
@@ -230,7 +243,9 @@ def fail(root: Path, check_id: str) -> None:
         )
         write_text(
             root / "pyproject.toml",
-            GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
+            GOLDEN_PYPROJECT.replace(
+                'dependencies = ["keyring-client"]', "dependencies = []"
+            ),
         )
     else:
         raise AssertionError(f"no failing mutation for {check_id}")
@@ -257,7 +272,9 @@ def test_mutated_golden_fails(tmp_path: Path, check_id: str) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     fail(root, check_id)
     result = outcome_for(root, check_id)
-    assert result.status == parity.FAIL, f"{check_id} did not fail: {result.status} {result.detail}"
+    assert result.status == parity.FAIL, (
+        f"{check_id} did not fail: {result.status} {result.detail}"
+    )
 
 
 def test_max_file_lines_allows_exactly_the_limit(tmp_path: Path) -> None:
@@ -279,7 +296,9 @@ def test_keyring_client_is_na_on_the_issuer(tmp_path: Path) -> None:
     root = write_golden(tmp_path / "Keyring-api")
     write_text(
         root / "pyproject.toml",
-        GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
+        GOLDEN_PYPROJECT.replace(
+            'dependencies = ["keyring-client"]', "dependencies = []"
+        ),
     )
     write_text(
         root / "src/demo/core/config.py",
@@ -311,20 +330,31 @@ def test_cli_unknown_repo_is_usage_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     code = parity.main(
-        ["--root", str(tmp_path), "--repos-file", str(ROOT / "repos.txt"), "--repo", "NotARepo"]
+        [
+            "--root",
+            str(tmp_path),
+            "--repos-file",
+            str(ROOT / "repos.txt"),
+            "--repo",
+            "NotARepo",
+        ]
     )
     assert code == 2
     err = capsys.readouterr().err
     assert "unknown repository" in err
 
 
-def test_cli_json_exit_zero_on_golden(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_json_exit_zero_on_golden(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     write_golden(tmp_path / GOLDEN_NAME)
     manifest = tmp_path / "repos.txt"
     manifest.write_text(
         f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8"
     )
-    code = parity.main(["--root", str(tmp_path), "--repos-file", str(manifest), "--json"])
+    code = parity.main(
+        ["--root", str(tmp_path), "--repos-file", str(manifest), "--json"]
+    )
     assert code == 0
     document = json.loads(capsys.readouterr().out)
     assert document["ok"] is True
@@ -343,7 +373,9 @@ def test_cli_exit_one_on_drift(tmp_path: Path) -> None:
 
 def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
     manifest = tmp_path / "repos.txt"
-    manifest.write_text("# header\n\nAlpha https://x\n  Bravo https://y\n", encoding="utf-8")
+    manifest.write_text(
+        "# header\n\nAlpha https://x\n  Bravo https://y\n", encoding="utf-8"
+    )
     assert parity.read_repo_names(manifest) == ["Alpha", "Bravo"]
 
 
@@ -351,18 +383,18 @@ def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
     "ci",
     [
         None,
-        "# secrets: inherit\n" + GOLDEN_CI.replace("    secrets: inherit\n", ""),
-        GOLDEN_CI.replace("secrets: inherit", "secrets: {}"),
-        GOLDEN_CI.replace("    secrets: inherit", "    with:\n      secrets: inherit"),
-        GOLDEN_CI.replace("    secrets: inherit", "  unrelated:\n    secrets: inherit"),
-        GOLDEN_CI.replace(
-            "    secrets: inherit", "    with:\n      text: |\n        secrets: inherit"
+        GOLDEN_CI.replace("  id-token: write\n", ""),
+        GOLDEN_CI.replace("  id-token: write", "  id-token: read"),
+        GOLDEN_CI.replace("  id-token: write", "  id-token: 'write'\n").replace(
+            "    uses:", "    secrets: inherit\n    uses:"
         ),
-        GOLDEN_CI + "  another:\n    uses: owner/LUCY-assistant/.github/workflows/service.yml@v1\n",
-        "jobs:\n  local:\n    steps:\n      - run: echo 'secrets: inherit'\n",
+        GOLDEN_CI.replace(
+            "permissions:\n", "other:\n  id-token: write\npermissions:\n"
+        ).replace("  id-token: write\njobs:", "jobs:"),
+        "jobs:\n  local:\n    steps:\n      - run: echo 'id-token: write'\n",
     ],
 )
-def test_ci_secrets_rejects_missing_or_unrelated_inheritance(
+def test_ci_secrets_rejects_missing_unrelated_or_secret_based_auth(
     tmp_path: Path, ci: str | None
 ) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
@@ -373,15 +405,19 @@ def test_ci_secrets_rejects_missing_or_unrelated_inheritance(
     assert outcome_for(root, "ci-secrets").status == parity.FAIL
 
 
-def test_ci_secrets_accepts_quoted_values_and_other_jobs(tmp_path: Path) -> None:
+def test_ci_secrets_accepts_quoted_oidc_permission_and_other_jobs(
+    tmp_path: Path,
+) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     write_text(
         root / ".github/workflows/ci.yml",
         GOLDEN_CI.replace(
             "uses: owner/LUCY-assistant/.github/workflows/service.yml@v1",
             "uses: 'owner/LUCY-assistant/.github/workflows/service.yml@v1' # family",
-        ).replace("secrets: inherit", 'secrets: "inherit" # shared')
-        + ("  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"),
+        ).replace("id-token: write", "id-token: 'write' # broker")
+        + (
+            "  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"
+        ),
     )
     assert outcome_for(root, "ci-secrets").status == parity.PASS
 
@@ -398,14 +434,19 @@ def test_ci_secrets_accepts_quoted_values_and_other_jobs(tmp_path: Path) -> None
         "# syntax=docker/dockerfile:1\n# --mount=type=secret,id=github_token\nRUN uv sync\n",
         '# syntax=docker/dockerfile:1\nRUN echo "--mount=type=secret,id=github_token" && uv sync\n',
         "# syntax=docker/dockerfile:1\nRUN uv sync # --mount=type=secret,id=github_token\n",
-        "# syntax=docker/dockerfile:1\nRUN --mount=type=secret,id=github_token uv --version\nRUN uv sync\n",
+        (
+            "# syntax=docker/dockerfile:1\n"
+            "RUN --mount=type=secret,id=github_token uv --version\nRUN uv sync\n"
+        ),
         "# syntax=docker/dockerfile:1\nRUN uv sync \\",
         '# syntax=docker/dockerfile:1\nRUN uv sync "unterminated\n',
         "# syntax=docker/dockerfile:1\nRUN [invalid json]\n",
         "# syntax=docker/dockerfile:1\nFROM python:3.11\n",
     ],
 )
-def test_docker_secret_rejects_unprotected_syncs(tmp_path: Path, dockerfile: str | None) -> None:
+def test_docker_secret_rejects_unprotected_syncs(
+    tmp_path: Path, dockerfile: str | None
+) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     if dockerfile is None:
         (root / "Dockerfile").unlink()

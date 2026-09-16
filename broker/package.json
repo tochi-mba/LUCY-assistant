@@ -1,0 +1,17 @@
+{
+  "name": "lucy-family-ci-token-broker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run format:check && npm test",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2",
+    "wrangler": "4.132.0"
+  }
+}

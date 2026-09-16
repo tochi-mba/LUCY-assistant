@@ -2,15 +2,6 @@ name: Service
 
 on:
   workflow_call:
-    secrets:
-      # Set on every family repository by scripts/connect_github.py. Each job mints a
-      # one-hour token from the app; without them (a fork), git fetches anonymously.
-      FAMILY_APP_CLIENT_ID:
-        description: The family GitHub App's client id
-        required: false
-      FAMILY_APP_PRIVATE_KEY:
-        description: The family GitHub App's private key (PEM)
-        required: false
     inputs:
       python-versions:
         description: JSON list of Python versions for the test matrix
@@ -51,6 +42,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -68,21 +60,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -101,21 +83,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -135,21 +107,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -169,21 +131,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -203,21 +155,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -249,21 +191,11 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -297,21 +229,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.
@@ -332,21 +254,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Build
         # BuildKit mounts the token for the uv sync steps only; it never lands in a layer.
         env: { FAMILY_GITHUB_TOKEN: "${{ steps.family-token.outputs.token }}" }
@@ -387,21 +299,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: ${{ github.event.repository.name }}
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - uses: actions/checkout@v4
         with:
           repository: tochi-mba/LUCY-assistant
@@ -423,21 +325,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Prove this job may read the family
-        # The family's GitHub App (scripts/connect_github.py) is installed on its repositories.
-        # Absent on a fork without the app: the token below then stays empty.
-        id: family-app
-        env: { APP_ID: "${{ secrets.FAMILY_APP_CLIENT_ID }}" }
-        run: echo "installed=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Mint a one-hour read-only token from the family's GitHub App
+      - name: Mint a one-hour token for this app installation
         id: family-token
-        if: ${{ steps.family-app.outputs.installed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: tochi-mba/LUCY-assistant/.github/actions/family-token@v1
         with:
-          client-id: ${{ secrets.FAMILY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FAMILY_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: read
+          broker-url: https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token
       - name: Let git read the family's private repositories
         # uv fetches the client packages with system git, so git holds the credential.
         # Empty on a fork without the app: git then fetches anonymously.

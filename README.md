@@ -103,7 +103,8 @@ except the assistant sitting in front.
    Python 3.11/3.12, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
    installing it, asks you to sign in to GitHub (browser or a pasted token) if you are
    not already, clones any missing checkout your account can read from `repos.txt`, and runs
-   `make install` unless you pass `--no-install`.
+   `make install` unless you pass `--no-install`. Running Lucy locally stops here: you do
+   not need the family GitHub App on your machine.
 3. In Keyring-api: copy `.env.example`, set `KEYRING_MASTER_KEY`, `make run`.
 4. Mint a service token for the service you are working on
    (`POST /v1/auth/service-token` with that service's audience) and put the Bearer on
@@ -135,13 +136,18 @@ that account. A repository your account cannot see is reported and skipped; exis
 checkouts are left alone. Without a terminal, set `GH_TOKEN`; the devcontainer forwards
 yours and re-runs bootstrap when a terminal attaches.
 
-CI cannot open a browser, so it gets a GitHub App of its own. Run
-`uv run scripts/connect_github.py` once: your browser opens, you click **Create GitHub
-App**, then **Install** on the family repositories, and every CI job mints a one-hour
-read-only token from it. Never put a GitHub credential in `.env.family`, a Docker build
-argument, or a committed file. [docs/private-repos.md](docs/private-repos.md) is the full
-walkthrough, including the order for making the family private. On native Windows, run
-Make recipes in Git Bash; bootstrap also has a PowerShell version.
+CI cannot open a browser, so it uses the public **lucy-assistant family CI** app. That
+app is **not** how a clone on your laptop authenticates: a laptop uses the `gh` login
+above. `python scripts/connect_github.py` opens
+<https://github.com/apps/lucy-assistant-family-ci>; you click **Install** on the family
+repositories. Each CI job proves its identity with GitHub OIDC; the family broker then
+mints a one-hour read-only token for that installation. Another developer who cloned
+this repo and added their own API repositories runs the same command and installs
+**the same app** on *their* repositories. They receive neither our app private key nor
+a long-lived token. Never put a GitHub credential in `.env.family`, a Docker build
+argument, an Actions secret, or a committed file.
+[docs/private-repos.md](docs/private-repos.md) is the full walkthrough. On native Windows,
+run Make recipes in Git Bash; bootstrap also has a PowerShell version.
 
 ## Adding a repository to the family
 
@@ -156,10 +162,12 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
 jobs:
   service:
     uses: tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1
-    secrets: inherit
 ```
 
 Add the new repository to the family app's installation (GitHub → Settings →
@@ -183,17 +191,19 @@ python scripts/retarget.py YOUR_OWNER
 # Run each printed `uv lock --directory ...` command, review and commit the lockfiles.
 ```
 
-The script changes manifest clone URLs, CI callers, the meta parity checkout, and
-tagged client source URLs. It preserves line endings and never edits `uv.lock` or git
-remotes. `--ref REF` selects a workflow ref (default `v1`); `--keep-sources` retains
-upstream client URLs when your account can still read them. Relock on a machine signed
-in to the destination owner and push the resulting changes to your copies.
+The script changes manifest clone URLs and tagged client source URLs. It preserves line
+endings and never edits `uv.lock`, git remotes, or the canonical CI caller. Keeping
+`tochi-mba/LUCY-assistant@v1` is deliberate: the broker trusts that public workflow's
+OIDC identity. `--keep-sources` retains upstream client URLs when your account can still
+read them; `--self-host-ci` is only for a deployment operating its own app and broker.
+Relock on a machine signed in to the destination owner and push the resulting changes.
 
-Sign in with `gh auth login` as the destination owner and run
-`uv run scripts/connect_github.py` there to create that owner's own family app. Publish
-the meta workflow's `v1` tag and allow the private meta repository's Actions to be used by
-your other repositories. The [sign-in and rollout guide](docs/private-repos.md) has the
-order.
+Sign in with `gh auth login` as the destination owner. Local `make run` / `make up` use
+that login only. For CI, run `python scripts/connect_github.py` there: the browser opens
+the **lucy-assistant family CI** Install page, you click Install on *your* repositories,
+and the broker scopes each job's token to your installation. Your copy may remain
+private; its callers continue using the canonical public workflow. The
+[sign-in and rollout guide](docs/private-repos.md) has the order.
 
 ## Links
 

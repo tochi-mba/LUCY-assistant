@@ -36,7 +36,9 @@ from typing import TYPE_CHECKING, Any
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11
-    sys.exit("parity.py needs Python 3.11 or newer: it reads pyproject.toml with tomllib")
+    sys.exit(
+        "parity.py needs Python 3.11 or newer: it reads pyproject.toml with tomllib"
+    )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -93,7 +95,9 @@ PASS = "pass"
 FAIL = "fail"
 NOT_APPLICABLE = "n/a"
 
-_TARGET_LINE = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)[ \t]*:(?![:=])(?P<rest>.*)$")
+_TARGET_LINE = re.compile(
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)[ \t]*:(?![:=])(?P<rest>.*)$"
+)
 _PRAGMA = re.compile(r"pragma:\s*no\s*cover")
 _KEYRING_IMPORT = re.compile(r"^\s*(?:from|import)\s+keyring_client\b", re.MULTILINE)
 _KEYRING_DEPENDENCY = re.compile(r"^\s*keyring[-_.]client\b", re.IGNORECASE)
@@ -139,7 +143,9 @@ def parse_makefile(text: str) -> dict[str, list[str]]:
         rest = match.group("rest").split("#", 1)[0]
         if "=" in rest:  # a target-specific variable: `target: VAR = value`
             continue
-        targets.setdefault(match.group("name"), []).extend(rest.replace("|", " ").split())
+        targets.setdefault(match.group("name"), []).extend(
+            rest.replace("|", " ").split()
+        )
     return targets
 
 
@@ -201,7 +207,11 @@ class Repo:
         src = self.path / "src"
         if src.is_dir():
             packages = tuple(
-                sorted(child for child in src.iterdir() if (child / "__init__.py").is_file())
+                sorted(
+                    child
+                    for child in src.iterdir()
+                    if (child / "__init__.py").is_file()
+                )
             )
             if packages:
                 return packages
@@ -254,7 +264,9 @@ def _pyproject(repo: Repo) -> dict[str, Any]:
 def _config_source(repo: Repo) -> tuple[str, str]:
     module = repo.config_module
     if module is None:
-        raise ParityError("no config module (looked for " + ", ".join(CONFIG_MODULES) + ")")
+        raise ParityError(
+            "no config module (looked for " + ", ".join(CONFIG_MODULES) + ")"
+        )
     return repo.relative(module), module.read_text(encoding="utf-8", errors="replace")
 
 
@@ -293,7 +305,9 @@ def check_python_version(repo: Repo) -> Result:
     pinned = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if pinned == PINNED_PYTHON or pinned.startswith(PINNED_PYTHON + "."):
         return passed(pinned)
-    return failed(f".python-version pins {pinned or '(nothing)'}; expected {PINNED_PYTHON}")
+    return failed(
+        f".python-version pins {pinned or '(nothing)'}; expected {PINNED_PYTHON}"
+    )
 
 
 def check_claude_md(repo: Repo) -> Result:
@@ -326,11 +340,13 @@ def check_pre_commit(repo: Repo) -> Result:
 
 
 def check_editorconfig(repo: Repo) -> Result:
-    return passed() if repo.exists(".editorconfig") else failed(".editorconfig is missing")
+    return (
+        passed() if repo.exists(".editorconfig") else failed(".editorconfig is missing")
+    )
 
 
 def check_ci_secrets(repo: Repo) -> Result:
-    """The job calling the family workflow must pass its repository's secrets."""
+    """The caller grants OIDC; the shared app's private key never enters a repository."""
     source = repo.read(".github/workflows/ci.yml")
     if source is None:
         return failed(".github/workflows/ci.yml is missing")
@@ -338,6 +354,7 @@ def check_ci_secrets(repo: Repo) -> Result:
     # unrelated job, a step, a comment, or a multiline string cannot satisfy this check.
     stack: list[tuple[int, str]] = []
     jobs: dict[str, dict[str, str]] = {}
+    id_token = ""
     for line in source.splitlines():
         match = re.fullmatch(r"( *)([A-Za-z0-9_-]+):(?:[ \t]+(.*))?", line)
         if match is None:
@@ -346,6 +363,8 @@ def check_ci_secrets(repo: Repo) -> Result:
         while stack and stack[-1][0] >= indent:
             stack.pop()
         path = [item[1] for item in stack] + [key]
+        if path == ["permissions", "id-token"]:
+            id_token = re.sub(r"\s+#.*$", "", match[3] or "").strip().strip("'\"")
         if len(path) == 3 and path[0] == "jobs":
             value = re.sub(r"\s+#.*$", "", match[3] or "").strip().strip("'\"")
             jobs.setdefault(path[1], {})[key] = value
@@ -360,9 +379,15 @@ def check_ci_secrets(repo: Repo) -> Result:
     }
     if not callers:
         return failed("ci.yml has no job calling the family reusable workflow")
-    missing = [name for name, job in callers.items() if job.get("secrets") != "inherit"]
+    inherited = [name for name, job in callers.items() if "secrets" in job]
+    if inherited:
+        return failed(
+            "family app secrets must not be passed by job(s): " + ", ".join(inherited)
+        )
     return (
-        failed("missing secrets: inherit on job(s): " + ", ".join(missing)) if missing else passed()
+        failed("top-level permissions.id-token must be write")
+        if id_token != "write"
+        else passed()
     )
 
 
@@ -391,7 +416,9 @@ def check_docker_secret(repo: Repo) -> Result:
     if source is None:
         return failed("Dockerfile is missing")
     lines = source.splitlines()
-    if not lines or not re.fullmatch(r"#\s*syntax=docker/dockerfile:1(?:[.\w-]*)\s*", lines[0]):
+    if not lines or not re.fullmatch(
+        r"#\s*syntax=docker/dockerfile:1(?:[.\w-]*)\s*", lines[0]
+    ):
         return failed("Dockerfile line 1 must declare # syntax=docker/dockerfile:1")
     count = 0
     unprotected = []
@@ -403,8 +430,13 @@ def check_docker_secret(repo: Repo) -> Result:
         mounted = False
         while flag := re.match(r"--([\w-]+)=([^\s]+)\s+", command):
             if flag[1] == "mount":
-                options = dict(part.split("=", 1) for part in flag[2].split(",") if "=" in part)
-                mounted |= options.get("type") == "secret" and options.get("id") == "github_token"
+                options = dict(
+                    part.split("=", 1) for part in flag[2].split(",") if "=" in part
+                )
+                mounted |= (
+                    options.get("type") == "secret"
+                    and options.get("id") == "github_token"
+                )
             command = command[flag.end() :]
         try:
             if command.startswith("["):
@@ -415,13 +447,17 @@ def check_docker_secret(repo: Repo) -> Result:
                 words = list(lexer)
         except (ValueError, TypeError) as exc:
             return failed(f"Dockerfile:{number}: cannot read RUN: {exc}")
-        if any(first == "uv" and second == "sync" for first, second in zip(words, words[1:])):
+        if any(
+            first == "uv" and second == "sync"
+            for first, second in zip(words, words[1:], strict=False)
+        ):
             count += 1
             if not mounted:
                 unprotected.append(str(number))
     if unprotected:
         return failed(
-            "uv sync RUN missing github_token secret mount at line(s): " + ", ".join(unprotected)
+            "uv sync RUN missing github_token secret mount at line(s): "
+            + ", ".join(unprotected)
         )
     return (
         passed(f"{count} protected uv sync RUN(s)")
@@ -456,7 +492,11 @@ def check_ruff(repo: Repo) -> Result:
 
 def check_mypy_strict(repo: Repo) -> Result:
     value = dig(_pyproject(repo), "tool", "mypy", "strict")
-    return passed() if value is True else failed(f"[tool.mypy] strict is {_describe(value)}")
+    return (
+        passed()
+        if value is True
+        else failed(f"[tool.mypy] strict is {_describe(value)}")
+    )
 
 
 def check_coverage(repo: Repo) -> Result:
@@ -479,7 +519,9 @@ def check_pytest_warnings(repo: Repo) -> Result:
         return passed()
     if not entries:
         return failed("[tool.pytest.ini_options] filterwarnings is not set")
-    return failed('filterwarnings has no plain "error" entry: ' + ", ".join(map(str, entries)))
+    return failed(
+        'filterwarnings has no plain "error" entry: ' + ", ".join(map(str, entries))
+    )
 
 
 def check_import_linter(repo: Repo) -> Result:
@@ -496,7 +538,9 @@ def check_config(repo: Repo) -> Result:
         problems.append("no env_prefix")
     if not _EXTRA_FORBID.search(source):
         problems.append('no extra="forbid"')
-    return failed(f"{relative}: " + "; ".join(problems)) if problems else passed(relative)
+    return (
+        failed(f"{relative}: " + "; ".join(problems)) if problems else passed(relative)
+    )
 
 
 def check_unknown_env(repo: Repo) -> Result:
@@ -507,7 +551,9 @@ def check_unknown_env(repo: Repo) -> Result:
     except SyntaxError as exc:
         return failed(f"{relative} does not parse (line {exc.lineno})")
     defined = {
-        node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     if "check_for_unknown_env_vars" in defined:
         return passed(relative)
@@ -534,14 +580,17 @@ def check_no_pragma(repo: Repo) -> Result:
 def check_health_routes(repo: Repo) -> Result:
     _require_source(repo)
     source = "\n".join(
-        file.read_text(encoding="utf-8", errors="replace") for file in repo.python_files()
+        file.read_text(encoding="utf-8", errors="replace")
+        for file in repo.python_files()
     )
     missing = [
         route
         for route in HEALTH_ROUTES
         if not re.search(rf"""["']{re.escape(route)}["']""", source)
     ]
-    return failed("no " + " or ".join(missing) + " route found") if missing else passed()
+    return (
+        failed("no " + " or ".join(missing) + " route found") if missing else passed()
+    )
 
 
 def _line_count(text: str) -> int:
@@ -572,7 +621,9 @@ def check_keyring_client(repo: Repo) -> Result:
     dependencies = dig(_pyproject(repo), "project", "dependencies") or []
     _require_source(repo)
     problems = []
-    if not any(isinstance(dep, str) and _KEYRING_DEPENDENCY.match(dep) for dep in dependencies):
+    if not any(
+        isinstance(dep, str) and _KEYRING_DEPENDENCY.match(dep) for dep in dependencies
+    ):
         problems.append("keyring-client is not a project dependency")
     if not any(
         _KEYRING_IMPORT.search(file.read_text(encoding="utf-8", errors="replace"))
@@ -598,20 +649,34 @@ CHECKS: tuple[Check, ...] = (
     Check("changelog", "CHANGELOG.md follows Keep a Changelog", check_changelog),
     Check("pre-commit", ".pre-commit-config.yaml exists", check_pre_commit),
     Check("editorconfig", ".editorconfig exists", check_editorconfig),
-    Check("ci-secrets", "family workflow caller inherits secrets", check_ci_secrets),
-    Check("docker-secret", "every uv sync RUN mounts the GitHub token secret", check_docker_secret),
+    Check(
+        "ci-secrets",
+        "family workflow caller uses OIDC, not shared secrets",
+        check_ci_secrets,
+    ),
+    Check(
+        "docker-secret",
+        "every uv sync RUN mounts the GitHub token secret",
+        check_docker_secret,
+    ),
     Check("dev-group", "dev dependencies in [dependency-groups] dev", check_dev_group),
     Check("ruff", "ruff line-length 100, target py311", check_ruff),
     Check("mypy-strict", "mypy strict = true", check_mypy_strict),
     Check("coverage", "branch coverage, fail_under = 100", check_coverage),
-    Check("pytest-warnings", 'pytest filterwarnings has "error"', check_pytest_warnings),
+    Check(
+        "pytest-warnings", 'pytest filterwarnings has "error"', check_pytest_warnings
+    ),
     Check("import-linter", "import-linter contracts declared", check_import_linter),
     Check("config", 'config has an env prefix and extra="forbid"', check_config),
-    Check("unknown-env", "config defines check_for_unknown_env_vars", check_unknown_env),
+    Check(
+        "unknown-env", "config defines check_for_unknown_env_vars", check_unknown_env
+    ),
     Check("no-pragma", "no pragma: no cover in the source package", check_no_pragma),
     Check("max-file-lines", "no code file over 1000 lines", check_max_file_lines),
     Check("health-routes", "serves /healthy and /ready", check_health_routes),
-    Check("keyring-client", "verifies tokens with keyring_client", check_keyring_client),
+    Check(
+        "keyring-client", "verifies tokens with keyring_client", check_keyring_client
+    ),
 )
 
 
@@ -643,7 +708,7 @@ class RepoReport:
 
 
 def read_repo_names(repos_file: Path) -> list[str]:
-    """Names from ``repos.txt``: ``<name> <url>`` per line; blank lines and ``#`` comments skipped."""
+    """Read names from ``repos.txt``; blank lines and ``#`` comments are skipped."""
     names = []
     for raw in repos_file.read_text(encoding="utf-8").splitlines():
         line = raw.split("#", 1)[0].strip()
@@ -677,14 +742,19 @@ def short_name(name: str) -> str:
 
 
 def _join(cells: Sequence[str], widths: Sequence[int]) -> str:
-    return "  ".join(cell.ljust(width) for cell, width in zip(cells, widths, strict=True)).rstrip()
+    return "  ".join(
+        cell.ljust(width) for cell, width in zip(cells, widths, strict=True)
+    ).rstrip()
 
 
 def render_text(reports: Sequence[RepoReport]) -> str:
     if len(reports) == 1:
         return _render_one(reports[0])
     headers = ["check", *(short_name(report.name) for report in reports)]
-    widths = [max(len(c.id) for c in CHECKS), *(max(len(h), len(_ABSENT)) for h in headers[1:])]
+    widths = [
+        max(len(c.id) for c in CHECKS),
+        *(max(len(h), len(_ABSENT)) for h in headers[1:]),
+    ]
     lines = [_join(headers, widths), _join(["-" * width for width in widths], widths)]
     for index, check in enumerate(CHECKS):
         cells = [check.id]
@@ -692,7 +762,9 @@ def render_text(reports: Sequence[RepoReport]) -> str:
             status = report.outcomes[index].result.status if report.present else None
             cells.append(_ABSENT if status is None else _LABELS[status])
         lines.append(_join(cells, widths))
-    problems = [f"  {r.name}: not checked out under the root" for r in reports if not r.present]
+    problems = [
+        f"  {r.name}: not checked out under the root" for r in reports if not r.present
+    ]
     problems += [
         f"  {report.name} / {outcome.check.id}: {outcome.result.detail}"
         for report in reports
@@ -718,7 +790,9 @@ def _render_one(report: RepoReport) -> str:
         _join([o.check.id, _LABELS[o.result.status], o.result.detail], [*widths, 0])
         for o in report.outcomes
     ]
-    verdict = "passes every check" if report.ok else "has drifted from the family standard"
+    verdict = (
+        "passes every check" if report.ok else "has drifted from the family standard"
+    )
     lines += ["", f"{report.name} {verdict}."]
     return "\n".join(lines)
 
@@ -783,7 +857,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"parity: cannot read {args.repos_file}: {exc.strerror}", file=sys.stderr)
         return 2
     names = args.repo or known
-    unknown = [name for name in names if name not in known and not (root / name).is_dir()]
+    unknown = [
+        name for name in names if name not in known and not (root / name).is_dir()
+    ]
     if unknown:
         print(
             f"parity: unknown repository {', '.join(unknown)}; known: {', '.join(known)}",

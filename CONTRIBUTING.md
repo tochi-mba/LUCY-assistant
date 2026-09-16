@@ -23,9 +23,12 @@ host is not Linux.
 
 Bootstrap runs `gh auth login` (browser or a pasted token) when you are not signed in
 and makes `gh` git's credential helper, so private checkouts and `uv`'s client fetches
-use your account. CI has a read-only GitHub App of its own, connected from the browser
-with `uv run scripts/connect_github.py`; [private-repos.md](docs/private-repos.md)
-explains both.
+use your account. That login is what you use to run Lucy locally. CI uses the public
+[lucy-assistant family CI](https://github.com/apps/lucy-assistant-family-ci) app:
+`python scripts/connect_github.py` opens its Install page. A copy under another GitHub
+account installs **that same app** on its own repositories; the app private key stays
+in the family broker and is never copied into a repository.
+[private-repos.md](docs/private-repos.md) explains both.
 
 Work in the [multi-root workspace](LUCY-assistant.code-workspace) or the
 [devcontainer](.devcontainer/devcontainer.json).
@@ -54,7 +57,8 @@ fail is not a check; `tests/test_parity.py` refuses one.
   CHANGELOG (Keep a Changelog), the `docs/` set, `.editorconfig`, `.pre-commit-config.yaml`.
 - **Size:** no file under `src/`, `app/`, `tests/`, `scripts/`, or `clients/` may
   exceed 1000 lines. Split the module. [ADR-0005](docs/adr/0005-no-file-over-1000-lines.md).
-- **CI secrets:** `ci-secrets` requires `secrets: inherit` on the reusable workflow job.
+- **CI identity:** `ci-secrets` requires top-level `id-token: write`; app keys and
+  long-lived tokens are forbidden in service repositories.
 - **Docker secrets:** `docker-secret` requires the BuildKit syntax directive on line 1
   and a `github_token` secret mount on every `uv sync` RUN.
 

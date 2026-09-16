@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import runpy
+import sys
 from pathlib import Path
 
 import pytest
@@ -82,11 +82,17 @@ def test_rewrites_family_configuration_and_reports_relocks(
     assert after["repos.txt"] == before["repos.txt"].replace(
         b"github.com/original/Alpha", b"github.com/new-owner/Alpha"
     ).replace(b"github.com/original/Beta", b"github.com/new-owner/Beta")
-    assert b"repository: new-owner/LUCY-assistant" in after[".github/workflows/service.yml"]
+    assert (
+        b"repository: original/LUCY-assistant" in after[".github/workflows/service.yml"]
+    )
     for name in ("Alpha", "Beta"):
         ci = after[f"{name}/.github/workflows/ci.yml"]
-        assert b"uses: new-owner/LUCY-assistant/.github/workflows/service.yml@v1" in ci or (
-            b"uses: 'new-owner/LUCY-assistant/.github/workflows/service.yml@v1'" in ci
+        assert (
+            b"uses: original/LUCY-assistant/.github/workflows/service.yml@old" in ci
+            or (
+                b"uses: 'original/LUCY-assistant/.github/workflows/service.yml@old'"
+                in ci
+            )
         )
         assert after[f"{name}/uv.lock"] == before[f"{name}/uv.lock"]
     project = after["Alpha/pyproject.toml"]
@@ -95,8 +101,13 @@ def test_rewrites_family_configuration_and_reports_relocks(
     assert b"git = 'https://github.com/external/Other'" in project
     assert b"# git = 'https://github.com/original/Alpha'" in project
     assert b"[tool.example]\ngit = 'https://github.com/original/Alpha'" in project
-    assert b"git = 'https://github.com/new-owner/Alpha' # retain" in after["Beta/pyproject.toml"]
-    assert b"# uses: original/LUCY-assistant/" in after["Alpha/.github/workflows/ci.yml"]
+    assert (
+        b"git = 'https://github.com/new-owner/Alpha' # retain"
+        in after["Beta/pyproject.toml"]
+    )
+    assert (
+        b"# uses: original/LUCY-assistant/" in after["Alpha/.github/workflows/ci.yml"]
+    )
     assert (
         b"external/workflows/.github/workflows/test.yml@v3"
         in after["Alpha/.github/workflows/ci.yml"]
@@ -108,12 +119,22 @@ def test_rewrites_family_configuration_and_reports_relocks(
     assert "uv lock --directory Beta" in output
 
 
-def test_custom_ref_and_keep_sources(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_custom_ref_and_keep_sources(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     root = family(tmp_path)
     before = snapshot(root)
     assert (
         retarget.main(
-            ["someone", "--root", str(root), "--ref", "release/private", "--keep-sources"]
+            [
+                "someone",
+                "--root",
+                str(root),
+                "--ref",
+                "release/private",
+                "--keep-sources",
+                "--self-host-ci",
+            ]
         )
         == 0
     )
@@ -153,7 +174,9 @@ def test_preserves_crlf_and_is_idempotent(
     assert "repos.txt: 0" in capsys.readouterr().out
 
 
-def test_missing_manifest_exits_two(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_missing_manifest_exits_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert retarget.main(["someone", "--root", str(tmp_path)]) == 2
     assert "repos.txt" in capsys.readouterr().err
 
@@ -168,9 +191,12 @@ def test_missing_checkouts_are_reported_and_do_not_block_manifest(
 
 
 @pytest.mark.parametrize(
-    "owner", ["", "../bad", "bad/name", "-bad", "bad-", "bad name", "bad--name", "x" * 40]
+    "owner",
+    ["", "../bad", "bad/name", "-bad", "bad-", "bad name", "bad--name", "x" * 40],
 )
-def test_invalid_owner_is_usage_error_without_writing(tmp_path: Path, owner: str) -> None:
+def test_invalid_owner_is_usage_error_without_writing(
+    tmp_path: Path, owner: str
+) -> None:
     root = family(tmp_path)
     before = snapshot(root)
     with pytest.raises(SystemExit, match="2"):
@@ -179,7 +205,19 @@ def test_invalid_owner_is_usage_error_without_writing(tmp_path: Path, owner: str
 
 
 @pytest.mark.parametrize(
-    "ref", ["", "bad ref", "bad@ref", "../bad", "bad\nref", "a//b", "a/.b", "a.lock", "a/", "a."]
+    "ref",
+    [
+        "",
+        "bad ref",
+        "bad@ref",
+        "../bad",
+        "bad\nref",
+        "a//b",
+        "a/.b",
+        "a.lock",
+        "a/",
+        "a.",
+    ],
 )
 def test_invalid_ref_is_usage_error_without_writing(tmp_path: Path, ref: str) -> None:
     root = family(tmp_path)
@@ -190,9 +228,16 @@ def test_invalid_ref_is_usage_error_without_writing(tmp_path: Path, ref: str) ->
 
 
 @pytest.mark.parametrize(
-    "entry", ["../outside https://github.com/old/Repo", "Alpha", "Alpha https://example.com/Repo"]
+    "entry",
+    [
+        "../outside https://github.com/old/Repo",
+        "Alpha",
+        "Alpha https://example.com/Repo",
+    ],
 )
-def test_malformed_manifest_is_rejected_before_any_edit(tmp_path: Path, entry: str) -> None:
+def test_malformed_manifest_is_rejected_before_any_edit(
+    tmp_path: Path, entry: str
+) -> None:
     root = family(tmp_path)
     write(root / "repos.txt", entry + "\n")
     before = snapshot(root)
@@ -218,7 +263,9 @@ def test_duplicate_manifest_folder_is_rejected(tmp_path: Path) -> None:
     assert snapshot(tmp_path) == before
 
 
-def test_source_parser_respects_escaped_quotes_hashes_and_table_boundaries(tmp_path: Path) -> None:
+def test_source_parser_respects_escaped_quotes_hashes_and_table_boundaries(
+    tmp_path: Path,
+) -> None:
     root = family(tmp_path)
     text = (
         "[tool.uv.sources]\n"
@@ -252,7 +299,10 @@ def test_outside_root_is_rejected_before_writes(
 
 @pytest.mark.parametrize("method", ["read_bytes", "write_bytes"])
 def test_io_failures_are_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], method: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    method: str,
 ) -> None:
     root = family(tmp_path)
     before = snapshot(root)
@@ -270,12 +320,16 @@ def test_io_failures_are_reported(
     assert snapshot(root) == before
 
 
-def test_cli_entrypoint_and_default_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_entrypoint_and_default_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = family(tmp_path)
     before = snapshot(root)
     monkeypatch.setattr(retarget, "META_ROOT", root)
     assert retarget.main(["someone", "--dry-run"]) == 0
-    monkeypatch.setattr(sys, "argv", ["retarget.py", "someone", "--root", str(root), "--dry-run"])
+    monkeypatch.setattr(
+        sys, "argv", ["retarget.py", "someone", "--root", str(root), "--dry-run"]
+    )
     with pytest.raises(SystemExit, match="0"):
         runpy.run_path(str(ROOT / "scripts/retarget.py"), run_name="__main__")
     assert snapshot(root) == before
@@ -286,7 +340,9 @@ def test_mixed_newlines_and_no_final_newline_are_preserved(tmp_path: Path) -> No
     manifest = b"# header\r\nAlpha https://github.com/original/Alpha\nBeta https://github.com/original/Beta"
     (root / "repos.txt").write_bytes(manifest)
     assert retarget.main(["someone", "--root", str(root)]) == 0
-    assert (root / "repos.txt").read_bytes() == manifest.replace(b"/original/", b"/someone/")
+    assert (root / "repos.txt").read_bytes() == manifest.replace(
+        b"/original/", b"/someone/"
+    )
 
 
 def test_empty_family_manifest_is_a_noop(tmp_path: Path) -> None:

@@ -1,0 +1,79 @@
+name: LUCY family installation token
+description: Exchange this GitHub Actions job's OIDC identity for a one-hour read-only token.
+
+inputs:
+  broker-url:
+    description: The LUCY family token broker endpoint
+    required: true
+  repositories:
+    description: Comma-separated dependency repositories in this installation
+    required: false
+    default: Keyring-api,Settings-api,LUCY-assistant
+
+outputs:
+  token:
+    description: A one-hour token scoped to the requested repositories
+    value: ${{ steps.exchange.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - id: exchange
+      name: Exchange GitHub identity for an installation token
+      shell: bash
+      env:
+        BROKER_URL: ${{ inputs.broker-url }}
+        REPOSITORIES: ${{ inputs.repositories }}
+        OIDC_AUDIENCE: lucy-assistant-family-ci
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo "::error::This job needs 'permissions: id-token: write'."
+          exit 1
+        fi
+        identity_response="$(
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}"
+        )"
+        identity="$(
+          IDENTITY_RESPONSE="$identity_response" python - <<'PY'
+        import json
+        import os
+
+        value = json.loads(os.environ["IDENTITY_RESPONSE"]).get("value")
+        if not isinstance(value, str) or not value:
+            raise SystemExit("GitHub did not issue an OIDC identity token")
+        print(value)
+        PY
+        )"
+        payload="$(
+          python - <<'PY'
+        import json
+        import os
+
+        names = [name.strip() for name in os.environ["REPOSITORIES"].split(",")]
+        print(json.dumps({"repositories": [name for name in names if name]}))
+        PY
+        )"
+        response="$(
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${identity}" \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "$BROKER_URL"
+        )"
+        token="$(
+          RESPONSE="$response" python - <<'PY'
+        import json
+        import os
+
+        value = json.loads(os.environ["RESPONSE"]).get("token")
+        if not isinstance(value, str) or not value:
+            raise SystemExit("The family token broker returned no token")
+        print(value)
+        PY
+        )"
+        echo "::add-mask::$token"
+        echo "token=$token" >> "$GITHUB_OUTPUT"

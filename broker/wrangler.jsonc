@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lucy-family-ci-token-broker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-16",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "vars": {
+    "APP_CLIENT_ID": "Iv23liOlaN44BPmIvKgJ",
+    "OIDC_AUDIENCE": "lucy-assistant-family-ci",
+    "TRUSTED_WORKFLOW": "tochi-mba/LUCY-assistant/.github/workflows/service.yml@refs/tags/v1",
+  },
+}

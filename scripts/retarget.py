@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Point a copy of the LUCY family at a GitHub owner, without changing uv.lock.
 
-Usage: python scripts/retarget.py OWNER [--ref v1] [--root DIR] [--keep-sources] [--dry-run]
+Usage: python scripts/retarget.py OWNER [--root DIR] [--keep-sources] [--dry-run]
 
 Standard library only. All inputs are checked before writing; edits preserve existing
-line endings and comments. Run the printed uv lock commands after creating the forks.
+line endings and comments. By default, callers keep using the trusted upstream workflow
+that the shared app's broker accepts. ``--self-host-ci`` retargets that workflow too,
+for an owner operating a separate app and broker. Run the printed uv lock commands after
+creating the copies.
 """
 
 from __future__ import annotations
@@ -20,7 +23,9 @@ from pathlib import Path
 META_ROOT = Path(__file__).resolve().parents[1]
 _OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 _URL = re.compile(r"https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)(/?)")
-_MANIFEST = re.compile(r"^(\s*[A-Za-z0-9_.-]+\s+)(https://github\.com/[^\s#]+)", re.MULTILINE)
+_MANIFEST = re.compile(
+    r"^(\s*[A-Za-z0-9_.-]+\s+)(https://github\.com/[^\s#]+)", re.MULTILINE
+)
 _CALLER = re.compile(
     r"^(\s*uses:\s*['\"]?)[A-Za-z0-9-]+"
     r"(/LUCY-assistant/\.github/workflows/service\.yml@)([^\s'\"#]+)",
@@ -44,7 +49,9 @@ class Edit:
 
 def owner_arg(value: str) -> str:
     if not _OWNER.fullmatch(value) or "--" in value:
-        raise argparse.ArgumentTypeError("OWNER must be a GitHub username or organization name")
+        raise argparse.ArgumentTypeError(
+            "OWNER must be a GitHub username or organization name"
+        )
     return value
 
 
@@ -104,7 +111,9 @@ def _manifest(text: str) -> tuple[list[str], set[str]]:
         if fields[0].casefold() in {folder.casefold() for folder in folders}:
             raise ValueError(f"repos.txt:{number}: duplicate folder {fields[0]}")
         folders.append(fields[0])
-        repositories.add(fields[1].rstrip("/").rsplit("/", 1)[1].removesuffix(".git").casefold())
+        repositories.add(
+            fields[1].rstrip("/").rsplit("/", 1)[1].removesuffix(".git").casefold()
+        )
     return folders, repositories
 
 
@@ -126,7 +135,9 @@ def _source_urls(text: str, owner: str, repositories: set[str]) -> tuple[str, in
             def replace(match: re.Match[str]) -> str:
                 nonlocal count
                 url = match[3]
-                repository = url.rstrip("/").rsplit("/", 1)[1].removesuffix(".git").casefold()
+                repository = (
+                    url.rstrip("/").rsplit("/", 1)[1].removesuffix(".git").casefold()
+                )
                 new = _retarget_url(url, owner) if repository in repositories else url
                 count += new != url
                 return f"{match[1]}{match[2]}{new}{match[2]}"
@@ -152,7 +163,7 @@ def _rewrite(
 
 
 def plan(
-    root: Path, owner: str, ref: str, keep_sources: bool
+    root: Path, owner: str, ref: str, keep_sources: bool, self_host_ci: bool = False
 ) -> tuple[list[Edit], list[str], list[str]]:
     manifest = root / "repos.txt"
     contents = manifest.read_bytes()
@@ -162,7 +173,10 @@ def plan(
     relock = []
 
     def add(
-        path: Path, transform: Callable[[str], tuple[str, int]], *, original: bytes | None = None
+        path: Path,
+        transform: Callable[[str], tuple[str, int]],
+        *,
+        original: bytes | None = None,
     ) -> int:
         if not path.resolve().is_relative_to(root):
             raise ValueError(f"refusing to change a file outside --root: {path}")
@@ -176,21 +190,28 @@ def plan(
 
     add(
         manifest,
-        lambda text: _rewrite(text, _MANIFEST, lambda m: m[1] + _retarget_url(m[2], owner)),
+        lambda text: _rewrite(
+            text, _MANIFEST, lambda m: m[1] + _retarget_url(m[2], owner)
+        ),
         original=contents,
     )
-    add(
-        root / ".github/workflows/service.yml",
-        lambda text: _rewrite(text, _META_CHECKOUT, lambda m: m[1] + owner + m[2]),
-    )
+    if self_host_ci:
+        add(
+            root / ".github/workflows/service.yml",
+            lambda text: _rewrite(text, _META_CHECKOUT, lambda m: m[1] + owner + m[2]),
+        )
     for folder in folders:
         checkout = root / folder
-        add(
-            checkout / ".github/workflows/ci.yml",
-            lambda text: _rewrite(text, _CALLER, lambda m: m[1] + owner + m[2] + ref),
-        )
+        if self_host_ci:
+            add(
+                checkout / ".github/workflows/ci.yml",
+                lambda text: _rewrite(
+                    text, _CALLER, lambda m: m[1] + owner + m[2] + ref
+                ),
+            )
         if not keep_sources and add(
-            checkout / "pyproject.toml", lambda text: _source_urls(text, owner, repositories)
+            checkout / "pyproject.toml",
+            lambda text: _source_urls(text, owner, repositories),
         ):
             relock.append(folder)
     return edits, missing, relock
@@ -202,9 +223,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--ref", type=ref_arg, default="v1", help="reusable-workflow ref (default: v1)"
     )
-    parser.add_argument("--root", type=Path, default=META_ROOT, help="family checkout directory")
     parser.add_argument(
-        "--keep-sources", action="store_true", help="keep using the original client sources"
+        "--root", type=Path, default=META_ROOT, help="family checkout directory"
+    )
+    parser.add_argument(
+        "--keep-sources",
+        action="store_true",
+        help="keep using the original client sources",
+    )
+    parser.add_argument(
+        "--self-host-ci",
+        action="store_true",
+        help="also point callers at this owner's workflow (requires a separate app and broker)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="report changes without writing anything"
@@ -212,7 +242,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:
-        edits, missing, relock = plan(root, args.owner, args.ref, args.keep_sources)
+        edits, missing, relock = plan(
+            root, args.owner, args.ref, args.keep_sources, args.self_host_ci
+        )
         if not args.dry_run:
             for edit in edits:
                 if edit.count:
@@ -227,7 +259,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     for relative in missing:
         print(f"{relative}: missing; skipped")
     if relock:
-        print("\nuv.lock was not changed. After creating the forks, run from the family directory:")
+        print(
+            "\nuv.lock was not changed. After creating the forks, run from the family directory:"
+        )
         for folder in relock:
             print(f"  uv lock --directory {folder}")
     return 0

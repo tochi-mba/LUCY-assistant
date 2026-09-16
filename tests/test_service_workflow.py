@@ -12,10 +12,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/service.yml"
-PROVE_NAME = "Prove this job may read the family"
-MINT_NAME = "Mint a one-hour read-only token from the family's GitHub App"
+TOKEN_ACTION = ROOT / ".github/actions/family-token/action.yml"
+MINT_NAME = "Mint a one-hour token for this app installation"
 AUTH_NAME = "Let git read the family's private repositories"
 MINTED = "${{ steps.family-token.outputs.token }}"
+BROKER = (
+    "https://lucy-family-ci-token-broker.lucy-assistant-family.workers.dev/v1/token"
+)
 
 
 def workflow() -> dict:
@@ -29,12 +32,6 @@ def index_of(steps: list[dict], name: str) -> int:
     return found[0]
 
 
-def mint_block(steps: list[dict]) -> tuple[dict, dict]:
-    prove, mint = index_of(steps, PROVE_NAME), index_of(steps, MINT_NAME)
-    assert mint == prove + 1
-    return steps[prove], steps[mint]
-
-
 def auth_steps() -> list[dict]:
     return [
         step
@@ -44,38 +41,43 @@ def auth_steps() -> list[dict]:
     ]
 
 
-def test_the_app_secrets_are_declared_and_optional() -> None:
-    declared = workflow()["on"]["workflow_call"]["secrets"]
-    assert set(declared) == {"FAMILY_APP_CLIENT_ID", "FAMILY_APP_PRIVATE_KEY"}
-    assert all(secret["required"] == "false" for secret in declared.values())
+def test_the_workflow_uses_oidc_and_declares_no_user_secrets() -> None:
+    called = workflow()["on"]["workflow_call"]
+    assert "secrets" not in called
+    assert workflow()["permissions"] == {"contents": "read", "id-token": "write"}
 
 
-def test_no_job_reads_a_long_lived_family_token() -> None:
+def test_no_job_reads_an_app_key_or_long_lived_token() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "secrets.FAMILY_GITHUB_TOKEN" not in text
-    assert text.count("permission-contents: read") == text.count(MINT_NAME)
+    assert "secrets." not in text
+    assert "FAMILY_APP_PRIVATE_KEY" not in text
+
+
+def test_token_action_uses_github_oidc_and_masks_the_broker_result() -> None:
+    source = TOKEN_ACTION.read_text(encoding="utf-8")
+    action = yaml.safe_load(source)
+    assert action["runs"]["using"] == "composite"
+    shell = action["runs"]["steps"][0]["run"]
+    assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" in shell
+    assert "audience=${OIDC_AUDIENCE}" in shell
+    assert 'echo "::add-mask::$token"' in shell
+    assert 'echo "token=$token" >> "$GITHUB_OUTPUT"' in shell
+    assert "FAMILY_APP_PRIVATE_KEY" not in source
+    assert "secrets." not in source
 
 
 def test_the_minting_block_is_identical_wherever_it_appears() -> None:
     blocks = [
-        mint_block(job["steps"])
+        job["steps"][index_of(job["steps"], MINT_NAME)]
         for job in workflow()["jobs"].values()
         if any(step.get("name") == MINT_NAME for step in job["steps"])
     ]
     assert len(blocks) == 10
     assert all(block == blocks[0] for block in blocks)
-    prove, mint = blocks[0]
-    assert prove["id"] == "family-app"
-    assert prove["env"] == {"APP_ID": "${{ secrets.FAMILY_APP_CLIENT_ID }}"}
+    mint = blocks[0]
     assert mint["id"] == "family-token"
-    assert mint["if"] == "${{ steps.family-app.outputs.installed == 'true' }}"
-    assert mint["uses"].startswith("actions/create-github-app-token@v3")
-    assert mint["with"] == {
-        "client-id": "${{ secrets.FAMILY_APP_CLIENT_ID }}",
-        "private-key": "${{ secrets.FAMILY_APP_PRIVATE_KEY }}",
-        "owner": "${{ github.repository_owner }}",
-        "permission-contents": "read",
-    }
+    assert mint["uses"] == "tochi-mba/LUCY-assistant/.github/actions/family-token@v1"
+    assert mint["with"] == {"broker-url": BROKER}
 
 
 def test_every_dependency_fetch_is_authenticated_first() -> None:
@@ -94,9 +96,11 @@ def test_every_dependency_fetch_is_authenticated_first() -> None:
         assert mint < auth < min(fetches), name
         if name == "tests":
             install_git = next(
-                i for i, step in enumerate(steps) if "apt-get install" in step.get("run", "")
+                i
+                for i, step in enumerate(steps)
+                if "apt-get install" in step.get("run", "")
             )
-            assert install_git < index_of(steps, PROVE_NAME)
+            assert install_git < mint
         checked.append(name)
     assert set(checked) == {
         "lock",
@@ -124,7 +128,9 @@ def test_docker_passes_the_minted_token_as_a_buildkit_secret() -> None:
 
 def test_meta_checkout_uses_the_minted_token_without_persisting_it() -> None:
     steps = workflow()["jobs"]["parity"]["steps"]
-    checkout = next(i for i, step in enumerate(steps) if "repository" in step.get("with", {}))
+    checkout = next(
+        i for i, step in enumerate(steps) if "repository" in step.get("with", {})
+    )
     assert index_of(steps, MINT_NAME) < checkout
     assert (
         steps[checkout]["with"]["token"]
@@ -133,36 +139,31 @@ def test_meta_checkout_uses_the_minted_token_without_persisting_it() -> None:
     assert steps[checkout]["with"]["persist-credentials"] == "false"
 
 
-def test_prove_step_reports_presence_without_printing_the_secret(tmp_path: Path) -> None:
-    bash = Path("C:/Program Files/Git/bin/bash.exe") if os.name == "nt" else shutil.which("bash")
-    if not bash or not Path(bash).is_file():
-        pytest.skip("bash is required for the isolated shell test")
-    prove = mint_block(workflow()["jobs"]["lock"]["steps"])[0]
-    for app_id, expected in (("", "installed=false"), ("12345", "installed=true")):
-        output = tmp_path / "output"
-        output.write_text("", encoding="utf-8")
-        env = {**os.environ, "APP_ID": app_id, "GITHUB_OUTPUT": output.as_posix()}
-        result = subprocess.run(
-            [str(bash), "-c", prove["run"]], env=env, capture_output=True, text=True, check=False
-        )
-        assert result.returncode == 0, result.stderr
-        assert output.read_text(encoding="utf-8").strip() == expected
-        assert "12345" not in result.stdout + result.stderr
-
-
 @pytest.mark.parametrize("token", ["", "test-only-not-a-real-token"])
-def test_authentication_shell_with_and_without_a_token(tmp_path: Path, token: str) -> None:
-    bash = Path("C:/Program Files/Git/bin/bash.exe") if os.name == "nt" else shutil.which("bash")
+def test_authentication_shell_with_and_without_a_token(
+    tmp_path: Path, token: str
+) -> None:
+    bash = (
+        Path("C:/Program Files/Git/bin/bash.exe")
+        if os.name == "nt"
+        else shutil.which("bash")
+    )
     if not bash or not Path(bash).is_file() or not shutil.which("git"):
         pytest.skip("bash and git are required for the isolated auth shell test")
     config = tmp_path / "gitconfig"
     env = os.environ.copy()
     env.update(
-        FAMILY_GITHUB_TOKEN=token, GIT_CONFIG_GLOBAL=config.as_posix(), GIT_CONFIG_NOSYSTEM="1"
+        FAMILY_GITHUB_TOKEN=token,
+        GIT_CONFIG_GLOBAL=config.as_posix(),
+        GIT_CONFIG_NOSYSTEM="1",
     )
     step = auth_steps()[0]
     result = subprocess.run(
-        [str(bash), "-c", step["run"]], env=env, capture_output=True, text=True, check=False
+        [str(bash), "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert "test-only-not-a-real-token" not in result.stdout + result.stderr
@@ -189,3 +190,4 @@ def test_meta_ci_installs_the_test_dependencies() -> None:
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "--with pyyaml" in ci
     assert "--with cryptography" in ci
+    assert "npm run check" in ci
