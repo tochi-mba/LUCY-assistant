@@ -69,6 +69,18 @@ def test_eight_services_on_one_network() -> None:
         assert service["healthcheck"]["test"]
 
 
+def test_each_service_is_told_to_listen_on_its_own_port() -> None:
+    # Compose used to hand persona and media-tool their pre-move ports, so each listened
+    # where nothing was published and its healthcheck never answered.
+    document = load()
+    for name, service in document["services"].items():
+        port = HOST_PORTS[name].split(":")[1]
+        env = service.get("environment", {})
+        for key, value in env.items():
+            if key.endswith("_PORT") and "EMAIL" not in key:
+                assert str(value) == port, f"{name}: {key}={value}, container port is {port}"
+
+
 def test_consumers_depend_on_keyring() -> None:
     document = load()
     for name, service in document["services"].items():
