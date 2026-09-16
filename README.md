@@ -122,6 +122,17 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 
 ## Signing in to GitHub
 
+Day to day:
+
+```bash
+gh auth login --web          # only if `gh auth status` says you are not signed in
+bash scripts/bootstrap.sh
+make images                  # uses the same browser session
+```
+
+If you ever log out of `gh`, sign in in the browser again, then run
+`python scripts/share_github.py` (or `make github-ci`) so Actions keeps the same login.
+
 Bootstrap opens a browser (`gh auth login --web`) when you are not signed in and a
 terminal is available. It then runs `gh auth setup-git`, so both `git clone` and
 `uv`'s git fetches use that login. `gh auth status` tells you which account is active.

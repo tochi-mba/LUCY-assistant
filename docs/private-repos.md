@@ -6,6 +6,17 @@ There is no personal access token to mint.
 Application tokens in `.env.family` are unrelated: those are keyring and
 settings-api service tokens.
 
+Day to day:
+
+```bash
+gh auth login --web          # only if `gh auth status` says you are not signed in
+bash scripts/bootstrap.sh
+make images                  # uses the same browser session
+```
+
+If you ever log out of `gh`, sign in in the browser again, then run
+`python scripts/share_github.py` (or `make github-ci`) so Actions keeps the same login.
+
 | Where you are working | How you sign in | What reads it |
 | --- | --- | --- |
 | Developer machine | `gh auth login --web` (browser window), then `gh auth setup-git` | git clone and uv's git fetches |
