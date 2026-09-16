@@ -4,10 +4,11 @@
 help: ## Show family commands
 	@echo "test       Run the family tooling and configuration tests"
 	@echo "parity     Check all service repositories against the family standard"
-	@echo "images     Build all images with your gh sign-in (browser or token)"
+	@echo "images     Build default images with your gh sign-in (browser or token)"
 	@echo "github-ci  Install lucy-assistant family CI on the family repositories"
-	@echo "up         Build and start all eight services (requires .env.family)"
+	@echo "up         Build and start the default compose services"
 	@echo "down       Stop the family, keeping its data volumes"
+	@echo "           Set COMPOSE_PROFILES=local to include local-only compose services"
 
 test:
 	uv run --with pytest --with pyyaml --with cryptography pytest tests -q

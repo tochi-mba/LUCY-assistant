@@ -23,7 +23,8 @@ Usage: pwsh scripts/bootstrap.ps1 [-DryRun] [-NoInstall] [-Check] [-Help]
   -Check       run ``make check`` per checkout and print a summary table
   -Help        this message
 
-Clones missing repositories from repos.txt. An existing checkout is left alone
+Clones missing repositories from repos.txt (and optional .repos.local.txt).
+An existing checkout is left alone
 (no pull, fetch, reset, or checkout). Docker is reported, never installed.
 "@
 }
@@ -210,12 +211,22 @@ function Get-RepoRows {
     if (-not (Test-Path $path)) {
         throw "repos.txt is missing"
     }
-    Get-Content -Path $path | ForEach-Object {
-        $raw = $_
-        $line = ($raw -split "#", 2)[0].Trim()
-        if ($line) {
-            $parts = $line.Split(" ", 2, [StringSplitOptions]::RemoveEmptyEntries)
-            [pscustomobject]@{ Name = $parts[0]; Url = $(if ($parts.Count -gt 1) { $parts[1] } else { "" }) }
+    $paths = @($path)
+    $local = Join-Path $Root ".repos.local.txt"
+    if (-not (Test-Path $local)) { $local = Join-Path $Root "repos.local.txt" }
+    if (Test-Path $local) { $paths += $local }
+    $seen = @{}
+    foreach ($manifest in $paths) {
+        Get-Content -Path $manifest | ForEach-Object {
+            $raw = $_
+            $line = ($raw -split "#", 2)[0].Trim()
+            if ($line) {
+                $parts = $line.Split(" ", 2, [StringSplitOptions]::RemoveEmptyEntries)
+                $name = $parts[0]
+                if ($seen.ContainsKey($name)) { return }
+                $seen[$name] = $true
+                [pscustomobject]@{ Name = $name; Url = $(if ($parts.Count -gt 1) { $parts[1] } else { "" }) }
+            }
         }
     }
 }
@@ -226,7 +237,7 @@ function Test-Interactive {
 
 function Ensure-GitHub {
     Set-Tool "github" "not signed in"
-    $instruction = "Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
+    $instruction = "Sign in to GitHub so bootstrap can clone private repositories: choose the browser, or paste a token when asked"
     if (-not (Test-Have "gh")) {
         Write-Say $instruction
         Write-Say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"

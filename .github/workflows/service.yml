@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       live-browser-job:
-        description: Run a Playwright live-browser job (Media-tool, Web-search-api)
+        description: Run a Playwright live-browser job when the service needs Chromium
         type: boolean
         default: false
       live-browser-marker:

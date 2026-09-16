@@ -2,14 +2,14 @@
 
 ## Reporting a vulnerability
 
-Email **tochimba27@gmail.com**. GitHub's private vulnerability reporting is available
-for public repositories only; email works while this family is private.
+Email **tochimba27@gmail.com**, or use GitHub's private vulnerability reporting on any
+public repository in this family. Prefer private reporting when the UI offers it.
 
 Do not open a public issue, and do not put a proof of concept in a pull request,
 for anything that could be used to read another person's credentials, settings, or
 personal data, or to run a command outside an environments-api sandbox.
 
-A report in one of the eight service repositories belongs here too: the family is
+A report in one of the service repositories belongs here too: the family is
 reviewed as one, and the fix usually lands in a shared client or a shared rule.
 
 ## What this family holds

@@ -160,6 +160,7 @@ services:
     networks: [lucy]
 
   media-tool:
+    profiles: ["local"]
     build:
       context: ./Media-tool
       secrets: [github_token]

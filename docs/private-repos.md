@@ -1,32 +1,38 @@
 # Private repositories and GitHub sign-in
 
-Every repository in this family can be private. Three things need to read them, and each
-signs in differently:
+The canonical published family repositories are public. Your own copy may make any
+repository private. Three things need to read private repositories, and each signs
+in differently:
 
 | Who | Signs in with | What it is used for |
 | --- | --- | --- |
-| You, on your machine | `gh auth login`: a browser window, or a pasted token | `git clone` in bootstrap, `uv`'s fetch of the client packages, `make images` |
+| You, on your machine | `gh auth login`: a browser window, or a pasted token | `git clone` for private checkouts, `uv`'s fetch when sources are private, `make images` |
 | The devcontainer | the same login, forwarded as `GH_TOKEN`, or `gh auth login` inside it | the same |
 | GitHub Actions | the **family GitHub App**, installed on the family repositories | a one-hour read-only token per CI job: `uv` fetches, the Docker build, the parity job's checkout of this repository |
 
 Nothing else needs a GitHub credential. The running services never receive one.
+Public hubs and clients fetch anonymously; no login is required to clone this
+meta-repo and the public services in `repos.txt`. Private checkouts belong in
+gitignored `.repos.local.txt` (see `.repos.local.txt.example`).
 
 ## Running Lucy on your machine
 
-Clone this repository, sign in, and bootstrap. That is the whole login:
+Clone this repository and bootstrap. Public services clone without a login; sign in
+when you need private checkouts or write access:
 
 ```bash
-gh auth login                 # browser, or paste a token — gh asks which
-bash scripts/bootstrap.sh     # clones the eight services with that account
+gh auth login                 # only needed for private checkouts / write access
+bash scripts/bootstrap.sh     # clones every repos.txt entry your account can read
 make images && make up        # optional: the family on ports 8001–8008
 ```
 
 You do **not** install or use the family GitHub App to run Lucy. The app exists only so
 GitHub Actions can fetch private git sources without holding a person's session. On a
-laptop, `gh` already is that session.
+laptop, `gh` already is that session when a private repository is involved.
 
-If you were invited to *this* family's repositories, the same login is enough: GitHub
-lets your account clone them, and CI on those repositories already uses the owner's app.
+If you were invited to *this* family's private repositories, the same login is enough:
+GitHub lets your account clone them, and CI on those repositories already uses the
+owner's app.
 
 If you copied the family under *your* GitHub account, local runs still use your `gh`
 login. For CI, install the same public app on *your* repositories — see
@@ -123,9 +129,6 @@ callers should still reference the canonical public reusable workflow at
 can be called by private repositories. The canonical meta repository stays public
 because it contains the audited workflow, broker client action, bootstrap, and
 documentation—not service code or credentials.
-
-Private vulnerability reporting is a public-repository feature, so
-[SECURITY.md](../SECURITY.md) gives an email address instead.
 
 ## Check the image boundary
 

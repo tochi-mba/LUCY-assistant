@@ -12,7 +12,8 @@ Usage: scripts/bootstrap.sh [--dry-run] [--no-install] [--check] [--help]
   --check        run `make check` per checkout and print a summary table
   --help         this message
 
-Clones missing repositories from repos.txt. An existing checkout is left alone
+Clones missing repositories from repos.txt (and optional .repos.local.txt).
+An existing checkout is left alone
 (no pull, fetch, reset, or checkout). Docker is reported, never installed.
 EOF
 }
@@ -187,7 +188,7 @@ is_interactive() { [[ -t 0 && -t 1 ]]; }
 
 ensure_github() {
   local login
-  local instruction="Sign in to GitHub so bootstrap can clone the family's private repositories: choose the browser, or paste a token when asked"
+  local instruction="Sign in to GitHub so bootstrap can clone private repositories: choose the browser, or paste a token when asked"
   if ! have gh; then
     say "$instruction"
     say "bootstrap: install gh, then run gh auth login --hostname github.com --git-protocol https"
@@ -221,6 +222,16 @@ ensure_github() {
   fi
 }
 
+_repo_manifest() {
+  # Public manifest, then optional gitignored local extras (private checkouts).
+  cat "$ROOT/repos.txt"
+  if [[ -f "$ROOT/.repos.local.txt" ]]; then
+    cat "$ROOT/.repos.local.txt"
+  elif [[ -f "$ROOT/repos.local.txt" ]]; then
+    cat "$ROOT/repos.local.txt"
+  fi
+}
+
 clone_missing() {
   local line name url
   if [[ ! -f "$ROOT/repos.txt" ]]; then
@@ -249,7 +260,7 @@ clone_missing() {
     if ! GIT_TERMINAL_PROMPT=0 git clone "$url" "$ROOT/$name"; then
       say "$name: your account cannot see $url; ask for access, or check gh auth status"
     fi
-  done < "$ROOT/repos.txt"
+  done < <(_repo_manifest)
 }
 
 install_repos() {
@@ -273,7 +284,7 @@ install_repos() {
       continue
     fi
     make -C "$ROOT/$name" install
-  done < "$ROOT/repos.txt"
+  done < <(_repo_manifest)
 }
 
 check_repos() {
@@ -306,7 +317,7 @@ check_repos() {
       status="FAIL"
     fi
     printf '%-22s  %s\n' "$name" "$status"
-  done < "$ROOT/repos.txt"
+  done < <(_repo_manifest)
 }
 
 print_tool_table() {

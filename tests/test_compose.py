@@ -67,10 +67,14 @@ def test_eight_services_on_one_network() -> None:
         assert HOST_PORTS[name] in service["ports"]
         assert "healthcheck" in service
         assert service["healthcheck"]["test"]
+        if name == "media-tool":
+            assert service.get("profiles") == ["local"]
+        else:
+            assert "profiles" not in service
 
 
 def test_each_service_is_told_to_listen_on_its_own_port() -> None:
-    # Compose used to hand persona and media-tool their pre-move ports, so each listened
+    # Compose used to hand persona its pre-move port, so it listened
     # where nothing was published and its healthcheck never answered.
     document = load()
     for name, service in document["services"].items():

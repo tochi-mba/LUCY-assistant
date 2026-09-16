@@ -5,7 +5,6 @@
     { "name": "User-api", "path": "User-api" },
     { "name": "Settings-api", "path": "Settings-api" },
     { "name": "Persona-api", "path": "Persona-api" },
-    { "name": "Media-tool", "path": "Media-tool" },
     { "name": "Web-search-api", "path": "Web-search-api" },
     { "name": "Spotify-api", "path": "Spotify-api" },
     { "name": "Environments-api", "path": "Environments-api" }

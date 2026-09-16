@@ -16,7 +16,7 @@ sentence you want in a runbook.
 | User-api | 8002 |
 | Settings-api | 8003 |
 | Persona-api | 8004 |
-| Media-tool | 8005 |
+| *(reserved)* | 8005 |
 | Web-search-api | 8006 |
 | Spotify-api | 8007 |
 | Environments-api | 8008 |
@@ -42,7 +42,7 @@ Applied 2026-09-16: every repository's default now matches the table, in its
 config, its Dockerfile, its `make run`, its `.env.example` and its
 documentation. Four services moved, so anybody with a bookmark, a script or a
 reverse proxy pointing at the old number has to change it once — Persona-api
-from 8002, Media-tool, Web-search-api and Spotify-api from 8000, and
+from 8002, Web-search-api and Spotify-api from 8000, and
 Environments-api from 8080. Each move is recorded in that repository's
 changelog as a breaking change.
 

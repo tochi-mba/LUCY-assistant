@@ -1,12 +1,9 @@
-# One repository per line: <folder> <https clone URL>, private or public.
-# Bootstrap clones each repository with your signed-in GitHub account.
-# To add one, append a line and re-run bootstrap; see README.md for CI setup.
-# For a fork, scripts/retarget.py OWNER rewrites the GitHub owner.
+# One repository per line: <folder> <https clone URL>.
+# Public services. Private checkouts: copy .repos.local.txt.example → .repos.local.txt
 Keyring-api https://github.com/tochi-mba/Keyring-api.git
 Settings-api https://github.com/tochi-mba/Settings-api.git
 User-api https://github.com/tochi-mba/User-api.git
 Persona-api https://github.com/tochi-mba/Persona-api.git
-Media-tool https://github.com/tochi-mba/Media-tool.git
 Web-search-api https://github.com/tochi-mba/Web-search-api.git
 Spotify-api https://github.com/tochi-mba/Spotify-api.git
 Environments-api https://github.com/tochi-mba/Environments-api.git

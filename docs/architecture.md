@@ -39,7 +39,6 @@ User-api, Persona-api, and Settings-api never call `/v1/internal`. They pin
 | User-api | Facts about the person | No. File mode 0600. |
 | Persona-api | The assistant's notes about itself | No. File mode 0600. |
 | Settings-api | Per-person choices | No. File mode 0600. |
-| Media-tool | Job records and downloaded files | No. TTL-swept. |
 | Web-search-api | In-memory jobs | Process lifetime only. |
 | Spotify-api | In-memory jobs | Process lifetime only. |
 | Environments-api | Workspace trees | On disk under `ENVAPI_ROOT`, sandboxed. |
@@ -49,16 +48,15 @@ settings-api. That refusal is a test, not a comment.
 
 ## Settings versus configuration
 
-Configuration (`KEYRING_PORT`, `MEDIA_TOOL_ARTIFACT_DIR`) is a fact about the
+Configuration (`KEYRING_PORT`, `SPOTIFY_API_HOST`) is a fact about the
 machine and belongs in that service's env prefix. A fact about a **person**
-(`spotify.default_market`, how long *their* downloads are kept) belongs in
+(`spotify.default_market`, how long *their* artifacts are kept) belongs in
 settings-api, namespaced, granted to the consuming service by
 `SETTINGS_API_SERVICES`. A person cannot turn off SSRF protection, robots
 compliance, or authentication from there.
 
-Media-tool is the first consumer wired (`MEDIA_TOOL_SETTINGS_API_BASE_URL` /
-`MEDIA_TOOL_SETTINGS_API_TOKEN`). The grants for the others already exist so a
-second consumer is a client call, not a settings-api release.
+Settings grants for credential consumers already exist so wiring a settings
+client is a deployment choice, not a settings-api release.
 
 ## Ports
 

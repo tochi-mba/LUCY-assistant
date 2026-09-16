@@ -20,7 +20,7 @@ directories are gitignored here and are never committed.
 **Release pressure is not shared.** A credential-vault patch and a Playwright recipe
 do not belong in one version number or one review.
 
-**Blast radius.** A checkout of media-tool should not contain keyring's signing-key
+**Blast radius.** A checkout of one tool service should not contain keyring's signing-key
 code, and a checkout of keyring should not contain a browser. Separate repositories
 make that the default rather than a subtree discipline we would forget.
 

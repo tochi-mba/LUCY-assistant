@@ -78,9 +78,10 @@ the decision is about the family — for anything future-you would otherwise re-
 
 ## What this repository may contain
 
-Bootstrap, parity, compose, the reusable workflow, family docs, ADRs about the family.
-Not a copier template. Not copies of the eight services. Not `.env.family`, and not
-a GitHub token. Run `make test` for the family tooling and configuration tests.
+Bootstrap, parity, compose, the reusable workflow, family docs, ADRs about the family,
+and a teaching example under `examples/` (not a ninth service). Not a copier template.
+Not copies of the eight services. Not `.env.family`, and not a GitHub token. Run
+`make test` for the family tooling and configuration tests.
 
 ## Pull requests
 

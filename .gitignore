@@ -1,5 +1,6 @@
-# The eight service repositories are separate git repositories. scripts/bootstrap.sh
-# clones them here from repos.txt; they are never part of this repository.
+# The service repositories are separate git repositories. scripts/bootstrap.sh
+# clones them here from repos.txt (+ optional repos.local.txt); they are never
+# part of this repository.
 /Keyring-api/
 /Settings-api/
 /User-api/
@@ -8,6 +9,10 @@
 /Web-search-api/
 /Spotify-api/
 /Environments-api/
+
+# Private / machine-local clone manifest (merged with repos.txt by bootstrap).
+/.repos.local.txt
+/repos.local.txt
 
 # Secrets generated for docker compose by scripts/genenv.py. Never commit them.
 .env.family

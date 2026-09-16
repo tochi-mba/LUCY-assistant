@@ -47,9 +47,9 @@ The suite exercises real sandbox tiers and needs root plus `unshare`.
 It serves `/healthy` and `/ready` like every sibling, with `/health` and `/health/ready`
 kept as aliases, so the default healthcheck path needs no override.
 
-## Media-tool and Web-search-api
+## Web-search-api and other Chromium jobs
 
-Both drive Chromium, so turn the live-browser job on:
+Services that drive Chromium turn the live-browser job on:
 
 ```yaml
     with:
@@ -57,8 +57,9 @@ Both drive Chromium, so turn the live-browser job on:
       extras: "--all-extras --group dev"
 ```
 
-Web-search-api also sets `live-browser-marker: browser`; Media-tool uses the default
-`live_browser`. Both have a `dev` group, `make imports`, and both health probes.
+Web-search-api sets `live-browser-marker: browser`. Callers that use the default
+marker keep `live_browser`. Both need a `dev` group, `make imports`, and both
+health probes.
 
 Spotify-api passes dummy `SPOTIFY_API_KEYRING_*` boot configuration with `docker-env`.
 

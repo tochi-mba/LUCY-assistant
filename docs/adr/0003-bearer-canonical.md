@@ -29,7 +29,7 @@ replace the JWT.
 **One header the MCP layer can set.** Anything else becomes a per-service adapter
 in the one place we most want to keep boring.
 
-**Confused-deputy resistance depends on `aud`.** A token minted for media-tool
+**Confused-deputy resistance depends on `aud`.** A token minted for one service
 must not work on user-api. Bearer JWTs carry that claim; API keys do not.
 
 **Logs and middleware already know this shape.** Request-id, authn, and

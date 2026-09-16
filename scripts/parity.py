@@ -707,14 +707,36 @@ class RepoReport:
         return self.present and all(o.result.status != FAIL for o in self.outcomes)
 
 
-def read_repo_names(repos_file: Path) -> list[str]:
-    """Read names from ``repos.txt``; blank lines and ``#`` comments are skipped."""
-    names = []
-    for raw in repos_file.read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if line:
-            names.append(line.split()[0])
+def read_repo_names(*repos_files: Path) -> list[str]:
+    """Read names from one or more manifests; blank lines and ``#`` comments are skipped.
+
+    Later files extend the list. A folder already seen is kept from the earlier file.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for repos_file in repos_files:
+        if not repos_file.is_file():
+            continue
+        for raw in repos_file.read_text(encoding="utf-8").splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            name = line.split()[0]
+            if name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
     return names
+
+
+def family_repo_files(root: Path, primary: Path | None = None) -> tuple[Path, ...]:
+    """``repos.txt`` plus ``.repos.local.txt`` (or legacy ``repos.local.txt``) when present."""
+    main = primary if primary is not None else root / "repos.txt"
+    for name in (".repos.local.txt", "repos.local.txt"):
+        local = root / name
+        if local.is_file() and local.resolve() != main.resolve():
+            return (main, local)
+    return (main,)
 
 
 def evaluate(root: Path, names: Sequence[str]) -> list[RepoReport]:
@@ -852,9 +874,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     root = args.root.resolve()
     try:
-        known = read_repo_names(args.repos_file)
+        known = read_repo_names(*family_repo_files(root, args.repos_file))
     except OSError as exc:
-        print(f"parity: cannot read {args.repos_file}: {exc.strerror}", file=sys.stderr)
+        print(f"parity: cannot read manifests: {exc.strerror}", file=sys.stderr)
         return 2
     names = args.repo or known
     unknown = [

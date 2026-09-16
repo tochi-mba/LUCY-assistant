@@ -9,8 +9,11 @@ service is its own git repository, cloned beside this file by `scripts/bootstrap
 100% branch coverage. `python scripts/parity.py` is how we notice when a checkout has
 drifted.
 
-The family can be private. Sign in once to GitHub; bootstrap, dependency installation,
-and local image builds use that account. CI uses a separate read-only repository secret.
+**The published family repositories are public by default.** Bootstrap clones every
+service listed in `repos.txt` (plus optional gitignored `.repos.local.txt`) that your
+account can read; public ones need no login. Sign in with `gh` when you need private
+checkouts, forks, or write access. CI uses the shared family GitHub App over OIDC, not a
+personal token.
 
 ## Services
 
@@ -20,7 +23,6 @@ and local image builds use that account. CI uses a separate read-only repository
 | [User-api](https://github.com/tochi-mba/User-api) | Structured facts about the **person** the assistant is talking to. | 8002 | `USER_API_` | `/healthy`, `/ready` |
 | [Settings-api](https://github.com/tochi-mba/Settings-api) | Per-person knobs that used to live as process-wide env vars. | 8003 | `SETTINGS_API_` | `/healthy`, `/ready` |
 | [Persona-api](https://github.com/tochi-mba/Persona-api) | The assistant's model of **itself** (fields and notes, one persona per profile). | 8004 | `PERSONA_` | `/healthy`, `/ready` |
-| [Media-tool](https://github.com/tochi-mba/Media-tool) | Headless Chromium that clicks downloads; jobs and artifacts per account. | 8005 | `MEDIA_TOOL_` | `/healthy`, `/ready` |
 | [Web-search-api](https://github.com/tochi-mba/Web-search-api) | Search, scrape, and summarise with a provider resolved per caller. | 8006 | `WSA_` | `/healthy` (alias `/health`), `/ready` |
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
@@ -70,29 +72,26 @@ flowchart LR
   Keyring -->|"JWKS"| User
   Keyring -->|"JWKS"| Settings
   Keyring -->|"JWKS"| Persona
-  Keyring -->|"JWKS + /v1/internal"| Media
   Keyring -->|"JWKS + /v1/internal"| Search
   Keyring -->|"JWKS + /v1/internal"| Spotify
   Keyring -->|"JWKS + /v1/internal"| Environments
-  Settings -->|"media namespace"| Media
   Person([assistant / MCP]) --> Keyring
   Person --> User
   Person --> Settings
   Person --> Persona
-  Person --> Media
   Person --> Search
   Person --> Spotify
   Person --> Environments
 ```
 
 User-api, Persona-api, and Settings-api never call keyring at request time except to
-fetch public keys. They have **no** entry in `KEYRING_SERVICE_TOKENS`. Media-tool,
-Spotify-api, Web-search-api, and Environments-api do: they resolve credentials per
-request. Media-tool is currently the only consumer with `MEDIA_TOOL_SETTINGS_API_*`
-wired; settings-api already has grants for the rest.
+fetch public keys. They have **no** entry in `KEYRING_SERVICE_TOKENS`. Spotify-api,
+Web-search-api, and Environments-api do: they resolve credentials per request.
+Settings grants exist for credential consumers so wiring a settings client is a
+deployment choice, not a settings-api release.
 
-Nothing in this family calls User, Persona, Media, Search, Spotify, or Environments
-except the assistant sitting in front.
+Nothing in this family calls User, Persona, Search, Spotify, or Environments except
+the assistant sitting in front.
 
 ## Your first hour
 
@@ -151,9 +150,11 @@ run Make recipes in Git Bash; bootstrap also has a PowerShell version.
 
 ## Adding a repository to the family
 
-Append one line to `repos.txt`: `<folder> <https clone URL>`. Private and public
-repositories use the same format. Re-run bootstrap to clone it with your account.
-For the family checks, give the service this caller in `.github/workflows/ci.yml`:
+Start from [examples/hello-api](examples/hello-api) and follow
+[docs/adding-a-service.md](docs/adding-a-service.md). Append one line to `repos.txt`
+(public) or `.repos.local.txt` (gitignored, for private checkouts only):
+`<folder> <https clone URL>`. Re-run bootstrap to clone it. For the family checks, give
+the service this caller in `.github/workflows/ci.yml`:
 
 ```yaml
 name: CI
@@ -214,6 +215,8 @@ private; its callers continue using the canonical public workflow. The
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
 | GitHub sign-in and private copies | [docs/private-repos.md](docs/private-repos.md) |
+| Adding a service | [docs/adding-a-service.md](docs/adding-a-service.md) |
+| Example API | [examples/hello-api](examples/hello-api) |
 | ADRs | [docs/adr/README.md](docs/adr/README.md) |
 | Parity checker | `python scripts/parity.py` |
 | Shared clients | `Keyring-api/clients/python`, `Settings-api/clients/python` |

@@ -39,29 +39,46 @@ def _run(
 
 
 def read_family(path: Path) -> tuple[str, list[str]]:
-    """Return one owner and the repository names from ``repos.txt``."""
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise ConnectError(f"cannot read {path.name}: {exc.strerror}") from exc
+    """Return one owner and the repository names from ``repos.txt`` (+ local extras)."""
+    paths = [path]
+    for name in (".repos.local.txt", "repos.local.txt"):
+        local = path.with_name(name)
+        if local.is_file() and local.resolve() != path.resolve():
+            paths.append(local)
+            break
     owner = ""
     names = [META_NAME]
-    for number, raw in enumerate(lines, 1):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        fields = line.split()
-        if len(fields) != 2 or not fields[1].startswith("https://github.com/"):
-            raise ConnectError(f"{path.name}:{number}: expected <folder> <https clone URL>")
-        folder, url = fields
-        found_owner, separator, repository = url.removeprefix("https://github.com/").partition("/")
-        repository = repository.removesuffix("/").removesuffix(".git")
-        if not separator or repository != folder or not found_owner:
-            raise ConnectError(f"{path.name}:{number}: URL must end in /{folder}.git")
-        if owner and owner.casefold() != found_owner.casefold():
-            raise ConnectError(f"{path.name}:{number}: every repository must have one owner")
-        owner = found_owner
-        names.append(folder)
+    seen: set[str] = {META_NAME}
+    for manifest in paths:
+        try:
+            lines = manifest.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise ConnectError(f"cannot read {manifest.name}: {exc.strerror}") from exc
+        for number, raw in enumerate(lines, 1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            fields = line.split()
+            if len(fields) != 2 or not fields[1].startswith("https://github.com/"):
+                raise ConnectError(
+                    f"{manifest.name}:{number}: expected <folder> <https clone URL>"
+                )
+            folder, url = fields
+            if folder in seen:
+                continue
+            found_owner, separator, repository = url.removeprefix(
+                "https://github.com/"
+            ).partition("/")
+            repository = repository.removesuffix("/").removesuffix(".git")
+            if not separator or repository != folder or not found_owner:
+                raise ConnectError(f"{manifest.name}:{number}: URL must end in /{folder}.git")
+            if owner and owner.casefold() != found_owner.casefold():
+                raise ConnectError(
+                    f"{manifest.name}:{number}: every repository must have one owner"
+                )
+            owner = found_owner
+            seen.add(folder)
+            names.append(folder)
     if not owner:
         raise ConnectError(f"{path.name} lists no repositories")
     return owner, names

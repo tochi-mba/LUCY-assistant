@@ -13,3 +13,4 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0004](0004-port-assignments.md) | Family ports 8001–8008 |
 | [0005](0005-no-file-over-1000-lines.md) | No source, test, script, or client file over 1000 lines |
 | [0006](0006-the-family-may-be-private.md) | All nine repositories may be private; one developer sign-in and a read-only GitHub App for CI |
+| [0007](0007-public-base-hubs.md) | Canonical published repositories are public; shared clients fetch anonymously |
