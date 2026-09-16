@@ -2,14 +2,17 @@
 
 ## Reporting a vulnerability
 
-**Placeholder — replace before this repository is public.**
+Email **tochimba27@gmail.com**, or use GitHub's private vulnerability reporting on
+this repository (**Security → Report a vulnerability**,
+<https://github.com/tochi-mba/LUCY-assistant/security/advisories/new>), which opens
+a draft advisory only the maintainers can read.
 
-Until a dedicated address exists, email the owner at **TODO-replace-me@example.com**
-and do not open a public issue for anything that could be used to read another
-person's credentials, settings, or personal data.
+Do not open a public issue, and do not put a proof of concept in a pull request,
+for anything that could be used to read another person's credentials, settings, or
+personal data, or to run a command outside an environments-api sandbox.
 
-This address is a flag, not a contact: it will bounce. Put a real mailbox here
-before the first external clone.
+A report in one of the eight service repositories belongs here too: the family is
+reviewed as one, and the fix usually lands in a shared client or a shared rule.
 
 ## What this family holds
 

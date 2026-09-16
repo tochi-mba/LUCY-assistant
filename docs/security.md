@@ -43,9 +43,10 @@ for that lesson.
 `genenv.py` writes `.env.family` and prints a count. Bootstrap never dumps
 the environment. Do not `export KEYRING_*` in a ticket.
 
-**Placeholder disclosure address.** [SECURITY.md](../SECURITY.md) currently
-names `TODO-replace-me@example.com`. That is a flag. Replace it before the
-repository is public.
+**Disclosure goes to the maintainer directly**, by the address in
+[SECURITY.md](../SECURITY.md) or through GitHub's private vulnerability reporting on
+this repository. Either way the report is readable only by maintainers, and a fix
+can be prepared before anything is published.
 
 ## What this meta-repo must not do
 
