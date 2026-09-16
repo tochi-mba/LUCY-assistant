@@ -19,6 +19,10 @@ on:
         description: Run a Playwright live-browser job (Media-tool, Web-search-api)
         type: boolean
         default: false
+      live-browser-marker:
+        description: The pytest marker that selects the live-browser tests
+        type: string
+        default: live_browser
       generated-files-command:
         description: Shell that regenerates committed files; git diff --exit-code follows
         type: string
@@ -215,4 +219,4 @@ jobs:
       - name: Install Chromium
         run: uv run playwright install --with-deps chromium
       - name: Drive a real browser
-        run: uv run pytest -m live_browser --no-cov -ra
+        run: uv run pytest -m "${{ inputs.live-browser-marker }}" --no-cov -ra

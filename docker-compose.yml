@@ -126,7 +126,7 @@ services:
       - .env.family
     environment:
       PERSONA_HOST: "0.0.0.0"
-      PERSONA_PORT: "8002"
+      PERSONA_PORT: "8004"
       PERSONA_DATABASE_PATH: /var/lib/persona/persona.db
       PERSONA_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
       PERSONA_KEYRING_ISSUER: "http://127.0.0.1:8001"
@@ -158,7 +158,7 @@ services:
       - .env.family
     environment:
       MEDIA_TOOL_HOST: "0.0.0.0"
-      MEDIA_TOOL_PORT: "8000"
+      MEDIA_TOOL_PORT: "8005"
       MEDIA_TOOL_KEYRING_BASE_URL: http://keyring:8001
       MEDIA_TOOL_KEYRING_ISSUER: "http://127.0.0.1:8001"
       MEDIA_TOOL_KEYRING_AUDIENCE: media-tool
