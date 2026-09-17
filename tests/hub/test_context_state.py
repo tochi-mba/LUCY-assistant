@@ -24,7 +24,6 @@ from lucy_api.context.state import (
     render_state,
 )
 from lucy_api.context.types import (
-    AgentSnapshot,
     Band,
     BudgetSnapshot,
     CapabilitySnapshot,
@@ -36,6 +35,7 @@ from lucy_api.context.types import (
     TaskSnapshot,
     TopicSnapshot,
     Trust,
+    WorkSnapshot,
     WorkspaceSnapshot,
 )
 
@@ -84,8 +84,8 @@ def a_state(**overrides: Any) -> LiveState:
 def a_crowd(**overrides: Any) -> LiveState:
     """Far more of everything than any budget will hold, for the tests about overflow."""
     fields: dict[str, Any] = {
-        "agents": tuple(
-            AgentSnapshot(
+        "in_flight": tuple(
+            WorkSnapshot(
                 id=f"a{index:02d}",
                 role=f"role{index:02d}",
                 objective=f"objective number {index}",
@@ -177,7 +177,7 @@ def test_the_block_always_states_the_date_the_session_and_the_context_position()
 def test_an_otherwise_empty_state_omits_every_group_rather_than_printing_none_ten_times() -> None:
     rendered = body_of(a_state())
 
-    for name in ("agents", "finished", "tasks", "memory", "workspace", "capabilities"):
+    for name in ("in_flight", "finished", "tasks", "memory", "workspace", "capabilities"):
         assert not has_group(rendered, name)
     assert not has_group(rendered, "pending")
     assert not has_group(rendered, "trouble")
@@ -271,7 +271,7 @@ def test_one_reclaimable_result_is_reported_in_the_singular() -> None:
 # --------------------------------------------------------------------------------------
 
 
-def running_agent(**overrides: Any) -> AgentSnapshot:
+def running_agent(**overrides: Any) -> WorkSnapshot:
     fields: dict[str, Any] = {
         "id": "a1",
         "role": "researcher",
@@ -279,35 +279,35 @@ def running_agent(**overrides: Any) -> AgentSnapshot:
         "status": "running",
         "elapsed_seconds": 134.0,
     }
-    return AgentSnapshot(**{**fields, **overrides})
+    return WorkSnapshot(**{**fields, **overrides})
 
 
 def test_a_running_agent_shows_its_role_objective_elapsed_time_and_last_progress() -> None:
-    state = a_state(agents=(running_agent(progress="read 12 files, 3 left"),))
+    state = a_state(in_flight=(running_agent(progress="read 12 files, 3 left"),))
 
-    assert entries_of(body_of(state), "agents") == [
+    assert entries_of(body_of(state), "in_flight") == [
         "researcher - find every caller of the old ingest API - 2m14s - read 12 files, 3 left"
     ]
-    assert headline(body_of(state), "agents") == "1 agent running"
+    assert headline(body_of(state), "in_flight") == "1 thing running"
 
 
 def test_an_agent_with_nothing_to_report_yet_renders_no_empty_field() -> None:
-    state = a_state(agents=(running_agent(),))
+    state = a_state(in_flight=(running_agent(),))
 
-    assert entries_of(body_of(state), "agents") == [
+    assert entries_of(body_of(state), "in_flight") == [
         "researcher - find every caller of the old ingest API - 2m14s"
     ]
 
 
 def test_a_nested_agent_says_how_deep_it_is_because_depth_bounds_what_it_may_do() -> None:
-    state = a_state(agents=(running_agent(depth=3),))
+    state = a_state(in_flight=(running_agent(depth=3),))
 
-    assert entries_of(body_of(state), "agents")[0].startswith("researcher (depth 3) - ")
+    assert entries_of(body_of(state), "in_flight")[0].startswith("researcher (depth 3) - ")
 
 
 def test_an_agent_that_finished_since_the_last_turn_is_called_out_separately() -> None:
     state = a_state(
-        agents=(
+        in_flight=(
             running_agent(),
             running_agent(
                 id="a2",
@@ -322,10 +322,10 @@ def test_an_agent_that_finished_since_the_last_turn_is_called_out_separately() -
     )
     rendered = body_of(state)
 
-    assert entries_of(rendered, "agents") == [
+    assert entries_of(rendered, "in_flight") == [
         "researcher - find every caller of the old ingest API - 2m14s"
     ]
-    assert headline(rendered, "finished") == "1 agent finished since your last turn"
+    assert headline(rendered, "finished") == "1 thing finished since your last turn"
     assert entries_of(rendered, "finished") == [
         "writer - draft the migration note - done after 4m02s - wrote docs/migration.md"
     ]
@@ -333,11 +333,11 @@ def test_an_agent_that_finished_since_the_last_turn_is_called_out_separately() -
 
 def test_a_finished_agent_is_reported_even_though_it_is_no_longer_running() -> None:
     state = a_state(
-        agents=(running_agent(status="failed", finished_since_last_turn=True, progress=""),)
+        in_flight=(running_agent(status="failed", finished_since_last_turn=True, progress=""),)
     )
     rendered = body_of(state)
 
-    assert not has_group(rendered, "agents")
+    assert not has_group(rendered, "in_flight")
     assert entries_of(rendered, "finished") == [
         "researcher - find every caller of the old ingest API - failed after 2m14s"
     ]
@@ -346,21 +346,21 @@ def test_a_finished_agent_is_reported_even_though_it_is_no_longer_running() -> N
 def test_thirty_running_agents_show_five_and_say_which_five() -> None:
     rendered = body_of(a_crowd())
 
-    assert headline(rendered, "agents") == "30 agents running (showing the 5 most recent of 30)"
-    assert len(entries_of(rendered, "agents")) == 5
+    assert headline(rendered, "in_flight") == "30 things running (showing the 5 most recent of 30)"
+    assert len(entries_of(rendered, "in_flight")) == 5
 
 
 def test_the_agents_shown_are_the_newest_ones_since_those_are_the_ones_not_yet_reasoned_about() -> (
     None
 ):
-    shown = entries_of(body_of(a_crowd()), "agents")
+    shown = entries_of(body_of(a_crowd()), "in_flight")
 
     assert [entry.split(" - ")[0] for entry in shown] == [f"role{index:02d}" for index in range(5)]
 
 
 def test_more_agents_finishing_than_fit_is_confessed_with_the_count() -> None:
     state = a_state(
-        agents=tuple(
+        in_flight=tuple(
             running_agent(id=f"a{index}", status="done", finished_since_last_turn=True)
             for index in range(9)
         )
@@ -368,7 +368,7 @@ def test_more_agents_finishing_than_fit_is_confessed_with_the_count() -> None:
     rendered = body_of(state)
 
     assert (
-        headline(rendered, "finished") == "9 agents finished since your last turn (showing 4 of 9)"
+        headline(rendered, "finished") == "9 things finished since your last turn (showing 4 of 9)"
     )
     assert len(entries_of(rendered, "finished")) == 4
 
@@ -551,14 +551,14 @@ def test_a_crowd_in_one_group_cannot_spend_another_groups_room() -> None:
     )
 
     squeezed = body_of(state, limit=290)
-    assert len(entries_of(squeezed, "agents")) == 2
+    assert len(entries_of(squeezed, "in_flight")) == 2
     assert len(entries_of(squeezed, "memory")) == 3
 
     # Tighter still, the index goes and the roster stays: what is already under way cannot
     # be fetched back the way a topic can. See the ranks in `QUOTAS`.
     tighter = body_of(state, limit=260)
     assert not has_group(tighter, "memory")
-    assert len(entries_of(tighter, "agents")) == 2
+    assert len(entries_of(tighter, "in_flight")) == 2
 
 
 # --------------------------------------------------------------------------------------
@@ -742,7 +742,7 @@ def test_the_block_fits_the_budget_however_the_caller_counts_tokens(limit: int) 
 def test_every_group_bends_to_its_floor_before_any_group_is_dropped() -> None:
     rendered = body_of(a_crowd(), limit=330)
 
-    assert len(entries_of(rendered, "agents")) == 2
+    assert len(entries_of(rendered, "in_flight")) == 2
     assert len(entries_of(rendered, "memory")) == 3
     assert not has_group(rendered, "omitted")
 
@@ -772,7 +772,7 @@ def test_the_memory_index_is_surrendered_before_the_children_still_running() -> 
     rendered = body_of(a_crowd(), limit=260)
 
     assert not has_group(rendered, "memory")
-    assert has_group(rendered, "agents")
+    assert has_group(rendered, "in_flight")
 
 
 def test_a_dropped_group_is_named_in_the_block_rather_than_vanishing_from_it() -> None:
@@ -810,7 +810,7 @@ def test_the_header_lines_are_given_up_only_after_every_group_has_gone() -> None
     assert has_group(rendered, "now")
     assert has_group(rendered, "session")
     assert not has_group(rendered, "context")
-    for name in ("agents", "tasks", "memory", "workspace", "capabilities", "pending", "trouble"):
+    for name in ("in_flight", "tasks", "memory", "workspace", "capabilities", "pending", "trouble"):
         assert not has_group(rendered, name)
 
 
@@ -839,7 +839,7 @@ def test_the_notice_names_every_group_that_was_shortened_or_dropped() -> None:
     notice = render(a_crowd(), limit=300).notice
 
     assert notice.startswith("live state shortened: ")
-    assert "agents showing 2 of 30" in notice
+    assert "in_flight showing 2 of 30" in notice
     assert "workspace omitted (30)" in notice
 
 
@@ -872,7 +872,7 @@ def test_a_block_capped_by_a_group_ceiling_is_marked_truncated_even_with_room_to
     section = render(a_crowd(), limit=10_000)
 
     assert section.truncated is True
-    assert "agents showing 5 of 30" in section.notice
+    assert "in_flight showing 5 of 30" in section.notice
 
 
 # --------------------------------------------------------------------------------------
@@ -925,7 +925,7 @@ POISON = (
 def poisoned_state() -> LiveState:
     return a_state(
         session=a_session(title=POISON),
-        agents=(running_agent(objective=POISON, progress=POISON),),
+        in_flight=(running_agent(objective=POISON, progress=POISON),),
         tasks=(TaskSnapshot(id="t1", title=POISON, status="open", claimed_by=POISON),),
         topics=(a_topic(title=POISON, summary=POISON),),
         workspace=a_workspace(changed_files=(POISON,), last_checkpoint=POISON),

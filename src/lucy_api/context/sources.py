@@ -45,12 +45,12 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from lucy_api.context.types import (
-        AgentSnapshot,
         BudgetSnapshot,
         CapabilitySnapshot,
         SessionSnapshot,
         TaskSnapshot,
         TopicSnapshot,
+        WorkSnapshot,
         WorkspaceSnapshot,
     )
 
@@ -65,7 +65,7 @@ class Source[T](Protocol):
 class Sources:
     """The systems the state block is built from. Any of them may be absent."""
 
-    agents: Source[Sequence[AgentSnapshot]] | None = None
+    in_flight: Source[Sequence[WorkSnapshot]] | None = None
     tasks: Source[Sequence[TaskSnapshot]] | None = None
     workspace: Source[WorkspaceSnapshot | None] | None = None
     capabilities: Source[Sequence[CapabilitySnapshot]] | None = None
@@ -121,14 +121,14 @@ async def gather_live_state(request: StateRequest, sources: Sources) -> LiveStat
     trouble: list[FailureSnapshot] = list(request.failures)
     session_id = request.session.id
 
-    no_agents: Sequence[AgentSnapshot] = ()
+    nothing_running: Sequence[WorkSnapshot] = ()
     no_tasks: Sequence[TaskSnapshot] = ()
     no_capabilities: Sequence[CapabilitySnapshot] = ()
     no_topics: Sequence[TopicSnapshot] = ()
     no_workspace: WorkspaceSnapshot | None = None
 
-    agents, tasks, workspace, capabilities, topics, pending = await asyncio.gather(
-        _fetch("agents", sources.agents, session_id, no_agents, trouble),
+    in_flight, tasks, workspace, capabilities, topics, pending = await asyncio.gather(
+        _fetch("in_flight", sources.in_flight, session_id, nothing_running, trouble),
         _fetch("journal", sources.tasks, session_id, no_tasks, trouble),
         _fetch("workspace", sources.workspace, session_id, no_workspace, trouble),
         _fetch("capabilities", sources.capabilities, session_id, no_capabilities, trouble),
@@ -140,7 +140,7 @@ async def gather_live_state(request: StateRequest, sources: Sources) -> LiveStat
         now=request.now,
         session=request.session,
         budget=request.budget,
-        agents=tuple(agents),
+        in_flight=tuple(in_flight),
         tasks=tuple(tasks),
         topics=tuple(topics),
         capabilities=tuple(capabilities),

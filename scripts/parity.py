@@ -544,6 +544,89 @@ def check_no_pragma(repo: Repo) -> Result:
     return passed()
 
 
+def _private_names(root: Path) -> tuple[str, ...]:
+    """The repositories this machine has that the family does not publish.
+
+    Read from the gitignored local manifest, never from a list in a public file. A denylist
+    that names the thing it is hiding has already published it, which is the whole reason
+    ADR-0011 exists.
+
+    Names are matched case-insensitively and with ``-`` and ``_`` treated alike, because a
+    leak is a leak whether somebody wrote ``Example-Tool``, ``example_tool`` or
+    ``EXAMPLE_TOOL`` -- and the second spelling is exactly the one a grep for the first
+    would miss.
+    """
+    manifest = root / ".repos.local.txt"
+    if not manifest.is_file():
+        manifest = root / "repos.local.txt"
+    if not manifest.is_file():
+        return ()
+    names = []
+    for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+        entry = line.split("#", 1)[0].split()
+        if entry:
+            names.append(entry[0])
+    return tuple(names)
+
+
+def _private_patterns(names: tuple[str, ...]) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    return tuple(
+        (name, re.compile(re.escape(name).replace(r"\-", "[-_]"), re.IGNORECASE)) for name in names
+    )
+
+
+def _searchable(repo: Repo) -> Iterator[Path]:
+    """Everything a person reads or a tool ships: code, tests, scripts, docs, top-level prose.
+
+    Deliberately not the whole tree. A virtual environment, a lockfile and a pytest cache
+    can all mention a private name for reasons nobody chose, and failing the build on those
+    would teach everybody to ignore this check.
+    """
+    yield from repo.code_files()
+    for relative in ("docs", ".github"):
+        directory = repo.path / relative
+        if directory.is_dir():
+            for file in sorted(directory.rglob("*")):
+                if file.is_file() and file.suffix in {".md", ".yml", ".yaml"}:
+                    yield file
+    for name in ("README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "docker-compose.yml"):
+        top = repo.path / name
+        if top.is_file():
+            yield top
+
+
+def check_private_names(repo: Repo) -> Result:
+    """A public repository never names a private one. See ADR-0011.
+
+    Without this the rule is prose, and prose loses: a docstring reaching for an example
+    picks whichever service happened to be nearby, and the fiftieth mention gets found by
+    somebody grepping for the forty-ninth.
+
+    Nothing to check is a pass rather than a skip. An operator with no private checkouts has
+    nothing to leak, and a check that reported "skipped" on the common case would be noise
+    on every run.
+    """
+    root = repo.path if repo.name == HUB_REPO else repo.path.parent
+    names = _private_names(root)
+    if repo.name in names:
+        return not_applicable("this repository is one of the private ones")
+    patterns = _private_patterns(names)
+    if not patterns:
+        return passed()
+    hits: list[str] = []
+    for file in _searchable(repo):
+        text = file.read_text(encoding="utf-8", errors="replace")
+        hits.extend(
+            f"{repo.relative(file)} names {name}"
+            for name, pattern in patterns
+            if pattern.search(text)
+        )
+    if hits:
+        more = f" and {len(hits) - 2} more" if len(hits) > 2 else ""
+        return failed(f"{hits[0]}{'; ' + hits[1] if len(hits) > 1 else ''}{more}")
+    return passed()
+
+
 def check_health_routes(repo: Repo) -> Result:
     _require_source(repo)
     source = "\n".join(
@@ -631,6 +714,11 @@ CHECKS: tuple[Check, ...] = (
     Check("unknown-env", "config defines check_for_unknown_env_vars", check_unknown_env),
     Check("no-pragma", "no pragma: no cover in the source package", check_no_pragma),
     Check("max-file-lines", "no code file over 1000 lines", check_max_file_lines),
+    Check(
+        "private-names",
+        "no public repository names a privately checked-out one",
+        check_private_names,
+    ),
     Check("health-routes", "serves /healthy and /ready", check_health_routes),
     Check("keyring-client", "verifies tokens with keyring_client", check_keyring_client),
 )
@@ -695,11 +783,27 @@ def family_repo_files(root: Path, primary: Path | None = None) -> tuple[Path, ..
     return (main,)
 
 
+PRIVATE_DIR = "private"
+
+
+def checkout_path(root: Path, name: str) -> Path:
+    """Published checkouts sit beside the meta-repo; extras live under ``private/``."""
+    if name == HUB_REPO:
+        return root
+    at_root = root / name
+    if at_root.is_dir():
+        return at_root
+    nested = root / PRIVATE_DIR / name
+    if nested.is_dir():
+        return nested
+    return at_root
+
+
 def evaluate(root: Path, names: Sequence[str]) -> list[RepoReport]:
     reports = []
     for name in names:
-        path = root if name == HUB_REPO else root / name
-        if not path.is_dir():
+        path = checkout_path(root, name)
+        if name != HUB_REPO and not path.is_dir():
             reports.append(RepoReport(name, present=False, outcomes=()))
             continue
         repo = Repo(name, path)
@@ -832,7 +936,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # is this repository. See docs/adr/0009-the-hub-lives-here.md.
     known = [HUB_REPO, *listed] if (root / "src" / "lucy_api").is_dir() else listed
     names = args.repo or known
-    unknown = [name for name in names if name not in known and not (root / name).is_dir()]
+    unknown = [
+        name for name in names if name not in known and not checkout_path(root, name).is_dir()
+    ]
     if unknown:
         print(
             f"parity: unknown repository {', '.join(unknown)}; known: {', '.join(known)}",

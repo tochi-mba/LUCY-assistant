@@ -216,7 +216,10 @@ function Get-RepoRows {
     if (-not (Test-Path $local)) { $local = Join-Path $Root "repos.local.txt" }
     if (Test-Path $local) { $paths += $local }
     $seen = @{}
+    $index = 0
     foreach ($manifest in $paths) {
+        $isLocal = $index -gt 0
+        $index++
         Get-Content -Path $manifest | ForEach-Object {
             $raw = $_
             $line = ($raw -split "#", 2)[0].Trim()
@@ -225,10 +228,22 @@ function Get-RepoRows {
                 $name = $parts[0]
                 if ($seen.ContainsKey($name)) { return }
                 $seen[$name] = $true
-                [pscustomobject]@{ Name = $name; Url = $(if ($parts.Count -gt 1) { $parts[1] } else { "" }) }
+                [pscustomobject]@{
+                    Name = $name
+                    Url = $(if ($parts.Count -gt 1) { $parts[1] } else { "" })
+                    Local = $isLocal
+                }
             }
         }
     }
+}
+
+function Get-Checkout([string]$Name) {
+    $atRoot = Join-Path $Root $Name
+    if (Test-Path $atRoot) { return $atRoot }
+    $nested = Join-Path $Root (Join-Path "private" $Name)
+    if (Test-Path $nested) { return $nested }
+    return $null
 }
 
 function Test-Interactive {
@@ -279,23 +294,36 @@ function Ensure-GitHub {
 
 function Clone-Missing {
     foreach ($row in Get-RepoRows) {
-        $dest = Join-Path $Root $row.Name
+        $legacy = Join-Path $Root $row.Name
+        if ($row.Local) {
+            $dest = Join-Path $Root (Join-Path "private" $row.Name)
+            if (Test-Path $legacy) { $dest = $legacy }
+        } else {
+            $dest = $legacy
+        }
         if (Test-Path $dest) {
             Write-Say "$($row.Name): already present, leaving it alone"
             continue
         }
         if ($DryRun) {
-            Write-Would "git clone $($row.Url) $($row.Name)"
+            if ($row.Local -and $dest -eq (Join-Path $Root (Join-Path "private" $row.Name))) {
+                Write-Would "git clone $($row.Url) private/$($row.Name)"
+            } else {
+                Write-Would "git clone $($row.Url) $($row.Name)"
+            }
             continue
         }
         if (-not (Test-Have "git")) {
             Write-Say "bootstrap: git is missing; cannot clone $($row.Name)"
             continue
         }
-        # Authentication was handled above. Never hang a devcontainer on a git prompt.
         $previousPrompt = $env:GIT_TERMINAL_PROMPT
         try {
             $env:GIT_TERMINAL_PROMPT = "0"
+            $parent = Split-Path -Parent $dest
+            if (-not (Test-Path $parent)) {
+                New-Item -ItemType Directory -Path $parent | Out-Null
+            }
             & git clone $row.Url $dest
             if ($LASTEXITCODE -ne 0) {
                 Write-Say "$($row.Name): your account cannot see $($row.Url); ask for access, or check gh auth status"
@@ -309,8 +337,8 @@ function Clone-Missing {
 function Install-Repos {
     if ($NoInstall) { return }
     foreach ($row in Get-RepoRows) {
-        $dest = Join-Path $Root $row.Name
-        if (-not (Test-Path $dest)) {
+        $dest = Get-Checkout $row.Name
+        if (-not $dest) {
             Write-Say "$($row.Name): not checked out, skipping make install"
             continue
         }
@@ -338,8 +366,8 @@ function Check-Repos {
             Write-Output ("{0,-22}  {1}" -f $name, "needs Linux")
             continue
         }
-        $dest = Join-Path $Root $name
-        if (-not (Test-Path $dest)) {
+        $dest = Get-Checkout $name
+        if (-not $dest) {
             Write-Output ("{0,-22}  {1}" -f $name, "missing")
             continue
         }

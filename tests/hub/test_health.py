@@ -28,12 +28,34 @@ async def test_healthy_does_no_io_and_never_fails(client: Client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ready_is_ok_when_keyring_answers(client: Client) -> None:
-    response = await client.get("/ready")
+async def test_ready_is_ok_when_keyring_and_a_model_provider_are_configured(
+    settings: Settings, keyring: FakeKeyring
+) -> None:
+    app = create_app(
+        settings.model_copy(update={"openai_api_key": "test"}), transport=keyring.transport()
+    )
+    async with (
+        LifespanManager(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        response = await client.get("/ready")
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
     assert body["checks"]["keyring"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_ready_names_a_missing_model_provider_without_exposing_a_credential(
+    client: Client,
+) -> None:
+    response = await client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["checks"]["model"] == {
+        "status": "degraded",
+        "detail": {"configured": False},
+    }
 
 
 @pytest.mark.asyncio

@@ -194,18 +194,26 @@ class BudgetSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class AgentSnapshot:
-    """One child run, as its parent needs to see it.
+class WorkSnapshot:
+    """One piece of work that outlived the step which started it.
 
-    `objective` is the plain sentence written when the child was spawned, never a
-    restatement of its arguments: a parent deciding whether to wait or to carry on is
-    answering a question about intent.
+    A helper, a four-minute download and a shell command are the same thing from where the
+    model is sitting, and they get one shape for that reason. Four mechanisms would mean
+    four places to get cancellation wrong and four ways to learn that something finished,
+    and the model's actual question is one question: what is still in flight?
+
+    `objective` is the plain sentence written when the work was started, never a restatement
+    of its arguments -- deciding whether to wait or to carry on is a question about intent.
+
+    `kind` is what produced the result rather than how it is managed: a helper summarises
+    what it found, a job returns what it produced. Everything around them is shared.
     """
 
     id: str
     role: str
     objective: str
     status: str
+    kind: str = "helper"
     depth: int = 1
     elapsed_seconds: float = 0.0
     progress: str = ""
@@ -281,6 +289,15 @@ class PendingSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class FeedSnapshot:
+    """One live feed, already keyed and already filtered, ready to render as a group."""
+
+    id: str
+    title: str
+    lines: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class FailureSnapshot:
     """A recent failure, kept so the model stops retrying what cannot work.
 
@@ -300,17 +317,19 @@ class LiveState:
     now: datetime
     session: SessionSnapshot
     budget: BudgetSnapshot
-    agents: tuple[AgentSnapshot, ...] = ()
+    in_flight: tuple[WorkSnapshot, ...] = ()
     tasks: tuple[TaskSnapshot, ...] = ()
     topics: tuple[TopicSnapshot, ...] = ()
     capabilities: tuple[CapabilitySnapshot, ...] = ()
     workspace: WorkspaceSnapshot | None = None
     pending: PendingSnapshot = field(default_factory=PendingSnapshot)
     failures: tuple[FailureSnapshot, ...] = ()
+    feeds: tuple[FeedSnapshot, ...] = ()
 
     @property
-    def running_agents(self) -> tuple[AgentSnapshot, ...]:
-        return tuple(agent for agent in self.agents if agent.status == "running")
+    def running(self) -> tuple[WorkSnapshot, ...]:
+        """What is still going, helpers and jobs and commands alike."""
+        return tuple(work for work in self.in_flight if work.status == "running")
 
 
 class Trust(StrEnum):
@@ -356,7 +375,6 @@ class Counter(Protocol):
 
 __all__ = [
     "DEFAULT_SHARES",
-    "AgentSnapshot",
     "Assembled",
     "Band",
     "Budget",
@@ -365,6 +383,7 @@ __all__ = [
     "Claim",
     "Counter",
     "FailureSnapshot",
+    "FeedSnapshot",
     "LiveState",
     "PendingSnapshot",
     "Section",
@@ -372,5 +391,6 @@ __all__ = [
     "TaskSnapshot",
     "TopicSnapshot",
     "Trust",
+    "WorkSnapshot",
     "WorkspaceSnapshot",
 ]

@@ -16,9 +16,12 @@ from keyring_client.testing import ISSUER, JWKS_URL, FakeKeyring, mint
 
 from lucy_api.api.app import create_app
 from lucy_api.core.config import LogFormat, Settings
+from lucy_api.sessions.sql_store import SessionStore
+from lucy_api.store.worker import SqlWorker
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+    from pathlib import Path
 
 AUDIENCE = "lucy-api"
 ACCOUNT = "acct_example"
@@ -32,6 +35,10 @@ def build_settings(**overrides: Any) -> Settings:
         "keyring_issuer": ISSUER,
         "keyring_jwks_url": JWKS_URL,
         "audience": AUDIENCE,
+        # In memory unless a test asks otherwise: the container now opens a database when it
+        # is built, and the default path would scatter a `var/` directory through whatever
+        # directory the suite happened to run in.
+        "database_path": ":memory:",
     }
     return Settings(**{**defaults, **overrides})
 
@@ -54,6 +61,23 @@ async def client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[Asyn
         AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
     ):
         yield http
+
+
+@pytest.fixture
+async def sessions_store(tmp_path: Path) -> AsyncIterator[SessionStore]:
+    """A real database on disk, for the domain tests that have no HTTP in them.
+
+    Real SQLite rather than a fake, because half of what those tests claim is transactional
+    behaviour and the other half is SQL; a fake would test the fake. Closing it matters: an
+    open WAL pins `tmp_path` on Windows and the teardown fails on the directory instead.
+    """
+    worker = SqlWorker(str(tmp_path / "lucy.sqlite3"))
+    store = SessionStore(worker)
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await worker.aclose()
 
 
 def bearer(account_id: str = ACCOUNT, audience: str = AUDIENCE) -> dict[str, str]:

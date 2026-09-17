@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from lucy_api.onboarding.models import ConnectionState, SetupAction
 
 if TYPE_CHECKING:
-    from lucy_api.core.config import Settings
+    from lucy_api.core.config import ExtraSibling, Settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,11 +43,51 @@ class SetupManifest:
 
 
 REPOSITORIES = "https://github.com/tochi-mba/"
+PRIVATE_DOCS = REPOSITORIES + "LUCY-assistant/blob/main/docs/private-repos.md"
+
+_EXTRA_INSTRUCTIONS = (
+    "Configure this operator-local service and identity verification. Lucy cannot "
+    "yet inspect your connection."
+)
+
+
+def _extra_manifest(capability: str, sibling: ExtraSibling) -> SetupManifest:
+    """One setup card for a capability only this machine has.
+
+    Everything specific to it -- its name, its documentation, the sentence a person reads
+    and the checks its readiness reports -- comes from the operator's own configuration.
+    The hub special-cases nothing, which is the point: a branch here reading
+    ``if capability == "..."`` would name a private service in a public file, and the next
+    private service would need a second branch. See ADR-0011.
+
+    The fallbacks are deliberately generic. A capability that supplies nothing still gets a
+    usable card rather than a blank one, and an operator who wants a better card writes a
+    better ``instructions`` rather than patching the hub.
+    """
+    label = sibling.title or capability.replace("-", " ").replace("_", " ").title()
+    return SetupManifest(
+        id=capability,
+        title=label,
+        base_url=sibling.base_url,
+        documentation=sibling.documentation or PRIVATE_DOCS,
+        instructions=sibling.instructions or _EXTRA_INSTRUCTIONS,
+        checks=sibling.checks or ("ready",),
+        connection_state="unknown",
+    )
+
+
+def extra_manifests(settings: Settings) -> tuple[SetupManifest, ...]:
+    """Capabilities wired only on this machine, in the order the operator listed them."""
+    return tuple(
+        _extra_manifest(capability, sibling)
+        for capability, sibling in settings.extra_services.items()
+        if sibling.base_url.strip()
+    )
 
 
 def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
-    """Keep ordering and identifiers stable for clients and optional setup choices."""
-    return (
+    """Keep published identifiers stable; extras sit between notes and research."""
+    head = (
         SetupManifest(
             id="identity",
             title="Identity",
@@ -93,19 +133,8 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             ),
             checks=("database", "keyring", "settings"),
         ),
-        SetupManifest(
-            id="media",
-            title="Media",
-            base_url=settings.media_tool_base_url,
-            documentation=REPOSITORIES + "Media-tool#readme",
-            instructions=(
-                "Configure a download provider and artifact storage. Whether a provider "
-                "account is needed depends on the deployed recipe; store its credentials in "
-                "the identity vault. Lucy cannot yet inspect your connection."
-            ),
-            checks=("identity", "job_store", "provider", "storage"),
-            connection_state="unknown",
-        ),
+    )
+    tail = (
         SetupManifest(
             id="research",
             title="Research",
@@ -149,11 +178,13 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             id="memory",
             title="Memory",
             base_url=settings.memory_api_base_url,
-            documentation=REPOSITORIES + "LUCY-assistant/blob/main/docs/architecture.md",
+            documentation=REPOSITORIES + "Memory-api#readme",
             instructions=(
-                "The memory service is planned; this checkout does not provide it yet. "
-                "It can be skipped while setting up the available capabilities."
+                "Configure the memory database and identity verification. Memory needs no "
+                "additional provider account. It can be skipped, and Lucy still works -- it "
+                "simply starts each conversation knowing only what is in front of it."
             ),
             checks=("database", "keyring"),
         ),
     )
+    return (*head, *extra_manifests(settings), *tail)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -60,3 +61,41 @@ class InputBatch(BaseModel):
 class ForkSession(BaseModel):
     model_config = ConfigDict(extra="forbid")
     item_id: str | None = None
+
+
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
+
+
+class Cursor(BaseModel):
+    """Where to read from and how much, for every collection the hub exposes.
+
+    Cursor-only, never a page number: an append-only log grows while it is being read, and
+    offset paging over a growing collection both duplicates rows and skips them.
+
+    Extra fields are refused so a misspelled `ordr=desc` is an error rather than a filter
+    that silently did not apply -- which on a transcript is the difference between "this is
+    the conversation" and "this is the part a typo let through".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
+    order: Literal["asc", "desc"] = "asc"
+    after: str | None = Field(default=None, description="Start after this id.")
+    before: str | None = Field(default=None, description="Stop before this id.")
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    """How a turn ended.
+
+    The hub's reason and the provider's are separate fields because they answer different
+    questions and a client has to show them differently: `error_max_iterations` can be
+    resumed and a `refusal` cannot. Grouping them here rather than passing three parallel
+    arguments keeps a call site from reading `close_turn(store, a, t, "failed", None, None)`,
+    where the reader has to count commas to find out what the Nones were.
+    """
+
+    status: str
+    termination: str | None = None
+    stop_reason: str | None = None

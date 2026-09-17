@@ -18,7 +18,6 @@ FAMILY = (
     "settings",
     "persona",
     "memory",
-    "media-tool",
     "web-search",
     "spotify",
     "environments",
@@ -32,7 +31,6 @@ CONTEXTS = {
     "settings": "./Settings-api",
     "persona": "./Persona-api",
     "memory": "./Memory-api",
-    "media-tool": "./Media-tool",
     "web-search": "./Web-search-api",
     "spotify": "./Spotify-api",
     "environments": "./Environments-api",
@@ -45,7 +43,6 @@ HOST_PORTS = {
     "settings": "8003:8003",
     "persona": "8004:8004",
     "memory": "8009:8009",
-    "media-tool": "8005:8005",
     "web-search": "8006:8006",
     "spotify": "8007:8007",
     "environments": "8008:8008",
@@ -74,10 +71,7 @@ def test_every_family_service_is_on_one_network() -> None:
         assert HOST_PORTS[name] in service["ports"]
         assert "healthcheck" in service
         assert service["healthcheck"]["test"]
-        if name == "media-tool":
-            assert service.get("profiles") == ["local"]
-        else:
-            assert "profiles" not in service
+        assert "profiles" not in service
 
 
 def test_each_service_is_told_to_listen_on_its_own_port() -> None:
@@ -133,7 +127,7 @@ def test_healthchecks_hit_real_routes() -> None:
     assert "/healthy" in probes["user"]
     assert "/healthy" in probes["settings"]
     assert "/healthy" in probes["persona"]
-    assert "/healthy" in probes["media-tool"]
+    assert "/healthy" in probes["memory"]
     assert "/healthy" in probes["web-search"]
     assert "/healthy" in probes["spotify"]
     assert "/health" in probes["environments"]

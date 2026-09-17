@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 from dataclasses import asdict
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from lucy_api.cli import doctor
@@ -19,10 +20,23 @@ from lucy_api.cli.base import (
     resolve_token,
     resolve_url,
 )
-from lucy_api.cli.config import ConfigError, redact, save_config
+from lucy_api.cli.config import ConfigError, load_config, redact, save_config
 from lucy_api.cli.connect import discover
+from lucy_api.cli.family import (
+    APP_PAGE,
+    PACKAGE_ROOT,
+    checkout_hint,
+    extra_desk,
+    find_family_root,
+    github_app_state,
+    github_ci_notice,
+    run_github_ci,
+    should_install_github_app,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from lucy_api.cli.base import Context
 
 
@@ -98,28 +112,158 @@ def _setup_token(ctx: Context, url: str) -> str:
     return existing
 
 
-def cmd_setup(ctx: Context) -> int:
-    """Save the choices once, with a preview and explicit overwrite semantics."""
-    mode = _mode(ctx)
+def _wants_github_ci(ctx: Context, mode: str) -> bool:
+    return should_install_github_app(ctx, mode)
+
+
+def _intends_to_change(ctx: Context) -> bool:
+    """Flags mean the person is updating setup; a bare rerun should keep what they have."""
+    if ctx.args.force:
+        return True
+    if not ctx.config.exists:
+        return True
+    return bool(ctx.args.mode or ctx.args.url or ctx.args.token_stdin or ctx.args.no_token)
+
+
+def _status_rows(
+    ctx: Context, mode: str, url: str, token: str, root: Path | None
+) -> list[dict[str, str | bool]]:
+    rows: list[dict[str, str | bool]] = [
+        {
+            "id": "config",
+            "done": ctx.config.exists,
+            "label": "Config",
+            "detail": str(ctx.config.path) if ctx.config.exists else "not saved yet",
+        },
+        {"id": "hub", "done": True, "label": "Hub", "detail": f"{url} ({mode})"},
+        {
+            "id": "token",
+            "done": bool(token),
+            "label": "Token",
+            "detail": "saved" if token else "not saved",
+        },
+    ]
+    if root is None:
+        rows.append(
+            {"id": "family", "done": False, "label": "Family checkout", "detail": "not found"}
+        )
+        rows.append(
+            {
+                "id": "github_app",
+                "done": False,
+                "label": "GitHub App",
+                "detail": f"needs a family checkout to install {APP_PAGE}",
+            }
+        )
+        return rows
+    rows.append({"id": "family", "done": True, "label": "Family checkout", "detail": str(root)})
+    app = github_app_state(root)
+    rows.append(
+        {
+            "id": "github_app",
+            "done": bool(app["done"]),
+            "label": "GitHub App",
+            "detail": str(app["detail"]),
+        }
+    )
+    extras = extra_desk(root)
+    present = sum(1 for row in extras["checkouts"] if row["present"])
+    parts = []
+    if extras["manifest"]:
+        parts.append(f"{present}/{len(extras['checkouts'])} local checkouts")
+    if extras["compose_override"]:
+        parts.append("compose override")
+    if extras["genenv"]:
+        parts.append("token extras")
+    rows.append(
+        {
+            "id": "extras",
+            "done": bool(parts),
+            "label": "Private extras",
+            "detail": ", ".join(parts) if parts else "none",
+        }
+    )
+    return rows
+
+
+def _render_status(ctx: Context, rows: list[dict[str, str | bool]]) -> list[str]:
+    done = ctx.style.good("done")
+    nxt = ctx.style.warn("next")
+    width = max(len(str(row["label"])) for row in rows)
+    lines = ["Setup"]
+    for row in rows:
+        mark = done if row["done"] else nxt
+        lines.append(f"  {mark}  {str(row['label']).ljust(width)}  {row['detail']}")
+    return lines
+
+
+def _resolve_choices(ctx: Context, mode: str, *, changing: bool) -> tuple[str, str, bool, bool]:
+    """Where the hub is and who we are: asked for and written down, or read back.
+
+    A dry run resolves everything and writes nothing, which is what makes it worth running:
+    a person can see exactly what would be saved before any of it is.
+    """
+    if not changing:
+        token = ctx.token if not ctx.args.dry_run else ctx.config.get("token")
+        return ctx.url, token, False, ctx.config.exists
+
     url = _setup_url(ctx, mode)
-    if ctx.config.exists and not (ctx.args.force or ctx.args.dry_run):
-        if not ctx.interactive or ctx.args.yes:
-            msg = "a configuration already exists"
-            raise CliError(
-                msg,
-                USAGE,
-                hint="inspect lucy config; use --force to replace it",
-            )
-        if _ask(ctx, "Replace the saved configuration? yes/no", "no").lower() != "yes":
-            msg = "setup cancelled; no configuration was changed"
-            raise CliError(msg, REFUSED)
     token = _setup_token(ctx, url)
-    values = {"url": url, "mode": mode, "token": token}
-    if not ctx.args.dry_run:
-        try:
-            save_config(values, ctx.environ)
-        except ConfigError as exc:
-            raise CliError(str(exc), USAGE) from exc
+    if ctx.args.dry_run:
+        return url, token, False, False
+    try:
+        save_config({"url": url, "mode": mode, "token": token}, ctx.environ)
+    except ConfigError as exc:
+        raise CliError(str(exc), USAGE) from exc
+    ctx.config = load_config(ctx.environ)
+    return url, token, True, False
+
+
+def _connect_github_ci(
+    ctx: Context,
+    mode: str,
+    rows: Sequence[Mapping[str, object]],
+    root: Path | None,
+    notices: list[str],
+) -> tuple[dict[str, object] | None, int, bool]:
+    """Install the family CI app, or explain why that is not possible here.
+
+    Returns what happened, the exit code it earned, and whether the status rows are now
+    stale -- a successful install changes what the next status read would say, and showing
+    the pre-install answer would tell somebody their setup did not work when it did.
+    """
+    if not _wants_github_ci(ctx, mode):
+        return None, OK, False
+    if root is None:
+        notices.append(checkout_hint())
+        return {"ok": False, "checkout": None, "already": False}, REFUSED, False
+
+    already = any(row["id"] == "github_app" and row["done"] for row in rows)
+    if already and not ctx.args.github_ci:
+        notices.append(github_ci_notice(0, dry_run=bool(ctx.args.dry_run), already=True))
+        return {"ok": True, "checkout": str(root), "already": True}, OK, False
+
+    try:
+        code = run_github_ci(ctx, root)
+    except CliError as exc:
+        notices.append(str(exc))
+        code = exc.code
+    else:
+        notices.append(github_ci_notice(code, dry_run=bool(ctx.args.dry_run)))
+    return {"ok": code == 0, "checkout": str(root), "already": False}, code, code == 0
+
+
+def cmd_setup(ctx: Context) -> int:
+    """Save the choices once, show what is already in place, and finish what is not."""
+    mode = _mode(ctx)
+    changing = _intends_to_change(ctx)
+    already_set_up = ctx.config.exists and not changing and not ctx.args.dry_run
+    if already_set_up and ctx.interactive and not ctx.args.yes:
+        ctx.say("Lucy is already set up on this machine. Existing values are listed next.")
+        if _ask(ctx, "Change the saved hub settings? yes/no", "no").lower() == "yes":
+            changing = True
+    url, token, saved, keep_existing = _resolve_choices(ctx, mode, changing=changing)
+
     notices = [
         f"{variable} in this shell overrides the saved configuration."
         for variable in (URL_VAR, TOKEN_VAR)
@@ -129,6 +273,11 @@ def cmd_setup(ctx: Context) -> int:
         notices.append(
             "No token saved. Account features need sign-in; service readiness can still be checked."
         )
+    root = find_family_root(cwd=Path.cwd(), environ=ctx.environ, origin=PACKAGE_ROOT)
+    rows = _status_rows(ctx, mode, url, token, root)
+    github_ci, result_github, refreshed = _connect_github_ci(ctx, mode, rows, root, notices)
+    if refreshed:
+        rows = _status_rows(ctx, mode, url, token, root)
     services: object = None
     result = OK
     if ctx.args.capabilities and not ctx.args.dry_run:
@@ -137,18 +286,30 @@ def cmd_setup(ctx: Context) -> int:
         except CliError as exc:
             notices.append(f"Configuration saved; capability discovery needs attention: {exc}")
             result = exc.code
+    if result_github != OK and result == OK:
+        result = result_github
     payload = {
         "path": str(ctx.config.path),
-        "saved": not ctx.args.dry_run,
+        "saved": saved,
+        "kept": keep_existing,
         "mode": mode,
         "url": url,
         "token_saved": bool(token),
         "next": MODES[mode],
         "notices": notices,
         "services": services,
+        "github_ci": github_ci,
+        "already": rows,
     }
-    verb = "Would save" if ctx.args.dry_run else "Saved"
-    lines = [f"{verb} configuration at {ctx.config.path}", f"Hub: {url}", MODES[mode], *notices]
+    verb = "Would save" if ctx.args.dry_run else "Saved" if saved else "Using"
+    lines = [
+        *_render_status(ctx, rows),
+        "",
+        f"{verb} configuration at {ctx.config.path}",
+        f"Hub: {url}",
+        MODES[mode],
+        *notices,
+    ]
     if services is not None:
         lines.append(
             "Run lucy connect to review capability setup, or lucy connect music for music."

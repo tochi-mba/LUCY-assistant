@@ -17,3 +17,4 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0008](0008-python-3-12-floor.md) | Python 3.12 is the floor and CI gate; 3.13 is declared supported but not yet gated |
 | [0009](0009-the-hub-lives-here.md) | The hub is `src/lucy_api/` in this repository, not a tenth sibling |
 | [0010](0010-ports-8000-and-8009.md) | Lucy on 8000, Memory-api reserved on 8009 |
+| [0011](0011-private-services-are-extensions.md) | A private service attaches through declared extension points and is never named by a public repository |

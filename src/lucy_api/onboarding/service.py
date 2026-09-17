@@ -40,11 +40,13 @@ class SetupProbe(Protocol):
 class HttpSetupProbe:
     """One timeout-bounded probe per configured service, with redirects disabled."""
 
-    def __init__(self, settings: Settings, *, transport: object | None = None) -> None:
+    def __init__(
+        self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self._http = httpx.AsyncClient(
             timeout=settings.http_timeout_seconds,
             follow_redirects=False,
-            transport=transport,  # type: ignore[arg-type]
+            transport=transport,
         )
 
     async def aclose(self) -> None:

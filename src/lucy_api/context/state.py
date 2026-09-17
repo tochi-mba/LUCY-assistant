@@ -65,14 +65,15 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from lucy_api.context.types import (
-        AgentSnapshot,
         CapabilitySnapshot,
         Counter,
         FailureSnapshot,
+        FeedSnapshot,
         LiveState,
         PendingSnapshot,
         TaskSnapshot,
         TopicSnapshot,
+        WorkSnapshot,
         WorkspaceSnapshot,
     )
 
@@ -182,11 +183,12 @@ class _Quota:
 # `ceiling` is what a group may show when there is room; `floor` is how few entries still
 # earn a header.
 QUOTAS: Mapping[str, _Quota] = {
-    "agents": _Quota(rank=40, ceiling=5, floor=2),
+    "in_flight": _Quota(rank=40, ceiling=5, floor=2),
     "finished": _Quota(rank=10, ceiling=4, floor=2),
     "tasks": _Quota(rank=60, ceiling=6, floor=2),
     "memory": _Quota(rank=50, ceiling=8, floor=3),
     "workspace": _Quota(rank=80, ceiling=6, floor=0),
+    "feeds": _Quota(rank=75, ceiling=8, floor=1),
     "capabilities": _Quota(rank=70, ceiling=6, floor=2),
     "pending": _Quota(rank=20, ceiling=5, floor=2),
     "trouble": _Quota(rank=30, ceiling=4, floor=2),
@@ -457,12 +459,12 @@ def _context_line(state: LiveState) -> str:
 def _groups(state: LiveState) -> tuple[_Group, ...]:
     """Every group with something in it, in prompt order."""
     groups: list[_Group] = []
-    running = sorted(state.running_agents, key=lambda agent: (agent.elapsed_seconds, agent.id))
+    running = sorted(state.running, key=lambda work: (work.elapsed_seconds, work.id))
     if running:
-        groups.append(_agents_group(running))
+        groups.append(_in_flight_group(running))
     finished = sorted(
-        (agent for agent in state.agents if agent.finished_since_last_turn),
-        key=lambda agent: (-agent.elapsed_seconds, agent.id),
+        (work for work in state.in_flight if work.finished_since_last_turn),
+        key=lambda work: (-work.elapsed_seconds, work.id),
     )
     if finished:
         groups.append(_finished_group(finished))
@@ -474,6 +476,7 @@ def _groups(state: LiveState) -> tuple[_Group, ...]:
         groups.append(_workspace_group(state.workspace))
     if state.capabilities:
         groups.append(_capabilities_group(state.capabilities))
+    groups.extend(_feed_group(feed) for feed in state.feeds if feed.lines)
     if state.pending.any:
         groups.append(_pending_group(state.pending))
     if state.failures:
@@ -481,29 +484,36 @@ def _groups(state: LiveState) -> tuple[_Group, ...]:
     return tuple(groups)
 
 
-def _agents_group(running: Sequence[AgentSnapshot]) -> _Group:
-    """Newest first: the ones the model has not yet reasoned about are the news."""
+def _in_flight_group(running: Sequence[WorkSnapshot]) -> _Group:
+    """Everything still going, in one group: helpers, jobs and commands together.
+
+    Newest first, because the ones the model has not yet reasoned about are the news.
+    """
     return _Group(
-        name="agents",
-        quota=QUOTAS["agents"],
-        headline=_plural(len(running), "agent running", "agents running"),
-        entries=tuple(_agent_line(agent) for agent in running),
+        name="in_flight",
+        quota=QUOTAS["in_flight"],
+        headline=_plural(len(running), "thing running", "things running"),
+        entries=tuple(_work_line(work) for work in running),
         recent=True,
     )
 
 
-def _finished_group(finished: Sequence[AgentSnapshot]) -> _Group:
-    """The delta that drives the next move: a child that ended while the model was away.
+def _finished_group(finished: Sequence[WorkSnapshot]) -> _Group:
+    """The delta that drives the next move: work that ended while the model was away.
 
-    Longest-running first when the group has to bend, on the reasoning that the child which
+    Longest-running first when the group has to bend, on the reasoning that the helper which
     worked for four minutes has more to report than the one that stopped after four seconds.
+
+    A line here says a thing finished and roughly how big the answer is. It never carries the
+    answer: reading a result is a separate, explicit act, so a job that produced forty
+    megabytes of log does not arrive uninvited.
     """
     return _Group(
         name="finished",
         quota=QUOTAS["finished"],
-        headline=_plural(len(finished), "agent finished", "agents finished")
+        headline=_plural(len(finished), "thing finished", "things finished")
         + " since your last turn",
-        entries=tuple(_finished_line(agent) for agent in finished),
+        entries=tuple(_finished_line(work) for work in finished),
     )
 
 
@@ -597,6 +607,16 @@ def _capabilities_group(capabilities: Sequence[CapabilitySnapshot]) -> _Group:
     )
 
 
+def _feed_group(feed: FeedSnapshot) -> _Group:
+    """One sibling's live facts, labelled with the product name the model already knows."""
+    return _Group(
+        name=feed.id[:LABEL_WIDTH],
+        quota=QUOTAS["feeds"],
+        headline=feed.title,
+        entries=tuple(INDENT + _clean(line, DETAIL_CHARS) for line in feed.lines),
+    )
+
+
 def _pending_group(pending: PendingSnapshot) -> _Group:
     """Everything blocked on somebody else, so the model stops instead of spinning."""
     entries = (
@@ -633,24 +653,24 @@ def _trouble_group(failures: Sequence[FailureSnapshot]) -> _Group:
 # --------------------------------------------------------------------------------------
 
 
-def _agent_line(agent: AgentSnapshot) -> str:
-    role = _clean(agent.role, NAME_CHARS)
-    if agent.depth > 1:
-        role += f" (depth {agent.depth})"
+def _work_line(work: WorkSnapshot) -> str:
+    role = _clean(work.role, NAME_CHARS)
+    if work.depth > 1:
+        role += f" (depth {work.depth})"
     return INDENT + _joined(
         role,
-        _clean(agent.objective, OBJECTIVE_CHARS),
-        _duration(agent.elapsed_seconds),
-        _clean(agent.progress, PROGRESS_CHARS),
+        _clean(work.objective, OBJECTIVE_CHARS),
+        _duration(work.elapsed_seconds),
+        _clean(work.progress, PROGRESS_CHARS),
     )
 
 
-def _finished_line(agent: AgentSnapshot) -> str:
+def _finished_line(work: WorkSnapshot) -> str:
     return INDENT + _joined(
-        _clean(agent.role, NAME_CHARS),
-        _clean(agent.objective, OBJECTIVE_CHARS),
-        f"{_clean(agent.status, STATUS_CHARS)} after {_duration(agent.elapsed_seconds)}",
-        _clean(agent.progress, PROGRESS_CHARS),
+        _clean(work.role, NAME_CHARS),
+        _clean(work.objective, OBJECTIVE_CHARS),
+        f"{_clean(work.status, STATUS_CHARS)} after {_duration(work.elapsed_seconds)}",
+        _clean(work.progress, PROGRESS_CHARS),
     )
 
 

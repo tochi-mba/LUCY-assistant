@@ -36,6 +36,7 @@ from lucy_api import __version__
 from lucy_api.cli.base import (
     DEFAULT_URL,
     DOCS,
+    FAMILY_ROOT_VAR,
     HTTP_OK,
     INTERRUPTED,
     OK,
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
 EPILOG = f"""\
 examples:
   lucy setup                     first run: choose how Lucy runs, and sign in
+  lucy setup --mode family       bootstrap the family and install the CI GitHub App
   lucy status                    is the hub alive, ready, and who am I
   lucy status --json             the same, for a script
   lucy doctor                    why isn't this working
@@ -71,6 +73,7 @@ environment:
   {URL_VAR}      where the hub is (default: {DEFAULT_URL})
   {TOKEN_VAR}    your keyring token. Never pass a token as a flag.
   {CONFIG_VAR}   where `lucy setup` keeps its answers
+  {FAMILY_ROOT_VAR}  family checkout, if it is not this directory
   NO_COLOR     set to anything to turn colour off
 
 exit codes:
@@ -262,6 +265,17 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("-y", "--yes", action="store_true", help="take every default, ask nothing")
     setup.add_argument("--force", action="store_true", help="overwrite an existing config")
     setup.add_argument("--dry-run", action="store_true", help="say what would change, change none")
+    github = setup.add_mutually_exclusive_group()
+    github.add_argument(
+        "--github-ci",
+        action="store_true",
+        help="install the family CI GitHub App (opens the browser)",
+    )
+    github.add_argument(
+        "--no-github-ci",
+        action="store_true",
+        help="skip the family CI GitHub App install",
+    )
     setup.set_defaults(run=cmd_setup)
 
     connect = sub.add_parser("connect", parents=[after], help="set up one capability")

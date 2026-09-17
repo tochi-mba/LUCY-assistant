@@ -105,14 +105,17 @@ def test_the_built_in_sections_are_rendered_in_prompt_order_into_two_bands() -> 
         "behaviour",
         "tools",
         "safety",
+        "lessons",
+        "helpers",
+        "workspace",
         "memory",
         "context",
         "capabilities",
         "person",
         "goals",
     ]
-    assert [item.band for item in rendered[:6]] == [Band.system] * 6
-    assert [item.band for item in rendered[6:]] == [Band.pinned] * 3
+    assert [item.band for item in rendered[:9]] == [Band.system] * 9
+    assert [item.band for item in rendered[9:]] == [Band.pinned] * 3
 
 
 def test_the_safety_and_tool_idiom_sections_may_be_neither_overridden_nor_disabled() -> None:
@@ -196,10 +199,13 @@ def test_no_default_names_a_service_a_port_or_an_http_verb() -> None:
     assert set(texts) == {
         "behaviour.md",
         "context.md",
+        "helpers.md",
         "identity.md",
+        "lessons.md",
         "memory.md",
         "safety.md",
         "tools.md",
+        "workspace.md",
     }
     for item in render_all(CONTEXT):
         texts[item.id] = f"{item.title}\n{item.body}"

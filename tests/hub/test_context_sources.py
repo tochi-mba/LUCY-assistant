@@ -14,13 +14,13 @@ import pytest
 
 from lucy_api.context.sources import Sources, StateRequest, gather_live_state
 from lucy_api.context.types import (
-    AgentSnapshot,
     BudgetSnapshot,
     CapabilitySnapshot,
     PendingSnapshot,
     SessionSnapshot,
     TaskSnapshot,
     TopicSnapshot,
+    WorkSnapshot,
     WorkspaceSnapshot,
 )
 
@@ -65,7 +65,7 @@ async def test_with_nothing_deployed_the_state_is_still_a_usable_state() -> None
     assert state.session is SESSION
     assert state.budget is BUDGET
     assert state.now == NOW
-    assert state.agents == ()
+    assert state.in_flight == ()
     assert state.tasks == ()
     assert state.topics == ()
     assert state.capabilities == ()
@@ -75,7 +75,7 @@ async def test_with_nothing_deployed_the_state_is_still_a_usable_state() -> None
 
 
 async def test_every_source_reaches_the_state_it_belongs_to() -> None:
-    agent = AgentSnapshot(
+    agent = WorkSnapshot(
         id="agt_1", role="researcher", objective="Find tour dates", status="running"
     )
     task = TaskSnapshot(id="tsk_1", title="Check the venue", status="pending")
@@ -87,7 +87,7 @@ async def test_every_source_reaches_the_state_it_belongs_to() -> None:
     state = await gather_live_state(
         request(),
         Sources(
-            agents=Gives([agent]),
+            in_flight=Gives([agent]),
             tasks=Gives([task]),
             workspace=Gives(workspace),
             capabilities=Gives([capability]),
@@ -95,19 +95,19 @@ async def test_every_source_reaches_the_state_it_belongs_to() -> None:
             pending=Gives(pending),
         ),
     )
-    assert state.agents == (agent,)
+    assert state.in_flight == (agent,)
     assert state.tasks == (task,)
     assert state.workspace is workspace
     assert state.capabilities == (capability,)
     assert state.topics == (topic,)
     assert state.pending is pending
-    assert state.running_agents == (agent,)
+    assert state.running == (agent,)
 
 
 async def test_a_broken_source_costs_its_own_group_and_no_other() -> None:
-    agent = AgentSnapshot(id="agt_1", role="reviewer", objective="Check it", status="running")
-    state = await gather_live_state(request(), Sources(agents=Gives([agent]), tasks=Breaks()))
-    assert state.agents == (agent,), "the working source still answered"
+    agent = WorkSnapshot(id="agt_1", role="reviewer", objective="Check it", status="running")
+    state = await gather_live_state(request(), Sources(in_flight=Gives([agent]), tasks=Breaks()))
+    assert state.in_flight == (agent,), "the working source still answered"
     assert state.tasks == ()
     assert [failure.operation for failure in state.failures] == ["journal"]
     assert "unavailable" in state.failures[0].detail
@@ -124,11 +124,11 @@ async def test_the_report_names_the_kind_of_failure_and_never_the_payload() -> N
 async def test_several_broken_sources_are_each_reported_once() -> None:
     state = await gather_live_state(
         request(),
-        Sources(agents=Breaks(), tasks=Breaks(), workspace=Breaks(), capabilities=Breaks()),
+        Sources(in_flight=Breaks(), tasks=Breaks(), workspace=Breaks(), capabilities=Breaks()),
     )
     assert sorted(failure.operation for failure in state.failures) == [
-        "agents",
         "capabilities",
+        "in_flight",
         "journal",
         "workspace",
     ]
@@ -146,7 +146,7 @@ async def test_failures_the_caller_already_knew_about_are_kept() -> None:
 
 async def test_every_source_is_asked_about_this_session_and_no_other() -> None:
     agents, tasks = Gives([]), Gives([])
-    await gather_live_state(request(), Sources(agents=agents, tasks=tasks))
+    await gather_live_state(request(), Sources(in_flight=agents, tasks=tasks))
     assert agents.asked_for == ["ses_1"]
     assert tasks.asked_for == ["ses_1"]
 
@@ -167,7 +167,7 @@ async def test_the_sources_are_fetched_together_rather_than_one_after_another() 
 
     await gather_live_state(
         request(),
-        Sources(agents=Timed("agents", 0.02), tasks=Timed("tasks", 0.01)),
+        Sources(in_flight=Timed("agents", 0.02), tasks=Timed("tasks", 0.01)),
     )
     assert started == ["agents", "tasks"], "both began before either had finished"
     assert finished == ["tasks", "agents"], "the quicker one did not wait for the slower"
@@ -180,4 +180,4 @@ async def test_a_cancelled_turn_is_not_swallowed_by_a_source() -> None:
     been abandoned, which is how a cancelled request keeps costing money.
     """
     with pytest.raises(asyncio.CancelledError):
-        await gather_live_state(request(), Sources(agents=Breaks(asyncio.CancelledError())))
+        await gather_live_state(request(), Sources(in_flight=Breaks(asyncio.CancelledError())))
