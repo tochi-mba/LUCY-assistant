@@ -78,10 +78,19 @@ the decision is about the family — for anything future-you would otherwise re-
 
 ## What this repository may contain
 
-Bootstrap, parity, compose, the reusable workflow, family docs, ADRs about the family,
-and a teaching example under `examples/` (not a ninth service). Not a copier template.
-Not copies of the eight services. Not `.env.family`, and not a GitHub token. Run
-`make test` for the family tooling and configuration tests.
+Two things, and knowing which one you are touching is most of the job.
+
+**The hub.** `src/lucy_api/` is Lucy, the API a person holds a conversation with. It is a
+family service like any other and is held to the same gates — `python scripts/parity.py`
+scores it beside its siblings. [ADR-0009](docs/adr/0009-the-hub-lives-here.md) records why
+it lives here rather than in a tenth sibling repository, and what that costs.
+
+**The family desk.** Bootstrap, parity, compose, the reusable workflow, the token broker,
+family docs, ADRs about the family, and a teaching example under `examples/`.
+
+Not a copier template. Not copies of the eight services — those are still eight separate
+git repositories, cloned beside this file and gitignored. Not `.env.family`, and not a
+GitHub token. `make test` runs the hub's suite and the desk's together.
 
 ## Pull requests
 

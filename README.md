@@ -109,14 +109,24 @@ the assistant sitting in front.
 4. Mint a service token for the service you are working on
    (`POST /v1/auth/service-token` with that service's audience) and put the Bearer on
    the request.
-5. `make check` in that repository. `python scripts/parity.py --repo <name>` from here
-   if you want the family scoreboard.
+5. `make check` in that repository. `python scripts/parity.py` from here for the family
+   scoreboard — it scores the hub too.
 
-To run all eight with Docker Engine running:
+To work on **Lucy herself**, you are already in the right directory:
+
+```bash
+make install
+make run                          # http://127.0.0.1:8000/docs
+curl localhost:8000/healthy       # liveness: no I/O, never fails
+curl localhost:8000/ready         # readiness: 503 until keyring is up, and it says so
+make check                        # lint, types, imports, tests at 100% branch coverage
+```
+
+To run the whole family with Docker Engine running:
 
 ```bash
 python scripts/genenv.py          # writes .env.family; never prints the values
-make images && make up           # host ports 8001–8008; up reuses the build cache
+make images && make up            # host ports 8000–8008; up reuses the build cache
 ```
 
 Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.
