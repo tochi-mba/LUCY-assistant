@@ -15,3 +15,5 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0006](0006-the-family-may-be-private.md) | Any repository may be private; one developer sign-in, and a shared read-only GitHub App with an OIDC token broker for CI |
 | [0007](0007-public-base-hubs.md) | Canonical published repositories are public; shared clients fetch anonymously |
 | [0008](0008-python-3-12-floor.md) | The family runs on Python 3.12; CI's matrix is 3.12 and 3.13 |
+| [0009](0009-the-hub-lives-here.md) | The hub is `src/lucy_api/` in this repository, not a tenth sibling |
+| [0010](0010-ports-8000-and-8009.md) | Lucy on 8000, Memory-api reserved on 8009 |

@@ -21,6 +21,11 @@ jobs:
   # repository that made it.
   service:
     uses: ./.github/workflows/service.yml
+    # Granted on the job, not only at the top of the file: a reusable workflow that asks for
+    # `id-token: write` is refused unless the calling job grants it explicitly.
+    permissions:
+      contents: read
+      id-token: write
 
   broker:
     name: Token broker

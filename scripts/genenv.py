@@ -32,6 +32,7 @@ MASTER_KEY_BYTES = 32
 # (and the audience those services mint). Variables are the names their Settings classes
 # actually read.
 KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
+    ("lucy-api", "LUCY_KEYRING_SERVICE_TOKEN"),
     ("media-tool", "MEDIA_TOOL_KEYRING_SERVICE_TOKEN"),
     ("spotify-api", "SPOTIFY_API_KEYRING_SERVICE_TOKEN"),
     ("web-search-api", "WSA_KEYRING_SERVICE_TOKEN"),
@@ -41,6 +42,7 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
 # settings-api ServiceConfig rows. token_var is the consumer's own prefixed name when
 # that service already declares settings_api_token; None means only the grant exists yet.
 SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
+    ("lucy-api", "lucy-api", ("lucy",), "LUCY_SETTINGS_API_TOKEN"),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
     ("media-tool", "media-tool", ("media",), "MEDIA_TOOL_SETTINGS_API_TOKEN"),

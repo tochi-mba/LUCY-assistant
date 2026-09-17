@@ -19,6 +19,7 @@ personal token.
 
 | Service | Purpose | Port | Env prefix | Health |
 | --- | --- | ---: | --- | --- |
+| **Lucy** (this repository) | The front door. One conversation, the capabilities this person has connected, a workspace, memory and sub-agents. | 8000 | `LUCY_` | `/healthy`, `/ready` |
 | [Keyring-api](https://github.com/tochi-mba/Keyring-api) | Accounts, profiles, and the credential vault. Issues the tokens everyone else verifies. | 8001 | `KEYRING_` | `/healthy`, `/ready` |
 | [User-api](https://github.com/tochi-mba/User-api) | Structured facts about the **person** the assistant is talking to. | 8002 | `USER_API_` | `/healthy`, `/ready` |
 | [Settings-api](https://github.com/tochi-mba/Settings-api) | Per-person knobs that used to live as process-wide env vars. | 8003 | `SETTINGS_API_` | `/healthy`, `/ready` |
@@ -27,7 +28,7 @@ personal token.
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
 
-Every service listens on its assigned port, so all eight run on one host without a
+Every service listens on its assigned port, so the hub and all eight run on one host without a
 collision, and compose maps each host port to the same number inside the container.
 
 **`/healthy` is liveness and `/ready` is readiness**, everywhere. Liveness does no I/O and

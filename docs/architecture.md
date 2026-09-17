@@ -1,6 +1,6 @@
 # Architecture
 
-The assistant is eight processes, not one. This document is the map. Each service's
+The assistant is a hub and eight processes, not one. This document is the map. Each service's
 own `docs/architecture.md` is the street view.
 
 ## Why eight repositories
@@ -60,7 +60,7 @@ client is a deployment choice, not a settings-api release.
 
 ## Ports
 
-Family assignments are 8001–8008, and every repository's default now matches:
+Family assignments are 8000–8009, and every repository's default now matches:
 config, Dockerfile, `make run`, `.env.example` and documentation. Compose
 publishes each port on the host and the image listens on the same number
 inside. [ADR-0004](adr/0004-port-assignments.md).

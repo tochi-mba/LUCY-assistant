@@ -1,9 +1,12 @@
-# LUCY-assistant family. Eight services, one network.
+# LUCY-assistant family. The hub and eight services, one network.
+#
+# media-tool sits behind the `local` profile: it is a private tool, not part of the
+# published family. COMPOSE_PROFILES=local includes it.
 #
 # Paths are ./<Repo> because this file lives beside the service checkouts.
 #   python scripts/genenv.py
 #   make images && make up
-# Host and container ports match the family assignments (8001-8008).
+# Host and container ports match the family assignments (8000-8008; see docs/adr/0010).
 
 name: lucy-family
 
@@ -12,6 +15,7 @@ networks:
     name: lucy-family
 
 volumes:
+  lucy-data:
   keyring-data:
   user-data:
   settings-data:
@@ -20,12 +24,57 @@ volumes:
   environments-data:
 
 # Build-time only. Never put GITHUB_TOKEN in .env.family: env_file is passed
-# to all eight running containers, which do not need GitHub credentials.
+# to every running container, and none of them needs a GitHub credential.
 secrets:
   github_token:
     environment: GITHUB_TOKEN
 
 services:
+  # The front door. It is built from this repository, not from a sibling checkout, because
+  # the hub lives here (docs/adr/0009-the-hub-lives-here.md).
+  lucy:
+    build:
+      context: .
+      secrets: [github_token]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.family
+    environment:
+      LUCY_HOST: "0.0.0.0"
+      LUCY_PORT: "8000"
+      LUCY_AUDIENCE: lucy-api
+      LUCY_KEYRING_BASE_URL: http://keyring:8001
+      LUCY_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
+      LUCY_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      LUCY_USER_API_BASE_URL: http://user:8002
+      LUCY_SETTINGS_API_BASE_URL: http://settings:8003
+      LUCY_PERSONA_API_BASE_URL: http://persona:8004
+      LUCY_MEDIA_TOOL_BASE_URL: http://media-tool:8005
+      LUCY_WEB_SEARCH_BASE_URL: http://web-search:8006
+      LUCY_SPOTIFY_API_BASE_URL: http://spotify:8007
+      LUCY_ENVIRONMENTS_API_BASE_URL: http://environments:8008
+      LUCY_MEMORY_API_BASE_URL: http://memory:8009
+      LUCY_LOG_FORMAT: json
+    volumes:
+      - lucy-data:/var/lib/lucy
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
   keyring:
     build:
       context: ./Keyring-api

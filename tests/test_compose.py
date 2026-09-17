@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "docker-compose.yml"
 
 FAMILY = (
+    "lucy",
     "keyring",
     "user",
     "settings",
@@ -23,6 +24,8 @@ FAMILY = (
 )
 
 CONTEXTS = {
+    # The hub is built from this repository; see docs/adr/0009-the-hub-lives-here.md.
+    "lucy": ".",
     "keyring": "./Keyring-api",
     "user": "./User-api",
     "settings": "./Settings-api",
@@ -34,6 +37,7 @@ CONTEXTS = {
 }
 
 HOST_PORTS = {
+    "lucy": "8000:8000",
     "keyring": "8001:8001",
     "user": "8002:8002",
     "settings": "8003:8003",
@@ -105,10 +109,13 @@ def test_consumers_depend_on_keyring() -> None:
 
 
 def test_build_contexts_are_beside_the_compose_file_not_parent() -> None:
+    # Every context is this directory or a checkout inside it. The one thing that must never
+    # appear is a parent path: compose used to live a level up, and "../Keyring-api" built
+    # whatever happened to be beside the family rather than the family's own checkout.
     text = COMPOSE.read_text(encoding="utf-8")
     assert "../Keyring-api" not in text
     for context in CONTEXTS.values():
-        assert context.startswith("./")
+        assert context == "." or context.startswith("./")
         assert not context.startswith("../")
 
 
@@ -118,6 +125,7 @@ def test_healthchecks_hit_real_routes() -> None:
         name: " ".join(service["healthcheck"]["test"])
         for name, service in document["services"].items()
     }
+    assert "/healthy" in probes["lucy"]
     assert "/healthy" in probes["keyring"]
     assert "/healthy" in probes["user"]
     assert "/healthy" in probes["settings"]
