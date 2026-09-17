@@ -15,8 +15,10 @@ from fastapi import FastAPI
 from lucy_api import __version__
 from lucy_api.api.errors import register_exception_handlers
 from lucy_api.api.routers import ROUTERS
+from lucy_api.api.routers.setup import router as setup_router
 from lucy_api.core.config import Settings, load_settings
 from lucy_api.core.container import build_container
+from lucy_api.onboarding.service import HttpSetupProbe, SetupDiscovery
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -45,10 +47,15 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         container = build_container(resolved, transport=transport)
         app.state.container = container
+        probe = HttpSetupProbe(resolved, transport=transport)
+        app.state.onboarding = SetupDiscovery(resolved, probe)
         try:
             yield
         finally:
-            await container.aclose()
+            try:
+                await probe.aclose()
+            finally:
+                await container.aclose()
 
     app = FastAPI(
         title=TITLE,
@@ -59,4 +66,5 @@ def create_app(
     register_exception_handlers(app)
     for router in ROUTERS:
         app.include_router(router)
+    app.include_router(setup_router)
     return app

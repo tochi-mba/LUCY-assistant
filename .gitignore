@@ -9,6 +9,7 @@
 /Web-search-api/
 /Spotify-api/
 /Environments-api/
+/Memory-api/
 
 # Private / machine-local clone manifest (merged with repos.txt by bootstrap).
 /.repos.local.txt

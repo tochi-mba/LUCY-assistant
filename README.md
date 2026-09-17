@@ -1,9 +1,13 @@
 # LUCY-assistant
 
-Eight HTTP services that together are the assistant's body: who the person is, who the
-assistant is, how they want to be treated, what they have connected, and the tools that
-act for them. This repository is the **family meta-repo**. It is not a monorepo. Each
-service is its own git repository, cloned beside this file by `scripts/bootstrap.sh`.
+Lucy is the assistant hub in `src/lucy_api/`. This repository also holds the **family
+desk**: tools and documentation for seven public sibling services, each in its own git
+repository. `scripts/bootstrap.sh` clones those checkouts beside this file. An optional
+local media service can be added through the `local` Compose profile.
+
+The hub currently provides health, readiness, identity and a command-line setup flow.
+Conversation sessions, the model loop, memory and agents are planned; installing the
+client does not yet provide a chat command.
 
 `make check` is the same four gates everywhere it exists: lint, types, imports, tests at
 100% branch coverage. `python scripts/parity.py` is how we notice when a checkout has
@@ -19,7 +23,7 @@ personal token.
 
 | Service | Purpose | Port | Env prefix | Health |
 | --- | --- | ---: | --- | --- |
-| **Lucy** (this repository) | The front door. One conversation, the capabilities this person has connected, a workspace, memory and sub-agents. | 8000 | `LUCY_` | `/healthy`, `/ready` |
+| **Lucy** (this repository) | The assistant hub: health, readiness and caller identity; conversation support is in development. | 8000 | `LUCY_` | `/healthy`, `/ready` |
 | [Keyring-api](https://github.com/tochi-mba/Keyring-api) | Accounts, profiles, and the credential vault. Issues the tokens everyone else verifies. | 8001 | `KEYRING_` | `/healthy`, `/ready` |
 | [User-api](https://github.com/tochi-mba/User-api) | Structured facts about the **person** the assistant is talking to. | 8002 | `USER_API_` | `/healthy`, `/ready` |
 | [Settings-api](https://github.com/tochi-mba/Settings-api) | Per-person knobs that used to live as process-wide env vars. | 8003 | `SETTINGS_API_` | `/healthy`, `/ready` |
@@ -28,8 +32,9 @@ personal token.
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
 
-Every service listens on its assigned port, so the hub and all eight run on one host without a
-collision, and compose maps each host port to the same number inside the container.
+Every service listens on its assigned port, so the hub and its siblings run on one host
+without a collision. Compose maps each host port to the same number inside the container.
+Port 8005 is the optional local media service; 8009 is reserved for the planned Memory-api.
 
 **`/healthy` is liveness and `/ready` is readiness**, everywhere. Liveness does no I/O and
 never fails, because an orchestrator restarts a container whose liveness check fails and
@@ -96,6 +101,35 @@ the assistant sitting in front.
 
 ## Your first hour
 
+For the command-line client, install [uv](https://docs.astral.sh/uv/getting-started/installation/),
+clone this repository, then run either installer. Its path can be absolute; your working
+directory does not matter.
+
+```bash
+bash scripts/setup.sh
+# PowerShell: pwsh scripts/setup.ps1
+```
+
+The installer puts `lucy` on your user PATH through `uv tool install --editable`, then
+opens `lucy setup`. Choose **hub** for a local development hub, **family** for the local
+Compose stack, or **remote** for an existing hub URL. Setup saves client configuration
+and explains the remaining steps; it does not start services. Use `--dry-run` to preview
+the installer or `--skip-setup` to install only. Keep this checkout in place because the
+editable command imports its code from here.
+
+```bash
+lucy config                     # effective configuration, with the token redacted
+lucy doctor                     # independent checks and fixes
+lucy connect                    # discover capability setup support from your hub
+```
+
+Signing into Lucy currently means providing a Keyring-issued JWT with audience
+`lucy-api`, using the hidden setup prompt, `LUCY_TOKEN`, or `--token-stdin`. Browser and
+device sign-in are not implemented yet. You can skip the token and finish later.
+[The CLI guide](docs/cli.md) covers remote setup, automation and diagnostics.
+
+For family service development:
+
 1. Open this folder in a [devcontainer](.devcontainer/devcontainer.json) or on
    Linux/macOS/WSL2. Native Windows without WSL2 can run most services; Environments-api
    cannot.
@@ -103,8 +137,8 @@ the assistant sitting in front.
    Python 3.12/3.13, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
    installing it, asks you to sign in to GitHub (browser or a pasted token) if you are
    not already, clones any missing checkout your account can read from `repos.txt`, and runs
-   `make install` unless you pass `--no-install`. Running Lucy locally stops here: you do
-   not need the family GitHub App on your machine.
+   `make install` unless you pass `--no-install`. The family GitHub App is only for CI;
+   local development uses your own GitHub sign-in.
 3. In Keyring-api: copy `.env.example`, set `KEYRING_MASTER_KEY`, `make run`.
 4. Mint a service token for the service you are working on
    (`POST /v1/auth/service-token` with that service's audience) and put the Bearer on
@@ -133,20 +167,20 @@ Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--for
 
 ## The `lucy` command
 
-`lucy` is the command you type to talk to Lucy from any directory. Installing the wheel as
-a uv tool puts it on your PATH in its own isolated environment:
+`lucy` manages client setup and checks a running hub from any directory. The installer
+above puts it in its own isolated environment; inside this repository, `uv run lucy`
+also works without a global installation.
 
 ```bash
-uv tool list | grep lucy-api        # already installed? then skip the next line
-uv tool install --editable .        # --editable tracks this checkout, so git pull is enough
+lucy setup                          # choose hub, family, or remote; save client settings
 lucy status                         # alive, ready, which dependency is down, and who you are
 lucy status --json | jq .ready      # the same, as a contract a script can depend on
 lucy serve                          # run the hub here, in the foreground
 ```
 
 It is a **client**: the same command works against a hub on this laptop, in compose, or on
-another machine, and the only thing that changes is `LUCY_URL`. Your token comes from
-`LUCY_TOKEN` and is never a flag, because a flag lands in shell history and in `ps`. Exit
+another machine. `--url` overrides `LUCY_URL`, which overrides the saved URL. Your token
+comes from `LUCY_TOKEN` or the saved configuration and is never a flag value. Exit
 codes are `0` worked, `1` the answer was no, `2` bad command, `3` hub unreachable.
 [docs/cli.md](docs/cli.md) has the rest.
 
@@ -209,7 +243,8 @@ separate choice.
 
 ## Keeping your copy private / Forking
 
-Copy all nine repositories under one owner, keeping their names and client tags.
+Copy this repository and the siblings listed in `repos.txt` under one owner, keeping
+their names and client tags.
 GitHub forks inherit their network's visibility: a fork of a public repository cannot
 be made private by itself. Use private standalone copies when the upstream is public,
 or private forks when GitHub permits them. See [GitHub's fork rules](https://docs.github.com/en/pull-requests/reference/forks).
@@ -243,6 +278,7 @@ private; its callers continue using the canonical public workflow. The
 | Family standard | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
+| How Lucy's context is built | [docs/context.md](docs/context.md) |
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
 | GitHub sign-in and private copies | [docs/private-repos.md](docs/private-repos.md) |
@@ -256,11 +292,11 @@ private; its callers continue using the canonical public workflow. The
 
 | Platform | Services | Compose | Notes |
 | --- | --- | --- | --- |
-| Linux | All eight | Expected to work | Environments-api sandbox tiers need privileges / `unshare`. |
-| macOS | Seven; Environments-api directory tier only | Expected to work | Namespace/user tiers are Linux. |
+| Linux | Hub and all public siblings | Expected to work | Environments-api sandbox tiers need privileges / `unshare`. |
+| macOS | Hub and public siblings; Environments-api directory tier only | Expected to work | Namespace/user tiers are Linux. |
 | Windows via WSL2 | Same as Linux | Expected to work | Preferred Windows path. |
 | Windows via [devcontainer](.devcontainer/devcontainer.json) | Same as Linux | Expected to work | Docker-in-Docker plus Playwright libraries. |
-| Native Windows | Seven | Requires Docker Desktop's Linux engine | Run Make recipes in Git Bash. Environments-api runs in Linux containers. |
+| Native Windows | Hub and public siblings except Environments-api | Requires Docker Desktop's Linux engine | Run Make recipes in Git Bash. Environments-api runs in Linux containers. |
 
 `--check` on bootstrap marks Environments-api **needs Linux** when the host is not Linux,
 rather than running a suite that cannot pass.

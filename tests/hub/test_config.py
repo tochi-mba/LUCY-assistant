@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from lucy_api.core.config import (
+    CLIENT_VARIABLES,
     ENV_PREFIX,
     LogFormat,
     Settings,
@@ -44,7 +45,8 @@ def test_every_field_is_reachable_through_the_prefix() -> None:
     check_for_unknown_env_vars(dict.fromkeys(known, "x"))
 
 
-def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
     for key in list(os.environ):
         if key.startswith(ENV_PREFIX):
             monkeypatch.delenv(key, raising=False)
@@ -54,3 +56,19 @@ def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.environment == "test"
     assert settings.log_format is LogFormat.CONSOLE
     assert settings.port == 8000
+
+
+def test_server_accepts_exactly_the_clients_documented_prefixed_variables() -> None:
+    from lucy_api.cli.base import TOKEN_VAR, URL_VAR
+    from lucy_api.cli.config import CONFIG_VAR
+
+    assert {URL_VAR, TOKEN_VAR, CONFIG_VAR} == CLIENT_VARIABLES
+    check_for_unknown_env_vars(dict.fromkeys(CLIENT_VARIABLES, "client-only-value"))
+    with pytest.raises(RuntimeError, match="LUCY_TOKNE"):
+        check_for_unknown_env_vars({"LUCY_TOKNE": "not-printed-secret"})
+
+
+def test_validation_errors_hide_a_bad_setting_value() -> None:
+    with pytest.raises(ValueError, match="port") as raised:
+        _settings(port="a-secret-accidentally-pasted-here")
+    assert "a-secret-accidentally-pasted-here" not in str(raised.value)

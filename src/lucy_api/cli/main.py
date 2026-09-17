@@ -2,8 +2,8 @@
 
 The contract, because a CLI is a user interface *and* an API for scripts:
 
-* **stdout** carries the answer. **stderr** carries everything else, so a pipe gets only
-  the answer and a person still sees the explanation.
+* **stdout** carries the answer. **stderr** carries everything else — commentary, prompts,
+  errors — so a pipe gets only the answer and a person still sees the explanation.
 * **Exit codes** are the script's version of the answer: ``0`` it worked, ``1`` the hub
   answered and the answer was no, ``2`` the command was wrong (argparse owns this one),
   ``3`` the hub could not be reached, ``130`` you pressed Ctrl-C.
@@ -13,12 +13,14 @@ The contract, because a CLI is a user interface *and* an API for scripts:
 * **Colour** is off when stdout is not a terminal, when ``NO_COLOR`` is set, when ``TERM``
   is ``dumb``, or when ``--no-color`` is passed.
 * **Secrets never arrive as flags** — a flag lands in shell history and in `ps`. The token
-  comes from ``LUCY_TOKEN``.
-* **Settings resolve flag, then environment, then the default**, which is the order people
-  expect and the order that makes a one-off override easy.
+  comes from ``LUCY_TOKEN`` or from the file `lucy setup` writes.
+* **Settings resolve flag, then environment, then the config file, then the default**,
+  which is the order people expect and the order that makes a one-off override easy.
+* **Nothing prompts unless somebody is there to answer.** A command run from a script with
+  no terminal says which flag to pass instead of hanging on a question nobody will read.
 
-Startup is kept quick by importing `httpx` and `uvicorn` inside the commands that need
-them, so `lucy --help` does not pay for a network stack it will not use.
+Startup is kept quick by importing `httpx`, `uvicorn` and the settings model inside the
+commands that need them, so `lucy --help` does not pay for a network stack it will not use.
 """
 
 from __future__ import annotations
@@ -27,37 +29,48 @@ import argparse
 import json
 import os
 import sys
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, TextIO
 
 from lucy_api import __version__
+from lucy_api.cli.base import (
+    DEFAULT_URL,
+    DOCS,
+    HTTP_OK,
+    INTERRUPTED,
+    OK,
+    REFUSED,
+    TIMEOUT_SECONDS,
+    TOKEN_VAR,
+    URL_VAR,
+    USAGE,
+    CliError,
+    Context,
+    Style,
+    fetch,
+    wants_colour,
+)
+from lucy_api.cli.config import CONFIG_VAR
+from lucy_api.cli.connect import cmd_connect
+from lucy_api.cli.setup import cmd_config, cmd_doctor, cmd_setup
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-DEFAULT_URL = "http://127.0.0.1:8000"
-URL_VAR = "LUCY_URL"
-TOKEN_VAR = "LUCY_TOKEN"  # noqa: S105 - the variable's name, not a token
-DOCS = "https://github.com/tochi-mba/LUCY-assistant"
-
-OK = 0
-REFUSED = 1
-USAGE = 2
-UNREACHABLE = 3
-INTERRUPTED = 130
-
-TIMEOUT_SECONDS = 10.0
-HTTP_OK = 200
-
 EPILOG = f"""\
 examples:
+  lucy setup                     first run: choose how Lucy runs, and sign in
   lucy status                    is the hub alive, ready, and who am I
   lucy status --json             the same, for a script
+  lucy doctor                    why isn't this working
+  lucy connect music             set up one capability, or change it later
   lucy serve                     run the hub here, in the foreground
   LUCY_URL=http://box:8000 lucy status    ask a hub somewhere else
 
 environment:
   {URL_VAR}      where the hub is (default: {DEFAULT_URL})
   {TOKEN_VAR}    your keyring token. Never pass a token as a flag.
+  {CONFIG_VAR}   where `lucy setup` keeps its answers
   NO_COLOR     set to anything to turn colour off
 
 exit codes:
@@ -67,93 +80,31 @@ docs: {DOCS}
 """
 
 
-class CliError(Exception):
-    """A failure whose message is already a sentence a person can act on."""
-
-    def __init__(self, message: str, code: int = REFUSED, hint: str | None = None) -> None:
-        super().__init__(message)
-        self.code = code
-        self.hint = hint
-
-
-class Style:
-    """Colour, when the terminal wants it and the person has not said otherwise."""
-
-    def __init__(self, *, enabled: bool) -> None:
-        self.enabled = enabled
-
-    def __call__(self, text: str, code: str) -> str:
-        return f"\033[{code}m{text}\033[0m" if self.enabled else text
-
-    def good(self, text: str) -> str:
-        return self(text, "32")
-
-    def bad(self, text: str) -> str:
-        return self(text, "31")
-
-    def dim(self, text: str) -> str:
-        return self(text, "2")
-
-
-def wants_colour(stream: TextIO, *, no_color: bool, environ: dict[str, str]) -> bool:
-    """Every reason to turn colour off, in the order people expect them to be honoured."""
-    if no_color or environ.get("NO_COLOR") is not None or environ.get("TERM") == "dumb":
-        return False
-    return bool(getattr(stream, "isatty", lambda: False)())
-
-
-def resolve_url(flag: str | None, environ: dict[str, str]) -> str:
-    """Flag, then environment, then this machine.
-
-    An address without a scheme is rejected here rather than at the socket, because the
-    failure a connection reports for `box:8000` is "cannot reach Lucy", and the advice that
-    comes with it -- start the hub -- is advice that cannot work. This message carries its
-    own fix, which is why it is one of the few errors with no separate hint.
-    """
-    url = (flag or environ.get(URL_VAR) or DEFAULT_URL).rstrip("/")
-    if not url.startswith(("http://", "https://")):
-        message = f"a hub address must start with http:// or https:// -- got {url!r}"
-        raise CliError(message, USAGE)
-    return url
-
-
-def _headers(environ: dict[str, str]) -> dict[str, str]:
-    token = environ.get(TOKEN_VAR, "").strip()
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
-
-def fetch(client: Any, url: str, path: str, environ: dict[str, str]) -> Any:
-    """One GET. An unreachable hub is a different answer from a hub that said no."""
-    import httpx  # noqa: PLC0415 - kept out of `lucy --help`
-
-    try:
-        return client.get(f"{url}{path}", headers=_headers(environ))
-    except httpx.HTTPError as exc:
-        message = f"cannot reach Lucy at {url}"
-        hint = (
-            f"start it with `lucy serve`, or set {URL_VAR} to where it runs "
-            f"({exc.__class__.__name__})"
-        )
-        raise CliError(message, UNREACHABLE, hint=hint) from exc
-
-
 def cmd_status(ctx: Context) -> int:
     """Is the hub alive, is it ready, and who does it think I am."""
     import httpx  # noqa: PLC0415 - kept out of `lucy --help`
 
     url = ctx.url
     with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
-        alive = fetch(client, url, "/healthy", ctx.environ)
-        ready = fetch(client, url, "/ready", ctx.environ)
-        me = fetch(client, url, "/v1/me", ctx.environ)
+        alive = fetch(client, url, "/healthy", ctx.token)
+        ready = fetch(client, url, "/ready", ctx.token)
+        me = fetch(client, url, "/v1/me", ctx.token)
 
-    checks = ready.json().get("checks", {}) if _is_json(ready) else {}
+    ready_body = _json_object(ready) if _is_json(ready) else {}
+    checks = ready_body.get("checks", {})
+    if not isinstance(checks, dict):
+        checks = {}
+    account = _json_object(me).get("account_id") if me.status_code == HTTP_OK else None
+    account = account if isinstance(account, str) else None
     payload = {
         "url": url,
         "alive": alive.status_code == HTTP_OK,
         "ready": ready.status_code == HTTP_OK,
-        "checks": {name: check.get("status") for name, check in checks.items()},
-        "account_id": me.json().get("account_id") if me.status_code == HTTP_OK else None,
+        "checks": {
+            name: check.get("status") if isinstance(check, dict) else "unknown"
+            for name, check in checks.items()
+        },
+        "account_id": account,
     }
 
     mark = ctx.style.good("yes") if payload["ready"] else ctx.style.bad("no")
@@ -165,15 +116,20 @@ def cmd_status(ctx: Context) -> int:
     lines.extend(f"  {name:<10} {status}" for name, status in sorted(payload["checks"].items()))
     if payload["account_id"]:
         lines.append(f"you     {payload['account_id']}")
-    elif ctx.environ.get(TOKEN_VAR):
-        lines.append(f"you     {ctx.style.bad('not identified')} — {TOKEN_VAR} was refused")
+    elif ctx.token:
+        reason = (
+            "your token was refused"
+            if me.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
+            else "identity could not be checked; run lucy doctor"
+        )
+        lines.append(f"you     {ctx.style.bad('not identified')} — {reason}")
     else:
-        lines.append(f"you     not signed in {ctx.style.dim(f'(set {TOKEN_VAR})')}")
+        lines.append(f"you     not signed in {ctx.style.dim('(run `lucy setup`)')}")
     if not payload["ready"]:
         lines.append(ctx.style.dim("a dependency is unusable; the checks above say which"))
 
     ctx.emit(payload, "\n".join(lines))
-    return OK if payload["ready"] else REFUSED
+    return OK if payload["alive"] and payload["ready"] and (not ctx.token or account) else REFUSED
 
 
 def cmd_version(ctx: Context) -> int:
@@ -183,9 +139,10 @@ def cmd_version(ctx: Context) -> int:
     hub: str | None = None
     try:
         with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
-            response = fetch(client, ctx.url, "/healthy", ctx.environ)
+            response = fetch(client, ctx.url, "/healthy", ctx.token)
         if response.status_code == HTTP_OK:
-            hub = response.json().get("version")
+            version = _json_object(response).get("version")
+            hub = version if isinstance(version, str) else None
     except CliError:
         hub = None
     ctx.emit(
@@ -196,66 +153,44 @@ def cmd_version(ctx: Context) -> int:
 
 
 def cmd_serve(ctx: Context) -> int:
-    """Run the hub in the foreground. For development; compose is how it is deployed."""
-    from lucy_api.__main__ import main as serve  # noqa: PLC0415 - uvicorn is a heavy import
+    """Run the hub in the foreground. For development; compose is how it is deployed.
 
-    host, port = ctx.args.host, ctx.args.port
-    ctx.environ.setdefault("LUCY_HOST", host)
-    ctx.environ.setdefault("LUCY_PORT", str(port))
-    os.environ.update({"LUCY_HOST": host, "LUCY_PORT": str(port)})
-    print(f"Lucy is starting on http://{host}:{port}  (Ctrl-C to stop)", file=ctx.err)
+    A flag given here becomes an environment variable, because that is the only channel the
+    server reads. A flag *not* given sets nothing, so `LUCY_PORT` and the `.env` file still
+    decide — overwriting them with argparse's defaults would silently ignore the
+    configuration the person already wrote down.
+    """
+    from lucy_api.__main__ import main as serve  # noqa: PLC0415 - uvicorn is a heavy import
+    from lucy_api.core.config import load_settings  # noqa: PLC0415 - so is pydantic-settings
+
+    for variable, value in (("LUCY_HOST", ctx.args.host), ("LUCY_PORT", ctx.args.port)):
+        if value is not None:
+            os.environ[variable] = str(value)
+            ctx.environ[variable] = str(value)
+    try:
+        settings = load_settings()
+    except (RuntimeError, ValueError) as exc:
+        hint = "check your .env file and any LUCY_* variables in this shell"
+        message = "the hub's configuration is not usable"
+        raise CliError(message, USAGE, hint=hint) from exc
+
+    ctx.say(f"Lucy is starting on http://{settings.host}:{settings.port}  (Ctrl-C to stop)")
     serve()
     return OK
 
 
-def _is_json(response: Any) -> bool:
-    return str(response.headers.get("content-type", "")).startswith("application/json")
+def _is_json(response: object) -> bool:
+    headers = getattr(response, "headers", {})
+    return str(headers.get("content-type", "")).startswith("application/json")
 
 
-class Context:
-    """What a command is handed: where to write, where the hub is, and how to say it."""
-
-    def __init__(
-        self,
-        args: argparse.Namespace,
-        *,
-        out: TextIO,
-        err: TextIO,
-        environ: dict[str, str],
-    ) -> None:
-        self.args = args
-        self.out = out
-        self.err = err
-        self.environ = environ
-        self.url = resolve_url(args.url, environ)
-        self.style = Style(enabled=wants_colour(out, no_color=args.no_color, environ=environ))
-
-    def emit(self, payload: object, text: str) -> None:
-        """The answer goes to stdout; `--json` is the shape a script should depend on."""
-        if self.args.quiet and not self.args.json:
-            return
-        print(json.dumps(payload, indent=2) if self.args.json else text, file=self.out)
-
-
-def _shared_flags(parser: argparse.ArgumentParser, *, keep_defaults: bool) -> None:
-    """The flags that have to work on both sides of the subcommand.
-
-    People type ``lucy status --json``; a generated script emits ``lucy --json status``.
-    argparse only recognises a flag where it was declared, so these are declared twice: once
-    on the root with real defaults, and once on a parent every subcommand inherits. The
-    second copy defaults to ``SUPPRESS``, because argparse copies a subcommand's whole
-    namespace over the root's, and a plain ``False`` there would erase a ``--json`` that was
-    passed before the subcommand.
-    """
-    hidden: dict[str, Any] = {} if keep_defaults else {"default": argparse.SUPPRESS}
-    parser.add_argument(
-        "--url", metavar="URL", help=f"where the hub is (default: ${URL_VAR})", **hidden
-    )
-    parser.add_argument("--json", action="store_true", help="machine-readable output", **hidden)
-    parser.add_argument("--no-color", action="store_true", help="never colour the output", **hidden)
-    parser.add_argument(
-        "-q", "--quiet", action="store_true", help="print nothing on success", **hidden
-    )
+def _json_object(response: Any) -> dict[str, Any]:
+    """A proxy's HTML or a broken payload must not crash diagnostics."""
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
 
 
 def _report(
@@ -278,6 +213,30 @@ def _report(
         print(f"  {style.dim(exc.hint)}", file=err)
 
 
+def _shared_flags(parser: argparse.ArgumentParser, *, keep_defaults: bool) -> None:
+    """The flags that have to work on both sides of the subcommand.
+
+    People type ``lucy status --json``; a generated script emits ``lucy --json status``.
+    argparse only recognises a flag where it was declared, so these are declared twice: once
+    on the root with real defaults, and once on a parent every subcommand inherits. The
+    second copy defaults to ``SUPPRESS``, because argparse copies a subcommand's whole
+    namespace over the root's, and a plain ``False`` there would erase a ``--json`` that was
+    passed before the subcommand.
+    """
+    hidden: dict[str, Any] = {} if keep_defaults else {"default": argparse.SUPPRESS}
+    parser.add_argument(
+        "-V", "--version", action="store_true", help="show versions and exit", **hidden
+    )
+    parser.add_argument(
+        "--url", metavar="URL", help=f"where the hub is (default: ${URL_VAR})", **hidden
+    )
+    parser.add_argument("--json", action="store_true", help="machine-readable output", **hidden)
+    parser.add_argument("--no-color", action="store_true", help="never colour the output", **hidden)
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="print nothing on success", **hidden
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lucy",
@@ -285,7 +244,6 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-V", "--version", action="store_true", help="show versions and exit")
     _shared_flags(parser, keep_defaults=True)
 
     after = argparse.ArgumentParser(add_help=False)
@@ -293,15 +251,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    setup = sub.add_parser("setup", parents=[after], help="first run: set Lucy up on this machine")
+    setup.add_argument("--mode", choices=("hub", "family", "remote"), help="how Lucy runs")
+    credentials = setup.add_mutually_exclusive_group()
+    credentials.add_argument(
+        "--token-stdin", action="store_true", help="read the token from standard input"
+    )
+    credentials.add_argument("--no-token", action="store_true", help="do not save a token")
+    setup.add_argument("--capabilities", action="store_true", help="also offer each capability")
+    setup.add_argument("-y", "--yes", action="store_true", help="take every default, ask nothing")
+    setup.add_argument("--force", action="store_true", help="overwrite an existing config")
+    setup.add_argument("--dry-run", action="store_true", help="say what would change, change none")
+    setup.set_defaults(run=cmd_setup)
+
+    connect = sub.add_parser("connect", parents=[after], help="set up one capability")
+    connect.add_argument("capability", nargs="?", help="which one; omit to list them")
+    connect.add_argument("-y", "--yes", action="store_true", help="take every default")
+    connect.add_argument("--dry-run", action="store_true", help="say what would change")
+    connect.set_defaults(run=cmd_connect)
+
     status = sub.add_parser("status", parents=[after], help="is the hub alive, ready, and who am I")
     status.set_defaults(run=cmd_status)
+
+    doctor = sub.add_parser("doctor", parents=[after], help="why isn't this working")
+    doctor.set_defaults(run=cmd_doctor)
+
+    config = sub.add_parser("config", parents=[after], help="what is configured, and from where")
+    config.set_defaults(run=cmd_config)
 
     version = sub.add_parser("version", parents=[after], help="the client's version, and the hub's")
     version.set_defaults(run=cmd_version)
 
     serve = sub.add_parser("serve", parents=[after], help="run the hub here, in the foreground")
-    serve.add_argument("--host", default="127.0.0.1", metavar="HOST")
-    serve.add_argument("--port", type=int, default=8000, metavar="PORT")
+    serve.add_argument("--host", metavar="HOST", help="default: $LUCY_HOST, else 127.0.0.1")
+    serve.add_argument("--port", type=int, metavar="PORT", help="default: $LUCY_PORT, else 8000")
     serve.set_defaults(run=cmd_serve)
 
     return parser
@@ -312,10 +295,12 @@ def main(
     *,
     out: TextIO | None = None,
     err: TextIO | None = None,
+    in_: TextIO | None = None,
     environ: dict[str, str] | None = None,
 ) -> int:
     stdout = out if out is not None else sys.stdout
     stderr = err if err is not None else sys.stderr
+    stdin = in_ if in_ is not None else sys.stdin
     env = environ if environ is not None else dict(os.environ)
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -327,15 +312,17 @@ def main(
         return OK
 
     try:
-        ctx = Context(args, out=stdout, err=stderr, environ=env)
+        ctx = Context(args, out=stdout, err=stderr, in_=stdin, environ=env)
         return int(args.run(ctx))
     except CliError as exc:
         _report(exc, args=args, err=stderr, environ=env)
         return exc.code
-    except KeyboardInterrupt:  # pragma: no cover - a signal, not a branch
+    except KeyboardInterrupt:
+        # Ctrl-C is an answer, not a crash. A blank line first, because the cursor is
+        # sitting at the end of whatever was half-printed when the signal arrived.
         print(file=stderr)
         return INTERRUPTED
 
 
-if __name__ == "__main__":  # pragma: no cover - the console script calls main()
+if __name__ == "__main__":
     sys.exit(main())

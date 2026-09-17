@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 
 import httpx
 import pytest
 
 from lucy_api import __version__
 from lucy_api.cli import main as cli_main
-from lucy_api.cli.main import (
+from lucy_api.cli.base import (
     DEFAULT_URL,
     OK,
     REFUSED,
@@ -24,11 +25,20 @@ from lucy_api.cli.main import (
     USAGE,
     CliError,
     Style,
-    build_parser,
     fetch,
     resolve_url,
     wants_colour,
 )
+from lucy_api.cli.main import build_parser
+
+
+@pytest.fixture(autouse=True)
+def isolated_cli_environment(tmp_path, monkeypatch) -> None:
+    for key in tuple(os.environ):
+        if key.startswith("LUCY_"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("LUCY_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.chdir(tmp_path)
 
 
 class FakeStream(io.StringIO):
@@ -44,7 +54,8 @@ class FakeStream(io.StringIO):
 
 def run(argv, *, environ=None, tty=False):
     out, err = FakeStream(tty=tty), FakeStream(tty=tty)
-    code = cli_main(argv, out=out, err=err, environ=dict(environ or {}))
+    env = {"LUCY_CONFIG": os.environ["LUCY_CONFIG"], **(environ or {})}
+    code = cli_main(argv, out=out, err=err, environ=env)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -260,7 +271,7 @@ def test_an_address_without_a_scheme_is_refused_before_the_socket(bad) -> None:
     assert code == USAGE
     assert out == ""
     assert "must start with http:// or https://" in err
-    assert bad in err
+    assert bad not in err
     assert err.count("\n") == 1, "an error carrying its own fix gets no second hint line"
 
 
@@ -269,7 +280,7 @@ def test_the_token_never_appears_in_the_help_or_in_a_flag() -> None:
     assert "--token" not in text
 
 
-def test_a_token_is_sent_as_a_bearer_header_and_a_blank_one_is_not() -> None:
+def test_a_token_is_sent_as_a_bearer_header_and_an_absent_one_is_not() -> None:
     seen: list[str | None] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -277,10 +288,9 @@ def test_a_token_is_sent_as_a_bearer_header_and_a_blank_one_is_not() -> None:
         return httpx.Response(200, json={})
 
     with hub(handler) as client:
-        fetch(client, DEFAULT_URL, "/healthy", {TOKEN_VAR: "  abc  "})
-        fetch(client, DEFAULT_URL, "/healthy", {TOKEN_VAR: "   "})
-        fetch(client, DEFAULT_URL, "/healthy", {})
-    assert seen == ["Bearer abc", None, None]
+        fetch(client, DEFAULT_URL, "/healthy", "abc")
+        fetch(client, DEFAULT_URL, "/healthy", "")
+    assert seen == ["Bearer abc", None]
 
 
 def test_ready_without_json_content_type_is_not_parsed(patched) -> None:
@@ -337,3 +347,131 @@ def test_a_cli_error_carries_its_code_and_hint() -> None:
     assert error.code == UNREACHABLE
     assert error.hint == "try this"
     assert str(error) == "broken"
+
+
+def test_status_accepts_an_unreadable_checks_field_without_crashing(patched) -> None:
+    def handler(request):
+        if request.url.path == "/ready":
+            return httpx.Response(503, json={"checks": []})
+        return a_healthy_hub()(request)
+
+    patched(handler)
+    code, out, _ = run(["status", "--json"])
+    assert code == REFUSED
+    assert json.loads(out)["checks"] == {}
+
+
+@pytest.mark.parametrize("argv", [["-V", "status"], ["status", "-V"], ["status", "--version"]])
+def test_version_flag_overrides_subcommand_on_either_side(patched, argv) -> None:
+    patched(a_healthy_hub())
+    code, out, err = run(argv)
+    assert code == OK
+    assert __version__ in out
+    assert "alive" not in out
+    assert err == ""
+
+
+def test_serve_respects_existing_environment_when_flags_are_absent(monkeypatch) -> None:
+    import lucy_api.__main__ as entry
+
+    monkeypatch.setenv("LUCY_HOST", "127.0.0.3")
+    monkeypatch.setenv("LUCY_PORT", "8124")
+    started = []
+    monkeypatch.setattr(entry, "main", lambda: started.append(True))
+    code, _, err = run(["serve"])
+    assert code == OK
+    assert started == [True]
+    assert "http://127.0.0.3:8124" in err
+    assert os.environ["LUCY_HOST"] == "127.0.0.3"
+    assert os.environ["LUCY_PORT"] == "8124"
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("server-secret"), ValueError("server-secret")])
+def test_serve_reports_configuration_failure_without_echoing_values(monkeypatch, failure) -> None:
+    from lucy_api.core import config
+
+    def unusable():
+        raise failure
+
+    monkeypatch.setattr(config, "load_settings", unusable)
+    code, out, err = run(["serve"])
+    assert code == USAGE
+    assert out == ""
+    assert "configuration is not usable" in err
+    assert "check your .env file" in err
+    assert "server-secret" not in err
+
+
+def test_ctrl_c_is_an_exit_code_and_not_a_traceback(monkeypatch) -> None:
+    from lucy_api.cli.base import INTERRUPTED
+
+    def interrupted(request):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(httpx, "Client", lambda **_: hub(interrupted))
+    code, out, err = run(["status"])
+    assert code == INTERRUPTED
+    assert out == ""
+    assert err == "\n"
+
+
+def test_main_can_use_standard_streams_and_environment(monkeypatch, capsys, patched) -> None:
+    patched(a_healthy_hub())
+    monkeypatch.setenv("LUCY_URL", "http://environment.example:8123")
+    assert cli_main(["status", "--json"]) == OK
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["url"] == "http://environment.example:8123"
+    assert captured.err == ""
+
+
+def test_status_reports_failed_liveness(patched) -> None:
+    def handler(request):
+        if request.url.path == "/healthy":
+            return httpx.Response(503, json={})
+        return a_healthy_hub(ready=False)(request)
+
+    patched(handler)
+    code, out, _ = run(["status"])
+    assert code == REFUSED
+    assert "alive   no" in out
+
+
+def test_authentication_outage_does_not_claim_the_token_is_invalid(patched) -> None:
+    def handler(request):
+        if request.url.path == "/v1/me":
+            return httpx.Response(503, json={"detail": "dependency unavailable"})
+        return a_healthy_hub(ready=False)(request)
+
+    patched(handler)
+    code, out, err = run(["status"], environ={TOKEN_VAR: "header.payload.signature"})
+    assert code == REFUSED
+    assert "refused" not in out
+    assert "identity could not be checked" in out
+    assert err == ""
+
+
+@pytest.mark.parametrize("path", ["/ready", "/v1/me"])
+@pytest.mark.parametrize("body", [b"secret-malformed", b"[]"])
+def test_status_handles_malformed_json_without_a_traceback_or_body_leak(
+    patched, path, body
+) -> None:
+    def handler(request):
+        if request.url.path == path:
+            return httpx.Response(200, content=body, headers={"content-type": "application/json"})
+        return a_healthy_hub()(request)
+
+    patched(handler)
+    code, out, err = run(["status", "--json"])
+    assert code in {OK, REFUSED, USAGE}
+    assert "secret-malformed" not in out + err
+    assert "Traceback" not in err
+    assert json.loads(out or err)
+
+
+@pytest.mark.parametrize("body", [b"secret-malformed", b"[]"])
+def test_version_handles_malformed_server_json_without_echoing_it(patched, body) -> None:
+    patched(lambda request: httpx.Response(200, content=body))
+    code, out, err = run(["version", "--json"])
+    assert code == OK
+    assert json.loads(out) == {"client": __version__, "hub": None}
+    assert "secret-malformed" not in out + err

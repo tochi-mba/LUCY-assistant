@@ -14,6 +14,7 @@ help: ## Show available targets
 	@echo "  test       Run the suite with 100% branch coverage enforced"
 	@echo "  cov        Write an HTML coverage report to htmlcov/"
 	@echo "  check      Everything CI runs: lint type imports test"
+	@echo "  matrix     Optional tests on Python 3.12 and 3.13"
 	@echo "  run        Serve the hub on :8000 with reload"
 	@echo "  docker     Build the container image"
 	@echo "  clean      Remove caches and build output"
@@ -50,7 +51,7 @@ cov: ## Write an HTML coverage report to htmlcov/
 
 check: lint type imports test ## Everything CI runs, on one interpreter
 
-matrix: ## The full check on both supported interpreters
+matrix: ## Optional tests on both supported interpreters (CI gates 3.12)
 	$(UV) run --python 3.12 pytest -q
 	$(UV) run --python 3.13 pytest -q
 
