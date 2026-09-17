@@ -17,6 +17,7 @@ FAMILY = (
     "user",
     "settings",
     "persona",
+    "memory",
     "media-tool",
     "web-search",
     "spotify",
@@ -30,6 +31,7 @@ CONTEXTS = {
     "user": "./User-api",
     "settings": "./Settings-api",
     "persona": "./Persona-api",
+    "memory": "./Memory-api",
     "media-tool": "./Media-tool",
     "web-search": "./Web-search-api",
     "spotify": "./Spotify-api",
@@ -42,6 +44,7 @@ HOST_PORTS = {
     "user": "8002:8002",
     "settings": "8003:8003",
     "persona": "8004:8004",
+    "memory": "8009:8009",
     "media-tool": "8005:8005",
     "web-search": "8006:8006",
     "spotify": "8007:8007",
@@ -62,7 +65,7 @@ def test_yaml_parses_as_a_mapping() -> None:
     assert "networks" in document
 
 
-def test_eight_services_on_one_network() -> None:
+def test_every_family_service_is_on_one_network() -> None:
     document = load()
     assert list(document["services"]) == list(FAMILY)
     for name, service in document["services"].items():

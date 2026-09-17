@@ -1,7 +1,7 @@
 # LUCY-assistant
 
 Lucy is the assistant hub in `src/lucy_api/`. This repository also holds the **family
-desk**: tools and documentation for seven public sibling services, each in its own git
+desk**: tools and documentation for eight public sibling services, each in its own git
 repository. `scripts/bootstrap.sh` clones those checkouts beside this file. An optional
 local media service can be added through the `local` Compose profile.
 
@@ -31,10 +31,11 @@ personal token.
 | [Web-search-api](https://github.com/tochi-mba/Web-search-api) | Search, scrape, and summarise with a provider resolved per caller. | 8006 | `WSA_` | `/healthy` (alias `/health`), `/ready` |
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
+| [Memory-api](https://github.com/tochi-mba/Memory-api) | What the assistant has learned about the person: provenance, history, and a topic index. | 8009 | `MEMORY_` | `/healthy`, `/ready` |
 
 Every service listens on its assigned port, so the hub and its siblings run on one host
 without a collision. Compose maps each host port to the same number inside the container.
-Port 8005 is the optional local media service; 8009 is reserved for the planned Memory-api.
+Port 8005 is the optional local media service, which is not part of the published family.
 
 **`/healthy` is liveness and `/ready` is readiness**, everywhere. Liveness does no I/O and
 never fails, because an orchestrator restarts a container whose liveness check fails and
@@ -160,7 +161,7 @@ To run the whole family with Docker Engine running:
 
 ```bash
 python scripts/genenv.py          # writes .env.family; never prints the values
-make images && make up            # host ports 8000–8008; up reuses the build cache
+make images && make up            # host ports 8000–8009; up reuses the build cache
 ```
 
 Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.

@@ -37,6 +37,7 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
     ("spotify-api", "SPOTIFY_API_KEYRING_SERVICE_TOKEN"),
     ("web-search-api", "WSA_KEYRING_SERVICE_TOKEN"),
     ("environments-api", "ENVAPI_KEYRING_SERVICE_TOKEN"),
+    ("memory-api", "MEMORY_KEYRING_SERVICE_TOKEN"),
 )
 
 # settings-api ServiceConfig rows. token_var is the consumer's own prefixed name when
@@ -50,6 +51,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("web-search-api", "web-search-api", ("search",), None),
     ("keyring-api", "keyring", ("keyring",), None),
     ("environments-api", "environments-api", ("environments",), None),
+    ("memory-api", "memory-api", ("memory",), None),
 )
 
 

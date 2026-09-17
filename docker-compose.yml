@@ -1,4 +1,4 @@
-# LUCY-assistant family. The hub and eight services, one network.
+# LUCY-assistant family. The hub and nine services, one network.
 #
 # media-tool sits behind the `local` profile: it is a private tool, not part of the
 # published family. COMPOSE_PROFILES=local includes it.
@@ -6,7 +6,7 @@
 # Paths are ./<Repo> because this file lives beside the service checkouts.
 #   python scripts/genenv.py
 #   make images && make up
-# Host and container ports match the family assignments (8000-8008; see docs/adr/0010).
+# Host and container ports match the family assignments (8000-8009; see docs/adr/0010).
 
 name: lucy-family
 
@@ -20,6 +20,7 @@ volumes:
   user-data:
   settings-data:
   persona-data:
+  memory-data:
   media-data:
   environments-data:
 
@@ -201,6 +202,40 @@ services:
           "python",
           "-c",
           "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8004/healthy', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [lucy]
+
+  memory:
+    build:
+      context: ./Memory-api
+      secrets: [github_token]
+    ports:
+      - "8009:8009"
+    env_file:
+      - .env.family
+    environment:
+      MEMORY_HOST: "0.0.0.0"
+      MEMORY_PORT: "8009"
+      MEMORY_DATABASE_PATH: /var/lib/memory/memory.db
+      MEMORY_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
+      MEMORY_KEYRING_ISSUER: "http://127.0.0.1:8001"
+      MEMORY_LOG_FORMAT: json
+    volumes:
+      - memory-data:/var/lib/memory
+    depends_on:
+      keyring:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8009/healthy', timeout=4).status == 200 else 1)",
         ]
       interval: 30s
       timeout: 5s
