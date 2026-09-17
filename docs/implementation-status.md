@@ -16,8 +16,14 @@ machine is listed as in progress, however finished it looks.
 - **The `lucy` command.** Global install through `uv tool install`, status, version, serve,
   setup, connect, doctor and config. Documented in [docs/cli.md](cli.md). Verified working
   from a directory outside the checkout, against a live hub.
-- **The context contract.** `src/lucy_api/context/types.py` defines the five zones, the
-  bands, and every live-state snapshot. Documented in [docs/context.md](context.md).
+- **The context engine.** Five zones ordered by volatility, five independently budgeted
+  bands, the live state block, framing, the injection scrubber, the prompt sections, the
+  memory topic index, and compaction as a projection over an append-only transcript.
+  Documented in [docs/context.md](context.md).
+- **Memory-api is published** at https://github.com/tochi-mba/Memory-api, public, its own
+  repository like every other service. 238 tests at 100% branch coverage, CI green on its
+  first run. It has a seat in compose, a keyring service token, a settings grant on the
+  `memory` namespace, and a row in the compose contract test.
 
 ## In progress
 
@@ -29,8 +35,9 @@ machine is listed as in progress, however finished it looks.
   device flow still need hub integration.
 - M3 capabilities: setup readiness discovery exists. Execution, consent and refresh pending.
 - M4 workspace: file primitives in progress in Environments-api; the hub's pack pending.
-- M5 Memory-api: the domain model, the SQL store and the topic layer exist. The HTTP
-  surface is being built; its evaluation suite was written first and is the spec.
+- M5 Memory-api: the service is complete and published. What remains is the hub's side:
+  fusion across Memory, User-api and Persona-api, and the background consolidation pass
+  that writes better topic titles and summaries.
 - M6 agents and the journal: pending. The single-agent loop and compaction land first.
 - M7 permissions, approvals and audit: pending.
 - M8 MCP, both directions: pending. Revision 2026-07-28 confirmed against the published
@@ -42,8 +49,8 @@ machine is listed as in progress, however finished it looks.
 
 - The turn loop does not exist yet, so Lucy cannot hold a conversation. Everything above it
   is foundation.
-- Memory-api has a store with no routes; three of its own evaluation tests fail because
-  they were written against the surface that is being added now.
+- The context engine is not yet wired to a route: `GET /v1/sessions/{id}/context` needs
+  the session surface, which is M1.
 - Nothing has been validated under `make up` with the whole family running, and no real
   model has been called.
 
