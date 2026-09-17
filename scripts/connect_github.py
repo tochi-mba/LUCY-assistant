@@ -60,15 +60,13 @@ def read_family(path: Path) -> tuple[str, list[str]]:
                 continue
             fields = line.split()
             if len(fields) != 2 or not fields[1].startswith("https://github.com/"):
-                raise ConnectError(
-                    f"{manifest.name}:{number}: expected <folder> <https clone URL>"
-                )
+                raise ConnectError(f"{manifest.name}:{number}: expected <folder> <https clone URL>")
             folder, url = fields
             if folder in seen:
                 continue
-            found_owner, separator, repository = url.removeprefix(
-                "https://github.com/"
-            ).partition("/")
+            found_owner, separator, repository = url.removeprefix("https://github.com/").partition(
+                "/"
+            )
             repository = repository.removesuffix("/").removesuffix(".git")
             if not separator or repository != folder or not found_owner:
                 raise ConnectError(f"{manifest.name}:{number}: URL must end in /{folder}.git")
@@ -153,9 +151,7 @@ def connect(
             return 0
         confirm("Press Enter after GitHub says the app is installed...")
         repository = f"{owner}/{names[1] if len(names) > 1 else META_NAME}"
-        result = _run(
-            run, ("gh", "workflow", "run", "CI", "--repo", repository, "--ref", "main")
-        )
+        result = _run(run, ("gh", "workflow", "run", "CI", "--repo", repository, "--ref", "main"))
         if result.returncode != 0:
             raise ConnectError(f"the app is installed, but CI could not start on {repository}")
         print(f"Installed. CI started on {repository}; watch it with:")
@@ -172,9 +168,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--repos-file", type=Path, default=META_ROOT / "repos.txt", help="family manifest"
     )
-    result.add_argument(
-        "--app-file", type=Path, default=APP_FILE, help="public app metadata"
-    )
+    result.add_argument("--app-file", type=Path, default=APP_FILE, help="public app metadata")
     return result
 
 

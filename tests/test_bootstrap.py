@@ -83,7 +83,7 @@ function git {
 def shell_binary(shell: str) -> str:
     # Windows' system32 bash is a WSL launcher, not a usable native test shell.
     if shell == "bash" and os.name == "nt":
-        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files"))  # noqa: SIM112 - Windows spells it this way / "Git/bin/bash.exe"
         if git_bash.is_file():
             return str(git_bash)
         pytest.skip("Git Bash is not installed")
@@ -360,7 +360,9 @@ Ensure-Uv | Out-Null
     observed = json.loads(result.stdout)
     assert len(observed["installs"]) == 4
     for call, package in zip(
-        observed["installs"], ["GitHub.cli", "Git.Git", "jqlang.jq", "GitHub.cli"]
+        observed["installs"],
+        ["GitHub.cli", "Git.Git", "jqlang.jq", "GitHub.cli"],
+        strict=True,
     ):
         assert f"install --id {package} --exact --source winget" in call
         assert "--disable-interactivity" in call

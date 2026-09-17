@@ -30,15 +30,14 @@ import shlex
 import sys
 from dataclasses import dataclass
 from functools import cached_property
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11
-    sys.exit(
-        "parity.py needs Python 3.11 or newer: it reads pyproject.toml with tomllib"
-    )
+    sys.exit("parity.py needs Python 3.11 or newer: it reads pyproject.toml with tomllib")
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -47,6 +46,10 @@ META_ROOT = Path(__file__).resolve().parent.parent
 REPOS_FILE = META_ROOT / "repos.txt"
 
 KEYRING_REPO = "Keyring-api"
+
+HUB_REPO = "lucy-api"
+"""The hub lives in this repository rather than beside it, so its path is the root
+itself. See docs/adr/0009-the-hub-lives-here.md."""
 """Issues the tokens the other seven verify, so it is the one repository that does not
 consume them through ``keyring_client``."""
 
@@ -65,9 +68,9 @@ REQUIRED_MAKE_TARGETS = (
     "clean",
 )
 CHECK_PREREQUISITES = frozenset({"lint", "type", "imports", "test"})
-PINNED_PYTHON = "3.11"
+PINNED_PYTHON = "3.12"
 RUFF_LINE_LENGTH = 100
-RUFF_TARGET = "py311"
+RUFF_TARGET = "py312"
 MAX_FILE_LINES = 1000
 """No source, test, or script file in the family is allowed past this. Split the module."""
 DOCUMENTATION_SET = (
@@ -91,13 +94,11 @@ CONFIG_MODULES = (
 
 HEALTH_ROUTES = ("/healthy", "/ready")
 
-PASS = "pass"
+PASS = "pass"  # noqa: S105 - a check outcome, not a credential
 FAIL = "fail"
 NOT_APPLICABLE = "n/a"
 
-_TARGET_LINE = re.compile(
-    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)[ \t]*:(?![:=])(?P<rest>.*)$"
-)
+_TARGET_LINE = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)[ \t]*:(?![:=])(?P<rest>.*)$")
 _PRAGMA = re.compile(r"pragma:\s*no\s*cover")
 _KEYRING_IMPORT = re.compile(r"^\s*(?:from|import)\s+keyring_client\b", re.MULTILINE)
 _KEYRING_DEPENDENCY = re.compile(r"^\s*keyring[-_.]client\b", re.IGNORECASE)
@@ -143,9 +144,7 @@ def parse_makefile(text: str) -> dict[str, list[str]]:
         rest = match.group("rest").split("#", 1)[0]
         if "=" in rest:  # a target-specific variable: `target: VAR = value`
             continue
-        targets.setdefault(match.group("name"), []).extend(
-            rest.replace("|", " ").split()
-        )
+        targets.setdefault(match.group("name"), []).extend(rest.replace("|", " ").split())
     return targets
 
 
@@ -207,11 +206,7 @@ class Repo:
         src = self.path / "src"
         if src.is_dir():
             packages = tuple(
-                sorted(
-                    child
-                    for child in src.iterdir()
-                    if (child / "__init__.py").is_file()
-                )
+                sorted(child for child in src.iterdir() if (child / "__init__.py").is_file())
             )
             if packages:
                 return packages
@@ -264,9 +259,7 @@ def _pyproject(repo: Repo) -> dict[str, Any]:
 def _config_source(repo: Repo) -> tuple[str, str]:
     module = repo.config_module
     if module is None:
-        raise ParityError(
-            "no config module (looked for " + ", ".join(CONFIG_MODULES) + ")"
-        )
+        raise ParityError("no config module (looked for " + ", ".join(CONFIG_MODULES) + ")")
     return repo.relative(module), module.read_text(encoding="utf-8", errors="replace")
 
 
@@ -305,9 +298,7 @@ def check_python_version(repo: Repo) -> Result:
     pinned = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if pinned == PINNED_PYTHON or pinned.startswith(PINNED_PYTHON + "."):
         return passed(pinned)
-    return failed(
-        f".python-version pins {pinned or '(nothing)'}; expected {PINNED_PYTHON}"
-    )
+    return failed(f".python-version pins {pinned or '(nothing)'}; expected {PINNED_PYTHON}")
 
 
 def check_claude_md(repo: Repo) -> Result:
@@ -340,9 +331,7 @@ def check_pre_commit(repo: Repo) -> Result:
 
 
 def check_editorconfig(repo: Repo) -> Result:
-    return (
-        passed() if repo.exists(".editorconfig") else failed(".editorconfig is missing")
-    )
+    return passed() if repo.exists(".editorconfig") else failed(".editorconfig is missing")
 
 
 def check_ci_identity(repo: Repo) -> Result:
@@ -373,7 +362,8 @@ def check_ci_identity(repo: Repo) -> Result:
         name: job
         for name, job in jobs.items()
         if re.fullmatch(
-            r"[A-Za-z0-9-]+/LUCY-assistant/\.github/workflows/service\.yml@[^\s]+",
+            r"(?:[A-Za-z0-9-]+/LUCY-assistant|\.)/\.github/workflows/service\.yml"
+            r"(?:@[^\s]+)?",
             job.get("uses", ""),
         )
     }
@@ -381,12 +371,10 @@ def check_ci_identity(repo: Repo) -> Result:
         return failed("ci.yml has no job calling the family reusable workflow")
     inherited = [name for name, job in callers.items() if "secrets" in job]
     if inherited:
-        return failed(
-            "family app secrets must not be passed by job(s): " + ", ".join(inherited)
-        )
+        return failed("family app secrets must not be passed by job(s): " + ", ".join(inherited))
     return (
         failed("top-level permissions.id-token must be write")
-        if id_token != "write"
+        if id_token != "write"  # noqa: S105 - a permission name, not a credential
         else passed()
     )
 
@@ -416,9 +404,7 @@ def check_docker_secret(repo: Repo) -> Result:
     if source is None:
         return failed("Dockerfile is missing")
     lines = source.splitlines()
-    if not lines or not re.fullmatch(
-        r"#\s*syntax=docker/dockerfile:1(?:[.\w-]*)\s*", lines[0]
-    ):
+    if not lines or not re.fullmatch(r"#\s*syntax=docker/dockerfile:1(?:[.\w-]*)\s*", lines[0]):
         return failed("Dockerfile line 1 must declare # syntax=docker/dockerfile:1")
     count = 0
     unprotected = []
@@ -430,13 +416,8 @@ def check_docker_secret(repo: Repo) -> Result:
         mounted = False
         while flag := re.match(r"--([\w-]+)=([^\s]+)\s+", command):
             if flag[1] == "mount":
-                options = dict(
-                    part.split("=", 1) for part in flag[2].split(",") if "=" in part
-                )
-                mounted |= (
-                    options.get("type") == "secret"
-                    and options.get("id") == "github_token"
-                )
+                options = dict(part.split("=", 1) for part in flag[2].split(",") if "=" in part)
+                mounted |= options.get("type") == "secret" and options.get("id") == "github_token"
             command = command[flag.end() :]
         try:
             if command.startswith("["):
@@ -447,17 +428,13 @@ def check_docker_secret(repo: Repo) -> Result:
                 words = list(lexer)
         except (ValueError, TypeError) as exc:
             return failed(f"Dockerfile:{number}: cannot read RUN: {exc}")
-        if any(
-            first == "uv" and second == "sync"
-            for first, second in zip(words, words[1:], strict=False)
-        ):
+        if any(first == "uv" and second == "sync" for first, second in pairwise(words)):
             count += 1
             if not mounted:
                 unprotected.append(str(number))
     if unprotected:
         return failed(
-            "uv sync RUN missing github_token secret mount at line(s): "
-            + ", ".join(unprotected)
+            "uv sync RUN missing github_token secret mount at line(s): " + ", ".join(unprotected)
         )
     return (
         passed(f"{count} protected uv sync RUN(s)")
@@ -492,18 +469,14 @@ def check_ruff(repo: Repo) -> Result:
 
 def check_mypy_strict(repo: Repo) -> Result:
     value = dig(_pyproject(repo), "tool", "mypy", "strict")
-    return (
-        passed()
-        if value is True
-        else failed(f"[tool.mypy] strict is {_describe(value)}")
-    )
+    return passed() if value is True else failed(f"[tool.mypy] strict is {_describe(value)}")
 
 
 def check_coverage(repo: Repo) -> Result:
     data = _pyproject(repo)
     problems = []
     fail_under = dig(data, "tool", "coverage", "report", "fail_under")
-    if fail_under != 100:  # noqa: PLR2004 -- the number is the rule
+    if fail_under != 100:
         problems.append(f"[tool.coverage.report] fail_under is {_describe(fail_under)}")
     branch = dig(data, "tool", "coverage", "run", "branch")
     if branch is not True:
@@ -519,9 +492,7 @@ def check_pytest_warnings(repo: Repo) -> Result:
         return passed()
     if not entries:
         return failed("[tool.pytest.ini_options] filterwarnings is not set")
-    return failed(
-        'filterwarnings has no plain "error" entry: ' + ", ".join(map(str, entries))
-    )
+    return failed('filterwarnings has no plain "error" entry: ' + ", ".join(map(str, entries)))
 
 
 def check_import_linter(repo: Repo) -> Result:
@@ -538,9 +509,7 @@ def check_config(repo: Repo) -> Result:
         problems.append("no env_prefix")
     if not _EXTRA_FORBID.search(source):
         problems.append('no extra="forbid"')
-    return (
-        failed(f"{relative}: " + "; ".join(problems)) if problems else passed(relative)
-    )
+    return failed(f"{relative}: " + "; ".join(problems)) if problems else passed(relative)
 
 
 def check_unknown_env(repo: Repo) -> Result:
@@ -551,9 +520,7 @@ def check_unknown_env(repo: Repo) -> Result:
     except SyntaxError as exc:
         return failed(f"{relative} does not parse (line {exc.lineno})")
     defined = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     if "check_for_unknown_env_vars" in defined:
         return passed(relative)
@@ -572,7 +539,7 @@ def check_no_pragma(repo: Repo) -> Result:
             if _PRAGMA.search(line)
         )
     if hits:
-        more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""  # noqa: PLR2004
+        more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""
         return failed(f"{len(hits)} found: {', '.join(hits[:3])}{more}")
     return passed()
 
@@ -580,17 +547,14 @@ def check_no_pragma(repo: Repo) -> Result:
 def check_health_routes(repo: Repo) -> Result:
     _require_source(repo)
     source = "\n".join(
-        file.read_text(encoding="utf-8", errors="replace")
-        for file in repo.python_files()
+        file.read_text(encoding="utf-8", errors="replace") for file in repo.python_files()
     )
     missing = [
         route
         for route in HEALTH_ROUTES
         if not re.search(rf"""["']{re.escape(route)}["']""", source)
     ]
-    return (
-        failed("no " + " or ".join(missing) + " route found") if missing else passed()
-    )
+    return failed("no " + " or ".join(missing) + " route found") if missing else passed()
 
 
 def _line_count(text: str) -> int:
@@ -609,7 +573,7 @@ def check_max_file_lines(repo: Repo) -> Result:
         if lines > MAX_FILE_LINES:
             hits.append(f"{repo.relative(file)}:{lines}")
     if hits:
-        more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""  # noqa: PLR2004
+        more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""
         return failed(f"{len(hits)} over {MAX_FILE_LINES}: {', '.join(hits[:3])}{more}")
     return passed()
 
@@ -621,9 +585,7 @@ def check_keyring_client(repo: Repo) -> Result:
     dependencies = dig(_pyproject(repo), "project", "dependencies") or []
     _require_source(repo)
     problems = []
-    if not any(
-        isinstance(dep, str) and _KEYRING_DEPENDENCY.match(dep) for dep in dependencies
-    ):
+    if not any(isinstance(dep, str) and _KEYRING_DEPENDENCY.match(dep) for dep in dependencies):
         problems.append("keyring-client is not a project dependency")
     if not any(
         _KEYRING_IMPORT.search(file.read_text(encoding="utf-8", errors="replace"))
@@ -643,7 +605,7 @@ class Check:
 CHECKS: tuple[Check, ...] = (
     Check("make-targets", "Makefile has the family targets", check_make_targets),
     Check("make-check", "make check runs lint type imports test", check_make_check),
-    Check("python-version", ".python-version pins 3.11", check_python_version),
+    Check("python-version", f".python-version pins {PINNED_PYTHON}", check_python_version),
     Check("claude-md", "CLAUDE.md points at AGENTS.md", check_claude_md),
     Check("docs", "documentation set is present", check_documentation),
     Check("changelog", "CHANGELOG.md follows Keep a Changelog", check_changelog),
@@ -660,23 +622,17 @@ CHECKS: tuple[Check, ...] = (
         check_docker_secret,
     ),
     Check("dev-group", "dev dependencies in [dependency-groups] dev", check_dev_group),
-    Check("ruff", "ruff line-length 100, target py311", check_ruff),
+    Check("ruff", f"ruff line-length {RUFF_LINE_LENGTH}, target {RUFF_TARGET}", check_ruff),
     Check("mypy-strict", "mypy strict = true", check_mypy_strict),
     Check("coverage", "branch coverage, fail_under = 100", check_coverage),
-    Check(
-        "pytest-warnings", 'pytest filterwarnings has "error"', check_pytest_warnings
-    ),
+    Check("pytest-warnings", 'pytest filterwarnings has "error"', check_pytest_warnings),
     Check("import-linter", "import-linter contracts declared", check_import_linter),
     Check("config", 'config has an env prefix and extra="forbid"', check_config),
-    Check(
-        "unknown-env", "config defines check_for_unknown_env_vars", check_unknown_env
-    ),
+    Check("unknown-env", "config defines check_for_unknown_env_vars", check_unknown_env),
     Check("no-pragma", "no pragma: no cover in the source package", check_no_pragma),
     Check("max-file-lines", "no code file over 1000 lines", check_max_file_lines),
     Check("health-routes", "serves /healthy and /ready", check_health_routes),
-    Check(
-        "keyring-client", "verifies tokens with keyring_client", check_keyring_client
-    ),
+    Check("keyring-client", "verifies tokens with keyring_client", check_keyring_client),
 )
 
 
@@ -742,7 +698,7 @@ def family_repo_files(root: Path, primary: Path | None = None) -> tuple[Path, ..
 def evaluate(root: Path, names: Sequence[str]) -> list[RepoReport]:
     reports = []
     for name in names:
-        path = root / name
+        path = root if name == HUB_REPO else root / name
         if not path.is_dir():
             reports.append(RepoReport(name, present=False, outcomes=()))
             continue
@@ -764,9 +720,7 @@ def short_name(name: str) -> str:
 
 
 def _join(cells: Sequence[str], widths: Sequence[int]) -> str:
-    return "  ".join(
-        cell.ljust(width) for cell, width in zip(cells, widths, strict=True)
-    ).rstrip()
+    return "  ".join(cell.ljust(width) for cell, width in zip(cells, widths, strict=True)).rstrip()
 
 
 def render_text(reports: Sequence[RepoReport]) -> str:
@@ -784,9 +738,7 @@ def render_text(reports: Sequence[RepoReport]) -> str:
             status = report.outcomes[index].result.status if report.present else None
             cells.append(_ABSENT if status is None else _LABELS[status])
         lines.append(_join(cells, widths))
-    problems = [
-        f"  {r.name}: not checked out under the root" for r in reports if not r.present
-    ]
+    problems = [f"  {r.name}: not checked out under the root" for r in reports if not r.present]
     problems += [
         f"  {report.name} / {outcome.check.id}: {outcome.result.detail}"
         for report in reports
@@ -812,9 +764,7 @@ def _render_one(report: RepoReport) -> str:
         _join([o.check.id, _LABELS[o.result.status], o.result.detail], [*widths, 0])
         for o in report.outcomes
     ]
-    verdict = (
-        "passes every check" if report.ok else "has drifted from the family standard"
-    )
+    verdict = "passes every check" if report.ok else "has drifted from the family standard"
     lines += ["", f"{report.name} {verdict}."]
     return "\n".join(lines)
 
@@ -874,14 +824,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     root = args.root.resolve()
     try:
-        known = read_repo_names(*family_repo_files(root, args.repos_file))
+        listed = read_repo_names(*family_repo_files(root, args.repos_file))
     except OSError as exc:
         print(f"parity: cannot read manifests: {exc.strerror}", file=sys.stderr)
         return 2
+    # The hub is scored too, and it is not in any manifest: it has no clone URL because it
+    # is this repository. See docs/adr/0009-the-hub-lives-here.md.
+    known = [HUB_REPO, *listed] if (root / "src" / "lucy_api").is_dir() else listed
     names = args.repo or known
-    unknown = [
-        name for name in names if name not in known and not (root / name).is_dir()
-    ]
+    unknown = [name for name in names if name not in known and not (root / name).is_dir()]
     if unknown:
         print(
             f"parity: unknown repository {', '.join(unknown)}; known: {', '.join(known)}",

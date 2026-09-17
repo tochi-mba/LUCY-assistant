@@ -70,7 +70,7 @@ jobs:
 
 ## Checklist
 
-- [ ] `make check` is green on 3.11 (and `make matrix` before a push).
+- [ ] `make check` is green on 3.12 (and `make matrix` before a push).
 - [ ] `python scripts/parity.py --repo Your-api` is green.
 - [ ] Audience is documented; keyring mints for it with `POST /v1/auth/service-token`.
 - [ ] No GitHub token in `.env`, Docker `ARG`/`ENV`, or committed files.

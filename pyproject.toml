@@ -1,0 +1,176 @@
+[project]
+name = "lucy-api"
+version = "0.1.0"
+description = "The LUCY assistant hub: sessions, capabilities, memory and sub-agents over one HTTP surface."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "tochi-mba" }]
+keywords = ["assistant", "agent", "fastapi", "keyring", "lucy", "mcp", "weftai"]
+classifiers = [
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "keyring-client",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.5",
+    "settings-client",
+    "uvicorn[standard]>=0.30",
+    "weftai[all]==0.2.4",
+]
+
+[project.scripts]
+lucy-api = "lucy_api.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/tochi-mba/LUCY-assistant"
+
+[dependency-groups]
+dev = [
+    "asgi-lifespan>=2.1",
+    "cryptography>=43.0",
+    "import-linter>=2.1",
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "pyyaml>=6.0",
+    "respx>=0.21",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lucy_api"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# scripts/ is the family desk (bootstrap, parity, genenv); it is linted with the same rules
+# but is not part of the distributed package, so it is not under coverage.
+extend-exclude = ["broker", "examples"]
+
+[tool.ruff.lint]
+select = [
+    "A", "ANN", "ARG", "ASYNC", "B", "C4", "DTZ", "E", "EM", "ERA", "F", "FA",
+    "I", "ICN", "N", "PERF", "PIE", "PL", "PT", "PTH", "RET", "RSE", "RUF", "S",
+    "SIM", "SLF", "T20", "TC", "TID", "TRY", "UP", "W",
+]
+ignore = ["ANN401", "TRY003"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/lucy_api/api/routers/*" = ["TC001", "TC002", "TC003"]
+"src/lucy_api/api/dependencies.py" = ["TC001", "TC002", "TC003"]
+"src/lucy_api/api/errors.py" = ["TC001", "TC002", "TC003"]
+# `src/` is a library and is held to library standards: annotated, documented, and strict
+# about how an exception carries its message. `scripts/` and `tests/` are the family desk --
+# command-line tools and their tests. They keep every rule that catches a bug (F, E, B, S,
+# UP, I, RET, SIM) and drop the ones that are about library ergonomics. Drawing the line
+# here is deliberate; blanket-ignoring the desk would be the same thing said dishonestly.
+"scripts/*" = [
+    "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204",
+    "EM101", "EM102", "TRY003", "TRY300", "TRY301",
+    "PLR0913", "PLR2004", "PLR0912", "PLR0915", "C901",
+    "T20", "S603", "S607", "PLW1510",
+    "TC001", "TC002", "TC003", "PLC0415",
+    "SIM112",
+]
+"tests/**" = [
+    "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204",
+    "EM101", "EM102", "TRY003", "TRY300", "TRY301",
+    "PLR0913", "PLR2004", "PLR0912", "PLR0915", "C901",
+    "T20", "S603", "S607", "PLW1510",
+    "TC001", "TC002", "TC003", "PLC0415",
+    "ARG001", "ARG002", "ARG005", "S101", "S105", "S106", "S107", "SLF001",
+    "PLW0108", "RUF007", "PT006", "S506",
+]
+# These three embed PowerShell, a Dockerfile and a `python -c` program as string literals.
+# Wrapping a line inside an embedded program changes the program, so the line-length rule
+# is the wrong tool here; every other rule still applies.
+"tests/test_bootstrap.py" = ["E501"]
+"tests/test_build_secrets.py" = ["E501"]
+"tests/test_image_runtime.py" = ["E501"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["lucy_api"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+mypy_path = ["src"]
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = ["keyring_client.*", "settings_client.*", "weftai.*"]
+ignore_missing_imports = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+
+[tool.coverage.run]
+branch = true
+source = ["lucy_api"]
+omit = ["src/lucy_api/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.importlinter]
+root_package = "lucy_api"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Routers never speak to a sibling service or the model"
+type = "forbidden"
+source_modules = ["lucy_api.api.routers"]
+forbidden_modules = ["httpx", "keyring_client", "settings_client"]
+allow_indirect_imports = true
+
+# The layer list grows as packages land (clients, packs, sessions, turn, agents). Naming a
+# layer that does not exist yet is an error, so this states only what is here. `core` is not
+# a layer below `auth`: `core.container` is the composition root and is allowed to know
+# everything, which is the one direction a root is supposed to point.
+[[tool.importlinter.contracts]]
+name = "The HTTP surface sits above auth, and auth never reaches back up"
+type = "layers"
+layers = ["lucy_api.api", "lucy_api.auth"]
+exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "Configuration is a leaf: it imports nothing of ours"
+type = "forbidden"
+source_modules = ["lucy_api.core.config"]
+forbidden_modules = ["lucy_api.api", "lucy_api.auth", "lucy_api.core.container"]
+
+[tool.uv.sources]
+keyring-client = { git = "https://github.com/tochi-mba/Keyring-api", subdirectory = "clients/python", tag = "keyring-client-v0.1.0" }
+settings-client = { git = "https://github.com/tochi-mba/Settings-api", subdirectory = "clients/python", tag = "settings-client-v0.1.0" }

@@ -157,9 +157,9 @@ function Ensure-Uv {
 
 function Test-PythonReady {
     if (-not (Test-Have "uv")) { return $false }
-    & uv python find 3.11 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { return $false }
     & uv python find 3.12 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & uv python find 3.13 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
 }
 
@@ -173,11 +173,11 @@ function Ensure-Python {
         return
     }
     if ($DryRun) {
-        Write-Would "uv python install 3.11 3.12"
+        Write-Would "uv python install 3.12 3.13"
         Set-Tool "python" "missing"
         return
     }
-    & uv python install 3.11 3.12
+    & uv python install 3.12 3.13
     if (Test-PythonReady) {
         Set-Tool "python" "installed"
     } else {

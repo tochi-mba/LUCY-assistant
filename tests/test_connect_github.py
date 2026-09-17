@@ -20,8 +20,7 @@ CLIENT_ID = "Iv1.test0123456789ab"
 
 def write_manifest(path: Path) -> Path:
     path.write_text(
-        "Alpha https://github.com/someone/Alpha.git\n"
-        "Beta https://github.com/someone/Beta.git\n",
+        "Alpha https://github.com/someone/Alpha.git\nBeta https://github.com/someone/Beta.git\n",
         encoding="utf-8",
     )
     return path
@@ -58,15 +57,15 @@ class FakeGitHub:
 
 
 def connect(tmp_path: Path, gh: FakeGitHub, **overrides) -> int:
-    options = dict(
-        repos_file=write_manifest(tmp_path / "repos.txt"),
-        app_file=write_app(tmp_path / "family-app.json"),
-        dry_run=False,
-        interactive=False,
-        run=gh.run,
-        open_browser=lambda url: None,
-        confirm=lambda message: "",
-    )
+    options: dict[str, object] = {
+        "repos_file": write_manifest(tmp_path / "repos.txt"),
+        "app_file": write_app(tmp_path / "family-app.json"),
+        "dry_run": False,
+        "interactive": False,
+        "run": gh.run,
+        "open_browser": lambda url: None,
+        "confirm": lambda message: "",
+    }
     options.update(overrides)
     return connect_github.connect(**options)
 
@@ -76,9 +75,7 @@ def test_dry_run_opens_nothing_and_creates_no_secrets(
 ) -> None:
     gh = FakeGitHub()
     opened: list[str] = []
-    assert (
-        connect(tmp_path, gh, dry_run=True, open_browser=lambda url: opened.append(url)) == 0
-    )
+    assert connect(tmp_path, gh, dry_run=True, open_browser=lambda url: opened.append(url)) == 0
     assert opened == []
     assert not any(command[:3] == ("gh", "secret", "set") for command in gh.commands)
     out = capsys.readouterr().out
@@ -149,8 +146,7 @@ def test_signs_in_first_when_a_terminal_is_available(tmp_path: Path) -> None:
 def test_mixed_owners_are_refused(tmp_path: Path) -> None:
     path = tmp_path / "mixed.txt"
     path.write_text(
-        "Alpha https://github.com/someone/Alpha.git\n"
-        "Beta https://github.com/other/Beta.git\n",
+        "Alpha https://github.com/someone/Alpha.git\nBeta https://github.com/other/Beta.git\n",
         encoding="utf-8",
     )
     gh = FakeGitHub()

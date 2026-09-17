@@ -143,8 +143,10 @@ def _source_urls(text: str, owner: str, repositories: set[str]) -> tuple[str, in
                 return f"{match[1]}{match[2]}{new}{match[2]}"
 
             changed = _SOURCE_GIT.sub(replace, code)
-            line = changed + line[len(code) :]
-        lines.append(line)
+            rendered = changed + line[len(code) :]
+        else:
+            rendered = line
+        lines.append(rendered)
     return "".join(lines), count
 
 
@@ -167,6 +169,7 @@ def plan(
     owner: str,
     ref: str,
     keep_sources: bool,
+    *,
     self_host_ci: bool = False,
     broker_url: str | None = None,
 ) -> tuple[list[Edit], list[str], list[str]]:
@@ -262,8 +265,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.owner,
             args.ref,
             args.keep_sources,
-            args.self_host_ci,
-            args.broker_url,
+            self_host_ci=args.self_host_ci,
+            broker_url=args.broker_url,
         )
         if not args.dry_run:
             for edit in edits:

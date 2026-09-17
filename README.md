@@ -99,7 +99,7 @@ the assistant sitting in front.
    Linux/macOS/WSL2. Native Windows without WSL2 can run most services; Environments-api
    cannot.
 2. `bash scripts/bootstrap.sh` or `pwsh scripts/bootstrap.ps1`. That checks for `uv`,
-   Python 3.11/3.12, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
+   Python 3.12/3.13, `make`, `git`, `gh`, `jq`, `sqlite3`, reports Docker without
    installing it, asks you to sign in to GitHub (browser or a pasted token) if you are
    not already, clones any missing checkout your account can read from `repos.txt`, and runs
    `make install` unless you pass `--no-install`. Running Lucy locally stops here: you do

@@ -60,7 +60,7 @@ dev = ["pytest"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.mypy]
 strict = true
@@ -120,7 +120,7 @@ def write_golden(root: Path) -> Path:
     write_text(root / "Dockerfile", GOLDEN_DOCKERFILE)
     write_text(root / "Makefile", GOLDEN_MAKEFILE)
     write_text(root / "pyproject.toml", GOLDEN_PYPROJECT)
-    write_text(root / ".python-version", "3.11\n")
+    write_text(root / ".python-version", "3.12\n")
     write_text(root / "CLAUDE.md", "Read AGENTS.md first.\n")
     write_text(root / "CHANGELOG.md", "See https://keepachangelog.com/en/1.1.0/\n")
     write_text(root / ".pre-commit-config.yaml", "repos: []\n")
@@ -172,9 +172,7 @@ def fail(root: Path, check_id: str) -> None:
     elif check_id == "docker-secret":
         write_text(
             root / "Dockerfile",
-            GOLDEN_DOCKERFILE.replace(
-                "    --mount=id=github_token,type=secret \\\n", ""
-            ),
+            GOLDEN_DOCKERFILE.replace("    --mount=id=github_token,type=secret \\\n", ""),
         )
     elif check_id == "dev-group":
         write_text(
@@ -202,14 +200,12 @@ def fail(root: Path, check_id: str) -> None:
     elif check_id == "pytest-warnings":
         write_text(
             root / "pyproject.toml",
-            GOLDEN_PYPROJECT.replace(
-                'filterwarnings = ["error"]', 'filterwarnings = ["ignore"]'
-            ),
+            GOLDEN_PYPROJECT.replace('filterwarnings = ["error"]', 'filterwarnings = ["ignore"]'),
         )
     elif check_id == "import-linter":
         write_text(
             root / "pyproject.toml",
-            GOLDEN_PYPROJECT.split("[[tool.importlinter.contracts]]")[0],
+            GOLDEN_PYPROJECT.split("[[tool.importlinter.contracts]]", maxsplit=1)[0],
         )
     elif check_id == "config":
         write_text(
@@ -243,9 +239,7 @@ def fail(root: Path, check_id: str) -> None:
         )
         write_text(
             root / "pyproject.toml",
-            GOLDEN_PYPROJECT.replace(
-                'dependencies = ["keyring-client"]', "dependencies = []"
-            ),
+            GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
         )
     else:
         raise AssertionError(f"no failing mutation for {check_id}")
@@ -272,9 +266,7 @@ def test_mutated_golden_fails(tmp_path: Path, check_id: str) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     fail(root, check_id)
     result = outcome_for(root, check_id)
-    assert result.status == parity.FAIL, (
-        f"{check_id} did not fail: {result.status} {result.detail}"
-    )
+    assert result.status == parity.FAIL, f"{check_id} did not fail: {result.status} {result.detail}"
 
 
 def test_max_file_lines_allows_exactly_the_limit(tmp_path: Path) -> None:
@@ -296,9 +288,7 @@ def test_keyring_client_is_na_on_the_issuer(tmp_path: Path) -> None:
     root = write_golden(tmp_path / "Keyring-api")
     write_text(
         root / "pyproject.toml",
-        GOLDEN_PYPROJECT.replace(
-            'dependencies = ["keyring-client"]', "dependencies = []"
-        ),
+        GOLDEN_PYPROJECT.replace('dependencies = ["keyring-client"]', "dependencies = []"),
     )
     write_text(
         root / "src/demo/core/config.py",
@@ -344,17 +334,13 @@ def test_cli_unknown_repo_is_usage_error(
     assert "unknown repository" in err
 
 
-def test_cli_json_exit_zero_on_golden(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cli_json_exit_zero_on_golden(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     write_golden(tmp_path / GOLDEN_NAME)
     manifest = tmp_path / "repos.txt"
     manifest.write_text(
         f"{GOLDEN_NAME} https://example.invalid/{GOLDEN_NAME}.git\n", encoding="utf-8"
     )
-    code = parity.main(
-        ["--root", str(tmp_path), "--repos-file", str(manifest), "--json"]
-    )
+    code = parity.main(["--root", str(tmp_path), "--repos-file", str(manifest), "--json"])
     assert code == 0
     document = json.loads(capsys.readouterr().out)
     assert document["ok"] is True
@@ -373,9 +359,7 @@ def test_cli_exit_one_on_drift(tmp_path: Path) -> None:
 
 def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
     manifest = tmp_path / "repos.txt"
-    manifest.write_text(
-        "# header\n\nAlpha https://x\n  Bravo https://y\n", encoding="utf-8"
-    )
+    manifest.write_text("# header\n\nAlpha https://x\n  Bravo https://y\n", encoding="utf-8")
     assert parity.read_repo_names(manifest) == ["Alpha", "Bravo"]
 
 
@@ -388,9 +372,9 @@ def test_read_repo_names_skips_comments(tmp_path: Path) -> None:
         GOLDEN_CI.replace("  id-token: write", "  id-token: 'write'\n").replace(
             "    uses:", "    secrets: inherit\n    uses:"
         ),
-        GOLDEN_CI.replace(
-            "permissions:\n", "other:\n  id-token: write\npermissions:\n"
-        ).replace("  id-token: write\njobs:", "jobs:"),
+        GOLDEN_CI.replace("permissions:\n", "other:\n  id-token: write\npermissions:\n").replace(
+            "  id-token: write\njobs:", "jobs:"
+        ),
         "jobs:\n  local:\n    steps:\n      - run: echo 'id-token: write'\n",
     ],
 )
@@ -415,9 +399,7 @@ def test_ci_identity_accepts_quoted_oidc_permission_and_other_jobs(
             "uses: owner/LUCY-assistant/.github/workflows/service.yml@v1",
             "uses: 'owner/LUCY-assistant/.github/workflows/service.yml@v1' # family",
         ).replace("id-token: write", "id-token: 'write' # broker")
-        + (
-            "  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"
-        ),
+        + ("  standalone:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"),
     )
     assert outcome_for(root, "ci-identity").status == parity.PASS
 
@@ -444,9 +426,7 @@ def test_ci_identity_accepts_quoted_oidc_permission_and_other_jobs(
         "# syntax=docker/dockerfile:1\nFROM python:3.11\n",
     ],
 )
-def test_docker_secret_rejects_unprotected_syncs(
-    tmp_path: Path, dockerfile: str | None
-) -> None:
+def test_docker_secret_rejects_unprotected_syncs(tmp_path: Path, dockerfile: str | None) -> None:
     root = write_golden(tmp_path / GOLDEN_NAME)
     if dockerfile is None:
         (root / "Dockerfile").unlink()

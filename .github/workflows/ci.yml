@@ -4,15 +4,24 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # The hub is a family service and is held to the family gates. It calls the reusable
+  # workflow by local path rather than by tag, because this repository owns that workflow:
+  # pinning itself to `@v1` would mean a change to service.yml is never tested by the
+  # repository that made it.
+  service:
+    uses: ./.github/workflows/service.yml
+
   broker:
     name: Token broker
     runs-on: ubuntu-latest
@@ -27,17 +36,6 @@ jobs:
         working-directory: broker
       - run: npm run check
         working-directory: broker
-
-  parity:
-    name: Parity tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - name: Run the family checker tests
-        run: uv run --with pytest --with pyyaml --with cryptography pytest tests -q
 
   example:
     name: Example service (make check)

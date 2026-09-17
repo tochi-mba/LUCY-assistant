@@ -6,7 +6,7 @@ on:
       python-versions:
         description: JSON list of Python versions for the test matrix
         type: string
-        default: '["3.11","3.12"]'
+        default: '["3.12","3.13"]'
       extras:
         description: Extra arguments passed to `uv sync` (for example `--all-extras`)
         type: string
@@ -174,7 +174,7 @@ jobs:
   tests:
     name: Tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    container: ${{ inputs.privileged-container && fromJSON('{"image":"python:3.11-slim","options":"--privileged"}') || fromJSON('null') }}
+    container: ${{ inputs.privileged-container && fromJSON('{"image":"python:3.12-slim","options":"--privileged"}') || fromJSON('null') }}
     strategy:
       fail-fast: false
       matrix:

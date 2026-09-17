@@ -145,8 +145,8 @@ ensure_uv() {
 
 python_ready() {
   have uv || return 1
-  uv python find 3.11 >/dev/null 2>&1 || return 1
   uv python find 3.12 >/dev/null 2>&1 || return 1
+  uv python find 3.13 >/dev/null 2>&1 || return 1
   return 0
 }
 
@@ -160,11 +160,11 @@ ensure_python() {
     return 0
   fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    would "uv python install 3.11 3.12"
+    would "uv python install 3.12 3.13"
     mark "python" "missing"
     return 0
   fi
-  if uv python install 3.11 3.12; then
+  if uv python install 3.12 3.13; then
     mark "python" "installed"
   else
     mark "python" "missing"

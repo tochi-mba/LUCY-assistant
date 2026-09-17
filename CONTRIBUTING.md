@@ -40,7 +40,7 @@ fail is not a check; `tests/test_parity.py` refuses one.
 
 - **Makefile verbs:** `help install fmt lint type imports test cov check run docker clean`.
   `make check` runs exactly `lint type imports test`.
-- **Python:** `.python-version` pins 3.11. CI also runs 3.12.
+- **Python:** `.python-version` pins 3.12. CI also runs 3.13. The floor is 3.12 because `weftai` needs it.
 - **Tools:** ruff line-length 100, target `py311`; mypy `strict = true`; coverage
   `fail_under = 100` with branch coverage; pytest `filterwarnings = ["error"]`;
   import-linter contracts; `[dependency-groups] dev` not an extra named `dev`.

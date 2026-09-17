@@ -1,0 +1,108 @@
+"""Configuration for the hub.
+
+Every knob is an environment variable prefixed ``LUCY_``, and an unknown one under that
+prefix is a startup error rather than a silently ignored typo. That rule matters more here
+than in a leaf service: the hub holds the base URL of every sibling, and a misspelled
+``LUCY_KEYRNIG_BASE_URL`` would otherwise start a process that looks healthy right up until
+the first token needs verifying.
+
+Configuration is a fact about the machine. A fact about a *person* -- which model they
+prefer, how much context they want spent on memory, whether a destructive tool may run
+without asking -- belongs in settings-api under the ``lucy`` namespace, never here.
+"""
+
+from __future__ import annotations
+
+import os
+from enum import StrEnum
+from typing import TYPE_CHECKING, Annotated, Self
+
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+ENV_PREFIX = "LUCY_"
+
+PositiveInt = Annotated[int, Field(gt=0)]
+PositiveFloat = Annotated[float, Field(gt=0)]
+
+# Parity looks for these literals in source. Liveness and readiness are different questions
+# and are answered by different routes; see docs/architecture.md.
+ROUTES = ("/healthy", "/ready")
+
+
+class LogFormat(StrEnum):
+    JSON = "json"
+    CONSOLE = "console"
+
+
+class Settings(BaseSettings):
+    """The complete runtime configuration of the hub."""
+
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="forbid",
+        hide_input_in_errors=True,
+    )
+
+    app_name: str = "lucy"
+    environment: str = "local"
+    log_level: str = "INFO"
+    log_format: LogFormat = LogFormat.JSON
+    host: str = "127.0.0.1"
+    port: PositiveInt = 8000
+
+    # Identity. The audience is the hub's name in keyring's KEYRING_SERVICE_TOKENS, and it
+    # must equal the audience_prefix settings-api grants it; a mismatch fails closed and
+    # looks exactly like a correctly configured service whose every call is a 401.
+    audience: str = "lucy-api"
+    keyring_base_url: str = "http://127.0.0.1:8001"
+    keyring_jwks_url: str = "http://127.0.0.1:8001/.well-known/jwks.json"
+    keyring_issuer: str = "http://127.0.0.1:8001"
+    keyring_service_token: str = ""
+
+    # The rest of the family. Each is a base URL only; what the hub does with them lives in
+    # a capability pack, and a pack whose service is unreachable is absent from the model's
+    # tools rather than an error in somebody's turn.
+    user_api_base_url: str = "http://127.0.0.1:8002"
+    settings_api_base_url: str = "http://127.0.0.1:8003"
+    settings_api_token: str = ""
+    persona_api_base_url: str = "http://127.0.0.1:8004"
+    media_tool_base_url: str = "http://127.0.0.1:8005"
+    web_search_base_url: str = "http://127.0.0.1:8006"
+    spotify_api_base_url: str = "http://127.0.0.1:8007"
+    environments_api_base_url: str = "http://127.0.0.1:8008"
+    memory_api_base_url: str = "http://127.0.0.1:8009"
+
+    # Timeouts and caches.
+    jwks_cache_seconds: PositiveFloat = 3_600.0
+    jwks_min_refetch_seconds: PositiveFloat = 30.0
+    http_timeout_seconds: PositiveFloat = 10.0
+
+    @model_validator(mode="after")
+    def _audience_is_usable(self) -> Self:
+        value = self.audience
+        if not value or value.strip() != value:
+            msg = "LUCY_AUDIENCE must be non-empty and carry no leading or trailing space"
+            raise ValueError(msg)
+        return self
+
+
+def check_for_unknown_env_vars(environ: Mapping[str, str] | None = None) -> None:
+    """Refuse unknown ``LUCY_*`` variables so a typo fails at startup, not at first use."""
+    known = {ENV_PREFIX + name.upper() for name in Settings.model_fields}
+    source = environ if environ is not None else os.environ
+    unknown = sorted(key for key in source if key.startswith(ENV_PREFIX) and key not in known)
+    if unknown:
+        msg = "unknown environment variables: " + ", ".join(unknown)
+        raise RuntimeError(msg)
+
+
+def load_settings() -> Settings:
+    """Load settings, refusing unknown variables under the prefix first."""
+    check_for_unknown_env_vars()
+    return Settings()
