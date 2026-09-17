@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 DEFAULT_URL = "http://127.0.0.1:8000"
 URL_VAR = "LUCY_URL"
 TOKEN_VAR = "LUCY_TOKEN"  # noqa: S105 - the variable's name, not a token
+FAMILY_ROOT_VAR = "LUCY_FAMILY_ROOT"
 DOCS = "https://github.com/tochi-mba/LUCY-assistant"
 
 OK = 0

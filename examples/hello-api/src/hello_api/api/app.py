@@ -14,13 +14,15 @@ from hello_api.core.config import Settings, load_settings
 from hello_api.core.container import build_container
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
+
+    from httpx import AsyncBaseTransport
 
 
 def create_app(
     settings: Settings | None = None,
     *,
-    transport: object | None = None,
+    transport: AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -31,7 +33,7 @@ def create_app(
     resolved = settings if settings is not None else load_settings()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         container = build_container(resolved, transport=transport)
         app.state.container = container
         try:

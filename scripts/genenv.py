@@ -30,10 +30,9 @@ MASTER_KEY_BYTES = 32
 
 # Services that call keyring's /v1/internal. Names are KEYRING_SERVICE_TOKENS keys
 # (and the audience those services mint). Variables are the names their Settings classes
-# actually read.
+# actually read. Operator-local extras belong in scripts/genenv.local.json, not here.
 KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
     ("lucy-api", "LUCY_KEYRING_SERVICE_TOKEN"),
-    ("media-tool", "MEDIA_TOOL_KEYRING_SERVICE_TOKEN"),
     ("spotify-api", "SPOTIFY_API_KEYRING_SERVICE_TOKEN"),
     ("web-search-api", "WSA_KEYRING_SERVICE_TOKEN"),
     ("environments-api", "ENVAPI_KEYRING_SERVICE_TOKEN"),
@@ -46,7 +45,6 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("lucy-api", "lucy-api", ("lucy",), "LUCY_SETTINGS_API_TOKEN"),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
-    ("media-tool", "media-tool", ("media",), "MEDIA_TOOL_SETTINGS_API_TOKEN"),
     ("spotify-api", "spotify-api", ("spotify",), None),
     ("web-search-api", "web-search-api", ("search",), None),
     ("keyring-api", "keyring", ("keyring",), None),
@@ -54,9 +52,84 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("memory-api", "memory-api", ("memory",), None),
 )
 
+LOCAL_EXTRAS = META_ROOT / "scripts" / "genenv.local.json"
+
 
 class AlreadyExistsError(Exception):
     """The output file already exists, or cannot be written."""
+
+
+class ExtraConfigError(Exception):
+    """scripts/genenv.local.json is present and unusable."""
+
+
+def load_local_extras(
+    path: Path | None,
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str, tuple[str, ...], str | None], ...]]:
+    """Published lists plus optional gitignored extras. Missing file means none."""
+    if path is None or not path.is_file():
+        return (), ()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ExtraConfigError(f"{path.name} is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ExtraConfigError(f"{path.name} must be a JSON object")
+    return _consumers(data.get("keyring_consumers", []), path.name), _grants(
+        data.get("settings_grants", []), path.name
+    )
+
+
+def _consumers(rows: object, source: str) -> tuple[tuple[str, str], ...]:
+    if not isinstance(rows, list):
+        raise ExtraConfigError(f"{source}: keyring_consumers must be a list")
+    out: list[tuple[str, str]] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 2:
+            raise ExtraConfigError(f"{source}: keyring_consumers entries must be [name, ENV_VAR]")
+        name, variable = row
+        if not isinstance(name, str) or not name or not isinstance(variable, str) or not variable:
+            raise ExtraConfigError(
+                f"{source}: keyring_consumers entries need two non-empty strings"
+            )
+        out.append((name, variable))
+    return tuple(out)
+
+
+def _grants(rows: object, source: str) -> tuple[tuple[str, str, tuple[str, ...], str | None], ...]:
+    if not isinstance(rows, list):
+        raise ExtraConfigError(f"{source}: settings_grants must be a list")
+    out: list[tuple[str, str, tuple[str, ...], str | None]] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 4:
+            raise ExtraConfigError(
+                f"{source}: settings_grants entries must be "
+                "[name, audience_prefix, namespaces, token_var_or_null]"
+            )
+        name, prefix, namespaces, token_var = row
+        if not isinstance(name, str) or not name or not isinstance(prefix, str) or not prefix:
+            raise ExtraConfigError(f"{source}: settings_grants need a name and audience_prefix")
+        if not isinstance(namespaces, list) or not all(
+            isinstance(item, str) for item in namespaces
+        ):
+            raise ExtraConfigError(
+                f"{source}: settings_grants namespaces must be a list of strings"
+            )
+        if token_var is not None and (not isinstance(token_var, str) or not token_var):
+            raise ExtraConfigError(f"{source}: token_var must be a non-empty string or null")
+        out.append((name, prefix, tuple(namespaces), token_var))
+    return tuple(out)
+
+
+def _merge(
+    published: tuple[tuple[str, str], ...], extra: tuple[tuple[str, str], ...], label: str
+) -> tuple[tuple[str, str], ...]:
+    seen = {row[0] for row in published}
+    for row in extra:
+        if row[0] in seen:
+            raise ExtraConfigError(f"local extra {label} {row[0]!r} duplicates a published service")
+        seen.add(row[0])
+    return published + extra
 
 
 def new_token() -> str:
@@ -73,20 +146,31 @@ def new_master_key() -> str:
     return base64.b64encode(os.urandom(MASTER_KEY_BYTES)).decode("ascii")
 
 
-def build_env() -> dict[str, str]:
+def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
     """One dict, insertion-ordered, ready to serialise as ``KEY=value`` lines."""
+    extra_consumers, extra_grants = load_local_extras(extras_path)
+    consumers = _merge(KEYRING_CONSUMERS, extra_consumers, "keyring consumer")
+    grants_rows = SETTINGS_GRANTS + extra_grants
+    seen_grants = {row[0] for row in SETTINGS_GRANTS}
+    for row in extra_grants:
+        if row[0] in seen_grants:
+            raise ExtraConfigError(
+                f"local extra settings grant {row[0]!r} duplicates a published service"
+            )
+        seen_grants.add(row[0])
+
     env: dict[str, str] = {}
 
     env["KEYRING_MASTER_KEY"] = new_master_key()
     env["KEYRING_ADMIN_TOKEN"] = new_token()
 
-    keyring_tokens = {name: new_token() for name, _variable in KEYRING_CONSUMERS}
+    keyring_tokens = {name: new_token() for name, _variable in consumers}
     env["KEYRING_SERVICE_TOKENS"] = json.dumps(keyring_tokens, separators=(",", ":"))
-    for name, variable in KEYRING_CONSUMERS:
+    for name, variable in consumers:
         env[variable] = keyring_tokens[name]
 
     grants: dict[str, dict[str, object]] = {}
-    for name, audience_prefix, namespaces, token_var in SETTINGS_GRANTS:
+    for name, audience_prefix, namespaces, token_var in grants_rows:
         token = new_token()
         grants[name] = {
             "token": token,
@@ -146,6 +230,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         count = write_env(path, force=args.force)
     except AlreadyExistsError as exc:
+        print(f"genenv: {exc}", file=sys.stderr)
+        return 1
+    except ExtraConfigError as exc:
         print(f"genenv: {exc}", file=sys.stderr)
         return 1
     except OSError as exc:

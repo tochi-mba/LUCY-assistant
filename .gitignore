@@ -5,15 +5,26 @@
 /Settings-api/
 /User-api/
 /Persona-api/
-/Media-tool/
 /Web-search-api/
 /Spotify-api/
 /Environments-api/
 /Memory-api/
 
-# Private / machine-local clone manifest (merged with repos.txt by bootstrap).
+# Operator-local sibling checkouts and the compose/token extras that wire them.
+# See docs/private-repos.md and docs/adr/0011-private-services-are-extensions.md.
+#
+# The manifest itself is ignored, and that is the load-bearing line: it is the one file
+# that lists private repository names, so committing it would publish exactly what every
+# other rule here exists to keep private. `.repos.local.txt.example` is the committed
+# template and names nothing. Bootstrap additionally writes each private checkout's
+# directory name into .git/info/exclude, which is per-clone and never committed -- naming
+# those directories here would leak them the same way.
+/private/
 /.repos.local.txt
 /repos.local.txt
+/docker-compose.local.yml
+/docker-compose.override.yml
+/scripts/genenv.local.json
 
 # Secrets generated for docker compose by scripts/genenv.py. Never commit them.
 .env.family
@@ -22,6 +33,9 @@
 # Logs, including bootstrap's per-repository logs
 *.log
 /.logs/
+
+# The hub's SQLite database, wherever LUCY_DATABASE_PATH puts it by default.
+var/
 
 # Caches and test output
 __pycache__/

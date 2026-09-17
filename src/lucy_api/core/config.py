@@ -17,7 +17,7 @@ import os
 from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, Self
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
@@ -37,12 +37,31 @@ ROUTES = ("/healthy", "/ready")
 # this process, and refusing them as typos would make the server crash in exactly the
 # environment the client's own help tells people to create. A test pins this list against
 # the names the CLI actually reads, so the two cannot drift apart.
-CLIENT_VARIABLES = frozenset({ENV_PREFIX + name for name in ("URL", "TOKEN", "CONFIG")})
+CLIENT_VARIABLES = frozenset(
+    {ENV_PREFIX + name for name in ("URL", "TOKEN", "CONFIG", "FAMILY_ROOT")}
+)
 
 
 class LogFormat(StrEnum):
     JSON = "json"
     CONSOLE = "console"
+
+
+class ExtraSibling(BaseModel):
+    """One operator-local service the published family does not name.
+
+    Capability packs look these up by product id (``media``, not a repository name).
+    An empty ``base_url`` is the same as omitting the entry.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str
+    audience: str = ""
+    documentation: str = ""
+    title: str = ""
+    instructions: str = ""
+    checks: tuple[str, ...] = ()
 
 
 class Settings(BaseSettings):
@@ -63,6 +82,19 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: PositiveInt = 8000
 
+    database_path: str = "var/lucy.sqlite3"
+    """The one file every conversation lives in.
+
+    A ``str`` and not a ``Path``, matching memory-api, because ``:memory:`` is a sqlite
+    sentinel rather than a filename: expanding and resolving it -- which is what a ``Path``
+    field invites -- turns an in-memory database into a file literally called ``:memory:``
+    in the working directory, and the tests that rely on isolation would quietly start
+    sharing one.
+
+    The directory is created on first open, so a deployment configures the file it wants
+    rather than a directory it has to remember to make first.
+    """
+
     # Identity. The audience is the hub's name in keyring's KEYRING_SERVICE_TOKENS, and it
     # must equal the audience_prefix settings-api grants it; a mismatch fails closed and
     # looks exactly like a correctly configured service whose every call is a 401.
@@ -72,6 +104,12 @@ class Settings(BaseSettings):
     keyring_issuer: str = "http://127.0.0.1:8001"
     keyring_service_token: str = ""
 
+    # Model credentials are optional at boot so a new installation can still expose setup
+    # and readiness. They never enter a prompt, event or log; the model registry consumes
+    # them only while it constructs an HTTP client.
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+
     # The rest of the family. Each is a base URL only; what the hub does with them lives in
     # a capability pack, and a pack whose service is unreachable is absent from the model's
     # tools rather than an error in somebody's turn.
@@ -79,11 +117,13 @@ class Settings(BaseSettings):
     settings_api_base_url: str = "http://127.0.0.1:8003"
     settings_api_token: str = ""
     persona_api_base_url: str = "http://127.0.0.1:8004"
-    media_tool_base_url: str = "http://127.0.0.1:8005"
     web_search_base_url: str = "http://127.0.0.1:8006"
     spotify_api_base_url: str = "http://127.0.0.1:8007"
     environments_api_base_url: str = "http://127.0.0.1:8008"
     memory_api_base_url: str = "http://127.0.0.1:8009"
+
+    extra_services: dict[str, ExtraSibling] = Field(default_factory=dict)
+    """Operator-local siblings, keyed by capability id. Empty means none are wired."""
 
     # Timeouts and caches.
     jwks_cache_seconds: PositiveFloat = 3_600.0
@@ -97,6 +137,13 @@ class Settings(BaseSettings):
             msg = "LUCY_AUDIENCE must be non-empty and carry no leading or trailing space"
             raise ValueError(msg)
         return self
+
+    def extra(self, capability: str) -> ExtraSibling | None:
+        """The configured sibling for a capability, or none when it is not wired."""
+        row = self.extra_services.get(capability)
+        if row is None or not row.base_url.strip():
+            return None
+        return row
 
 
 def check_for_unknown_env_vars(environ: Mapping[str, str] | None = None) -> None:

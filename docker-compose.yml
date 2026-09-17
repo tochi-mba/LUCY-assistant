@@ -1,7 +1,7 @@
-# LUCY-assistant family. The hub and nine services, one network.
+# LUCY-assistant family. The hub and the published services, one network.
 #
-# media-tool sits behind the `local` profile: it is a private tool, not part of the
-# published family. COMPOSE_PROFILES=local includes it.
+# Operator-local services belong in docker-compose.override.yml (gitignored).
+# Compose merges that file automatically. See docs/private-repos.md.
 #
 # Paths are ./<Repo> because this file lives beside the service checkouts.
 #   python scripts/genenv.py
@@ -21,7 +21,6 @@ volumes:
   settings-data:
   persona-data:
   memory-data:
-  media-data:
   environments-data:
 
 # Build-time only. Never put GITHUB_TOKEN in .env.family: env_file is passed
@@ -51,7 +50,6 @@ services:
       LUCY_USER_API_BASE_URL: http://user:8002
       LUCY_SETTINGS_API_BASE_URL: http://settings:8003
       LUCY_PERSONA_API_BASE_URL: http://persona:8004
-      LUCY_MEDIA_TOOL_BASE_URL: http://media-tool:8005
       LUCY_WEB_SEARCH_BASE_URL: http://web-search:8006
       LUCY_SPOTIFY_API_BASE_URL: http://spotify:8007
       LUCY_ENVIRONMENTS_API_BASE_URL: http://environments:8008
@@ -241,43 +239,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    networks: [lucy]
-
-  media-tool:
-    profiles: ["local"]
-    build:
-      context: ./Media-tool
-      secrets: [github_token]
-    ports:
-      - "8005:8005"
-    env_file:
-      - .env.family
-    environment:
-      MEDIA_TOOL_HOST: "0.0.0.0"
-      MEDIA_TOOL_PORT: "8005"
-      MEDIA_TOOL_KEYRING_BASE_URL: http://keyring:8001
-      MEDIA_TOOL_KEYRING_ISSUER: "http://127.0.0.1:8001"
-      MEDIA_TOOL_KEYRING_AUDIENCE: media-tool
-      MEDIA_TOOL_SETTINGS_API_BASE_URL: http://settings:8003
-      MEDIA_TOOL_ARTIFACT_DIR: /var/lib/media-tool/artifacts
-      MEDIA_TOOL_LOG_FORMAT: json
-    volumes:
-      - media-data:/var/lib/media-tool/artifacts
-    depends_on:
-      keyring:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8005/healthy', timeout=4).status == 200 else 1)",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
     networks: [lucy]
 
   web-search:

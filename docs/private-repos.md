@@ -15,6 +15,47 @@ Public hubs and clients fetch anonymously; no login is required to clone this
 meta-repo and the public services in `repos.txt`. Private checkouts belong in
 gitignored `.repos.local.txt` (see `.repos.local.txt.example`).
 
+## A private service is never named by a public one
+
+Signing in is how you *fetch* a private repository. This section is the rule for what the
+public side is allowed to know about it, and the short version is: nothing.
+
+**No public repository names a private one.** Not in a docstring, not in a test fixture, not
+in a settings namespace, not as an example of a wrong audience. A private service attaches
+through declared extension points, and the public side knows only that extension points
+exist. The reasoning and the four seams are in
+[ADR-0011](adr/0011-private-services-are-extensions.md); what you need day to day is below.
+
+| What a private service brings | Where it attaches |
+| --- | --- |
+| its own settings namespace | the entry-point group `settings_api.namespaces` |
+| lines it may put in front of the model, and their toggles | the entry-point group `lucy.feeds` |
+| its capability and operations | the entry-point group `lucy.capabilities` |
+| the process itself | `docker-compose.local.yml`, gitignored, merged by `make up` |
+| a setup card in the first-run flow | `LUCY_EXTRA_SERVICES`, which carries its own title, documentation, instructions and checks |
+
+So a private service is a small installable package rather than a directory of files the
+public tree imports. That is a real cost, and it is the point: the boundary is now something
+somebody crosses deliberately rather than by writing a helpful example.
+
+**Three things keep it true without anybody remembering.**
+
+`bash scripts/bootstrap.sh` writes each private checkout's name into `.git/info/exclude`,
+which is per-clone and never committed. Putting the name in `.gitignore` instead would keep
+the directory untracked and publish the name doing it — a denylist that names the thing it
+is hiding has already leaked it. Without this a private repository checked out beside the
+others is merely *untracked*, and the next `git add -A` stages the whole thing.
+
+`python scripts/parity.py` reads `.repos.local.txt` and fails any public repository whose
+source, tests, scripts, clients, docs or top-level prose contains a private name — matched
+case-insensitively and with `-` and `_` treated alike, because `Example_Tool` is the
+spelling a grep for `example-tool` would miss. An operator with no private checkouts has
+nothing to leak and the check passes silently.
+
+And when you need an illustration, **use an obviously fictional name**. Reaching for another
+real service is exactly how the first leak happened: `example-tool` in prose,
+`downstream-tool` in a test fixture. Never a sibling's name.
+
 ## Running Lucy on your machine
 
 Clone this repository and bootstrap. Public services clone without a login; sign in

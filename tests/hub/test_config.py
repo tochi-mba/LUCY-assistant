@@ -59,10 +59,10 @@ def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch, tm
 
 
 def test_server_accepts_exactly_the_clients_documented_prefixed_variables() -> None:
-    from lucy_api.cli.base import TOKEN_VAR, URL_VAR
+    from lucy_api.cli.base import FAMILY_ROOT_VAR, TOKEN_VAR, URL_VAR
     from lucy_api.cli.config import CONFIG_VAR
 
-    assert {URL_VAR, TOKEN_VAR, CONFIG_VAR} == CLIENT_VARIABLES
+    assert {URL_VAR, TOKEN_VAR, CONFIG_VAR, FAMILY_ROOT_VAR} == CLIENT_VARIABLES
     check_for_unknown_env_vars(dict.fromkeys(CLIENT_VARIABLES, "client-only-value"))
     with pytest.raises(RuntimeError, match="LUCY_TOKNE"):
         check_for_unknown_env_vars({"LUCY_TOKNE": "not-printed-secret"})

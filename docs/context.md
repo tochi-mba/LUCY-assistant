@@ -46,9 +46,12 @@ compacted away, or waste a tool call discovering.
   turn 41`. Telling a model its own position changes what it does: it writes a note before
   an eviction instead of after one, and stops opening large pages when there is no room to
   read them.
-- **agents** — every running child with its role, its plain-language objective, how long it
-  has been going and its last progress line. Then, separately, the ones that finished since
-  the last turn, because that is the delta that decides what happens next.
+- **in_flight** — everything still running, in one group: helper agents, downloads and long
+  commands together, each with its role, its plain-language objective, how long it has been
+  going and its last progress line. Then, separately, the ones that finished since the last
+  turn, because that is the delta that decides what happens next. One group rather than
+  three, because from where the model is sitting they are one question — see
+  [How Lucy runs helpers](agents.md).
 - **tasks** — the shared journal: what is open, who claimed it, what is blocked on what.
   This is how one agent sees another's work with no context transferred between them.
 - **memory** — the topic index, described below.
@@ -57,10 +60,14 @@ compacted away, or waste a tool call discovering.
 - **capabilities** — what is ready, and especially what changed.
 - **pending** — approvals, elicitations and connections waiting on somebody else, so the
   model stops rather than spins.
+- **feeds** — standing claims (persona identity, notes) in zone 1; live facts (now playing,
+  cwd, active download) in this block. Each line is a setting the person can turn off.
+  Unknown keys from a sibling are dropped. A failed sibling is a trouble line, not a
+  missing section the model is invited to invent.
 - **trouble** — repeated recent failures, so it stops retrying what cannot work.
 
-Each group has a floor and a ceiling, so thirty running agents cannot evict the memory
-index. When a group overflows it says so: `12 agents running (showing the 5 most recent)`.
+Each group has a floor and a ceiling, so thirty running helpers cannot evict the memory
+index. When a group overflows it says so: `12 things running (showing the 5 most recent)`.
 Groups with nothing in them are omitted entirely rather than printed as ten lines of
 "none".
 

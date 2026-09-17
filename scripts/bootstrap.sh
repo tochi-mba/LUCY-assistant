@@ -232,35 +232,113 @@ _repo_manifest() {
   fi
 }
 
-clone_missing() {
-  local line name url
-  if [[ ! -f "$ROOT/repos.txt" ]]; then
-    say "bootstrap: repos.txt is missing" >&2
-    return 1
+_local_manifest() {
+  if [[ -f "$ROOT/.repos.local.txt" ]]; then
+    printf '%s\n' "$ROOT/.repos.local.txt"
+  elif [[ -f "$ROOT/repos.local.txt" ]]; then
+    printf '%s\n' "$ROOT/repos.local.txt"
   fi
+}
+
+checkout_dir() {
+  local name="$1"
+  if [[ -d "$ROOT/$name" ]]; then
+    printf '%s\n' "$ROOT/$name"
+    return
+  fi
+  if [[ -d "$ROOT/private/$name" ]]; then
+    printf '%s\n' "$ROOT/private/$name"
+    return
+  fi
+}
+
+_clone_from() {
+  local file="$1"
+  local local_extra="$2"
+  local line name url dest
+  [[ -f "$file" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"
     line="$(trim "$line")"
     [[ -z "$line" ]] && continue
     name="${line%% *}"
     url="${line#* }"
-    if [[ -e "$ROOT/$name" ]]; then
+    dest="$ROOT/$name"
+    if [[ "$local_extra" -eq 1 ]]; then
+      dest="$ROOT/private/$name"
+      if [[ -e "$ROOT/$name" ]]; then
+        dest="$ROOT/$name"
+      fi
+    fi
+    if [[ -e "$dest" ]]; then
       say "$name: already present, leaving it alone"
       continue
     fi
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      would "git clone $url $name"
+      if [[ "$local_extra" -eq 1 && "$dest" == "$ROOT/private/$name" ]]; then
+        would "git clone $url private/$name"
+      else
+        would "git clone $url $name"
+      fi
       continue
     fi
     if ! have git; then
       say "bootstrap: git is missing; cannot clone $name"
       continue
     fi
-    # Authentication was handled above. Never hang a devcontainer on a git prompt.
-    if ! GIT_TERMINAL_PROMPT=0 git clone "$url" "$ROOT/$name"; then
+    if [[ "$local_extra" -eq 1 && "$dest" == "$ROOT/private/$name" ]]; then
+      mkdir -p "$ROOT/private"
+    fi
+    if ! GIT_TERMINAL_PROMPT=0 git clone "$url" "$dest"; then
       say "$name: your account cannot see $url; ask for access, or check gh auth status"
     fi
-  done < <(_repo_manifest)
+  done < "$file"
+}
+
+exclude_local_checkouts() {
+  # A private sibling's name must never reach a committed file -- writing it into
+  # .gitignore to keep it untracked would publish the very thing being kept private.
+  # .git/info/exclude is per-clone and is never committed, so the name stays local.
+  # Without this, a private repo checked out at the root is merely untracked, and the
+  # next `git add -A` stages it. See docs/adr/0011-private-services-are-extensions.md.
+  local extra file line name marker
+  extra="$(_local_manifest)"
+  [[ -n "$extra" ]] || return 0
+  file="$ROOT/.git/info/exclude"
+  [[ -d "$ROOT/.git" ]] || return 0
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+  marker="# operator-local sibling checkouts (bootstrap)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="$(trim "$line")"
+    [[ -z "$line" ]] && continue
+    name="${line%% *}"
+    grep -qxF "/$name/" "$file" && continue
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      would "exclude $name from this clone (.git/info/exclude)"
+      continue
+    fi
+    grep -qxF "$marker" "$file" || printf '
+%s
+' "$marker" >> "$file"
+    printf '/%s/
+' "$name" >> "$file"
+  done < "$extra"
+}
+
+clone_missing() {
+  if [[ ! -f "$ROOT/repos.txt" ]]; then
+    say "bootstrap: repos.txt is missing" >&2
+    return 1
+  fi
+  _clone_from "$ROOT/repos.txt" 0
+  local extra
+  extra="$(_local_manifest)"
+  if [[ -n "$extra" ]]; then
+    _clone_from "$extra" 1
+  fi
+  exclude_local_checkouts
 }
 
 install_repos() {
@@ -271,7 +349,8 @@ install_repos() {
     line="$(trim "$line")"
     [[ -z "$line" ]] && continue
     name="${line%% *}"
-    if [[ ! -d "$ROOT/$name" ]]; then
+    dest="$(checkout_dir "$name")"
+    if [[ -z "$dest" ]]; then
       say "$name: not checked out, skipping make install"
       continue
     fi
@@ -279,16 +358,16 @@ install_repos() {
       would "make install ($name)"
       continue
     fi
-    if [[ ! -f "$ROOT/$name/Makefile" ]]; then
+    if [[ ! -f "$dest/Makefile" ]]; then
       say "$name: no Makefile, skipping make install"
       continue
     fi
-    make -C "$ROOT/$name" install
+    make -C "$dest" install
   done < <(_repo_manifest)
 }
 
 check_repos() {
-  local line name status
+  local line name status dest
   [[ "$RUN_CHECK" -eq 1 ]] || return 0
   say ""
   say "check"
@@ -303,7 +382,8 @@ check_repos() {
       printf '%-22s  %s\n' "$name" "needs Linux"
       continue
     fi
-    if [[ ! -d "$ROOT/$name" ]]; then
+    dest="$(checkout_dir "$name")"
+    if [[ -z "$dest" ]]; then
       printf '%-22s  %s\n' "$name" "missing"
       continue
     fi
@@ -311,7 +391,7 @@ check_repos() {
       printf '%-22s  %s\n' "$name" "would make check"
       continue
     fi
-    if make -C "$ROOT/$name" check; then
+    if make -C "$dest" check; then
       status="pass"
     else
       status="FAIL"

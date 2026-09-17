@@ -10,17 +10,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from lucy_api.context.build import LIVE_SHARE, Sources, Turn, build_context
+from lucy_api.context.build import LIVE_SHARE, Live, Sources, Turn, build_context
 from lucy_api.context.projection import Compaction, Item
 from lucy_api.context.sources import StateRequest
 from lucy_api.context.types import (
-    AgentSnapshot,
     Band,
     Budget,
     BudgetSnapshot,
     Section,
     SessionSnapshot,
     TopicSnapshot,
+    WorkSnapshot,
 )
 
 NOW = datetime(2026, 9, 17, 14, 32, tzinfo=UTC)
@@ -62,16 +62,18 @@ async def test_a_whole_turn_assembles_with_the_live_state_read_last() -> None:
     built = await build_context(
         REQUEST,
         Turn(items=conversation(4)),
-        sources=Sources(
-            agents=Gives(
-                [
-                    AgentSnapshot(
-                        id="agt_1",
-                        role="researcher",
-                        objective="Find the tour dates",
-                        status="running",
-                    )
-                ]
+        live_from=Live(
+            sources=Sources(
+                in_flight=Gives(
+                    [
+                        WorkSnapshot(
+                            id="agt_1",
+                            role="researcher",
+                            objective="Find the tour dates",
+                            status="running",
+                        )
+                    ]
+                )
             )
         ),
     )
@@ -86,7 +88,7 @@ async def test_a_journal_that_is_down_becomes_a_line_the_model_can_read() -> Non
     built = await build_context(
         REQUEST,
         Turn(),
-        sources=Sources(tasks=Breaks(), agents=Gives([])),
+        live_from=Live(sources=Sources(tasks=Breaks(), in_flight=Gives([]))),
     )
     live = built.context.sections[-1].body
     assert "journal" in live
@@ -99,13 +101,15 @@ async def test_every_source_failing_still_produces_a_usable_prompt() -> None:
     built = await build_context(
         REQUEST,
         Turn(items=conversation(2)),
-        sources=Sources(
-            agents=Breaks(),
-            tasks=Breaks(),
-            workspace=Breaks(),
-            capabilities=Breaks(),
-            topics=Breaks(),
-            pending=Breaks(),
+        live_from=Live(
+            sources=Sources(
+                in_flight=Breaks(),
+                tasks=Breaks(),
+                workspace=Breaks(),
+                capabilities=Breaks(),
+                topics=Breaks(),
+                pending=Breaks(),
+            )
         ),
     )
     text = built.context.text()
@@ -117,7 +121,7 @@ async def test_every_source_failing_still_produces_a_usable_prompt() -> None:
 async def test_the_live_block_stays_inside_its_share_of_the_pinned_band() -> None:
     budget = Budget(window=200_000)
     crowd = [
-        AgentSnapshot(
+        WorkSnapshot(
             id=f"agt_{index}",
             role="researcher",
             objective=f"Investigate subject number {index} in considerable detail",
@@ -138,12 +142,12 @@ async def test_the_live_block_stays_inside_its_share_of_the_pinned_band() -> Non
     built = await build_context(
         REQUEST,
         Turn(),
-        sources=Sources(agents=Gives(crowd), topics=Gives(topics)),
+        live_from=Live(sources=Sources(in_flight=Gives(crowd), topics=Gives(topics))),
         budget=budget,
     )
     ceiling = int(budget.allocation(Band.pinned) * LIVE_SHARE)
     assert built.live_tokens <= ceiling
-    assert "60 agents running" in built.context.sections[-1].body, "the crowd is counted honestly"
+    assert "60 things running" in built.context.sections[-1].body, "the crowd is counted honestly"
 
 
 async def test_a_compacted_conversation_reads_as_its_summary() -> None:
@@ -171,15 +175,17 @@ async def test_a_flood_of_tool_results_cannot_cost_lucy_its_own_state() -> None:
     built = await build_context(
         REQUEST,
         Turn(items=conversation(2), tools=flood),
-        sources=Sources(
-            agents=Gives(
-                [AgentSnapshot(id="a", role="reviewer", objective="Check it", status="running")]
+        live_from=Live(
+            sources=Sources(
+                in_flight=Gives(
+                    [WorkSnapshot(id="a", role="reviewer", objective="Check it", status="running")]
+                )
             )
         ),
     )
     live = built.context.sections[-1].body
     assert "Check it" in live
-    assert "1 agent running" in live
+    assert "1 thing running" in live
     assert built.notices, "and what did not fit was said out loud"
     assert built.notices == built.context.notices
 
@@ -190,4 +196,4 @@ async def test_with_no_live_systems_at_all_the_turn_still_knows_where_it_is() ->
     assert "ses_1" in live
     assert "turn 42" in live
     assert "84,000 of 200,000" in live
-    assert "agents" not in live, "a group with nothing in it is left out, not printed empty"
+    assert "running" not in live, "a group with nothing in it is left out, not printed empty"

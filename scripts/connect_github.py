@@ -32,7 +32,7 @@ class ConnectError(Exception):
     """A user-facing failure whose message contains no credential."""
 
 
-def _run(
+def run_tool(
     run: Run, args: Sequence[str], *, capture: bool = True
 ) -> subprocess.CompletedProcess[str]:
     return run(list(args), capture_output=capture, text=True, check=False, timeout=120)
@@ -100,23 +100,46 @@ def read_app(path: Path) -> tuple[str, str]:
 
 def ensure_login(*, interactive: bool, run: Run) -> None:
     """Sign in once and make ``gh`` available for repository operations."""
-    if _run(run, ("gh", "auth", "status", "--hostname", "github.com")).returncode == 0:
+    if run_tool(run, ("gh", "auth", "status", "--hostname", "github.com")).returncode == 0:
         return
     if not interactive:
         raise ConnectError("not signed in to GitHub; run " + " ".join(LOGIN))
     print("Sign in to GitHub (browser or pasted token) so this script can start CI")
-    if _run(run, LOGIN, capture=False).returncode != 0:
+    if run_tool(run, LOGIN, capture=False).returncode != 0:
         raise ConnectError("GitHub sign-in did not complete")
 
 
 def owner_id(owner: str, *, run: Run) -> int:
     """Look up the account selected by ``repos.txt``."""
-    result = _run(run, ("gh", "api", f"users/{owner}"))
+    result = run_tool(run, ("gh", "api", f"users/{owner}"))
     try:
         body = json.loads(result.stdout)
         return int(body["id"])
     except (ValueError, KeyError, TypeError) as exc:
         raise ConnectError(f"cannot look up github.com/{owner}") from exc
+
+
+def find_installation(owner: str, slug: str, *, run: Run) -> dict[str, Any] | None:
+    """Return the app install on this owner, if the signed-in account can see it."""
+    result = run_tool(run, ("gh", "api", "user/installations"))
+    if result.returncode != 0:
+        return None
+    try:
+        body = json.loads(result.stdout)
+    except ValueError:
+        return None
+    rows = body.get("installations") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        return None
+    wanted = owner.casefold()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        account = row.get("account")
+        login = account.get("login") if isinstance(account, dict) else None
+        if row.get("app_slug") == slug and isinstance(login, str) and login.casefold() == wanted:
+            return {"id": row.get("id"), "account": login, "slug": slug}
+    return None
 
 
 def connect(
@@ -128,17 +151,29 @@ def connect(
     run: Run = subprocess.run,
     open_browser: Callable[[str], Any] = webbrowser.open,
     confirm: Callable[[str], str] = input,
+    force: bool = False,
 ) -> int:
     """Install the public app and start one workflow as the verification."""
     try:
         owner, names = read_family(repos_file)
         slug, _ = read_app(app_file)
+        page = f"https://github.com/apps/{slug}"
         ensure_login(interactive=interactive, run=run)
+        existing = find_installation(owner, slug, run=run)
+        if existing and not force:
+            print(f"Already installed: {page} on {owner}")
+            print("Choose 'Only select repositories' if you later add a private family repo.")
+            if dry_run:
+                print("dry-run: would not open the browser")
+                print("dry-run: no token, private key, or Actions secret would be created")
+                print("dry-run: nothing was changed")
+            return 0
         target = owner_id(owner, run=run)
-        url = f"https://github.com/apps/{slug}/installations/new/permissions?target_id={target}"
+        url = f"{page}/installations/new/permissions?target_id={target}"
         print(f"Install {slug} on these {owner} repositories:")
         for name in names:
             print(f"  {name}")
+        print(f"GitHub App: {page}")
         print("Choose 'Only select repositories'; the app needs no access outside this family.")
         if dry_run:
             print(f"dry-run: would open {url}")
@@ -151,7 +186,8 @@ def connect(
             return 0
         confirm("Press Enter after GitHub says the app is installed...")
         repository = f"{owner}/{names[1] if len(names) > 1 else META_NAME}"
-        result = _run(run, ("gh", "workflow", "run", "CI", "--repo", repository, "--ref", "main"))
+        start = ("gh", "workflow", "run", "CI", "--repo", repository, "--ref", "main")
+        result = run_tool(run, start)
         if result.returncode != 0:
             raise ConnectError(f"the app is installed, but CI could not start on {repository}")
         print(f"Installed. CI started on {repository}; watch it with:")

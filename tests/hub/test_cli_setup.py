@@ -25,7 +25,10 @@ class Terminal(io.StringIO):
 
 @pytest.fixture
 def env(tmp_path):
-    return {"LUCY_CONFIG": str(tmp_path / "client.toml")}
+    return {
+        "LUCY_CONFIG": str(tmp_path / "client.toml"),
+        "LUCY_FAMILY_ROOT": str(tmp_path),
+    }
 
 
 def run(argv, env, *, text="", tty=False):
@@ -64,11 +67,22 @@ def test_unattended_setup_requires_a_choice_and_never_prompts(env):
 @pytest.mark.parametrize("mode", ["hub", "family", "remote"])
 def test_each_mode_saves_the_address_and_names_the_next_step(env, mode):
     code, out, err = run(
-        ["setup", "--mode", mode, "--url", "https://hub.example", "--no-token", "--json"], env
+        [
+            "setup",
+            "--mode",
+            mode,
+            "--url",
+            "https://hub.example",
+            "--no-token",
+            "--no-github-ci",
+            "--json",
+        ],
+        env,
     )
     assert code == 0
     assert not err
     assert json.loads(out)["saved"]
+    assert "already" in json.loads(out)
     assert load_config(env).values == {"url": "https://hub.example", "mode": mode}
 
 
@@ -102,9 +116,16 @@ def test_a_saved_token_is_preserved_on_a_same_hub_preview(env):
 
 def test_overwriting_is_explicit_and_a_url_change_drops_the_saved_token(env):
     save_config({"url": "http://old.example", "token": SECRET, "mode": "hub"}, env)
-    assert run(["setup", "--yes"], env)[0] == 2
+    code, out, _ = run(["setup", "--yes", "--json"], env)
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["kept"]
+    assert not payload["saved"]
+    assert payload["url"] == "http://old.example"
+    assert any(row["id"] == "config" and row["done"] for row in payload["already"])
     assert run(["setup", "--force", "--url", "https://new.example"], env)[0] == 0
     assert load_config(env).get("token") == ""
+    assert load_config(env).get("url") == "https://new.example"
 
 
 def test_no_token_removes_an_existing_saved_credential(env):
@@ -159,15 +180,19 @@ def test_eof_or_an_invalid_mode_stops_setup_without_writing(env, text):
     assert not load_config(env).exists
 
 
-def test_interactive_replacement_defaults_to_no(env):
+def test_interactive_replacement_defaults_to_keeping_what_is_already_set_up(env):
     save_config({"mode": "hub", "url": "http://127.0.0.1:8000"}, env)
-    assert run(["setup"], env, text="\n\n", tty=True)[0] == 1
+    code, out, _ = run(["setup"], env, text="\n", tty=True)
+    assert code == 0
+    assert load_config(env).get("url") == "http://127.0.0.1:8000"
+    assert "Setup" in out
+    assert "done" in out
 
 
 def test_interactive_replacement_keeps_token_when_hidden_answer_is_blank(env, monkeypatch):
     save_config({"mode": "hub", "url": "http://127.0.0.1:8000", "token": SECRET}, env)
     monkeypatch.setattr("getpass.getpass", lambda *args, **kwargs: "")
-    assert run(["setup"], env, text="\nyes\n", tty=True)[0] == 0
+    assert run(["setup"], env, text="yes\n\n", tty=True)[0] == 0
     assert load_config(env).get("token") == SECRET
 
 

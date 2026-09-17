@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 import pytest
+from conftest import build_settings
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from keyring_client.testing import ISSUER, FakeKeyring, mint
@@ -24,7 +25,8 @@ from lucy_api.auth.verifier import (
     KeyringUnreachableError,
     VerifiedCaller,
 )
-from lucy_api.core.container import build_container
+from lucy_api.core.container import PackRequest, build_container
+from lucy_api.packs.http import PackHttp
 
 if TYPE_CHECKING:
     from lucy_api.core.config import Settings
@@ -107,3 +109,25 @@ def test_a_verified_caller_is_frozen() -> None:
     caller = VerifiedCaller(account_id="acct_a", audience=AUDIENCE)
     with pytest.raises(AttributeError):
         caller.account_id = "acct_b"  # type: ignore[misc]
+
+
+@pytest.mark.asyncio
+async def test_a_service_token_lets_packs_mint_instead_of_forwarding(
+    keyring: FakeKeyring,
+) -> None:
+    """Lucy acts with a minted token. An empty service token is a NullHttp seam, not a hang."""
+    settings = build_settings(keyring_service_token="s" * 32)
+    container = build_container(settings, transport=keyring.transport())
+    try:
+        context = container.pack_context(
+            PackRequest(
+                caller=VerifiedCaller(account_id="acct_a", audience=AUDIENCE),
+                user_token="a.verified.jwt",
+                profile="personal",
+                session_id="ses_a",
+            )
+        )
+        assert isinstance(context.http, PackHttp)
+        assert container.uptime_seconds >= 0
+    finally:
+        await container.aclose()

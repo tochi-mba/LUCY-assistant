@@ -35,8 +35,9 @@ def write_app(path: Path) -> Path:
 
 
 class FakeGitHub:
-    def __init__(self, *, signed_in: bool = True):
+    def __init__(self, *, signed_in: bool = True, installations: list[dict] | None = None):
         self.signed_in = signed_in
+        self.installations = installations or []
         self.commands: list[tuple[str, ...]] = []
 
     def run(self, args, **kwargs):
@@ -49,6 +50,10 @@ class FakeGitHub:
             self.signed_in = True
         elif argv[:2] == ("gh", "api") and argv[2] == "users/someone":
             out = json.dumps({"id": 555, "type": "User"})
+        elif argv[:2] == ("gh", "api") and argv[2] == "user/installations":
+            out = json.dumps(
+                {"total_count": len(self.installations), "installations": self.installations}
+            )
         elif argv[:3] == ("gh", "workflow", "run"):
             pass
         else:
@@ -63,6 +68,7 @@ def connect(tmp_path: Path, gh: FakeGitHub, **overrides) -> int:
         "dry_run": False,
         "interactive": False,
         "run": gh.run,
+        "force": False,
         "open_browser": lambda url: None,
         "confirm": lambda message: "",
     }
@@ -118,6 +124,44 @@ def test_install_opens_shared_app_and_triggers_ci(
     out = capsys.readouterr().out
     assert "Only select repositories" in out
     assert "CI started" in out
+
+
+def test_already_installed_does_not_reopen_the_browser(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    gh = FakeGitHub(
+        installations=[
+            {
+                "id": 9,
+                "app_slug": "lucy-assistant-family-ci",
+                "account": {"login": "someone"},
+            }
+        ]
+    )
+    opened: list[str] = []
+    assert connect(tmp_path, gh, open_browser=lambda url: opened.append(url)) == 0
+    assert opened == []
+    assert not any(command[:3] == ("gh", "workflow", "run") for command in gh.commands)
+    out = capsys.readouterr().out
+    assert "Already installed" in out
+    assert "https://github.com/apps/lucy-assistant-family-ci" in out
+
+
+def test_force_reopens_when_already_installed(tmp_path: Path) -> None:
+    gh = FakeGitHub(
+        installations=[
+            {
+                "id": 9,
+                "app_slug": "lucy-assistant-family-ci",
+                "account": {"login": "someone"},
+            }
+        ]
+    )
+    opened: list[str] = []
+    assert connect(tmp_path, gh, force=True, open_browser=lambda url: opened.append(url)) == 0
+    assert opened == [
+        "https://github.com/apps/lucy-assistant-family-ci/installations/new/permissions?target_id=555"
+    ]
 
 
 def test_non_interactive_install_does_not_wait(

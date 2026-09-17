@@ -115,6 +115,10 @@ def write_lines(path: Path, count: int) -> None:
     write_text(path, "".join(f"x = {index}\n" for index in range(count)))
 
 
+NL = chr(10)
+"""A newline as a name, so an editing script cannot turn it into a real line break."""
+
+
 def write_golden(root: Path) -> Path:
     write_text(root / ".github/workflows/ci.yml", GOLDEN_CI)
     write_text(root / "Dockerfile", GOLDEN_DOCKERFILE)
@@ -227,6 +231,16 @@ def fail(root: Path, check_id: str) -> None:
         )
     elif check_id == "max-file-lines":
         write_lines(root / "tests/huge.py", parity.MAX_FILE_LINES + 1)
+    elif check_id == "private-names":
+        # The manifest is written only here, so the unmutated golden passes for the reason
+        # an ordinary machine does: there are no private checkouts, so there is nothing to
+        # leak. The mention is spelled with an underscore while the manifest uses a hyphen,
+        # because that is the spelling a naive grep for the manifest's own text would miss.
+        write_text(root.parent / ".repos.local.txt", "Secret-Tool https://example.invalid" + NL)
+        write_text(
+            root / "src/demo/core/config.py",
+            GOLDEN_CONFIG + NL + 'EXAMPLE_AUDIENCE = "secret_tool"' + NL,
+        )
     elif check_id == "health-routes":
         write_text(
             root / "src/demo/core/config.py",

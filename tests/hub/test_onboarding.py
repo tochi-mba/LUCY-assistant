@@ -10,7 +10,8 @@ from asgi_lifespan import LifespanManager
 from keyring_client.testing import ISSUER, mint
 
 from lucy_api.api.app import create_app
-from lucy_api.onboarding.catalogue import manifests
+from lucy_api.core.config import ExtraSibling
+from lucy_api.onboarding.catalogue import extra_manifests, manifests
 from lucy_api.onboarding.models import SetupCheck
 from lucy_api.onboarding.service import HttpSetupProbe, ProbeResult, SetupDiscovery
 
@@ -40,7 +41,7 @@ async def test_discovery_keeps_optional_music_and_account_state_independent(sett
     result = await discovery.discover(ACCOUNT)
     assert result.account_id == ACCOUNT
     assert [row.id for row in result.services] == probe.seen
-    assert len(result.services) == 9
+    assert len(result.services) == 8
     services = {row.id: row for row in result.services}
     assert [row.id for row in result.services if row.required] == ["identity"]
     assert services["music"].state == "ready"
@@ -185,7 +186,7 @@ async def test_route_authenticates_and_never_sends_caller_token_to_readiness(key
         assert music["state"] == "ready"
         assert music["connection_state"] == "unknown"
         assert "never-echo-this-secret" not in response.text
-        assert len(upstream_requests) == 9
+        assert len(upstream_requests) == 8
         assert all(request.url.path == "/ready" for request in upstream_requests)
         assert all("authorization" not in request.headers for request in upstream_requests)
         assert all("x-keyring-user-token" not in request.headers for request in upstream_requests)
@@ -204,3 +205,72 @@ def test_setup_schema_explains_unknown_connection_state(settings):
     assert operation["operationId"] == "get_setup"
     assert "cannot yet inspect" in operation["description"]
     assert operation["security"]
+
+
+# --------------------------------------------------------------------------------------
+# Capabilities only this machine has. See docs/adr/0011-private-services-are-extensions.md.
+# --------------------------------------------------------------------------------------
+
+
+def an_extra(**overrides):
+    fields = {"base_url": "http://127.0.0.1:9100"}
+    return ExtraSibling(**{**fields, **overrides})
+
+
+def test_a_capability_only_this_machine_has_gets_a_card_without_the_hub_knowing_it(settings):
+    """The hub special-cases nothing.
+
+    A branch here reading ``if capability == "..."`` would name a private service in a
+    public file, and the second private service would need a second branch. What this
+    build knows is that extension points exist -- never what might attach to one.
+    """
+    configured = settings.model_copy(update={"extra_services": {"archive": an_extra()}})
+
+    (card,) = extra_manifests(configured)
+
+    assert card.id == "archive"
+    assert card.title == "Archive", "a readable title is derived rather than demanded"
+    assert card.checks == ("ready",)
+    assert card.connection_state == "unknown"
+    assert card.documentation.endswith("docs/private-repos.md")
+    assert "operator-local service" in card.instructions
+
+
+def test_an_operator_who_wants_a_better_card_writes_one_rather_than_patching_the_hub(settings):
+    configured = settings.model_copy(
+        update={
+            "extra_services": {
+                "archive": an_extra(
+                    title="Cold storage",
+                    instructions="Point it at the vault and give it a credential.",
+                    checks=("identity", "storage"),
+                    documentation="https://example.invalid/archive",
+                )
+            }
+        }
+    )
+
+    (card,) = extra_manifests(configured)
+
+    assert card.title == "Cold storage"
+    assert card.instructions == "Point it at the vault and give it a credential."
+    assert card.checks == ("identity", "storage")
+    assert card.documentation == "https://example.invalid/archive"
+
+
+def test_an_extra_with_no_address_is_the_same_as_not_having_configured_one(settings):
+    """A half-written entry in an operator's file must not become a card nobody can use."""
+    configured = settings.model_copy(
+        update={"extra_services": {"archive": an_extra(base_url="   ")}}
+    )
+
+    assert extra_manifests(configured) == ()
+
+
+def test_extras_sit_between_the_built_ins_so_published_identifiers_stay_stable(settings):
+    configured = settings.model_copy(update={"extra_services": {"archive": an_extra()}})
+
+    ids = [manifest.id for manifest in manifests(configured)]
+
+    assert ids.index("archive") == ids.index("notes") + 1
+    assert ids[0] == "identity", "the required one is still first"

@@ -410,7 +410,7 @@ mostCommon first pick details`) come free. The trickiest operations carry 1–5
 | --- | --- |
 | Spotify player reads | `{name, artists[].name, album.name, uri, duration_ms, progress_ms, is_playing}` |
 | Web-search scrape | `executive_summary` + `key_points` + URLs; the page text goes to the workspace and returns as a `$ref`; the service already reports `truncated`/`chars_submitted`/`original_chars`, so the notice is honest |
-| Media-tool job | pass through (≤50 items, no bytes in JSON); **never** `fetch_download_file` as a tool result — a link or an MCP resource |
+| a media job | pass through (≤50 items, no bytes in JSON); **never** a download-file call as a tool result — a link or an MCP resource |
 | Environments views | drop the host `workspace` path (an information leak) |
 
 Every high-volume operation takes `response_format: "concise" | "detailed"` defaulting to
@@ -1346,8 +1346,8 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 3. **Environments-api**: the primitives in §10.2.
 4. **`Idempotency-Key`** on the non-idempotent writes every service's own docs flag
    (`write_note`, `create_profile`, `create_download_job`, `POST /v1/environments`).
-5. **`wait_seconds` long-poll** on Web-search and Spotify jobs — Media-tool already has it
-   and its docs call it "the shape an LLM tool actually wants".
+5. **`wait_seconds` long-poll** on Web-search and Spotify jobs — one service in the family
+   already has it and its docs call it "the shape an LLM tool actually wants".
 6. **A `lucy` and a `memory` settings namespace**: one `SettingDef` module each plus a grant
    row. Every entry declares `on_unavailable`; `use_default` entries declare
    `conservative_values` containing their default. Only bool/int/str/enum/str_list, ≤4096
@@ -1357,12 +1357,22 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 8. Fix `user-api ?order=relevance` without `q` → 500; a plausible model mistake, since
    `relevance` is a visible enum in the OpenAPI document.
 
-**The `lucy` namespace (first cut):** `model` · `response_style` · `max_context_tokens` ·
-`compaction_trigger_percent` · `memory_write_policy` · `memory_retrieval_limit` ·
-`approval_policy` (floor: destructive always asks) · `permission_mode` · `input_policy`
-(double-texting) · `enabled_capabilities` · `disabled_capabilities` · `agent_max_depth` ·
-`agent_max_concurrent` · `session_token_budget` · `workspace_retention_hours` ·
-`stream_thinking` · `incognito`.
+**The `lucy` namespace (first cut):** `model` · `thinking` · `response_style` ·
+`max_context_tokens` · `compaction_trigger_percent` · `memory_write_policy` ·
+`memory_retrieval_limit` · `approval_policy` (floor: destructive always asks) ·
+`permission_mode` · `input_policy` (double-texting) · `enabled_capabilities` ·
+`disabled_capabilities` (refuses on outage — empty would re-enable a ban) ·
+`agent_max_depth` · `agent_max_concurrent` · `session_token_budget` ·
+`workspace_retention_hours` · `stream_thinking` · `incognito` · `log_message_content` ·
+`prompt_feeds_enabled` · `prompt_hide_personal_feeds` · `prompt_allow_unknown_feed_fields`
+· per-capability and per-field `feeds_*` toggles.
+
+Prompt-feed placement is Lucy's, not the sibling's. Spotify still owns playback defaults
+(`default_device`, `shuffle_on_play`, `repeat_mode`); environments owns shell behaviour
+(`persist_history`, `command_timeout_seconds`, `max_output_bytes`); search owns
+`default_result_count` and `recency_days`; media owns `confirm_before_start` and
+`notify_on_complete`. Lucy groups those with the matching `feeds_*` keys so the person
+sees Music, Workspace, Research, Media — never the service names.
 
 ---
 

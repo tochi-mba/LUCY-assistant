@@ -27,8 +27,14 @@ machine is listed as in progress, however finished it looks.
 
 ## In progress
 
-- M1 durable sessions: the schema, the store and the SQLite worker thread exist. They are
-  not yet wired to any route, and until they are the coverage gate counts them as untested.
+- **Settings catalogue, grouped by capability.** Thinking, prompt-feed masters, and a
+  toggle per feed field landed in the `lucy` namespace; siblings gained playback, shell,
+  search, and download knobs. Documented in [docs/settings.md](settings.md). Not yet
+  verified by `make check` on this machine.
+- M1 durable sessions: sessions, append-only items, idempotent `POST /inputs`, durable
+  queued turns, the in-process single-writer supervisor, basic provider-backed assistant
+  replies, and resumable native SSE are complete. Context assembly is not yet the live
+  runner's prompt source, and tool plans still need concrete capability packs.
 - M1 context engine: budgeting, the live state block, framing, the scrubber, the prompt
   sections and the memory topic index are being built against the contract above.
 - M2 keyring exchange and offline grants: in progress in Keyring-api. The broker and the
@@ -47,8 +53,9 @@ machine is listed as in progress, however finished it looks.
 
 ## Known gaps, stated plainly
 
-- The turn loop does not exist yet, so Lucy cannot hold a conversation. Everything above it
-  is foundation.
+- A configured OpenAI or Anthropic provider can complete basic conversational turns. Tool
+  planning, capability execution and full context projection remain to be wired into that
+  runner.
 - The context engine is not yet wired to a route: `GET /v1/sessions/{id}/context` needs
   the session surface, which is M1.
 - Nothing has been validated under `make up` with the whole family running, and no real

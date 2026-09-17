@@ -8,6 +8,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from http import HTTPStatus
+from types import EllipsisType
 from typing import TYPE_CHECKING, Any
 
 from lucy_api import __version__
@@ -115,15 +116,35 @@ def event_row(
     return value
 
 
-def item_row(db: sqlite3.Connection, session: str, item: NewItem) -> dict[str, Any]:
-    parent = db.execute(
+def item_row(
+    db: sqlite3.Connection,
+    session: str,
+    item: NewItem,
+    parent: str | EllipsisType | None = ...,
+) -> dict[str, Any]:
+    """Append one item, chained to ``parent`` or, by default, to the tail of the log.
+
+    Naming a parent explicitly is how edit-and-regenerate writes a *sibling* of an existing
+    item rather than its successor: the sequence still climbs, because the log is
+    append-only and a number that went backwards would break every cursor over it, but the
+    parent chain forks so a reader can tell the two answers apart.
+
+    The default is ``...`` rather than ``None`` because the two mean different things here
+    and both are reachable. Omitting the argument asks for the tail; passing ``None`` says
+    this item has no parent, which is what regenerating the *first* message in a session
+    produces. A single ``None`` default would silently chain that regeneration to the end of
+    the conversation it was meant to replace the start of.
+    """
+    tail = db.execute(
         "SELECT id,seq FROM items WHERE session_id=? ORDER BY seq DESC LIMIT 1", (session,)
     ).fetchone()
+    supplied = not isinstance(parent, EllipsisType)
+    chained = parent if supplied else (tail["id"] if tail else None)
     value = {
         "id": identifier("itm"),
         "session_id": session,
-        "seq": parent["seq"] + 1 if parent else 1,
-        "parent_id": parent["id"] if parent else None,
+        "seq": tail["seq"] + 1 if tail else 1,
+        "parent_id": chained,
         "turn_id": item.turn,
         "agent_id": None,
         "type": item.kind,
@@ -160,6 +181,23 @@ class SessionStore:
 
     async def initialize(self) -> None:
         await self.worker.call(lambda db: db.executescript(SCHEMA))
+
+    async def healthy(self) -> tuple[bool, str | None]:
+        """Whether the database still answers, and the kind of failure when it does not.
+
+        A database that cannot be *created* fails startup, loudly; this is the other case,
+        where a process that has been serving for a week finds the file gone, the disk full
+        or its worker thread dead. ``/ready`` is unauthenticated, so the reason is the
+        exception's *type name* and never its message: a sqlite error routinely carries the
+        path of the file it could not open.
+        """
+        try:
+            await self.worker.call(lambda db: db.execute("SELECT 1").fetchone())
+        # Deliberately broad: a probe that only caught the failures somebody thought of
+        # would report a healthy database while the process could not read a row.
+        except Exception as exc:
+            return False, type(exc).__name__
+        return True, None
 
     async def transaction[T](self, operation: Callable[[sqlite3.Connection], T]) -> T:
         def apply(db: sqlite3.Connection) -> T:
@@ -256,6 +294,71 @@ class SessionStore:
 
     async def get(self, account: str, session: str) -> dict[str, Any]:
         return await self.worker.call(lambda db: row_value(session_row(db, account, session)))
+
+    async def claim_next_turn(self) -> dict[str, Any] | None:
+        """Claim the oldest runnable queued turn, once, for this process.
+
+        SQLite's writer transaction makes the selection and transition indivisible. A
+        session may have queued input behind a running turn, but never two running turns:
+        the main loop is the single writer for its conversation.
+        """
+
+        def apply(db: sqlite3.Connection) -> dict[str, Any] | None:
+            row = db.execute(
+                "SELECT turns.*,sessions.account_id,sessions.model,sessions.thinking_config "
+                "FROM turns JOIN sessions ON sessions.id=turns.session_id "
+                "WHERE turns.status='queued' AND NOT EXISTS ("
+                "SELECT 1 FROM turns running WHERE running.session_id=turns.session_id "
+                "AND running.status='running') ORDER BY turns.created_at,turns.id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            now = time.time()
+            db.execute(
+                "UPDATE turns SET status='running',started_at=? WHERE id=? AND status='queued'",
+                (now, row["id"]),
+            )
+            # The update is guarded even though the worker serializes callers: keeping the
+            # predicate records the invariant for a future store implementation.
+            if db.execute("SELECT changes()").fetchone()[0] != 1:
+                return None
+            db.execute(
+                "UPDATE sessions SET status='running',updated_at=? WHERE id=?",
+                (now, row["session_id"]),
+            )
+            event_row(db, row["session_id"], "lucy.turn.started", {}, row["id"])
+            claimed = db.execute(
+                "SELECT turns.*,sessions.account_id,sessions.model,sessions.thinking_config "
+                "FROM turns JOIN sessions ON sessions.id=turns.session_id WHERE turns.id=?",
+                (row["id"],),
+            ).fetchone()
+            return row_value(claimed)
+
+        return await self.transaction(apply)
+
+    async def stream_snapshot(self, session: str) -> dict[str, Any]:
+        """Read the state rendered at the start of an already-authorized event stream.
+
+        The SSE router establishes ownership before subscribing.  The emitter subsequently
+        needs a snapshot by opaque session id, rather than another account-shaped public
+        lookup; keeping that distinction here prevents a stream helper from becoming an
+        alternate externally reachable read path.
+        """
+
+        def read(db: sqlite3.Connection) -> dict[str, Any]:
+            row = db.execute("SELECT * FROM sessions WHERE id=?", (session,)).fetchone()
+            if row is None:
+                raise absent()
+            value = row_value(row)
+            latest = db.execute(
+                "SELECT id,status,termination,stop_reason FROM turns "
+                "WHERE session_id=? ORDER BY started_at DESC,id DESC LIMIT 1",
+                (session,),
+            ).fetchone()
+            value["latest_turn"] = dict(latest) if latest is not None else None
+            return value
+
+        return await self.worker.call(read)
 
     async def list_sessions(
         self, account: str, limit: int, after: str | None, before: str | None, order: str
@@ -392,9 +495,16 @@ class SessionStore:
                     turn,
                 ),
             )
+            queued = db.execute(
+                "SELECT 1 FROM turns WHERE session_id=? AND status='queued' LIMIT 1",
+                (current["session_id"],),
+            ).fetchone()
+            session_status = (
+                "queued" if queued is not None else "idle" if status in TERMINAL else status
+            )
             db.execute(
                 "UPDATE sessions SET status=?,updated_at=? WHERE id=?",
-                ("idle" if status in TERMINAL else status, time.time(), current["session_id"]),
+                (session_status, time.time(), current["session_id"]),
             )
             event_row(
                 db,

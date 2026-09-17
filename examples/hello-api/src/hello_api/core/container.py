@@ -11,6 +11,8 @@ from keyring_client import JwksClient, SystemClock
 from hello_api.auth.verifier import TokenVerifier
 
 if TYPE_CHECKING:
+    import httpx
+
     from hello_api.core.config import Settings
 
 
@@ -31,7 +33,9 @@ class Container:
         await self.jwks.aclose()
 
 
-def build_container(settings: Settings, *, transport: object | None = None) -> Container:
+def build_container(
+    settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None
+) -> Container:
     """Assemble JWKS client and verifier. No network I/O yet."""
     clock = SystemClock()
     jwks = JwksClient(
@@ -40,7 +44,7 @@ def build_container(settings: Settings, *, transport: object | None = None) -> C
         cache_seconds=settings.jwks_cache_seconds,
         min_refetch_seconds=settings.jwks_min_refetch_seconds,
         timeout_seconds=settings.keyring_timeout_seconds,
-        transport=transport,  # type: ignore[arg-type]
+        transport=transport,
     )
     verifier = TokenVerifier(
         jwks=jwks,
