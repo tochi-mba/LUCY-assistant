@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.scripts]
+# `lucy` is the command a person types; `lucy-api` is the server entry point the
+# container calls. Installing the wheel globally (uv tool install) puts both on PATH.
+lucy = "lucy_api.cli:main"
 lucy-api = "lucy_api.__main__:main"
 
 [project.urls]
@@ -57,7 +60,10 @@ target-version = "py312"
 src = ["src", "tests"]
 # scripts/ is the family desk (bootstrap, parity, genenv); it is linted with the same rules
 # but is not part of the distributed package, so it is not under coverage.
-extend-exclude = ["broker", "examples"]
+# Markdown is excluded because ruff now formats Python code blocks inside it, and the
+# snippets in our documents are illustrative: reformatting them silently edits the prose's
+# meaning, and a plan that quotes a signature wants the signature it quoted.
+extend-exclude = ["broker", "examples", "*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -138,10 +144,17 @@ omit = ["src/lucy_api/__main__.py"]
 fail_under = 100
 show_missing = true
 skip_covered = false
-exclude_lines = [
-    "pragma: no cover",
-    "if TYPE_CHECKING:",
-    "if __name__ == .__main__.:",
+# Only non-executable lines are excluded. Nothing that contains real logic is excluded,
+# and `# pragma: no cover` is not used anywhere in src/. This is the family's list, copied
+# verbatim from the siblings so the hub is held to the same bar. See AGENTS.md.
+# Single-quoted TOML literal strings: a regex full of backslashes does not want a second
+# layer of escaping, and every version of it that has one is a version somebody will break.
+exclude_also = [
+    '^\s*\.\.\.$',
+    '^\s*if TYPE_CHECKING:',
+    '^\s*@(?:typing\.)?overload$',
+    '^\s*raise NotImplementedError$',
+    '^\s*if __name__ == .__main__.:$',
 ]
 
 [tool.importlinter]

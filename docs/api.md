@@ -10,6 +10,16 @@ that names an account.
 | `GET` | `/healthy` | none | Liveness. No I/O, never fails. Point a container healthcheck here. |
 | `GET` | `/ready` | none | Readiness. Reports each dependency and answers 503 when one is unusable. Point a load balancer here. |
 | `GET` | `/v1/me` | bearer | The account the presented token is for. The first call a client makes. |
+| `GET` | `/v1/setup` | bearer | Deployment readiness and setup guidance for each capability. |
+
+`/v1/setup` returns `{account_id, services}`. Each service has a stable `id`, `title`,
+`required`, deployment `state` (`ready`, `degraded`, `unavailable`), `connection_state`
+(`not_required`, `unknown`), `summary`, sanitized `checks`, and `actions` describing
+operator steps and documentation links. Optional outages do not suppress other rows.
+Probes use public readiness routes and never forward the caller's JWT or resolve provider
+credentials. `unknown` is deliberate: delegated per-account connection inspection and
+authorization have not landed yet. The manifests currently live in the hub's onboarding
+adapters, based on each service's own documentation.
 
 ## Failure shapes
 

@@ -7,3 +7,4 @@ Persona-api https://github.com/tochi-mba/Persona-api.git
 Web-search-api https://github.com/tochi-mba/Web-search-api.git
 Spotify-api https://github.com/tochi-mba/Spotify-api.git
 Environments-api https://github.com/tochi-mba/Environments-api.git
+Memory-api https://github.com/tochi-mba/Memory-api.git

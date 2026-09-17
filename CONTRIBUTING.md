@@ -1,14 +1,18 @@
 # Contributing to the LUCY-assistant family
 
-This repository is the family desk: the checklist, the ports, the CI workflow the
-services call, and the bootstrap that clones the eight checkouts. It is not a monorepo
-and it does not contain service code. Each service is its own git repository; see
-[ADR-0001](docs/adr/0001-meta-repo-not-monorepo.md).
+This repository contains the Lucy hub in `src/lucy_api/` and the family desk: the
+checklist, ports, shared CI workflow and bootstrap for sibling checkouts. Each sibling
+remains its own git repository. [ADR-0009](docs/adr/0009-the-hub-lives-here.md) amends
+[ADR-0001](docs/adr/0001-meta-repo-not-monorepo.md) to give the hub its home here.
 
 Read [AGENTS.md](AGENTS.md) in the service you are actually changing. That file is the
 source of truth for *that* process. This file is the source of truth for *the family*.
 
 ## Getting set up
+
+To install the global client and run its first-run guide, use `bash scripts/setup.sh`
+or `pwsh scripts/setup.ps1`. Both support a dry run and install-only mode; see
+[docs/cli.md](docs/cli.md). This is separate from preparing sibling development checkouts:
 
 ```bash
 bash scripts/bootstrap.sh
@@ -40,8 +44,10 @@ fail is not a check; `tests/test_parity.py` refuses one.
 
 - **Makefile verbs:** `help install fmt lint type imports test cov check run docker clean`.
   `make check` runs exactly `lint type imports test`.
-- **Python:** `.python-version` pins 3.12. CI also runs 3.13. The floor is 3.12 because `weftai` needs it.
-- **Tools:** ruff line-length 100, target `py311`; mypy `strict = true`; coverage
+- **Python:** `.python-version` and CI pin 3.12 because `weftai` needs it. Python 3.13
+  is declared supported; it is an optional local check, not a CI gate. See
+  [ADR-0008](docs/adr/0008-python-3-12-floor.md).
+- **Tools:** ruff line-length 100, target `py312`; mypy `strict = true`; coverage
   `fail_under = 100` with branch coverage; pytest `filterwarnings = ["error"]`;
   import-linter contracts; `[dependency-groups] dev` not an extra named `dev`.
 - **Config:** an `env_prefix`, `extra="forbid"`, and `check_for_unknown_env_vars` so a

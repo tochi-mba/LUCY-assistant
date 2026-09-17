@@ -32,6 +32,13 @@ PositiveFloat = Annotated[float, Field(gt=0)]
 # and are answered by different routes; see docs/architecture.md.
 ROUTES = ("/healthy", "/ready")
 
+# The `lucy` command shares this prefix, deliberately: one product, one namespace, so a
+# person exports LUCY_TOKEN once and both halves understand it. They are not settings of
+# this process, and refusing them as typos would make the server crash in exactly the
+# environment the client's own help tells people to create. A test pins this list against
+# the names the CLI actually reads, so the two cannot drift apart.
+CLIENT_VARIABLES = frozenset({ENV_PREFIX + name for name in ("URL", "TOKEN", "CONFIG")})
+
 
 class LogFormat(StrEnum):
     JSON = "json"
@@ -93,8 +100,11 @@ class Settings(BaseSettings):
 
 
 def check_for_unknown_env_vars(environ: Mapping[str, str] | None = None) -> None:
-    """Refuse unknown ``LUCY_*`` variables so a typo fails at startup, not at first use."""
-    known = {ENV_PREFIX + name.upper() for name in Settings.model_fields}
+    """Refuse unknown ``LUCY_*`` variables so a typo fails at startup, not at first use.
+
+    The `lucy` command's own variables are known, not unknown. See ``CLIENT_VARIABLES``.
+    """
+    known = {ENV_PREFIX + name.upper() for name in Settings.model_fields} | CLIENT_VARIABLES
     source = environ if environ is not None else os.environ
     unknown = sorted(key for key in source if key.startswith(ENV_PREFIX) and key not in known)
     if unknown:

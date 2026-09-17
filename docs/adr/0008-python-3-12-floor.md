@@ -17,7 +17,7 @@ to learn an exception, and a `.python-version` a developer can no longer trust.
 ## Decision
 
 The floor for every repository in the family is **Python 3.12**, and CI's matrix is
-**3.12 and 3.13**.
+**3.12**.
 
 Concretely, in each of the eight services, the example service, and this repository:
 `.python-version` holds `3.12`; `requires-python` is `>=3.12`; ruff's `target-version` is
@@ -47,6 +47,21 @@ Anybody with a 3.11 virtualenv re-creates it — `uv sync` does that on its own,
 `scripts/bootstrap.sh` now installs 3.12 and 3.13. Every `uv.lock` was regenerated, which is
 one large diff per repository, once. Deployments that pinned a `python:3.11` base image pull
 a new one. Nothing about the wire, the storage, or the tokens changes.
+
+## 3.13 is supported but not yet gated
+
+`requires-python` is `>=3.12`, the classifiers claim 3.13, and 3.13 was in the matrix for
+exactly one afternoon. It came out again because it fails, reproducibly, in CI on the four
+services that use `hypothesis` and on none of the four that do not: a
+`PytestUnraisableExceptionWarning` naming `hypothesis/internal/conjecture/choice.py`, which
+the family's `filterwarnings = ["error"]` turns into a failure attributed to whichever test
+was running when the collector ran. It does not reproduce on Windows, and re-running the
+jobs does not clear it.
+
+Adding 3.13 to the matrix and then silencing the warning in those four services would trade
+a real safety net for a green tick. The gate is 3.12 until the cause is understood; the
+interpreter is still declared supported, and putting 3.13 back is a one-line change to
+`python-versions` in the reusable workflow.
 
 ## What would change our minds
 

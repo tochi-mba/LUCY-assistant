@@ -5,8 +5,13 @@ on:
     inputs:
       python-versions:
         description: JSON list of Python versions for the test matrix
+        # 3.13 is not in the default yet: on Linux it makes hypothesis raise an unraisable
+        # exception during collection, which the family's `filterwarnings = error` turns into
+        # a failure in whichever test happened to be running. It reproduces in CI on all four
+        # services that use hypothesis and on none of the four that do not, and it does not
+        # reproduce on Windows. See docs/adr/0008-python-3-12-floor.md.
         type: string
-        default: '["3.12","3.13"]'
+        default: '["3.12"]'
       extras:
         description: Extra arguments passed to `uv sync` (for example `--all-extras`)
         type: string
