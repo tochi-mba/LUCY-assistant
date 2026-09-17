@@ -44,8 +44,12 @@ permissions:
   contents: read
   id-token: write
 
+# `github.workflow` is the CALLER's workflow name inside a reusable workflow, so a group
+# of `${{ github.workflow }}-${{ github.ref }}` here is the same group the caller is
+# already running in -- and with cancel-in-progress, the called jobs collide with the run
+# that called them and never start. The suffix is what keeps the two apart.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-service
   cancel-in-progress: true
 
 env:

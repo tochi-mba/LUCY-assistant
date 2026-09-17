@@ -192,3 +192,15 @@ def test_the_suite_dependencies_are_declared_rather_than_improvised() -> None:
     dev = " ".join(project["dependency-groups"]["dev"])
     for name in ("pytest", "pyyaml", "cryptography", "pytest-cov", "respx"):
         assert name in dev, name
+
+
+def test_the_reusable_workflow_does_not_share_a_concurrency_group_with_its_caller() -> None:
+    # `github.workflow` is the CALLER's name inside a reusable workflow. When both sides
+    # compute the same group and cancel-in-progress is on, the called jobs land in the group
+    # the calling run already occupies and never start -- a whole workflow silently missing,
+    # with no job and no annotation to explain it.
+    called = workflow()["concurrency"]["group"]
+    caller = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )["concurrency"]["group"]
+    assert called != caller
