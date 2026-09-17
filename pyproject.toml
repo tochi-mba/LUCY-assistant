@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.scripts]
+# `lucy` is the command a person types; `lucy-api` is the server entry point the
+# container calls. Installing the wheel globally (uv tool install) puts both on PATH.
+lucy = "lucy_api.cli:main"
 lucy-api = "lucy_api.__main__:main"
 
 [project.urls]

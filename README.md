@@ -131,6 +131,25 @@ make images && make up            # host ports 8000–8008; up reuses the build 
 
 Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.
 
+## The `lucy` command
+
+`lucy` is the command you type to talk to Lucy from any directory. Installing the wheel as
+a uv tool puts it on your PATH in its own isolated environment:
+
+```bash
+uv tool list | grep lucy-api        # already installed? then skip the next line
+uv tool install --editable .        # --editable tracks this checkout, so git pull is enough
+lucy status                         # alive, ready, which dependency is down, and who you are
+lucy status --json | jq .ready      # the same, as a contract a script can depend on
+lucy serve                          # run the hub here, in the foreground
+```
+
+It is a **client**: the same command works against a hub on this laptop, in compose, or on
+another machine, and the only thing that changes is `LUCY_URL`. Your token comes from
+`LUCY_TOKEN` and is never a flag, because a flag lands in shell history and in `ps`. Exit
+codes are `0` worked, `1` the answer was no, `2` bad command, `3` hub unreachable.
+[docs/cli.md](docs/cli.md) has the rest.
+
 ## Signing in to GitHub
 
 ```bash
@@ -222,6 +241,7 @@ private; its callers continue using the canonical public workflow. The
 | | |
 | --- | --- |
 | Family standard | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| The `lucy` command | [docs/cli.md](docs/cli.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
