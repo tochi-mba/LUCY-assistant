@@ -577,6 +577,18 @@ def _workspace_group(workspace: WorkspaceSnapshot) -> _Group:
         if workspace.last_checkpoint
         else ""
     )
+    oriented = tuple(
+        INDENT + _clean(line, SUMMARY_CHARS)
+        for line in (
+            f"cwd {workspace.cwd}" if workspace.cwd else "",
+            f"journal {workspace.journal}" if workspace.journal else "",
+            f"tasks {workspace.tasks}" if workspace.tasks else "",
+            f"git {workspace.git_log}" if workspace.git_log else "",
+            f"smoke {workspace.smoke}" if workspace.smoke else "",
+        )
+        if line
+    )
+    listing = tuple(INDENT + _clean(name, PATH_CHARS) for name in workspace.changed_files)
     return _Group(
         name="workspace",
         quota=QUOTAS["workspace"],
@@ -587,7 +599,7 @@ def _workspace_group(workspace: WorkspaceSnapshot) -> _Group:
             checkpoint,
             _expiry(workspace.expires_in_seconds),
         ),
-        entries=tuple(INDENT + _clean(name, PATH_CHARS) for name in workspace.changed_files),
+        entries=(*oriented, *listing),
     )
 
 

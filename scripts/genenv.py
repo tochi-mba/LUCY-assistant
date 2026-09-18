@@ -39,6 +39,24 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
     ("memory-api", "MEMORY_KEYRING_SERVICE_TOKEN"),
 )
 
+# Exact downstream audiences Lucy may request from Keyring's token exchange. This is an
+# allowlist, never inferred from URLs or the service-token map. Adding a sibling does not
+# silently give the hub authority to call it for a person.
+LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
+    "environments-api",
+    "memory-api",
+    "persona-api",
+    "settings",
+    "spotify-api",
+    "user",
+    "user.family",
+    "user.finance",
+    "user.health",
+    "user.home",
+    "user.work",
+    "web-search-api",
+)
+
 # settings-api ServiceConfig rows. token_var is the consumer's own prefixed name when
 # that service already declares settings_api_token; None means only the grant exists yet.
 SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
@@ -166,6 +184,9 @@ def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
 
     keyring_tokens = {name: new_token() for name, _variable in consumers}
     env["KEYRING_SERVICE_TOKENS"] = json.dumps(keyring_tokens, separators=(",", ":"))
+    env["KEYRING_EXCHANGE_AUDIENCES"] = json.dumps(
+        {"lucy-api": list(LUCY_EXCHANGE_AUDIENCES)}, separators=(",", ":")
+    )
     for name, variable in consumers:
         env[variable] = keyring_tokens[name]
 
@@ -180,6 +201,12 @@ def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
         if token_var is not None:
             env[token_var] = token
     env["SETTINGS_API_SERVICES"] = json.dumps(grants, separators=(",", ":"))
+
+    # Memory-api's internal map is not Keyring's and not Settings'. Lucy holds the same
+    # value as ``lucy-api`` so notes calls prove both the service and the person.
+    memory_token = new_token()
+    env["MEMORY_SERVICE_TOKENS"] = json.dumps({"lucy-api": memory_token}, separators=(",", ":"))
+    env["LUCY_MEMORY_API_TOKEN"] = memory_token
     return env
 
 

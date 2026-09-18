@@ -106,6 +106,9 @@ class PromptContext:
     capabilities: tuple[str, ...] = ()
     """Product names of what is connected and usable right now."""
 
+    response_style: str = "natural"
+    """How long an ordinary answer should run: brief, natural, or thorough."""
+
     notes: tuple[Claim, ...] = ()
     """Persona notes and pinned facts, already fetched, still carrying their provenance."""
 
@@ -167,6 +170,20 @@ def _fixed(text: str) -> Renderer:
         return text
 
     return render
+
+
+def _behaviour(context: PromptContext) -> str:
+    """Standing rules, plus the length the person asked for on this profile."""
+    extra = {
+        "brief": "Keep this reply short unless the person asked for more.",
+        "thorough": (
+            "Give a complete answer, with the steps and caveats that change the decision."
+        ),
+    }.get(context.response_style, "")
+    base = _default("behaviour")
+    if not extra:
+        return base
+    return f"{base}\n\n{extra}"
 
 
 def _capabilities(context: PromptContext) -> str:
@@ -275,7 +292,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         band=Band.system,
         priority=30,
         version="1",
-        render=_fixed(_default("behaviour")),
+        render=_behaviour,
         max_tokens=700,
     ),
     PromptSection(

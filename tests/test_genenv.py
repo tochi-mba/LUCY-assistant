@@ -19,7 +19,12 @@ def test_build_env_tokens_meet_the_floor() -> None:
     for key, value in env.items():
         if key == "KEYRING_MASTER_KEY":
             continue
-        if key in {"KEYRING_SERVICE_TOKENS", "SETTINGS_API_SERVICES"}:
+        if key in {
+            "KEYRING_SERVICE_TOKENS",
+            "KEYRING_EXCHANGE_AUDIENCES",
+            "SETTINGS_API_SERVICES",
+            "MEMORY_SERVICE_TOKENS",
+        }:
             continue
         assert len(value) >= genenv.MIN_TOKEN_CHARS, key
 
@@ -30,6 +35,21 @@ def test_keyring_json_matches_consumer_variables() -> None:
     for name, variable in genenv.KEYRING_CONSUMERS:
         assert mapping[name] == env[variable]
         assert len(mapping[name]) >= genenv.MIN_TOKEN_CHARS
+
+
+def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
+    env = genenv.build_env()
+    allowlists = json.loads(env["KEYRING_EXCHANGE_AUDIENCES"])
+
+    assert allowlists == {"lucy-api": list(genenv.LUCY_EXCHANGE_AUDIENCES)}
+    assert {
+        "persona-api",
+        "memory-api",
+        "environments-api",
+        "web-search-api",
+        "spotify-api",
+        "settings",
+    } <= set(allowlists["lucy-api"])
 
 
 def test_settings_services_match_settings_api_shape() -> None:
@@ -49,7 +69,17 @@ def test_settings_and_keyring_tokens_are_not_shared() -> None:
     env = genenv.build_env()
     keyring = set(json.loads(env["KEYRING_SERVICE_TOKENS"]).values())
     settings = {row["token"] for row in json.loads(env["SETTINGS_API_SERVICES"]).values()}
+    memory = set(json.loads(env["MEMORY_SERVICE_TOKENS"]).values())
     assert keyring.isdisjoint(settings)
+    assert keyring.isdisjoint(memory)
+    assert settings.isdisjoint(memory)
+
+
+def test_memory_service_token_is_lucy_s_internal_credential() -> None:
+    env = genenv.build_env()
+    mapping = json.loads(env["MEMORY_SERVICE_TOKENS"])
+    assert mapping == {"lucy-api": env["LUCY_MEMORY_API_TOKEN"]}
+    assert len(env["LUCY_MEMORY_API_TOKEN"]) >= genenv.MIN_TOKEN_CHARS
 
 
 def test_refuse_overwrite_without_force(tmp_path: Path) -> None:
@@ -67,6 +97,7 @@ def test_force_replaces(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert count > 0
     assert "KEYRING_SERVICE_TOKENS=" in text
+    assert "KEYRING_EXCHANGE_AUDIENCES=" in text
     assert "SETTINGS_API_SERVICES=" in text
     assert "already=1" not in text
 

@@ -89,6 +89,11 @@ researcher a follow-up" and "start a second researcher who has to read everythin
 Children are addressed by a stable name for the same reason. A name keeps working after the
 run ends.
 
+`GET /v1/sessions/{id}/agents` is the in-flight process list. The durable roster is
+`GET /v1/sessions/{id}/subagents`, with the helper's own items at
+`.../subagents/{id}/items`. Parent `GET /items` does not include those rows. Helpers do not
+have their own turn rows, so `.../subagents/{id}/turns` is always an empty page.
+
 ## Single writer
 
 Only the main thread mutates the workspace or calls a mutating tool. Children are read-only
@@ -239,3 +244,23 @@ What the model gets is five operations and no way to start anything:
 Starting belongs to whichever capability the work is *for*, so a download starts in the
 capability that downloads. A generic "start something" operation would let a model run work
 that no capability claimed, and there would be nowhere to look up what it was allowed to do.
+
+### Where the child run lives
+
+| | |
+| --- | --- |
+| `agents/types.py` | the typed brief (`Delegation`) and the 2,000-token return cap |
+| `agents/store.py` | durable roster, inbox, journal claims; every lookup takes the account |
+| `agents/runtime.py` | the child loop: clean items, `plan` mode, mail at assemble, capped return |
+| `agents/journal.py` | the journal as a live-state source |
+| `packs/agents.py` | `agents.spawn`, `agents.reopen`, `agents.list`, `agents.message`, `journal.read`, `journal.claim`, `journal.complete` |
+
+Spawn is refused with a sentence when the brief is empty, the depth cap is hit, the
+runtime is missing, or the session is already at capacity. A helper is not offered spawn
+or reopen.
+
+Mail is hop-counted (a fifth copy is refused), burst-capped at eight unread messages,
+size-capped at four thousand characters, and identical unread steers from the same sender
+are one message. `agents.reopen` starts a new helper that sees the previous items and last
+report. A caller may pass `return_schema`; the child is told to return that JSON object
+as its whole answer, and a miss is named in the notice rather than parsed as prose.

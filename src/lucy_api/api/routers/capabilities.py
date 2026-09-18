@@ -13,10 +13,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from lucy_api.api.dependencies import ActingAsDep, ContainerDep, StoreDep
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.core.container import PackRequest
+from lucy_api.permissions.store import grants_for
 
 router = APIRouter(prefix="/v1", tags=["capabilities"])
 
@@ -25,6 +27,19 @@ _AUTHED: dict[int | str, dict[str, Any]] = {
     status.HTTP_401_UNAUTHORIZED: _PROBLEM,
     status.HTTP_404_NOT_FOUND: _PROBLEM,
 }
+_INVOKE: dict[int | str, dict[str, Any]] = {
+    **_AUTHED,
+    status.HTTP_409_CONFLICT: _PROBLEM,
+    status.HTTP_422_UNPROCESSABLE_CONTENT: _PROBLEM,
+}
+
+
+class InvokeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: dict[str, Any] = Field(default_factory=dict)
+    session_id: str = Field(default="", max_length=64)
+    profile: str = Field(default="personal", min_length=1, max_length=128)
 
 
 @router.get(
@@ -84,3 +99,42 @@ async def list_model_tools(
     )
     catalogue = await container.capabilities.probe(pack_ctx)
     return container.capabilities.tools(catalogue, session)
+
+
+@router.post(
+    "/tools/{name}/invoke",
+    operation_id="invoke_tool",
+    summary="Run one tool without starting a model turn",
+    responses=_INVOKE,
+    description=(
+        "The same approval policy as a conversation, and no tokens burned. A write that "
+        "still needs a person is 409; grant it through `/v1/permissions` or answer the "
+        "ask on the session, then retry."
+    ),
+)
+async def invoke_tool(
+    acting: ActingAsDep,
+    container: ContainerDep,
+    store: StoreDep,
+    name: str,
+    body: InvokeBody,
+) -> dict[str, Any]:
+    profile = body.profile
+    session = body.session_id
+    mode = "ask"
+    if session:
+        row = await store.get(acting.account_id, session)
+        profile = str(row["profile"])
+        mode = str(row["permission_mode"])
+    pack_ctx = container.pack_context(
+        PackRequest(
+            caller=acting.caller,
+            user_token=acting.token,
+            profile=profile,
+            session_id=session,
+            permission_mode=mode,
+        )
+    )
+    pack_ctx.grants = await grants_for(store, acting.account_id, profile, session_id=session)
+    result = await container.capabilities.invoke(name, body.input, pack_ctx)
+    return {"tool": name, "steps": result.get("steps") or [], "text": result.get("text") or ""}

@@ -28,13 +28,13 @@ owns it. The mapping lives in `lucy_api.settings.groups` and nowhere else:
 | Person sees | Namespaces | What is in it |
 | --- | --- | --- |
 | **Lucy** | `lucy`, `common` | Model, thinking, permissions, context budget, prompt-feed master switches, timezone, locale, units, default profile |
-| **Account** | `user`, `keyring` | Erasure, pinning, sessions, re-auth for credential changes |
+| **Account** | `user`, `keyring`, plus `lucy.feeds_account*` | Erasure, pinning, sessions, re-auth, and which pinned facts the model may see |
 | **Persona** | `persona`, plus `lucy.feeds_persona*` | Default persona, pinned fields/notes, and whether identity and notes appear in the prompt |
 | **Memory** | `memory` | Retrieval, trust floor, write floor, consolidation, erasure grace |
 | **Music** | `spotify`, plus `lucy.feeds_music*` | Market, device, shuffle, repeat, and which now-playing lines the model may see |
 | **Research** | `search`, plus `lucy.feeds_research*` | Providers, result count, recency, and whether the live block names the backend |
 | **Workspace** | `environments`, plus `lucy.feeds_workspace*` | Idle TTLs, shell, history, command timeout, output cap, and which shell facts the model sees |
-| **Media** | `media`, plus `lucy.feeds_media*` | Retention, quality, confirm-before-start, and whether an in-flight job is shown live |
+| **Installed extensions** | discovered namespaces and matching `lucy.feeds_*` keys | Settings contributed by operator-installed capabilities without naming them in the public family |
 
 A pack does not invent a second mapping. Prompt-feed toggles are stored on `lucy` because
 Lucy decides what the model sees; they are *shown* with the capability they describe, so
@@ -44,6 +44,25 @@ Two namespaces can legitimately hold the same key — `common.timezone` and `use
 a deliberate collision, not a mistake. Lucy shows which one is in force and why, because a
 person who sets a timezone and sees the old one still in use needs the answer to be visible
 rather than something they have to infer.
+
+## Account-wide vs profile-wide
+
+A setting is either one value for the person or one value per keyring profile, never both.
+Overlay of the same key would be a second settings system (which value wins?), and that is
+the compromise settings-api refused. The catalogue declares the level; Lucy always passes
+the session's profile, and account-scoped writes ignore it.
+
+**Account-wide** (the unconsidered default): restrictions, spend, erasure, identity.
+`search.disabled_providers`, `lucy.approval_policy`, `user.erasure_mode`,
+`common.default_profile`, token ceilings. A work profile must not silently weaken a
+promise made on the account.
+
+**Profile-wide**: taste, routing, and anything whose correct answer depends on which
+credential set is in use. `spotify.default_market`, `lucy.model`, `lucy.permission_mode`,
+`search.safe_search`, prompt-feed toggles, which shell a workspace starts.
+
+`describe_settings` reports `scope` on every entry. The model is told whether a change
+is for this conversation's profile or for the person everywhere.
 
 ## Prompt feeds, as settings
 
@@ -58,6 +77,42 @@ named `feeds_<capability>_<field>`. There is also a switch for the whole capabil
 Defaults hide the easy leaks (next track, last shell command, search backend, download
 progress) and keep the lines that stop the model guessing (now playing, cwd, active job).
 Unknown keys are dropped unless that last switch is on.
+
+Turn execution is bounded by the lucy knobs the hub actually consumes. They are
+resolved once when a turn is prepared, clamped, and held on `TurnPolicy`. Changing a
+setting never moves the ceilings of a turn that is already running.
+
+| setting | default | effect |
+| --- | ---: | --- |
+| `max_llm_turns` | 12 | Maximum model rounds in one main turn, including rounds after tool results |
+| `max_subagent_turns` | 8 | Maximum model rounds for each child helper |
+| `max_tool_calls_per_turn` | 60 | Maximum tool calls admitted during one main turn |
+| `max_turn_seconds` | 0 | Wall-clock limit for a turn; zero means no deadline |
+| `max_output_tokens_per_turn` | 8000 | How much the model may generate in one reply |
+| `max_tool_result_tokens` | 25000 | Per-result cap before the rest spills and stays reachable by reference |
+| `max_steps_per_plan` | 20 | Steps one plan may contain |
+| `agent_max_depth` | 3 | How many levels of helper may nest |
+| `agent_max_concurrent` | 5 | How many helpers may run at once |
+| `memory_write_policy` | ask_first | `never` refuses new notes; `automatic` writes without asking |
+| `permission_mode` | ask | Default for a new session when the create request omits it |
+| `input_policy` | enqueue | Default for a new session when the create request omits it. `interrupt` stops the live turn and keeps its progress; `rollback` hides that turn's items from the next prompt |
+| `max_context_tokens` | 200000 | The window the bands are shares of |
+| `reserve_percent` | 13 | Empty share kept for the reply; written bands rescale around it |
+| `warn_at_percent` | 60 | Fullness at which the prompt says the window is filling, before anything is dropped |
+| `compaction_trigger_percent` | 72 | Fullness at which a live turn auto-compacts |
+| `history_turns_kept` | 4 | Newest exchanges auto-compact may not summarise away |
+| `tool_results_kept` | 3 | Newest unprotected tool results reclamation may not drop |
+| `session_token_budget` | 0 | Tokens one conversation may spend; zero means no cap |
+| `stream_thinking` | false | Whether reasoning events are forwarded to the client as they arrive |
+| `log_message_content` | false | Whether this person's message bodies may appear on process log lines for the turn |
+| `incognito` | false | Default for a new session when the create request omits it |
+
+A new session that omits `model`, `thinking_config`, `permission_mode`, `input_policy` or
+`incognito` takes those from this person's settings. An explicit field on the create
+request wins. The session row is the live override after that.
+
+`help`, `work` and `agents` cannot be listed in `disabled_capabilities`. Without help the
+model cannot ask for the rest.
 
 The store of record is settings-api's `lucy` catalogue. The hub's `context.fields` table
 must stay in lockstep with it; a field that ships without a matching setting is a missing
@@ -85,15 +140,18 @@ helps.
 Every setting declares what a consumer must do when the service cannot be reached, and Lucy
 honours it rather than treating an outage as a reason to guess.
 
-A `use_default` setting falls back to its conservative value and carries on. A `refuse`
-setting makes the operation that needed it refuse instead — which is why those are the
-settings where neither direction of a guess is safe: the floor under an assistant's
-permissions, whether it may rely on what it inferred about you, how long a forgotten memory
-survives.
+A `use_default` setting falls back to its conservative value **inside a turn that is
+allowed to run**. Two lucy keys refuse instead: `disabled_capabilities` and
+`approval_policy`. Their defaults are permissive, so landing on them during an outage
+would re-enable something the person turned off, or lower a floor, and nobody would find
+out because the turn would succeed. Lucy therefore answers **503** with a stable
+`settings-unavailable` problem and does not start the turn.
 
-An outage is visible, not silent: the capability reports itself degraded, the model is told
-which settings it could not read, and the person sees it in the status rather than
-discovering it from behaviour.
+`vision_enabled` also refuses on outage, but only the image path should care. Until image
+turns are gated, an outage of that one key does not block the whole turn.
+
+An outage is visible, not silent: the person sees the 503 rather than discovering it from
+behaviour.
 
 ## Edge cases, and the answer to each
 
@@ -119,9 +177,10 @@ reason. Hiding it makes the behaviour it controls inexplicable.
 **A deprecated setting** is shown with its successor, and a retired one is not shown at all —
 it cannot affect anything, so it is noise.
 
-**A write for a profile the person is not in** is refused. Profiles are the boundary between a
-work assistant and a home one, and crossing it by naming it in a request would make that
-boundary decorative.
+**A write that names a profile other than the session's** is refused at Lucy. The model
+does not pick a profile; the conversation already has one. Settings-api still requires
+`?profile=` for profile-scoped keys and ignores it for account-scoped ones, which is why
+Lucy can pass the session profile on every call.
 
 **A concurrent write** from a client and a conversation at the same time takes the later one,
 and both are recorded. Settings are small and last-writer-wins is honest; what is not
@@ -131,9 +190,9 @@ acceptable is one of them silently disappearing.
 
 Three operations, and they are deliberately few:
 
-    settings.describe(capability?)   what can be changed, and what each one does
-    settings.get(name)               what it is now, and where that came from
-    settings.set(name, value)        change it
+    settings.describe(capability?)   what can be changed, what each one does, and whether it is account-wide or for this profile
+    settings.get(name)               what it is now, where that came from, and which scope it has
+    settings.set(name, value)        change it; the session's profile is used, never one the model invents
 
 `settings.set` is a write, so it goes through the permission gate like any other. A model
 changing a person's configuration without being asked is exactly the kind of thing that

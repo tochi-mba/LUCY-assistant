@@ -26,7 +26,13 @@ import pytest
 from lucy_api.core.errors import LucyError
 from lucy_api.sessions.models import CreateSession, Cursor, Outcome
 from lucy_api.sessions.sql_store import identifier
-from lucy_api.sessions.turns import cancel_turn, close_turn, list_turns, open_turn
+from lucy_api.sessions.turns import (
+    cancel_turn,
+    close_turn,
+    list_turns,
+    open_turn,
+    submit_messages,
+)
 
 if TYPE_CHECKING:
     from lucy_api.sessions.sql_store import SessionStore
@@ -111,6 +117,30 @@ async def test_a_session_whose_policy_is_reject_refuses_a_second_turn(
     # The refusal names the setting to change rather than saying "busy".
     assert "input_policy" in str(caught.value)
     assert len(await sessions_store.records(OWNER, session, "turns")) == 1
+
+
+async def test_submit_messages_rejects_when_a_turn_is_already_live(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store, input_policy="reject")
+    first = await submit_messages(
+        sessions_store,
+        OWNER,
+        session,
+        [{"type": "input.message", "content": "hello"}],
+        "reject-first",
+    )
+    assert first["status"] == "queued"
+    with pytest.raises(LucyError) as caught:
+        await submit_messages(
+            sessions_store,
+            OWNER,
+            session,
+            [{"type": "input.message", "content": "again"}],
+            "reject-second",
+        )
+    assert caught.value.status == 409
+    assert "input_policy" in str(caught.value)
 
 
 async def test_a_rejecting_session_takes_a_new_turn_once_the_last_one_ended(
@@ -313,6 +343,79 @@ async def test_the_turns_of_another_accounts_session_are_not_listable(
         await list_turns(sessions_store, STRANGER, session, Cursor())
 
     assert caught.value.code == "not-found"
+
+
+async def test_interrupt_cancels_a_queued_predecessor_on_the_spot(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store, input_policy="interrupt")
+    first = await open_turn(sessions_store, OWNER, session, SPOKE)
+
+    second = await open_turn(sessions_store, OWNER, session, SPOKE)
+
+    ended = await sessions_store.turn(OWNER, str(first["id"]))
+    assert ended["status"] == "cancelled"
+    assert ended["stop_reason"] == "interrupt"
+    assert second["status"] == "queued"
+    assert await session_status(sessions_store, session) == "queued"
+    assert "lucy.turn.superseded" in await event_types(sessions_store, session)
+
+
+async def test_interrupt_asks_a_running_predecessor_to_stop(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store, input_policy="interrupt")
+    first = await a_running_turn(sessions_store, session)
+
+    second = await open_turn(sessions_store, OWNER, session, SPOKE)
+
+    asked = await sessions_store.turn(OWNER, first)
+    assert asked["status"] == "running"
+    assert asked["cancel_requested"] == 1
+    assert asked["stop_reason"] == "interrupt"
+    assert second["status"] == "queued"
+    assert await session_status(sessions_store, session) == "running"
+    events = await event_types(sessions_store, session)
+    assert "lucy.turn.superseded" in events
+    assert "lucy.turn.cancel_requested" in events
+    await sessions_store.finish_turn(OWNER, first, "cancelled", "cancelled", "cancelled")
+    ended = await sessions_store.turn(OWNER, first)
+    assert ended["status"] == "cancelled"
+    assert ended["stop_reason"] == "interrupt"
+
+
+async def test_rollback_ends_a_queued_predecessor_and_names_the_policy(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store, input_policy="rollback")
+    first = await submit_messages(
+        sessions_store, OWNER, session, [{"type": "input.message", "content": "old"}], "old-key"
+    )
+
+    second = await submit_messages(
+        sessions_store, OWNER, session, [{"type": "input.message", "content": "new"}], "new-key"
+    )
+
+    ended = await sessions_store.turn(OWNER, str(first["id"]))
+    assert ended["status"] == "cancelled"
+    assert ended["stop_reason"] == "rollback"
+    assert second["status"] == "queued"
+    types = await event_types(sessions_store, session)
+    assert types.count("lucy.turn.superseded") == 1
+
+
+async def test_enqueue_still_leaves_a_running_turn_untouched(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store, input_policy="enqueue")
+    first = await a_running_turn(sessions_store, session)
+
+    await open_turn(sessions_store, OWNER, session, SPOKE)
+
+    live = await sessions_store.turn(OWNER, first)
+    assert live["status"] == "running"
+    assert live["cancel_requested"] == 0
+    assert "lucy.turn.superseded" not in await event_types(sessions_store, session)
 
 
 async def test_the_live_turn_query_covers_every_state_that_is_not_terminal() -> None:

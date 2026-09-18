@@ -47,9 +47,15 @@ async def test_a_session_prompt_preview_and_context_are_priced_by_band(
 ) -> None:
     created = await _session(client)
     preview = await client.get("/v1/prompt/preview", headers=bearer())
+    scoped = await client.get(
+        "/v1/prompt/preview",
+        params={"session_id": created["id"]},
+        headers=bearer(),
+    )
     context = await client.get(f"/v1/sessions/{created['id']}/context", headers=bearer())
 
     assert preview.status_code == 200, preview.text
+    assert scoped.status_code == 200, scoped.text
     assert context.status_code == 200, context.text
     assert "system" in preview.json()["bands"]
     assert context.json()["total"] >= preview.json()["total"]

@@ -35,7 +35,10 @@ in the family broker and is never copied into a repository.
 [private-repos.md](docs/private-repos.md) explains both.
 
 Work in the [multi-root workspace](LUCY-assistant.code-workspace) or the
-[devcontainer](.devcontainer/devcontainer.json).
+[devcontainer](.devcontainer/devcontainer.json). That workspace file lists only
+public siblings. Private checkouts from `.repos.local.txt` go in a gitignored
+`*.local.code-workspace` (copy the committed file and add a folder per local
+name) so Source Control sees them without naming them here.
 
 ## The family standard
 

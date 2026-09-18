@@ -101,7 +101,7 @@ def should_stop(budget: Budget, spent: Spent) -> Verdict:
     iteration count, which is the backstop rather than the thing anybody is watching.
 
     Each limit produces a message that says what was reached and what it was, because
-    "budget exceeded" tells nobody anything and "stopped after 12 rounds of tool calls" is
+    "budget exceeded" tells nobody anything and "stopped after 12 model rounds" is
     something a person can act on.
     """
     if budget.max_seconds > 0 and spent.seconds >= budget.max_seconds:
@@ -126,7 +126,7 @@ def should_stop(budget: Budget, spent: Spent) -> Verdict:
         return Verdict(
             stop=True,
             termination=Termination.max_iterations,
-            detail=f"stopped after {spent.iterations} rounds of tool calls",
+            detail=f"stopped after {spent.iterations} model rounds",
         )
     return CONTINUE
 
@@ -141,7 +141,8 @@ def warning_for(budget: Budget, spent: Spent, *, at: float = 0.8) -> str:
     if budget.max_iterations > 0 and spent.iterations >= budget.max_iterations * at:
         left = budget.max_iterations - spent.iterations
         return (
-            f"{left} of {budget.max_iterations} rounds left; finish or write down where you got to"
+            f"{left} of {budget.max_iterations} model rounds left; "
+            "finish or write down where you got to"
         )
     if not budget.unlimited_tokens and spent.tokens >= budget.max_tokens * at:
         left = budget.max_tokens - spent.tokens

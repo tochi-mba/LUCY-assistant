@@ -94,10 +94,14 @@ def cmd_connect(ctx: Context) -> int:
             for action in selected["actions"]
         ],
     ]
-    complete = selected["state"] == "ready" and selected["connection_state"] == "not_required"
+    complete = selected["state"] == "ready" and selected["connection_state"] in {
+        "not_required",
+        "connected",
+    }
     if not complete:
         lines.append(
-            "Setup instructions only: Lucy cannot complete this connection automatically yet."
+            "This capability still needs a connected account. Follow the steps above; "
+            "Lucy starts the browser flow and never asks for a password."
         )
     ctx.emit({"service": selected, "changed": False, "complete": complete}, "\n".join(lines))
     return OK if complete else REFUSED

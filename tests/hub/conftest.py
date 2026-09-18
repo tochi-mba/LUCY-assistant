@@ -13,8 +13,10 @@ import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 from keyring_client.testing import ISSUER, JWKS_URL, FakeKeyring, mint
+from settings_client.testing import FakeSettingsClient
 
 from lucy_api.api.app import create_app
+from lucy_api.clients.environments import FakeEnvironmentsClient
 from lucy_api.core.config import LogFormat, Settings
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.store.worker import SqlWorker
@@ -60,6 +62,9 @@ async def client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[Asyn
         LifespanManager(app),
         AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
     ):
+        await app.state.container.preferences.aclose()
+        app.state.container.preferences = FakeSettingsClient()
+        app.state.container.environment_override = FakeEnvironmentsClient()
         yield http
 
 

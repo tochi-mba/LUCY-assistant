@@ -27,6 +27,7 @@ from lucy_api.clients.transport import Sibling
 from lucy_api.packs.context import Call, PackContext
 from lucy_api.packs.http import (
     MALFORMED,
+    SUBJECT_HEADER,
     DownstreamRefusedError,
     DownstreamRejectedError,
     DownstreamUnavailableError,
@@ -83,9 +84,16 @@ async def make_client() -> AsyncIterator[Callable[..., PackHttp]]:
     built: list[PackHttp] = []
 
     def factory(
-        handler: Callable[[httpx.Request], httpx.Response], broker: TokenBroker
+        handler: Callable[[httpx.Request], httpx.Response],
+        broker: TokenBroker,
+        *,
+        service_tokens: dict[str, str] | None = None,
     ) -> PackHttp:
-        client = PackHttp(tokens=broker, transport=httpx.MockTransport(handler))
+        client = PackHttp(
+            tokens=broker,
+            transport=httpx.MockTransport(handler),
+            service_tokens=service_tokens,
+        )
         built.append(client)
         return client
 
@@ -152,6 +160,73 @@ async def test_a_caller_s_token_never_reaches_a_sibling(make_client) -> None:
     assert all(CALLER_TOKEN not in value for value in seen[0].headers.values())
     assert seen[0].headers["Authorization"] == f"Bearer minted-{HOME}-1"
     assert "cookie" not in seen[0].headers
+
+
+SERVICE_SECRET = "lucy-own-service-token-not-a-person"
+
+
+async def test_an_internal_audience_sends_two_credentials_and_never_the_caller(
+    make_client,
+) -> None:
+    """Memory-api (and Keyring) want Lucy's token as Bearer and a minted person token beside it.
+
+    The inbound caller JWT is still stripped: putting it in X-Keyring-User-Token would be
+    the same confused-deputy the minted-Bearer path already refuses.
+    """
+    handler, seen = recording(ok(json={"ok": True}))
+    client = make_client(handler, a_broker(FakeExchange()), service_tokens={HOME: SERVICE_SECRET})
+
+    await client.request(
+        Call(
+            method="GET",
+            url=URL,
+            audience=HOME,
+            headers={
+                "Authorization": f"Bearer {CALLER_TOKEN}",
+                SUBJECT_HEADER: CALLER_TOKEN,
+            },
+        )
+    )
+
+    assert seen[0].headers["Authorization"] == f"Bearer {SERVICE_SECRET}"
+    assert seen[0].headers[SUBJECT_HEADER] == f"minted-{HOME}-1"
+    assert all(CALLER_TOKEN not in value for value in seen[0].headers.values())
+    assert SERVICE_SECRET not in repr(
+        PackContext(
+            account_id="acct_a",
+            profile="personal",
+            session_id="ses_1",
+            http=client,
+            tokens=a_broker(FakeExchange()),
+        )
+    )
+
+
+async def test_an_expired_subject_token_is_reminted_without_changing_the_service_token(
+    make_client,
+) -> None:
+    handler, seen = recording(refusing, ok(json={"ok": True}))
+    exchange = FakeExchange()
+    client = make_client(handler, a_broker(exchange), service_tokens={HOME: SERVICE_SECRET})
+
+    assert await client.request(Call(method="GET", url=URL, audience=HOME)) == {"ok": True}
+    assert [request.headers["Authorization"] for request in seen] == [
+        f"Bearer {SERVICE_SECRET}",
+        f"Bearer {SERVICE_SECRET}",
+    ]
+    assert seen[0].headers[SUBJECT_HEADER] == f"minted-{HOME}-1"
+    assert seen[1].headers[SUBJECT_HEADER] == f"minted-{HOME}-2"
+    assert exchange.mints == 2
+
+
+async def test_a_blank_service_token_is_not_an_internal_call(make_client) -> None:
+    handler, seen = recording(ok(json={}))
+    client = make_client(handler, a_broker(FakeExchange()), service_tokens={HOME: "   "})
+
+    await client.request(Call(method="GET", url=URL, audience=HOME))
+
+    assert seen[0].headers["Authorization"] == f"Bearer minted-{HOME}-1"
+    assert SUBJECT_HEADER not in seen[0].headers
 
 
 async def test_sibling_adapter_uses_real_authenticated_transport(make_client) -> None:

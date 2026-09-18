@@ -44,19 +44,28 @@ from lucy_api.api.schemas.sessions import (
     SessionResource,
     TurnResource,
 )
+from lucy_api.auth.exchange import ExchangeError
+from lucy_api.clients.errors import DownstreamError as ClientDownstreamError
 from lucy_api.core.container import PackRequest
+from lucy_api.core.errors import LucyError, conflict
+from lucy_api.packs.context import NoBrokerError
+from lucy_api.packs.http import DownstreamError as TransportDownstreamError
+from lucy_api.permissions.approvals import answer_approval
 from lucy_api.sessions.fork import fork_session as fork_the_session
 from lucy_api.sessions.items import list_items
 from lucy_api.sessions.models import CreateSession, ForkSession, InputBatch, UpdateSession
 from lucy_api.sessions.turns import cancel_turn as request_cancellation
 from lucy_api.sessions.turns import list_turns, submit_messages
 from lucy_api.stream import ai_sdk, sse
-from lucy_api.turn.prompt import SessionView, context_for_session
+from lucy_api.turn.prompt import SessionView, context_for_session, conversation_order, view_limits
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 router = APIRouter(prefix="/v1", tags=["sessions"])
+
+ONE_APPROVAL = "Answer one approval at a time."
+OWNING_WORKFLOW = "This input needs the approval or connection workflow that owns it."
 
 _PROBLEM: dict[str, Any] = {"model": Problem}
 
@@ -77,6 +86,11 @@ _IDEMPOTENT: dict[int | str, dict[str, Any]] = {
     **_VALIDATED,
     status.HTTP_409_CONFLICT: _PROBLEM,
 }
+_WORKSPACE_WRITES: dict[int | str, dict[str, Any]] = {
+    **_IDEMPOTENT,
+    status.HTTP_503_SERVICE_UNAVAILABLE: _PROBLEM,
+}
+WORKSPACE_UNAVAILABLE = "workspace-unavailable"
 
 SessionIdPath = Annotated[str, Path(description="The session's id.", max_length=64)]
 ItemIdPath = Annotated[str, Path(description="The item's id.", max_length=64)]
@@ -100,7 +114,7 @@ CURSORS = (
     operation_id="create_session",
     summary="Start a conversation",
     response_model=SessionResource,
-    responses=_IDEMPOTENT,
+    responses=_WORKSPACE_WRITES,
     description=(
         "Creates an empty session for the person whose token this is. Nothing has been said "
         "yet and nothing has been spent.\n\n"
@@ -109,17 +123,21 @@ CURSORS = (
         "body is a 409, because that is a bug in the caller rather than a retry.\n\n"
         "`input_policy` decides what happens when a second message arrives while a turn is "
         "running, and `permission_mode` decides how much can happen without being asked. "
-        "Both can be changed later."
+        "Both can be changed later. An isolated workspace is provisioned and attached "
+        "before this request succeeds, including `progress.md`, `tasks.json`, and a git "
+        "baseline when the sandbox can run git."
     ),
 )
 async def create_session(
     request: CreateSession,
     idempotency_key: IdempotencyKeyDep,
-    caller: CurrentCallerDep,
-    store: StoreDep,
+    acting: ActingAsDep,
+    container: ContainerDep,
 ) -> SessionResource:
-    """Create one session for the verified caller."""
-    row = await store.create(caller.account_id, request, idempotency_key)
+    """Create one session and its isolated workspace for the verified caller."""
+    request = await container.apply_create_defaults(request, acting.token)
+    row = await container.store.create(acting.account_id, request, idempotency_key)
+    row = await _ensure_workspace(acting, container, row)
     return SessionResource.model_validate(row)
 
 
@@ -202,14 +220,24 @@ async def update_session(
         "row saying it happened. What survives is memory: things Lucy learned during the "
         "conversation are facts about a person rather than part of a transcript, and they "
         "keep the provenance id pointing here until erasure takes them too.\n\n"
-        "Archiving is the reversible option. This one is not."
+        "The session's confined workspace directory goes with it. The account's "
+        "environment is shared and stays. Archiving is the reversible option. This one is not."
     ),
 )
 async def delete_session(
-    session_id: SessionIdPath, caller: CurrentCallerDep, store: StoreDep
+    session_id: SessionIdPath, acting: ActingAsDep, container: ContainerDep
 ) -> Response:
     """Delete one session belonging to the verified caller."""
-    await store.delete(caller.account_id, session_id)
+    row = await container.store.get(acting.account_id, session_id)
+    await container.discard_session(
+        PackRequest(
+            caller=acting.caller,
+            user_token=acting.token,
+            profile=str(row["profile"]),
+            session_id=session_id,
+        ),
+        session_id,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -219,15 +247,14 @@ async def delete_session(
     operation_id="fork_session",
     summary="Branch a conversation at a point in its transcript",
     response_model=SessionResource,
-    responses=_ADDRESSED,
+    responses={**_ADDRESSED, status.HTTP_503_SERVICE_UNAVAILABLE: _PROBLEM},
     description=(
         "Creates a new session holding a copy of this one up to `item_id`, or all of it when "
         "`item_id` is omitted. The copies get new ids and their parent links are rewritten to "
         "match, so the fork is a conversation in its own right rather than a view of this "
         "one: deleting either leaves the other whole.\n\n"
-        "**The workspace is detached.** The fork starts with no environment or directory. "
-        "Attaching a workspace requires an explicit later action; branching a conversation "
-        "does not share access to the original files.\n\n"
+        "**The workspace is isolated.** The fork never shares the parent's files. A fresh "
+        "environment is provisioned for it before this request succeeds.\n\n"
         "The fork starts idle with its spend at zero, and remembers where it came from in "
         "`parent_session_id` and `forked_from_item`."
     ),
@@ -235,12 +262,37 @@ async def delete_session(
 async def fork_session(
     session_id: SessionIdPath,
     request: ForkSession,
-    caller: CurrentCallerDep,
-    store: StoreDep,
+    acting: ActingAsDep,
+    container: ContainerDep,
 ) -> SessionResource:
     """Copy a session's transcript into a new session, remapping every id."""
-    row = await fork_the_session(store, caller.account_id, session_id, request.item_id)
+    row = await fork_the_session(container.store, acting.account_id, session_id, request.item_id)
+    row = await _ensure_workspace(acting, container, row)
     return SessionResource.model_validate(row)
+
+
+async def _ensure_workspace(
+    acting: ActingAsDep, container: ContainerDep, row: dict[str, Any]
+) -> dict[str, Any]:
+    """Turn sibling provisioning failures into Lucy's stable public problem document."""
+    request = PackRequest(
+        caller=acting.caller,
+        user_token=acting.token,
+        profile=str(row["profile"]),
+        session_id=str(row["id"]),
+        permission_mode=str(row.get("permission_mode", "ask")),
+        incognito=bool(row.get("incognito", 0)),
+    )
+    try:
+        return await container.ensure_workspace(request, row)
+    except (
+        ClientDownstreamError,
+        ExchangeError,
+        NoBrokerError,
+        TransportDownstreamError,
+    ) as exc:
+        message = "The session workspace could not be provisioned; retry when it is available."
+        raise LucyError(WORKSPACE_UNAVAILABLE, message, 503) from exc
 
 
 @router.post(
@@ -255,23 +307,50 @@ async def fork_session(
         "a queued turn is created atomically, then the response names the turn a client can "
         "poll or follow on the event stream. Closing the client connection does not cancel it.\n\n"
         "`Idempotency-Key` is required: retrying returns the original turn without appending "
-        "the message twice. This first conversation slice accepts `input.message`; approvals, "
-        "tool results, connection replies and cancellations enter through the same envelope "
-        "once their owning workflows are enabled."
+        "the message twice. `input.message` starts a turn. `input.approval` answers a parked "
+        "write; the client's `approved` flag is an input, and the gate re-checks the grant "
+        "before the tool runs. Tool results, connection replies and cancellations enter "
+        "through the same envelope once their owning workflows are enabled."
     ),
 )
 async def submit_session_input(
     session_id: SessionIdPath,
     request: InputBatch,
     idempotency_key: IdempotencyKeyDep,
-    caller: CurrentCallerDep,
+    acting: ActingAsDep,
     container: ContainerDep,
 ) -> JSONResponse:
     """Append a person's message and make the turn durable before it can run."""
-    events = [event.model_dump() for event in request.events]
-    row = await submit_messages(
-        container.store, caller.account_id, session_id, events, idempotency_key
+    session = await container.store.get(acting.account_id, session_id)
+    prepared = await container.prepare_turn(
+        PackRequest(
+            caller=acting.caller,
+            user_token=acting.token,
+            profile=str(session["profile"]),
+            session_id=session_id,
+            permission_mode=str(session.get("permission_mode", "ask")),
+            incognito=bool(session.get("incognito", 0)),
+        ),
+        session,
     )
+    events = [event.model_dump() for event in request.events]
+    kinds = {event["type"] for event in events}
+    if kinds == {"input.approval"}:
+        if len(events) != 1:
+            raise conflict(ONE_APPROVAL)
+        row = (
+            await answer_approval(
+                container.store, acting.account_id, session_id, events[0], idempotency_key
+            )
+        ).turn
+    elif kinds == {"input.message"}:
+        row = await submit_messages(
+            container.store, acting.account_id, session_id, events, idempotency_key
+        )
+    else:
+        raise conflict(OWNING_WORKFLOW)
+    if row["status"] == "queued":
+        container.turns.authorize(str(row["id"]), prepared)
     # The turn transaction writes its own audit events. Fan those exact committed rows out
     # rather than adding a second event that merely says the same thing.
     await container.events.publish_persisted(session_id)
@@ -427,12 +506,15 @@ async def get_turn(turn_id: TurnIdPath, caller: CurrentCallerDep, store: StoreDe
     ),
 )
 async def cancel_turn(
-    turn_id: TurnIdPath, caller: CurrentCallerDep, store: StoreDep
+    turn_id: TurnIdPath,
+    caller: CurrentCallerDep,
+    store: StoreDep,
+    container: ContainerDep,
 ) -> TurnResource:
     """Request cancellation of one turn belonging to the verified caller."""
-    return TurnResource.model_validate(
-        await request_cancellation(store, caller.account_id, turn_id)
-    )
+    row = await request_cancellation(store, caller.account_id, turn_id)
+    container.turns.discard(turn_id)
+    return TurnResource.model_validate(row)
 
 
 @router.get(
@@ -457,7 +539,7 @@ async def get_session_context(
     items = await store.records(acting.account_id, session_id, "items")
     compact = await store.records(acting.account_id, session_id, "compactions")
     turns = await store.records(acting.account_id, session_id, "turns")
-    pack_ctx = container.pack_context(
+    prepared = await container.prepare_turn(
         PackRequest(
             caller=acting.caller,
             user_token=acting.token,
@@ -465,17 +547,24 @@ async def get_session_context(
             session_id=session_id,
             permission_mode=str(session.get("permission_mode", "ask")),
             incognito=bool(session.get("incognito", 0)),
-        )
+        ),
+        session,
     )
-    catalogue = await container.capabilities.probe(pack_ctx)
+    catalogue = await container.capabilities.probe(prepared.pack_context)
     ready = tuple(item.pack.id for item in catalogue.ready())
+    visible = {str(turn["id"]) for turn in turns}
+    parent_items = [row for row in items if not row.get("agent_id")]
+    policy = prepared.pack_context.policy
     return await context_for_session(
         SessionView(
             session_id=session_id,
-            items=items,
+            items=conversation_order(parent_items, turns, visible),
             capabilities=ready,
             session=session,
             compactions=compact,
             turn_number=sum(1 for turn in turns if turn["status"] == "completed") + 1,
+            live=prepared.live,
+            response_style=policy.response_style,
+            **view_limits(policy),
         )
     )

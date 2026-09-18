@@ -81,7 +81,7 @@ def test_a_502_naming_a_missing_credential_means_not_connected_rather_than_an_ou
 
 def test_the_underscore_spelling_of_the_credential_code_means_the_same_thing() -> None:
     with pytest.raises(NotConnectedError):
-        raise_for(problem(502, code="credential_missing"), service="media")
+        raise_for(problem(502, code="credential_missing"), service="example")
 
 
 def test_a_502_from_a_service_that_is_simply_broken_is_an_outage_not_a_disconnection() -> None:

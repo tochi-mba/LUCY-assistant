@@ -94,6 +94,16 @@ async def regenerate_item(
 async def list_items(
     store: SessionStore, account: str, session: str, cursor: Cursor
 ) -> dict[str, Any]:
-    """One cursor page of a session's transcript, oldest first unless asked otherwise."""
+    """One cursor page of the parent transcript. Helper items have their own collection."""
     rows = await store.records(account, session, ITEM_TABLE)
-    return page(rows, cursor.limit, cursor.after, cursor.before, cursor.order)
+    parent = [row for row in rows if not row.get("agent_id")]
+    return page(parent, cursor.limit, cursor.after, cursor.before, cursor.order)
+
+
+async def list_agent_items(
+    store: SessionStore, account: str, session: str, agent_id: str, cursor: Cursor
+) -> dict[str, Any]:
+    """The helper's own item log. A misspelled agent id is an empty page, not the parent's."""
+    rows = await store.records(account, session, ITEM_TABLE)
+    owned = [row for row in rows if str(row.get("agent_id") or "") == agent_id]
+    return page(owned, cursor.limit, cursor.after, cursor.before, cursor.order)

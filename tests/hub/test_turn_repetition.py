@@ -101,8 +101,8 @@ def test_how_many_times_something_was_tried_is_answerable() -> None:
 def test_the_latest_outcome_is_the_one_reported() -> None:
     """A call whose answer changed is not a loop, and the notice must not claim it is."""
     seen = Repetition()
-    seen.record("media.status", {"job": "1"}, "queued")
-    seen.record("media.status", {"job": "1"}, "downloading")
+    seen.record("jobs.status", {"job": "1"}, "queued")
+    seen.record("jobs.status", {"job": "1"}, "running")
 
-    assert "downloading" in seen.notice_for("media.status", {"job": "1"})
-    assert "queued" not in seen.notice_for("media.status", {"job": "1"})
+    assert "running" in seen.notice_for("jobs.status", {"job": "1"})
+    assert "queued" not in seen.notice_for("jobs.status", {"job": "1"})

@@ -185,5 +185,6 @@ def github_ci_notice(code: int, *, dry_run: bool, already: bool = False) -> str:
 def checkout_hint() -> str:
     return (
         "Family GitHub App install needs a LUCY-assistant checkout "
-        f"(repos.txt and family-app.json). Set {FAMILY_ROOT_VAR}, or run setup from that directory."
+        f"(repos.txt and family-app.json). Set {FAMILY_ROOT_VAR}, or run setup from that "
+        f"directory. Install {APP_PAGE} on this family."
     )

@@ -353,6 +353,7 @@ class FakeSpotifyClient:
         self, profile: str, *, uris: Sequence[str] = (), device_id: str = ""
     ) -> NowPlaying:
         """Record what was asked for and start playing the first of it."""
+        self.asked.append(profile)
         self.played.append((profile, tuple(uris), device_id))
         track = next((item for item in self.catalogue.values() if item.uri in uris), None)
         self.state = NowPlaying(track=track or self.state.track, is_playing=True)
@@ -360,11 +361,13 @@ class FakeSpotifyClient:
 
     async def queue(self, profile: str, uri: str, *, device_id: str = "") -> NowPlaying:
         """Record the queued uri without disturbing what is playing."""
+        self.asked.append(profile)
         self.queued.append((profile, uri, device_id))
         return self.state
 
     async def pause(self, profile: str, *, device_id: str = "") -> NowPlaying:
         """Stop, keeping whatever track was loaded."""
+        self.asked.append(profile)
         self.paused.append((profile, device_id))
         self.state = NowPlaying(track=self.state.track, progress_ms=self.state.progress_ms)
         return self.state

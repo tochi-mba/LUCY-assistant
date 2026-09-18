@@ -54,6 +54,24 @@ entered the conversation, and no identifier was copied by hand.
 Both steps carry a `note`. That is what the person sees if the write needs approving, and
 what the log says six weeks later.
 
+### Three stores, three lists
+
+*"What do we already know about them?"*
+
+```json
+{"steps": [
+  {"id": "me", "op": "notes.aboutMe", "input": {},
+   "note": "Load pinned blocks, remembered facts, and pinned account fields"}
+]}
+```
+
+→ `me` comes back with **three keys**: `blocks` (memory), `facts` (ranked memories), and
+`account` (pinned fields the person asked to keep in view). Those lists are not one ranking.
+A later `notes.search` still queries memory only — mixing its scores with account pins
+would hide a name the person asked to keep in view.
+
+The product names stay `notes` and `account`. No host, no port, no `/v1/user`.
+
 ### Asking about a result without fetching it again
 
 *"How many of those are things I told you, rather than things you worked out?"*
@@ -83,6 +101,22 @@ never rendered twice.
 deliberate: filtering on a misspelled field would return everything, which looks like an
 answer and is not one.
 
+### The index, then one topic
+
+*"What do I actually know about how they take their tea?"*
+
+```json
+{"steps": [
+  {"id": "tea", "op": "notes.openTopic",
+   "input": {"topic_id": "top_tea"},
+   "note": "Expand the tea topic from the live index"}
+]}
+```
+
+→ The live state already listed the topic. This call is the memories themselves, paid for
+on purpose. Untrusted topics never appear in the index, so expanding one cannot smuggle
+them in.
+
 ### Reads together, the write on its own
 
 *"Check the two repositories and write me a summary."*
@@ -107,6 +141,84 @@ answer and is not one.
 both and runs alone, because it writes. Had the model put two writes in one plan, they would
 have run one after the other in the order written — and two writes that could collide belong
 in two plans, not one.
+
+### A helper for work the parent does not need to see
+
+*"Check both branches independently and tell me which one is actually ready."*
+
+```json
+{"steps": [
+  {"id": "left", "op": "agents.spawn",
+   "input": {"role": "reviewer",
+             "objective": "Read the left branch and say whether it is ready to merge."},
+   "note": "Review the left branch in a clean context"},
+
+  {"id": "right", "op": "agents.spawn",
+   "input": {"role": "reviewer",
+             "objective": "Read the right branch and say whether it is ready to merge."},
+   "note": "Review the right branch in a clean context"}
+]}
+```
+
+A later turn can continue a finished helper without copying the whole brief:
+
+```json
+{"steps": [
+  {"id": "again", "op": "agents.reopen",
+   "input": {"id": "$left.agent_id",
+             "guidance": "The merge landed; check whether the review still holds."},
+   "note": "Continue the left review from where it stopped"}
+]}
+```
+
+The new helper sees the previous items and last report. To hold the return to a shape, pass
+`return_schema` on spawn. Mail between them is hop-counted, burst-capped, and identical
+unread steers count as one.
+
+→ Each spawn returns a handle immediately. The parent keeps talking. When a helper
+finishes, a notice arrives at the next tool boundary; `work.result` is how the parent
+reads the capped summary. Mid-run, `agents.message` queues a steer that the helper sees
+before its next round, never mid-tool.
+
+A helper cannot spawn another helper past the configured depth (default three), cannot
+write, and cannot raise its own permission mode. Those are refusals in the tool result,
+not crashes. `lucy.agent_max_concurrent` caps how many may run at once.
+
+### A long command, without holding the turn open
+
+*"Run the test suite. Tell me when it finishes."*
+
+```json
+{"steps": [
+  {"id": "tests", "op": "workspace.run",
+   "input": {"command": "make test", "wait": false},
+   "note": "Start the suite; I will check in when it finishes"}
+]}
+```
+
+→ A handle, immediately. The command keeps running. `work.check` names the state;
+`work.wait` holds until it finishes or until its own deadline, and giving up does
+**not** stop the command. `wait: true` (the default) still waits up to `wait_seconds`
+and then returns the same handle if the command is still going. `wait_seconds: 0` is a
+real deadline (return immediately with the handle), not "omit this and use the command
+timeout".
+
+### Named docs, loaded on purpose
+
+*"How do I wait on a long job without polling?"*
+
+```json
+{"steps": [
+  {"id": "index", "op": "help.skills", "input": {},
+   "note": "See which docs I can load"},
+  {"id": "page", "op": "help.skill",
+   "input": {"name": "talking", "offset": 0, "limit": 80},
+   "note": "Read the talking skill before I answer"}
+]}
+```
+
+→ The same corpus an MCP client loads by digest. Windowed, with a showing-count. Prefer
+these over guessing how a long job, an approval, or a memory write works.
 
 ### A capability that is not connected
 
@@ -167,6 +279,36 @@ model runs the same step again with `show_from` set to a unique snippet it alrea
 
 Nothing was lost: the whole result is stored and still addressable. What was bounded is how
 much of it became tokens.
+
+### Reading a file, then editing it without a stale write
+
+`workspace.read` returns numbered lines and two fingerprints. `workspace.edit` walks a
+ladder (exact, whitespace, fuzzy) and refuses if `fingerprint` does not equal the current
+file digest.
+
+```json
+{"steps": [
+  {"id": "seen", "op": "workspace.read",
+   "input": {"path": "dates.txt", "start_line": 1, "limit": 80},
+   "note": "Read the date list before changing it"},
+  {"id": "fixed", "op": "workspace.edit",
+   "input": {
+     "path": "dates.txt",
+     "old_string": "Berlin — 12 March",
+     "new_string": "Berlin — 14 March",
+     "fingerprint": "$seen.file_fingerprint"
+   },
+   "note": "Move the Berlin date by two days"}
+]}
+```
+
+→ `seen` comes back as `1\t…` numbered lines plus `showing lines 1-80 of 80` and a
+`file_fingerprint`. If another write landed first, `fixed` does **not** apply: it returns
+`replaced: false` and names the fix — re-read, then reapply. Ambiguous `old_string` lists
+every line number it matched. A near-miss shows the closest window as a diff.
+
+The model never edits by line number. Line numbers in the read are for the person watching,
+not a handle.
 
 ### A step that fails, in a plan that carries on
 
@@ -248,6 +390,13 @@ A plan containing a write is **refused whole** when the turn does not allow writ
 anything runs, not part-way through. That is what makes a read-only mode trustworthy: it is
 the default, not something each caller has to remember to pass.
 
+When the mode is `ask` and no grant covers the write, the turn parks instead of failing.
+An `approval_request` item names the permission in a sentence a person can answer. The next
+`input.approval` on the one write path records a grant — once, this session, this profile,
+or the whole account — and re-queues the same turn. The client's `approved: true` is an
+input; the gate re-checks the ledger before the tool runs. A denial is a transcript item
+and a grant the model will see as "not allowed", never an exception.
+
 ## What a step is allowed to cost
 
 | | |
@@ -261,9 +410,9 @@ The total bounds the **rendering**, not the data. Everything is still stored and
 addressable; what is bounded is how much of it becomes tokens. Overflow spills to the result
 store and comes back as a reference, with exact counts — never dropped.
 
-Step and plan timeouts are widened for capabilities that are legitimately slow. A media job
-taking twelve seconds is not a bug, and failing it at ten only produces a retry that also
-takes twelve.
+Step and plan timeouts are widened for capabilities that are legitimately slow. A long
+extension job taking twelve seconds is not a bug, and failing it at ten only produces a
+retry that also takes twelve.
 
 ## Failure
 

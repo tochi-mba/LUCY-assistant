@@ -1,0 +1,16 @@
+{
+  "git.autoRepositoryDetection": "subFolders",
+  "git.repositoryScanMaxDepth": 2,
+  "git.openRepositoryInParentFolders": "never",
+  "git.scanRepositories": [
+    "Keyring-api",
+    "Settings-api",
+    "User-api",
+    "Persona-api",
+    "Web-search-api",
+    "Spotify-api",
+    "Environments-api",
+    "Memory-api"
+  ],
+  "scm.repositories.visible": 20
+}

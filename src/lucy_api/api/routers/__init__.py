@@ -10,8 +10,40 @@ session called "me" is the kind of break that ships.
 
 from __future__ import annotations
 
-from lucy_api.api.routers import capabilities, health, me, prompt, sessions
+from lucy_api.api.routers import (
+    agents,
+    capabilities,
+    connections,
+    device,
+    economy,
+    files,
+    health,
+    mcp,
+    mcp_servers,
+    me,
+    permissions,
+    prompt,
+    sessions,
+    webhooks,
+    wellknown,
+)
 
-ROUTERS = (health.router, me.router, capabilities.router, prompt.router, sessions.router)
+ROUTERS = (
+    health.router,
+    wellknown.router,
+    mcp.router,
+    mcp_servers.router,
+    device.router,
+    me.router,
+    connections.router,
+    capabilities.router,
+    prompt.router,
+    permissions.router,
+    economy.router,
+    files.router,
+    webhooks.router,
+    agents.router,
+    sessions.router,
+)
 
 __all__ = ["ROUTERS"]

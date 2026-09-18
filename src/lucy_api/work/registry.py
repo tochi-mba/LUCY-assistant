@@ -152,7 +152,7 @@ class Registry:
 
     # ---------------------------------------------------------------- starting
 
-    def start(self, work: Awaitable[object], brief: Brief) -> Handle:
+    def start(self, work: Awaitable[object], brief: Brief, *, work_id: str | None = None) -> Handle:
         """Schedule something that will outlive this step, and come back at once.
 
         The two arguments are the two halves of the idea: `work` is what runs, `brief` is
@@ -177,8 +177,13 @@ class Registry:
             )
             raise AtCapacityError(message)
 
+        identifier = work_id or _identifier()
+        if identifier in self._records:
+            _discard(work)
+            message = f"work {identifier} is already registered"
+            raise ValueError(message)
         record = Record(
-            id=_identifier(),
+            id=identifier,
             kind=brief.kind,
             role=_clip(brief.role, MAX_ROLE),
             objective=_clip(brief.objective, MAX_OBJECTIVE),

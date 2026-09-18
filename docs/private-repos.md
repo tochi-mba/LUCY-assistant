@@ -56,6 +56,15 @@ And when you need an illustration, **use an obviously fictional name**. Reaching
 real service is exactly how the first leak happened: `example-tool` in prose,
 `downstream-tool` in a test fixture. Never a sibling's name.
 
+The committed `LUCY-assistant.code-workspace` lists only public siblings. Cursor opened
+as a single folder will not show nested checkouts in Source Control, because they are
+gitignored here: Git scans folders sitting *beside* this repository (`weftai-python`,
+and so on) and skips anything this tree ignores. `git.scanRepositories` in the workspace
+file is what forces those nested checkouts to appear. Open the workspace file, then
+reload the window. For private checkouts, copy it to `LUCY-assistant.local.code-workspace`
+(that glob is gitignored) and add both a folder entry and a `git.scanRepositories` path
+for each name in `.repos.local.txt`.
+
 ## Running Lucy on your machine
 
 Clone this repository and bootstrap. Public services clone without a login; sign in

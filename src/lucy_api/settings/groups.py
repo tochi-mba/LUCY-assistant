@@ -37,7 +37,8 @@ GROUPS: tuple[SettingGroup, ...] = (
         "account",
         "Account",
         ("user", "keyring"),
-        "Who you are on this box, how long a session lasts, and how deletion works.",
+        "Who you are on this box, how long a session lasts, deletion, and which pinned "
+        "facts the model may see.",
     ),
     SettingGroup(
         "persona",
@@ -155,4 +156,5 @@ __all__ = [
     "feed_keys_for",
     "group",
     "group_for",
+    "service_names",
 ]

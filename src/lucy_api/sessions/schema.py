@@ -161,4 +161,12 @@ CREATE TABLE IF NOT EXISTS device_codes (
  state TEXT NOT NULL, interval REAL NOT NULL, session_token TEXT,
  created_at REAL NOT NULL, expires_at REAL NOT NULL, last_polled_at REAL
 ) STRICT;
+
+-- Long-run push. The body is a signal (session, turn, status), never a transcript.
+-- `secret` is shown once at create so the subscriber can check X-Lucy-Signature.
+CREATE TABLE IF NOT EXISTS webhooks (
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL, url TEXT NOT NULL,
+ secret TEXT NOT NULL, created_at REAL NOT NULL,
+ UNIQUE(account_id,url)
+) STRICT;
 """

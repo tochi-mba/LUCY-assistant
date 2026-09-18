@@ -96,7 +96,7 @@ def test_an_unusable_id_or_volatility_is_dropped_not_coerced() -> None:
     assert [item.id for item in parsed] == ["persona"]
 
 
-def test_duplicate_ids_and_keys_keep_the_first() -> None:
+def test_duplicate_feed_ids_and_entry_ids_keep_the_first() -> None:
     parsed = parse_document(
         {
             "feeds": [
@@ -118,6 +118,52 @@ def test_duplicate_ids_and_keys_keep_the_first() -> None:
     assert parsed[1].entries[0].line == "1"
 
 
+def test_entries_keep_a_unique_id_separate_from_the_setting_that_hides_them() -> None:
+    parsed = parse_document(
+        {
+            "id": "persona",
+            "entries": [
+                {"key": "note_1", "setting": "notes", "line": "prefers tea"},
+                {"key": "note_2", "setting": "notes", "line": "asks before edits"},
+            ],
+        }
+    )
+
+    assert [entry.key for entry in parsed[0].entries] == ["note_1", "note_2"]
+    assert [entry.setting for entry in parsed[0].entries] == ["notes", "notes"]
+    visible = apply_policy(CollectedFeeds(standing=parsed))
+    hidden = apply_policy(
+        CollectedFeeds(standing=parsed), ExplicitFlags({"feeds_persona_notes": False})
+    )
+    assert visible.standing[0].lines == ("prefers tea", "asks before edits")
+    assert hidden.standing == ()
+
+
+def test_standing_entry_provenance_survives_into_the_reported_claim() -> None:
+    parsed = parse_document(
+        {
+            "id": "persona",
+            "entries": [
+                {
+                    "key": "note_1",
+                    "setting": "notes",
+                    "line": "prefers tea",
+                    "source": "owner",
+                    "asserted_by": "persona",
+                    "trust": "stated",
+                    "recorded_at": "2026-09-16T12:00:00Z",
+                }
+            ],
+        }
+    )
+
+    claim = parsed[0].as_claims()[0]
+    assert claim.source == "owner"
+    assert claim.asserted_by == "persona"
+    assert claim.trust is Trust.stated
+    assert claim.recorded_at == datetime(2026, 9, 16, 12, tzinfo=UTC)
+
+
 def test_non_strings_newlines_and_overlong_lines_are_tamed() -> None:
     parsed = parse_document(
         {
@@ -127,10 +173,14 @@ def test_non_strings_newlines_and_overlong_lines_are_tamed() -> None:
             "ceiling_tokens": "nope",
         }
     )
+    typed = parse_document({"id": "persona", "lines": ["ok"], "ceiling_tokens": {"n": 1}})
+    assert typed[0].ceiling_tokens == 400
     assert parsed[0].trust is Trust.untrusted
     assert parsed[0].ceiling_tokens == 400
     assert parsed[0].lines[0] == "spaced new line"
-    assert len(parsed[0].lines[1]) == 240
+    assert len(parsed[0].lines[1]) <= 240
+    assert "showing" in parsed[0].lines[1]
+    assert "of 400 characters" in parsed[0].lines[1]
 
 
 def test_too_many_feeds_and_entries_are_capped() -> None:

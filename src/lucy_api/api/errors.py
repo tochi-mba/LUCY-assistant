@@ -38,9 +38,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from lucy_api.api.schemas.problem import PROBLEM_CONTENT_TYPE, FieldError, Problem
+from lucy_api.auth.device import DeviceFlowError
 from lucy_api.auth.verifier import AuthenticationError, KeyringUnreachableError
 from lucy_api.core.errors import LucyError
 from lucy_api.core.request_id import get_request_id
+from lucy_api.mcp.dispatch import bearer_challenge
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -58,6 +60,7 @@ _STATUS_TITLES = {
     status.HTTP_404_NOT_FOUND: "Not found",
     status.HTTP_405_METHOD_NOT_ALLOWED: "Method not allowed",
     status.HTTP_409_CONFLICT: "Conflict",
+    status.HTTP_413_CONTENT_TOO_LARGE: "Payload too large",
     status.HTTP_422_UNPROCESSABLE_CONTENT: "Validation failed",
     status.HTTP_500_INTERNAL_SERVER_ERROR: "Internal server error",
     status.HTTP_503_SERVICE_UNAVAILABLE: "Service unavailable",
@@ -123,11 +126,21 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(AuthenticationError)
-    async def _auth(_request: Request, exc: AuthenticationError) -> JSONResponse:
+    async def _auth(request: Request, exc: AuthenticationError) -> JSONResponse:
+        headers = None
+        container = getattr(request.app.state, "container", None)
+        if container is not None:
+            settings = container.settings
+            headers = {
+                "WWW-Authenticate": bearer_challenge(
+                    settings.host, settings.port, settings.audience
+                )
+            }
         return problem_response(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
             problem_type="unauthorized",
+            headers=headers,
         )
 
     @app.exception_handler(KeyringUnreachableError)
@@ -138,6 +151,15 @@ def register_exception_handlers(app: FastAPI) -> None:
             detail=str(exc),
             problem_type="keyring-unreachable",
             headers={RETRY_AFTER_HEADER: RETRY_AFTER_SECONDS},
+        )
+
+    @app.exception_handler(DeviceFlowError)
+    async def _device(_request: Request, exc: DeviceFlowError) -> JSONResponse:
+        """RFC 8628 clients branch on ``error``; a problem document is not that protocol."""
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": exc.code, "error_description": str(exc)},
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.exception_handler(LucyError)

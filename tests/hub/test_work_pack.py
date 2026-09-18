@@ -42,6 +42,7 @@ def a_context(registry: Registry | None) -> PackContext:
         http=NullHttp(),
         tokens=SilentTokens(),
         work=registry,
+        permission_mode="auto",
     )
 
 

@@ -52,13 +52,59 @@ async def test_discovery_keeps_optional_music_and_account_state_independent(sett
     assert "could not be verified" in services["workspace"].summary
     assert services["workspace"].connection_state == "not_required"
     instructions = services["music"].actions[0].description
-    assert "your own account" in instructions
-    assert "stores and refreshes" in instructions
-    assert "cannot yet start" in instructions
+    assert "your own account" not in instructions
+    assert "lucy connect music" in instructions
+    assert "never paste" in instructions.lower()
+    assert "cannot yet start" not in instructions
     for row in result.services:
         assert [action.kind for action in row.actions] == ["operator", "documentation"]
         assert row.actions[0].url is None
         assert row.actions[1].url.startswith("https://github.com/tochi-mba/")
+
+
+async def test_a_connected_music_account_is_reported_separately_from_deployment(settings):
+    discovery = SetupDiscovery(settings, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, {"spotify": "active"})
+    services = {row.id: row for row in overlay.services}
+    assert services["music"].state == "ready"
+    assert services["music"].connection_state == "connected"
+    assert services["workspace"].connection_state == "not_required"
+    assert services["research"].connection_state == "unknown"
+
+
+async def test_an_empty_vault_is_disconnected_rather_than_unknown(settings):
+    discovery = SetupDiscovery(settings, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, {})
+    services = {row.id: row for row in overlay.services}
+    assert services["music"].connection_state == "disconnected"
+    assert services["research"].connection_state == "unknown"
+
+
+async def test_a_pending_consent_stays_pending_until_the_provider_finishes(settings):
+    discovery = SetupDiscovery(settings, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, {"spotify": "pending"})
+    services = {row.id: row for row in overlay.services}
+    assert services["music"].connection_state == "pending"
+
+
+async def test_an_expired_connection_is_disconnected(settings):
+    discovery = SetupDiscovery(settings, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, {"spotify": "expired"})
+    services = {row.id: row for row in overlay.services}
+    assert services["music"].connection_state == "disconnected"
+
+
+async def test_a_failed_vault_inspect_leaves_connection_unknown(settings):
+    discovery = SetupDiscovery(settings, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, None)
+    assert [row.connection_state for row in overlay.services] == [
+        row.connection_state for row in result.services
+    ]
 
 
 @pytest.mark.parametrize(
@@ -186,10 +232,53 @@ async def test_route_authenticates_and_never_sends_caller_token_to_readiness(key
         assert music["state"] == "ready"
         assert music["connection_state"] == "unknown"
         assert "never-echo-this-secret" not in response.text
-        assert len(upstream_requests) == 8
-        assert all(request.url.path == "/ready" for request in upstream_requests)
-        assert all("authorization" not in request.headers for request in upstream_requests)
-        assert all("x-keyring-user-token" not in request.headers for request in upstream_requests)
+        assert len(upstream_requests) == 9
+        ready = [request for request in upstream_requests if request.url.path.endswith("/ready")]
+        vault = [
+            request for request in upstream_requests if "/v1/internal/profiles/" in str(request.url)
+        ]
+        assert len(ready) == 8
+        assert len(vault) == 1
+        assert all("authorization" not in request.headers for request in ready)
+        assert all("x-keyring-user-token" not in request.headers for request in ready)
+        assert vault[0].headers.get("authorization", "").startswith("Bearer ")
+        assert "x-keyring-user-token" in vault[0].headers
+
+
+async def test_setup_reports_a_connected_music_account_from_the_vault(keyring, settings):
+    token = "lucy-service-token-for-vault-inspect"
+    configured = settings.model_copy(update={"keyring_service_token": token})
+    upstream_requests = []
+    keys = keyring.transport()
+
+    async def respond(request):
+        if request.url.path == "/.well-known/jwks.json":
+            return await keys.handle_async_request(request)
+        upstream_requests.append(request)
+        if request.url.path == "/v1/internal/profiles/personal":
+            return httpx.Response(
+                200,
+                json={"connections": [{"service": "spotify", "status": "active", "scopes": []}]},
+            )
+        if request.url.port == 8007:
+            return httpx.Response(200, json={"checks": {"spotify": {"status": "ok"}}})
+        return httpx.Response(200, json={})
+
+    app = create_app(configured, transport=httpx.MockTransport(respond))
+    async with (
+        LifespanManager(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        response = await client.get("/v1/setup", headers=bearer())
+    music = next(row for row in response.json()["services"] if row["id"] == "music")
+    assert music["connection_state"] == "connected"
+    vault = [
+        request
+        for request in upstream_requests
+        if request.url.path == "/v1/internal/profiles/personal"
+    ]
+    assert vault[0].headers["authorization"] == f"Bearer {token}"
+    assert vault[0].headers["x-keyring-user-token"]
 
 
 async def test_setup_uses_verified_subject_without_caching_another_account(client):
@@ -203,7 +292,8 @@ def test_setup_schema_explains_unknown_connection_state(settings):
     schema = create_app(settings).openapi()
     operation = schema["paths"]["/v1/setup"]["get"]
     assert operation["operationId"] == "get_setup"
-    assert "cannot yet inspect" in operation["description"]
+    assert "cannot yet inspect" not in operation["description"]
+    assert "inspect failed" in operation["description"]
     assert operation["security"]
 
 
@@ -232,8 +322,19 @@ def test_a_capability_only_this_machine_has_gets_a_card_without_the_hub_knowing_
     assert card.title == "Archive", "a readable title is derived rather than demanded"
     assert card.checks == ("ready",)
     assert card.connection_state == "unknown"
+    assert card.connection_service == "archive"
     assert card.documentation.endswith("docs/private-repos.md")
     assert "operator-local service" in card.instructions
+
+
+async def test_an_operator_local_capability_is_inspected_under_its_own_name(settings):
+    configured = settings.model_copy(update={"extra_services": {"archive": an_extra()}})
+    discovery = SetupDiscovery(configured, FakeProbe())
+    result = await discovery.discover(ACCOUNT)
+    overlay = discovery.with_connections(result, {"archive": "active"})
+    services = {row.id: row for row in overlay.services}
+    assert services["archive"].connection_state == "connected"
+    assert services["music"].connection_state == "disconnected"
 
 
 def test_an_operator_who_wants_a_better_card_writes_one_rather_than_patching_the_hub(settings):

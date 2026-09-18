@@ -8,20 +8,24 @@ apart: both ask the same function, and a bug in one is a bug in both.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from lucy_api.context.assembler import Window, assemble
 from lucy_api.context.build import Built, build_context
 from lucy_api.context.build import Turn as ContextTurn
+from lucy_api.context.ladder import Limits, Reclaimed, reclaim
 from lucy_api.context.projection import Compaction, Item
 from lucy_api.context.sources import StateRequest
-from lucy_api.context.types import BudgetSnapshot, SessionSnapshot
+from lucy_api.context.state import SECTION_ID as LIVE_SECTION_ID
+from lucy_api.context.tokens import default_counter
+from lucy_api.context.types import Band, Budget, BudgetSnapshot, SessionSnapshot, shares_for
 from lucy_api.model.types import Message, Role
 from lucy_api.prompt.sections import PromptContext, prompt_version, render_all
 
 if TYPE_CHECKING:
+    from lucy_api.context.build import Live
     from lucy_api.context.types import Assembled
 
 
@@ -35,12 +39,100 @@ class SessionView:
     session: dict[str, Any] | None = None
     compactions: list[dict[str, Any]] | None = None
     turn_number: int = 1
+    live: Live | None = None
+    response_style: str = "natural"
+    window: int = 200_000
+    reserve_percent: int = 13
+    warn_at_percent: int = 60
+    compact_at_percent: int = 72
+    tool_results_kept: int = 3
+
+
+class ViewLimits(TypedDict):
+    """The SessionView fields TurnPolicy owns. A TypedDict so splat stays typed."""
+
+    window: int
+    reserve_percent: int
+    warn_at_percent: int
+    compact_at_percent: int
+    tool_results_kept: int
+
+
+def conversation_order(
+    items: list[dict[str, Any]], turns: list[dict[str, Any]], visible_turns: set[str]
+) -> list[dict[str, Any]]:
+    """Put completed turns before later input that was queued while they ran.
+
+    The append-only log records a second person's message the moment it arrives, which can
+    precede the first turn's eventual assistant reply. The model must instead see each
+    completed turn as a coherent exchange, then the input it is answering.
+
+    A rollback hides the superseded turn's items. Interrupt keeps the progress already made.
+    """
+    grouped: dict[str | None, list[dict[str, Any]]] = {}
+    for item in items:
+        grouped.setdefault(item["turn_id"], []).append(item)
+    ordered = list(grouped.pop(None, ()))
+    turn_order = sorted(
+        turns,
+        key=lambda turn: (
+            min(
+                (int(item["seq"]) for item in grouped.get(str(turn["id"]), ())),
+                default=2**63 - 1,
+            ),
+            float(turn.get("created_at", 0.0)),
+            str(turn["id"]),
+        ),
+    )
+    for turn in turn_order:
+        turn_id = str(turn["id"])
+        if str(turn.get("stop_reason") or "") == "rollback":
+            grouped.pop(turn_id, ())
+            continue
+        if turn_id in visible_turns:
+            ordered.extend(grouped.pop(turn_id, ()))
+    return ordered
+
+
+def view_limits(policy: Any) -> ViewLimits:
+    """The SessionView fields TurnPolicy owns, so HTTP preview and a live turn cannot drift."""
+    return {
+        "window": int(getattr(policy, "max_context_tokens", 200_000)),
+        "reserve_percent": int(getattr(policy, "reserve_percent", 13)),
+        "warn_at_percent": int(getattr(policy, "warn_at_percent", 60)),
+        "compact_at_percent": int(getattr(policy, "compaction_trigger_percent", 72)),
+        "tool_results_kept": int(getattr(policy, "tool_results_kept", 3)),
+    }
+
+
+def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
+    """Drop reclaimable items from the view without touching the transcript."""
+    converted = items_from_rows(view.items)
+    used = _tokens_for(converted)
+    result: Reclaimed = reclaim(
+        converted,
+        used=used,
+        limits=Limits(
+            window=view.window,
+            warn_at_percent=view.warn_at_percent,
+            compact_at_percent=view.compact_at_percent,
+            tool_results_kept=view.tool_results_kept,
+        ),
+    )
+    kept = {item.id for item in result.items}
+    rows = [row for row in view.items if str(row["id"]) in kept]
+    return rows, result
+
+
+def _tokens_for(items: tuple[Item, ...]) -> int:
+    counter = default_counter()
+    return sum(counter.count(item.body) for item in items)
 
 
 def items_from_rows(rows: list[dict[str, Any]]) -> tuple[Item, ...]:
     """Transcript rows as the projection wants them: a body, a role, a turn boundary."""
     converted: list[Item] = []
-    for row in rows:
+    for order, row in enumerate(rows):
         body = row.get("content")
         text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
         converted.append(
@@ -51,6 +143,7 @@ def items_from_rows(rows: list[dict[str, Any]]) -> tuple[Item, ...]:
                 body=text,
                 turn_id=row.get("turn_id"),
                 kind=str(row.get("type") or "message"),
+                order=order,
             )
         )
     return tuple(converted)
@@ -108,20 +201,70 @@ async def system_and_messages(
 ) -> tuple[str, tuple[Message, ...]]:
     """What the loop's ``assemble`` callable returns: a system prompt and the turns.
 
-    The system string is the same document ``GET /v1/sessions/{id}/context`` returns, so a
-    surprising reply can be compared to the inspectable prompt without a second code path.
+    The same assembled sections power ``GET /v1/sessions/{id}/context``. This adapter then
+    maps those sections onto provider trust channels: authored instructions become system
+    text and all claims, history, results, and live state become data messages.
     """
     built = await _build(view)
-    system = built.context.text()
+    system, messages = _model_prompt(view, built)
     if notice:
         system = f"{system}\n\n{notice}"
-    return system, messages_from_items(items_from_rows(view.items))
+    return system, messages
+
+
+def _model_prompt(view: SessionView, built: Built) -> tuple[str, tuple[Message, ...]]:
+    """Split the priced document at the model's actual trust boundaries.
+
+    Only authored instructions use the provider's system channel. Standing claims, tool
+    results, conversation history, and live state remain data messages. The live block is
+    inserted immediately before a newly submitted user message; after a tool round it stays
+    last so the next model call sees the state resulting from that work.
+    """
+    items = {f"history.item.{item.id}": item for item in items_from_rows(view.items)}
+    current_input = next(
+        (
+            f"history.item.{row['id']}"
+            for row in reversed(view.items)
+            if str(row.get("type") or "message") == "message" and row.get("role") == "user"
+        ),
+        "",
+    )
+    system_parts: list[str] = []
+    messages: list[Message] = []
+    live: Message | None = None
+    current_input_index: int | None = None
+    for section in built.context.sections:
+        if section.band is Band.system:
+            system_parts.append(section.body)
+            continue
+        if section.id == LIVE_SECTION_ID:
+            live = Message(Role.user, section.body)
+            continue
+        item = items.get(section.id)
+        if item is None:
+            messages.append(Message(Role.user, section.body))
+            continue
+        role = Role.assistant if item.role == "assistant" and item.kind == "message" else Role.user
+        prefix = f"{item.role}: "
+        content = section.body.removeprefix(prefix)
+        messages.append(Message(role, content))
+        if section.id == current_input:
+            current_input_index = len(messages) - 1
+    if live is not None:
+        last = len(messages) - 1
+        if current_input_index is not None and current_input_index == last:
+            messages.insert(current_input_index, live)
+        else:
+            messages.append(live)
+    return "\n\n".join(system_parts), tuple(messages)
 
 
 async def _build(view: SessionView) -> Built:
+    rows, reclaimed = projected_rows(view)
     row = view.session or {}
-    prompt = PromptContext(capabilities=view.capabilities)
-    return await build_context(
+    prompt = PromptContext(capabilities=view.capabilities, response_style=view.response_style)
+    allowance = Budget(window=view.window, shares=shares_for(view.reserve_percent))
+    built = await build_context(
         StateRequest(
             now=datetime.now(UTC),
             session=SessionSnapshot(
@@ -132,14 +275,20 @@ async def _build(view: SessionView) -> Built:
                 permission_mode=str(row.get("permission_mode", "ask")),
                 incognito=bool(row.get("incognito", 0)),
             ),
-            budget=BudgetSnapshot(used=0, window=200_000),
+            budget=BudgetSnapshot(used=0, window=view.window),
         ),
         ContextTurn(
-            items=items_from_rows(view.items),
+            items=items_from_rows(rows),
             prompt=prompt,
             compactions=compactions_from_rows(view.compactions or ()),
         ),
+        live_from=view.live,
+        budget=allowance,
     )
+    if not reclaimed.notices:
+        return built
+    context = replace(built.context, notices=(*built.context.notices, *reclaimed.notices))
+    return replace(built, context=context)
 
 
 def compactions_from_rows(
@@ -165,9 +314,12 @@ __all__ = [
     "SessionView",
     "assembled_prompt",
     "context_for_session",
+    "conversation_order",
     "document_from",
     "items_from_rows",
     "messages_from_items",
     "preview_document",
+    "projected_rows",
     "system_and_messages",
+    "view_limits",
 ]

@@ -1,5 +1,6 @@
 """One shape for every piece of work that outlives the step which started it."""
 
+from lucy_api.work.live import WorkInFlight
 from lucy_api.work.registry import (
     AtCapacityError,
     Registry,
@@ -21,5 +22,6 @@ __all__ = [
     "State",
     "StillRunningError",
     "UnknownWorkError",
+    "WorkInFlight",
     "notices_block",
 ]

@@ -64,9 +64,10 @@ if TYPE_CHECKING:
 CREDENTIAL_CODES = frozenset({"credential-unavailable", "credential-missing"})
 """Problem codes that mean "no credential", in both spellings the family uses.
 
-Spotify-api derives its problem type from `credential_unavailable`; the media capability's
-providers report `credential_missing`. Underscores and hyphens are folded together before
-the comparison, because which one a service used is an accident of how it renders a slug.
+Spotify-api derives its problem type from `credential_unavailable`; another credential
+consumer may report `credential_missing`. Underscores and hyphens are folded together
+before the comparison, because which one a service used is an accident of how it renders a
+slug.
 """
 
 RETRY_AFTER = "Retry-After"

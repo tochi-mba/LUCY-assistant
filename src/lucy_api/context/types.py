@@ -68,12 +68,33 @@ class Band(StrEnum):
     """Left empty on purpose: this turn's output, plus room for one more large result."""
 
 
-DEFAULT_SHARES: Mapping[Band, float] = {
+_FIXED = {
     Band.system: 0.04,
     Band.pinned: 0.03,
     Band.history: 0.30,
     Band.tools: 0.50,
-    Band.reserve: 0.13,
+}
+_FIXED_TOTAL = sum(_FIXED.values())
+DEFAULT_RESERVE = 0.13
+
+
+def shares_for(reserve_percent: int) -> dict[Band, float]:
+    """Keep the designed proportions between written bands when the reserve moves.
+
+    The reserve is the one number a person has a reason to change: replies getting cut
+    short, or history starving. The other bands are a split of whatever is left, so
+    raising the reserve cannot silently overspend the window.
+    """
+    reserve = min(0.40, max(0.05, reserve_percent / 100.0))
+    rest = 1.0 - reserve
+    shares = {band: share / _FIXED_TOTAL * rest for band, share in _FIXED.items()}
+    shares[Band.reserve] = reserve
+    return shares
+
+
+DEFAULT_SHARES: Mapping[Band, float] = {
+    **_FIXED,
+    Band.reserve: DEFAULT_RESERVE,
 }
 """Fractions of the effective window. They sum to one; `reserve` is never written to."""
 
@@ -262,6 +283,11 @@ class WorkspaceSnapshot:
     changed_files: tuple[str, ...] = ()
     last_checkpoint: str = ""
     expires_in_seconds: float | None = None
+    cwd: str = ""
+    journal: str = ""
+    git_log: str = ""
+    tasks: str = ""
+    smoke: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,4 +419,5 @@ __all__ = [
     "Trust",
     "WorkSnapshot",
     "WorkspaceSnapshot",
+    "shares_for",
 ]

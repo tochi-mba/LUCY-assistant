@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -60,10 +61,26 @@ class Volatility(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FeedEntry:
-    """One keyed fact. The key is what a setting toggles; the line is what the model reads."""
+    """One keyed fact, with its own provenance and its own settings category.
+
+    ``key`` identifies the fact within the feed, so two pinned notes can be ``note_1`` and
+    ``note_2``. ``setting`` says which one switch controls both of them (``notes``). Keeping
+    those jobs separate is what lets a feed contain several facts of one kind without
+    inventing a setting for every database row.
+    """
 
     key: str
     line: str
+    setting: str = ""
+    trust: Trust = Trust.stated
+    source: str = ""
+    asserted_by: str = ""
+    recorded_at: datetime | None = None
+
+    @property
+    def setting_key(self) -> str:
+        """The per-field switch this entry obeys; old documents use their id."""
+        return self.setting or self.key
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +103,14 @@ class Feed:
     def as_claims(self) -> tuple[Claim, ...]:
         """Standing lines as the person section already knows how to frame them."""
         return tuple(
-            Claim(body=entry.line, source=self.id, trust=self.trust) for entry in self.entries
+            Claim(
+                body=entry.line,
+                source=entry.source or self.id,
+                trust=entry.trust,
+                asserted_by=entry.asserted_by,
+                recorded_at=entry.recorded_at,
+            )
+            for entry in self.entries
         )
 
     def with_entries(self, entries: tuple[FeedEntry, ...]) -> Feed:
@@ -128,7 +152,8 @@ class CollectedFeeds:
 class FeedSource(Protocol):
     """One sibling, or one in-process stand-in, that can publish feeds for a profile."""
 
-    name: str
+    @property
+    def name(self) -> str: ...
 
     async def fetch(self, request: FeedRequest) -> tuple[Feed, ...]: ...
 
@@ -265,10 +290,11 @@ def _one(raw: Any) -> Feed | None:
     volatility = _volatility(raw.get("volatility"))
     if volatility is None:
         return None
-    entries = _entries(raw)
+    trust_word = str(raw.get("trust") or "stated")
+    trust = TRUST_WORDS.get(trust_word, Trust.untrusted)
+    entries = _entries(raw, trust=trust)
     if not entries:
         return None
-    trust_word = str(raw.get("trust") or "stated")
     personal = raw.get("personal")
     ceiling = raw.get("ceiling_tokens")
     try:
@@ -281,7 +307,7 @@ def _one(raw: Any) -> Feed | None:
         volatility=volatility,
         version=str(raw.get("version") or ""),
         entries=entries,
-        trust=TRUST_WORDS.get(trust_word, Trust.untrusted),
+        trust=trust,
         personal=True if personal is None else bool(personal),
         ceiling_tokens=max(ceiling_tokens, 1),
     )
@@ -298,31 +324,48 @@ def _volatility(value: Any) -> Volatility | None:
     return None
 
 
-def _entries(raw: dict[str, Any]) -> tuple[FeedEntry, ...]:
+def _entries(raw: dict[str, Any], *, trust: Trust) -> tuple[FeedEntry, ...]:
     listed = raw.get("entries")
     if isinstance(listed, list):
-        return _from_entries(listed)
-    return _from_lines(raw.get("lines"))
+        return _from_entries(listed, trust=trust)
+    return _from_lines(raw.get("lines"), trust=trust)
 
 
-def _from_entries(listed: list[Any]) -> tuple[FeedEntry, ...]:
+def _from_entries(listed: list[Any], *, trust: Trust) -> tuple[FeedEntry, ...]:
     found: list[FeedEntry] = []
     seen: set[str] = set()
     for item in listed:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip().lower()
+        setting = str(item.get("setting") or "").strip().lower()
         line = _line(item.get("line"))
-        if not ENTRY_KEY.match(key) or not line or key in seen:
+        if (
+            not ENTRY_KEY.match(key)
+            or (setting and not ENTRY_KEY.match(setting))
+            or not line
+            or key in seen
+        ):
             continue
         seen.add(key)
-        found.append(FeedEntry(key=key, line=line))
+        entry_trust = TRUST_WORDS.get(str(item.get("trust") or ""), trust)
+        found.append(
+            FeedEntry(
+                key=key,
+                line=line,
+                setting=setting,
+                trust=entry_trust,
+                source=_short_text(item.get("source")),
+                asserted_by=_short_text(item.get("asserted_by")),
+                recorded_at=_moment(item.get("recorded_at")),
+            )
+        )
         if len(found) >= MAX_ENTRIES:
             break
     return tuple(found)
 
 
-def _from_lines(value: Any) -> tuple[FeedEntry, ...]:
+def _from_lines(value: Any, *, trust: Trust) -> tuple[FeedEntry, ...]:
     if not isinstance(value, list):
         return ()
     found: list[FeedEntry] = []
@@ -330,7 +373,7 @@ def _from_lines(value: Any) -> tuple[FeedEntry, ...]:
         line = _line(item)
         if not line:
             continue
-        found.append(FeedEntry(key=f"line_{index}", line=line))
+        found.append(FeedEntry(key=f"line_{index}", line=line, trust=trust))
         if len(found) >= MAX_ENTRIES:
             break
     return tuple(found)
@@ -340,7 +383,31 @@ def _line(value: Any) -> str:
     if not isinstance(value, str):
         return ""
     compact = " ".join(value.split())
-    return compact[:MAX_LINE_CHARS] if compact else ""
+    if len(compact) <= MAX_LINE_CHARS:
+        return compact
+    shown = MAX_LINE_CHARS
+    while True:
+        suffix = f" … [showing {shown} of {len(compact)} characters]"
+        adjusted = MAX_LINE_CHARS - len(suffix)
+        if adjusted == shown:
+            return compact[:shown] + suffix
+        shown = adjusted
+
+
+def _short_text(value: Any) -> str:
+    """Small provenance labels, never free-form prompt text."""
+    return " ".join(value.split())[:64] if isinstance(value, str) else ""
+
+
+def _moment(value: Any) -> datetime | None:
+    """One ISO instant, or no claim about time when a sibling sent something else."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 __all__ = [

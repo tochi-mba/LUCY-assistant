@@ -6,12 +6,15 @@ else. Concentrating it here is what makes the hub's central promise checkable in
 rather than in every pack somebody writes afterwards.
 
 **A caller's token is never forwarded.** Every outbound request is authorized with a token
-Lucy minted, through keyring, for this person and this audience. So the headers are built
-from scratch on every call and a small set of names is dropped on the way out
-(:data:`NEVER_FORWARDED`) -- not because a pack is expected to set ``Authorization``, but
-because the day one does by accident is the day the hub becomes a confused deputy, and a
-header that never leaves is cheaper than noticing. Dropping rather than refusing is
-deliberate: a defence in depth must never be the thing that fails somebody's turn.
+Lucy minted, through keyring, for this person and this audience. A sibling that speaks the
+two-credential internal contract (Memory-api today) takes Lucy's own service token as
+``Authorization`` and that minted token as ``X-Keyring-User-Token``; every other sibling
+takes the minted token as Bearer. The headers are built from scratch on every call and a
+small set of names is dropped on the way out (:data:`NEVER_FORWARDED`) -- not because a pack
+is expected to set ``Authorization``, but because the day one does by accident is the day
+the hub becomes a confused deputy, and a header that never leaves is cheaper than noticing.
+Dropping rather than refusing is deliberate: a defence in depth must never be the thing that
+fails somebody's turn.
 
 **A 401 is re-minted once and retried.** Tokens are minutes long by design, so one expiring
 mid-turn is ordinary rather than exceptional, and a person should never see it. The retry
@@ -39,6 +42,15 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import Call, Http
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
+
+SUBJECT_HEADER = "X-Keyring-User-Token"
+"""Where a minted person token travels when ``Authorization`` is Lucy's own service token.
+
+Memory-api's internal surface (and Keyring's) take two credentials: the calling service in
+``Authorization``, the person as subject proof in this header. PackHttp is the only place
+that header is set, so a pack that copies an inbound request cannot put the caller's JWT
+there — :data:`NEVER_FORWARDED` strips it first.
+"""
 
 NEVER_FORWARDED = frozenset(
     {
@@ -144,6 +156,9 @@ class PackHttp:
         tokens: the broker that mints for one person. See :class:`Broker`.
         timeout_seconds: per-request timeout. A sibling that hangs must not hang a turn.
         transport: an httpx transport, so the whole pack layer runs offline in tests.
+        service_tokens: Lucy's own credential per sibling audience that speaks the
+            two-credential internal contract. Empty means every call uses a minted Bearer.
+            Values never appear in :meth:`__repr__`.
     """
 
     def __init__(
@@ -153,6 +168,7 @@ class PackHttp:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.AsyncBaseTransport | None = None,
         client: httpx.AsyncClient | None = None,
+        service_tokens: Mapping[str, str] | None = None,
     ) -> None:
         self._tokens = tokens
         # Redirects are off: this client sends a credential, and a redirect is somebody
@@ -162,6 +178,11 @@ class PackHttp:
         self._http = client or httpx.AsyncClient(
             timeout=timeout_seconds, transport=transport, follow_redirects=False
         )
+        self._service_tokens = {
+            audience: secret.strip()
+            for audience, secret in (service_tokens or {}).items()
+            if secret.strip()
+        }
 
     async def request(self, call: Call) -> Any:
         """Make one authorized call and return its decoded body, or ``None`` for no body.
@@ -208,7 +229,9 @@ class PackHttp:
                 call.url,
                 json=call.json,
                 params=dict(call.params) if call.params is not None else None,
-                headers=_outbound(call.headers, token),
+                headers=_outbound(
+                    call.headers, token, service_token=self._service_tokens.get(call.audience, "")
+                ),
             )
         except httpx.HTTPError as exc:
             raise DownstreamUnavailableError(UNREACHABLE, audience=call.audience) from exc
@@ -217,13 +240,24 @@ class PackHttp:
         return response
 
 
-def _outbound(headers: Mapping[str, str] | None, token: str) -> dict[str, str]:
-    """Build the outgoing headers, dropping anything that could carry another authority."""
+def _outbound(
+    headers: Mapping[str, str] | None, token: str, *, service_token: str = ""
+) -> dict[str, str]:
+    """Build the outgoing headers, dropping anything that could carry another authority.
+
+    A sibling on the two-credential contract takes Lucy's service token as Bearer and the
+    minted person token as subject proof. Every other sibling takes the minted token as
+    Bearer. Either way the inbound caller token has already been stripped.
+    """
     safe = {
         name: value
         for name, value in (headers or {}).items()
         if name.lower() not in NEVER_FORWARDED
     }
+    if service_token:
+        safe["Authorization"] = f"Bearer {service_token}"
+        safe[SUBJECT_HEADER] = token
+        return safe
     safe["Authorization"] = f"Bearer {token}"
     return safe
 
@@ -276,6 +310,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "NEVER_FORWARDED",
+    "SUBJECT_HEADER",
     "Broker",
     "DownstreamError",
     "DownstreamRefusedError",

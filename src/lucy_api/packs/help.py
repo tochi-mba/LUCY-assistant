@@ -18,6 +18,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import array_schema, integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
+from lucy_api.mcp.skills import CATALOGUE, listed, resolve
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State, connection_required
 
 if TYPE_CHECKING:
@@ -49,6 +50,10 @@ wants it.
 are bound with; the schema and the examples live here so the preamble stays small.
 
 When a capability was deferred, `capabilities.use` binds it for the rest of this session.
+
+`help.skills` lists the named docs you can load before using a capability. `help.skill`
+reads one, windowed. Prefer those over guessing how a long job, an approval or a memory
+write works.
 """
 
 
@@ -167,6 +172,39 @@ class HelpPack:
                     "run": _operation,
                 }
             ),
+            define_operation(
+                {
+                    "name": "help.skills",
+                    "description": (
+                        "Named docs you can load before using a capability. Prefer these "
+                        "over guessing how a long job, an approval, or a memory write works."
+                    ),
+                    "input": object_schema({}),
+                    "output": value(object_schema({"skills": array_schema(object_schema({}))})),
+                    "effects": "read",
+                    "run": _skills,
+                }
+            ),
+            define_operation(
+                {
+                    "name": "help.skill",
+                    "description": (
+                        "One named doc, windowed. Same corpus an MCP client loads by digest."
+                    ),
+                    "input": object_schema(
+                        {
+                            "name": string_schema().describe("A skill name from help.skills."),
+                            "offset": integer_schema().optional(),
+                            "limit": integer_schema().optional(),
+                        }
+                    ),
+                    "output": value(
+                        object_schema({"name": string_schema(), "text": string_schema()})
+                    ),
+                    "effects": "read",
+                    "run": _skill,
+                }
+            ),
         )
 
 
@@ -258,6 +296,39 @@ async def _operation(run: RunContext[PackContext]) -> dict[str, Any]:
                     "examples": examples,
                 }
     return {"name": name, "error": f"no operation named '{name}' in this turn's catalogue"}
+
+
+async def _skills(run: RunContext[PackContext]) -> dict[str, Any]:
+    del run
+    return {
+        "skills": [
+            {"name": row["name"], "title": row["title"], "summary": row["description"]}
+            for row in listed()["skills"]
+        ]
+    }
+
+
+async def _skill(run: RunContext[PackContext]) -> dict[str, Any]:
+    name = str(run.input.get("name", ""))
+    skill = resolve(name)
+    if skill is None:
+        names = ", ".join(item.name for item in CATALOGUE)
+        return {
+            "name": name,
+            "error": f"no skill named '{name}'; this build has {names}",
+        }
+    offset = int(run.input.get("offset") or 0)
+    limit = int(run.input.get("limit") or DOCS_WINDOW)
+    text = skill.body
+    window = text[max(offset, 0) : max(offset, 0) + max(limit, 0)]
+    return {
+        "name": skill.name,
+        "text": window,
+        "offset": max(offset, 0),
+        "limit": max(limit, 0),
+        "total": len(text),
+        "showing": f"showing {len(window)} of {len(text)} characters",
+    }
 
 
 def _find(context: PackContext, pack_id: str) -> Any:

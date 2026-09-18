@@ -22,6 +22,7 @@
 /private/
 /.repos.local.txt
 /repos.local.txt
+*.local.code-workspace
 /docker-compose.local.yml
 /docker-compose.override.yml
 /scripts/genenv.local.json
@@ -42,6 +43,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.import_linter_cache/
 .venv/
 .coverage
 coverage.xml

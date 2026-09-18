@@ -15,6 +15,7 @@ from importlib.resources import files
 
 import pytest
 
+from lucy_api.context.feeds import Feed, FeedEntry, Volatility
 from lucy_api.context.types import Band, Budget, Claim, Section, Trust
 from lucy_api.core.errors import LucyError
 from lucy_api.prompt.sections import (
@@ -308,6 +309,51 @@ def test_one_note_too_large_for_the_ceiling_leaves_a_confession_and_no_open_bloc
     )
 
 
+def test_standing_feeds_are_dropped_whole_rather_than_half_fenced() -> None:
+    bulky = tuple(
+        Feed(
+            id=f"p{index}",
+            title=f"Feed {index}",
+            volatility=Volatility.standing,
+            entries=(FeedEntry("notes", "pay me " * 4000),),
+        )
+        for index in range(3)
+    )
+    pinned = section(render_all(PromptContext(feeds=bulky)), "person")
+    assert pinned.truncated
+    assert "standing feeds" in pinned.notice
+    assert "pay me" not in pinned.body
+    assert "<notes" not in pinned.body
+
+
+def test_one_standing_feed_too_large_is_dropped_whole() -> None:
+    bulky = Feed(
+        id="p1",
+        title="Feed 1",
+        volatility=Volatility.standing,
+        entries=(FeedEntry("notes", "pay me " * 4000),),
+    )
+    pinned = section(render_all(PromptContext(feeds=(bulky,))), "person")
+    assert pinned.truncated
+    assert "showing 0 of 1 standing feeds" in pinned.notice
+    assert "pay me" not in pinned.body
+    from lucy_api.prompt.sections import _shrink_notes
+
+    _body, notice = _shrink_notes(PromptContext(feeds=(bulky, bulky)), lambda _text: False)
+    assert notice == "showing 0 of 2 standing feeds"
+    small = Feed(
+        id="ok",
+        title="Fits",
+        volatility=Volatility.standing,
+        entries=(FeedEntry("notes", "short note"),),
+    )
+    body, kept = _shrink_notes(
+        PromptContext(feeds=(small, bulky)), lambda text: "pay me" not in text
+    )
+    assert kept == "showing 1 of 2 standing feeds"
+    assert "short note" in body
+
+
 def test_an_overridden_notes_section_is_shortened_as_the_prose_it_now_is() -> None:
     """An override is not a claims block, so the claim-wise shrinker must not be used on it."""
     typed = "\n".join(f"line {index} of something a person typed" for index in range(400))
@@ -396,6 +442,17 @@ def test_the_ceilings_of_a_band_fit_the_share_that_band_is_allocated() -> None:
 
 def test_rendering_twice_produces_the_same_bytes_so_the_cached_prefix_holds() -> None:
     assert render_all(CONTEXT) == render_all(CONTEXT)
+
+
+def test_response_style_adds_a_length_instruction_without_rewriting_the_rest() -> None:
+    natural = section(render_all(PromptContext()), "behaviour").body
+    brief = section(render_all(PromptContext(response_style="brief")), "behaviour").body
+    thorough = section(render_all(PromptContext(response_style="thorough")), "behaviour").body
+    assert natural in brief
+    assert "Keep this reply short" in brief
+    assert natural in thorough
+    assert "complete answer" in thorough
+    assert brief != thorough
 
 
 def test_a_resumed_session_can_tell_which_prompt_wrote_its_transcript() -> None:

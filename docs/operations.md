@@ -30,9 +30,12 @@ start a process that looks healthy until the first token needs verifying.
 | `LUCY_KEYRING_SERVICE_TOKEN` | *(empty)* | This hub's entry in `KEYRING_SERVICE_TOKENS`, for two-credential calls. |
 | `LUCY_USER_API_BASE_URL` … `LUCY_MEMORY_API_BASE_URL` | the family ports | One base URL per sibling. |
 | `LUCY_SETTINGS_API_TOKEN` | *(empty)* | The hub's service token for settings-api. |
+| `LUCY_MEMORY_API_TOKEN` | *(empty)* | The hub's entry in Memory-api's `MEMORY_SERVICE_TOKENS`. Notes calls use the two-credential `/v1/internal/memory` surface; empty refuses them. |
 | `LUCY_JWKS_CACHE_SECONDS` | `3600` | How long verifying keys are cached. |
 | `LUCY_JWKS_MIN_REFETCH_SECONDS` | `30` | Anti-DoS: without it, a stream of tokens with random `kid` headers is one outbound fetch per inbound request. |
 | `LUCY_HTTP_TIMEOUT_SECONDS` | `10` | Outbound timeout. |
+| `LUCY_DATABASE_PATH` | `var/lucy.sqlite3` | The one SQLite file. `:memory:` is accepted (tests). |
+| `LUCY_BLOBS_PATH` | *(empty)* | Uploaded files and session artifacts. Empty means a `blobs` directory beside the database, or a process-owned temp tree when the database is `:memory:`. |
 
 A fact about a **person** — which model they prefer, how much context goes to memory,
 whether a destructive tool may run without asking — is not configuration. It belongs in

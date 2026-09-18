@@ -59,6 +59,8 @@ class Item:
     body: str
     turn_id: str | None = None
     kind: str = "message"
+    order: int | None = None
+    """Prompt order when durable append order differs from conversational turn order."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +96,7 @@ def project(
     counter: Counter,
 ) -> Projection:
     """Build the history band: summaries in place of the turns they cover, then the rest."""
-    ordered = sorted(items, key=lambda item: item.seq)
+    ordered = sorted(items, key=_position)
     active = [compaction for compaction in compactions if compaction.active]
     ranges = [(_snap(compaction, ordered)) for compaction in sorted(active, key=lambda c: c.seq)]
 
@@ -112,9 +114,12 @@ def project(
             continue
         covered.update(inside)
         body = _summary_body(compaction, low, high, len(inside))
+        position = min(
+            (_position(item) for item in ordered if low <= item.seq <= high), default=low
+        )
         placed.append(
             (
-                low,
+                position,
                 Section(
                     id=f"history.summary.{compaction.seq}",
                     band=Band.history,
@@ -183,7 +188,7 @@ def _turn_sections(items: Iterable[Item], counter: Counter) -> list[tuple[int, S
         body = f"{item.role}: {item.body}"
         sections.append(
             (
-                item.seq,
+                _position(item),
                 Section(
                     id=f"history.item.{item.id}",
                     band=Band.history,
@@ -195,6 +200,10 @@ def _turn_sections(items: Iterable[Item], counter: Counter) -> list[tuple[int, S
             )
         )
     return sections
+
+
+def _position(item: Item) -> int:
+    return item.seq if item.order is None else item.order
 
 
 __all__ = [

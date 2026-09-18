@@ -2,13 +2,14 @@
 
 Lucy is the assistant hub in `src/lucy_api/`. This repository also holds the **family
 desk**: tools and documentation for eight public sibling services, each in its own git
-repository. `scripts/bootstrap.sh` clones those checkouts beside this file. An optional
-local media service can be added through the `local` Compose profile.
+repository. `scripts/bootstrap.sh` clones those checkouts beside this file. Operator-local
+services attach through the documented extension points and a private Compose overlay.
 
 The hub currently provides health, readiness, identity, session management, a durable
-single-agent conversation runner, resumable event streaming, and a command-line setup flow.
-Configure an OpenAI or Anthropic API key to run a basic conversation. Memory is a separate
-service; capability packs, cross-service memory fusion and agents remain in development.
+single-agent conversation runner, resumable event streaming, capability packs, child
+helpers, MCP in both directions, and a command-line setup flow. Configure an OpenAI or
+Anthropic API key to run a basic conversation. Memory, persona and pinned account facts
+reach the model as separate sections; their retrieval scores are never merged.
 Installing the client does not yet provide a chat command.
 
 `make check` is the same four gates everywhere it exists: lint, types, imports, tests at
@@ -302,9 +303,9 @@ verified, what remains unresolved, and the artifacts produced.
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
 | [Memory-api](https://github.com/tochi-mba/Memory-api) | What the assistant has learned about the person: provenance, history, and a topic index. | 8009 | `MEMORY_` | `/healthy`, `/ready` |
 
-Every service listens on its assigned port, so the hub and its siblings run on one host
-without a collision. Compose maps each host port to the same number inside the container.
-Port 8005 is the optional local media service, which is not part of the published family.
+Every public service listens on its assigned port, so the hub and its siblings run on one
+host without a collision. Compose maps each host port to the same number inside the
+container. Private overlays choose their own non-conflicting ports.
 
 **`/healthy` is liveness and `/ready` is readiness**, everywhere. Liveness does no I/O and
 never fails, because an orchestrator restarts a container whose liveness check fails and
@@ -549,6 +550,9 @@ private; its callers continue using the canonical public workflow. The
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | How Lucy's context is built | [docs/context.md](docs/context.md) |
+| Sessions and the one write path | [docs/sessions.md](docs/sessions.md) |
+| Prompt sections | [docs/prompts.md](docs/prompts.md) |
+| Memory as the model sees it | [docs/memory.md](docs/memory.md) |
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
 | GitHub sign-in and private copies | [docs/private-repos.md](docs/private-repos.md) |

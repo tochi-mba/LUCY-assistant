@@ -27,7 +27,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.clients.errors import AbsentError
+import httpx
+from keyring_client import USER_TOKEN_HEADER
+
+from lucy_api.clients.errors import AbsentError, UnavailableError, raise_for
 from lucy_api.clients.transport import Sibling, field, moment, rows, segment, text
 
 if TYPE_CHECKING:
@@ -135,6 +138,68 @@ class HttpKeyringClient:
             return
 
 
+class DelegatedKeyringClient:
+    """Connection management through Keyring's two-credential internal boundary.
+
+    ``Authorization`` proves that Lucy is the calling service. The signed user token is
+    carried separately as subject proof and is never forwarded as a bearer credential.
+    The client is request-scoped because that proof is request-scoped; its HTTP pool is
+    owned by the process container.
+    """
+
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        base_url: str,
+        *,
+        service_token: str,
+        user_token: str,
+    ) -> None:
+        self._http = http
+        self._base_url = base_url.rstrip("/")
+        self._headers = {
+            "Authorization": f"Bearer {service_token}",
+            USER_TOKEN_HEADER: user_token,
+        }
+
+    async def connections(self, profile: str) -> tuple[Connection, ...]:
+        try:
+            payload = await self._send("GET", f"/v1/internal/profiles/{segment(profile)}")
+        except AbsentError:
+            return ()
+        return tuple(_connection(row) for row in rows(payload, "connections"))
+
+    async def authorize(self, profile: str, service: str) -> Authorization:
+        path = f"/v1/internal/profiles/{segment(profile)}/connections/{segment(service)}/authorize"
+        payload = await self._send("POST", path)
+        return Authorization(
+            url=text(payload, "authorization_url"),
+            expires_at=moment(field(payload, "expires_at")),
+        )
+
+    async def disconnect(self, profile: str, service: str) -> None:
+        path = f"/v1/internal/profiles/{segment(profile)}/connections/{segment(service)}"
+        try:
+            await self._send("DELETE", path)
+        except AbsentError:
+            return
+
+    async def _send(self, method: str, path: str) -> Any:
+        try:
+            response = await self._http.request(
+                method, self._base_url + path, headers=self._headers
+            )
+        except httpx.HTTPError as exc:
+            raise UnavailableError(SERVICE, 0, "the credential vault could not be reached") from exc
+        raise_for(response, service=SERVICE)
+        if not response.content:
+            return None
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise UnavailableError(SERVICE, response.status_code, "invalid response") from exc
+
+
 def _connection(row: Any) -> Connection:
     """One connection, narrowed to what a probe and a person need."""
     return Connection(
@@ -198,6 +263,7 @@ __all__ = [
     "SERVICE",
     "Authorization",
     "Connection",
+    "DelegatedKeyringClient",
     "FakeKeyringClient",
     "HttpKeyringClient",
     "KeyringClient",

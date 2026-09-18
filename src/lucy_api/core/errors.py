@@ -19,3 +19,8 @@ def absent() -> LucyError:
 
 def conflict(detail: str) -> LucyError:
     return LucyError("conflict", detail, 409)
+
+
+def settings_unavailable(detail: str) -> LucyError:
+    """A refuse key could not be confirmed, so this turn must not guess."""
+    return LucyError("settings-unavailable", detail, 503)

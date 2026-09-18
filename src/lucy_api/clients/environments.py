@@ -126,6 +126,34 @@ class Written:
 
 
 @dataclass(frozen=True, slots=True)
+class Mutation:
+    """A mutation with its reviewable diff and optimistic validator."""
+
+    path: str
+    size: int = 0
+    etag: str = ""
+    diff: str = ""
+    applied_hunks: tuple[int, ...] = ()
+    rejected_hunks: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SearchMatch:
+    path: str
+    lines: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    matches: tuple[SearchMatch, ...] = ()
+    total_matches: int = 0
+    truncated: bool = False
+    skipped_binary: tuple[str, ...] = ()
+    skipped_large: tuple[str, ...] = ()
+    skipped_unavailable: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Ran:
     """One command and what it produced.
 
@@ -157,6 +185,14 @@ class EnvironmentsClient(Protocol):
         """Every workspace this person has."""
         ...
 
+    async def destroy(self, environment_id: str) -> None:
+        """Permanently remove one workspace and everything inside it."""
+        ...
+
+    async def mkdir(self, environment_id: str, path: str) -> str:
+        """Create a directory and any missing parents."""
+        ...
+
     async def files(self, environment_id: str, path: str = ".") -> Listing:
         """List one directory."""
         ...
@@ -173,11 +209,24 @@ class EnvironmentsClient(Protocol):
         """Write one file, creating the directories above it."""
         ...
 
+    async def search(self, environment_id: str, path: str, pattern: str) -> SearchResult: ...
+
+    async def edit(
+        self, environment_id: str, path: str, old_string: str, new_string: str
+    ) -> Mutation: ...
+
+    async def patch(self, environment_id: str, path: str, patch: str) -> Mutation: ...
+
+    async def delete(self, environment_id: str, path: str, *, recursive: bool = False) -> None: ...
+
+    async def move(self, environment_id: str, source: str, destination: str) -> Mutation: ...
+
     async def run(
         self,
         environment_id: str,
         command: str,
         *,
+        cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
     ) -> Ran:
@@ -214,6 +263,19 @@ class HttpEnvironmentsClient:
         """Every workspace on this profile."""
         payload = await self._api.send("GET", "/v1/environments", profile=profile)
         return tuple(_environment(row) for row in rows(payload, "environments"))
+
+    async def destroy(self, environment_id: str) -> None:
+        """Delete a workspace after a failed provisioning attempt or session cleanup."""
+        await self._api.send("DELETE", f"/v1/environments/{segment(environment_id)}")
+
+    async def mkdir(self, environment_id: str, path: str) -> str:
+        """Create a directory tree and return its normalized relative path."""
+        payload = await self._api.send(
+            "POST",
+            f"/v1/environments/{segment(environment_id)}/files/directories",
+            body={"path": path},
+        )
+        return text(payload, "path", path)
 
     async def files(self, environment_id: str, path: str = ".") -> Listing:
         """One directory, with each entry addressed relative to the workspace root."""
@@ -256,11 +318,63 @@ class HttpEnvironmentsClient:
         )
         return Written(path=text(payload, "path", path), size=number(payload, "size"))
 
+    async def search(self, environment_id: str, path: str, pattern: str) -> SearchResult:
+        payload = await self._api.send(
+            "GET",
+            f"/v1/environments/{segment(environment_id)}/files/search",
+            params={"path": path, "pattern": pattern, "mode": "content"},
+        )
+        return SearchResult(
+            matches=tuple(
+                SearchMatch(path=text(row, "path"), lines=tuple(rows(row, "lines")))
+                for row in rows(payload, "matches")
+            ),
+            total_matches=number(payload, "total_matches"),
+            truncated=flag(payload, "truncated"),
+            skipped_binary=tuple(str(item) for item in rows(payload, "skipped_binary")),
+            skipped_large=tuple(str(item) for item in rows(payload, "skipped_large")),
+            skipped_unavailable=tuple(str(item) for item in rows(payload, "skipped_unavailable")),
+        )
+
+    async def edit(
+        self, environment_id: str, path: str, old_string: str, new_string: str
+    ) -> Mutation:
+        payload = await self._api.send(
+            "POST",
+            f"/v1/environments/{segment(environment_id)}/files/edit",
+            body={"path": path, "old_string": old_string, "new_string": new_string},
+        )
+        return _mutation(payload)
+
+    async def patch(self, environment_id: str, path: str, patch: str) -> Mutation:
+        payload = await self._api.send(
+            "POST",
+            f"/v1/environments/{segment(environment_id)}/files/patch",
+            body={"path": path, "patch": patch},
+        )
+        return _mutation(payload)
+
+    async def delete(self, environment_id: str, path: str, *, recursive: bool = False) -> None:
+        await self._api.send(
+            "DELETE",
+            f"/v1/environments/{segment(environment_id)}/files/content",
+            params={"path": path, "recursive": recursive},
+        )
+
+    async def move(self, environment_id: str, source: str, destination: str) -> Mutation:
+        payload = await self._api.send(
+            "POST",
+            f"/v1/environments/{segment(environment_id)}/files/move",
+            body={"source": source, "destination": destination},
+        )
+        return _mutation(payload)
+
     async def run(
         self,
         environment_id: str,
         command: str,
         *,
+        cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
     ) -> Ran:
@@ -268,6 +382,7 @@ class HttpEnvironmentsClient:
         body = {
             "environment_id": environment_id,
             "command": command,
+            "cwd": cwd,
             "timeout_ms": timeout_ms,
             "max_output_bytes": max_output_bytes,
         }
@@ -317,6 +432,17 @@ def _entry(row: Any) -> Entry:
     )
 
 
+def _mutation(payload: Any) -> Mutation:
+    return Mutation(
+        path=text(payload, "path"),
+        size=number(payload, "size"),
+        etag=text(payload, "etag"),
+        diff=text(payload, "diff"),
+        applied_hunks=tuple(int(item) for item in rows(payload, "applied_hunks")),
+        rejected_hunks=tuple(int(item) for item in rows(payload, "rejected_hunks")),
+    )
+
+
 class FakeEnvironmentsClient:
     """An in-memory workspace, so a workspace pack's tests need no sandbox and no disk.
 
@@ -362,6 +488,19 @@ class FakeEnvironmentsClient:
             item for item in self.workspaces.values() if not profile or item.profile == profile
         )
 
+    async def destroy(self, environment_id: str) -> None:
+        """Remove a fake workspace and all of its files."""
+        self.workspaces.pop(environment_id, None)
+        self.contents = {
+            key: body for key, body in self.contents.items() if key[0] != environment_id
+        }
+
+    async def mkdir(self, environment_id: str, path: str) -> str:
+        """Directories are implicit in the fake, but the workspace must exist."""
+        if environment_id not in self.workspaces:
+            raise KeyError(environment_id)
+        return path
+
     async def files(self, environment_id: str, path: str = ".") -> Listing:
         """The seeded files of one workspace that sit under `path`, as one flat listing."""
         prefix = "" if path in {".", ""} else f"{path}/"
@@ -400,15 +539,62 @@ class FakeEnvironmentsClient:
         self.contents[key] = existing + content
         return Written(path=path, size=len(self.contents[key]))
 
+    async def search(self, environment_id: str, path: str, pattern: str) -> SearchResult:
+        prefix = "" if path in {"", "."} else f"{path}/"
+        matches = tuple(
+            SearchMatch(
+                name,
+                tuple(
+                    {"line": number_, "text": line, "matched": True}
+                    for number_, line in enumerate(body.splitlines(), 1)
+                    if pattern in line
+                ),
+            )
+            for (workspace, name), body in sorted(self.contents.items())
+            if workspace == environment_id and name.startswith(prefix) and pattern in body
+        )
+        return SearchResult(matches=matches, total_matches=len(matches))
+
+    async def edit(
+        self, environment_id: str, path: str, old_string: str, new_string: str
+    ) -> Mutation:
+        key = (environment_id, path)
+        old = self.contents.get(key, "")
+        self.contents[key] = old.replace(old_string, new_string, 1)
+        return Mutation(path, len(self.contents[key]), diff=f"-{old}\n+{self.contents[key]}")
+
+    async def patch(self, environment_id: str, path: str, patch: str) -> Mutation:
+        self.contents[(environment_id, path)] = patch
+        return Mutation(path, len(patch), applied_hunks=(1,))
+
+    async def delete(self, environment_id: str, path: str, *, recursive: bool = False) -> None:
+        if not recursive:
+            self.contents.pop((environment_id, path), None)
+            return
+        prefix = path.rstrip("/")
+        self.contents = {
+            key: body
+            for key, body in self.contents.items()
+            if key[0] != environment_id
+            or (key[1] != prefix and not key[1].startswith(f"{prefix}/"))
+        }
+
+    async def move(self, environment_id: str, source: str, destination: str) -> Mutation:
+        body = self.contents.pop((environment_id, source))
+        self.contents[(environment_id, destination)] = body
+        return Mutation(destination, len(body))
+
     async def run(
         self,
         environment_id: str,
         command: str,
         *,
+        cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
     ) -> Ran:
         """Whatever the test scripted, or a command that did nothing and said nothing."""
+        del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
         return self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
 
@@ -434,7 +620,10 @@ __all__ = [
     "FileText",
     "HttpEnvironmentsClient",
     "Listing",
+    "Mutation",
     "Ran",
     "Readiness",
+    "SearchMatch",
+    "SearchResult",
     "Written",
 ]

@@ -50,8 +50,8 @@ LongMemEval, SWE-agent, aider).
 │  capability packs → probe() → include predicate → the model's tools     │
 └───┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬────────────┘
     │      │      │      │      │      │      │      │      │
- keyring settings user persona memory  env   search spotify media  ← + external MCP
-  8001    8003   8002   8004   8009   8008    8006   8007   8005
+ keyring settings user persona memory  env   search spotify  ← + extensions and MCP
+  8001    8003   8002   8004   8009   8008    8006   8007
 ```
 
 One rule governs every arrow: **the model never sees a service.** It sees capabilities with
@@ -106,9 +106,9 @@ src/lucy_api/
   context/     assembler.py  bands.py  ladder.py  compaction.py  framing.py  tokens.py
   prompt/      sections.py  render.py  defaults/*.md
   packs/       base.py  registry.py  help.py  notes.py  workspace.py  research.py
-               music.py  media.py  settings.py  agents.py  mcp_bridge.py
+               music.py  settings.py  agents.py  mcp_bridge.py
   clients/     keyring.py user.py persona.py memory.py environments.py search.py
-               spotify.py media.py           # each: Protocol + HTTP + Fake + asgi_client
+               spotify.py                    # each: Protocol + HTTP + Fake + asgi_client
   connections/ service.py  consent.py  refresh.py
   agents/      supervisor.py  mailbox.py  journal.py  delegation.py
   approvals/   policy.py  store.py  modes.py
@@ -257,7 +257,6 @@ the request's.
 | --- | --- |
 | all | one `GET /v1/profiles/{name}` gives `connections[].status` for every service at once |
 | research | `GET /v1/models` → `providers[].status`; `not_configured` **with a token present** means "this person has not connected it" |
-| media | `GET /ready` → `provider.detail.name`; whether a login is needed at all depends on the deployed recipe |
 | music | no probe exists: keyring status decides; `GET /v1/player/devices` returns 502 `credential-unavailable` when unconnected |
 | workspace | `GET /ready` → `sandbox_tier`, `keyring.status` |
 
@@ -358,7 +357,6 @@ selection accuracy moving 49%→74% and 79.5%→88.1%.
 | **workspace** | `workspace.list` `workspace.grep` `workspace.read` `workspace.write` `workspace.edit` `workspace.patch` `workspace.delete` `workspace.move` `workspace.run` | read / write |
 | **research** | `research.search` `research.open` `research.summarize` | read |
 | **music** | `music.find` `music.now_playing` `music.devices` `music.recent` `music.play` `music.queue` `music.pause` | read / write |
-| **media** | `media.request` `media.status` `media.cancel` | read / write |
 | **settings** | `settings.describe` `settings.get` `settings.set` | read / write |
 | **agents** | `agents.spawn` `agents.send` `agents.list` `agents.result` `agents.wait` `journal.read` `journal.claim` `journal.complete` | read / write |
 
@@ -392,7 +390,8 @@ mostCommon first pick details`) come free. The trickiest operations carry 1–5
   worker). Per-service limits are semaphores on `ctx`.
 - Keep **camelCase** on every dict handed to weftai (`maxSteps`, `ttlMs`, `allowWrites`) —
   the TypedDicts are `total=False` and silently drop unknown keys.
-- Raise `stepTimeoutMs` (10 s) and `planTimeoutMs` (60 s) for media and search; override the
+- Raise `stepTimeoutMs` (10 s) and `planTimeoutMs` (60 s) for search; extensions declare
+  their own exceptional timeout needs. Override the
   formatter budgets (read 2000 / preview 400 / total 8000) and replace `estimate_tokens`
   (`ceil(chars/4)`) with a real tokenizer.
 - Keep `failure="continue"`: one dead service fails a step, skips its dependents, and the
@@ -410,7 +409,7 @@ mostCommon first pick details`) come free. The trickiest operations carry 1–5
 | --- | --- |
 | Spotify player reads | `{name, artists[].name, album.name, uri, duration_ms, progress_ms, is_playing}` |
 | Web-search scrape | `executive_summary` + `key_points` + URLs; the page text goes to the workspace and returns as a `$ref`; the service already reports `truncated`/`chars_submitted`/`original_chars`, so the notice is honest |
-| a media job | pass through (≤50 items, no bytes in JSON); **never** a download-file call as a tool result — a link or an MCP resource |
+| a high-volume extension result | pass through a bounded summary (≤50 items, no bytes in JSON); expose large artifacts by reference |
 | Environments views | drop the host `workspace` path (an information leak) |
 
 Every high-volume operation takes `response_format: "concise" | "detailed"` defaulting to
@@ -1363,6 +1362,7 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 `permission_mode` · `input_policy` (double-texting) · `enabled_capabilities` ·
 `disabled_capabilities` (refuses on outage — empty would re-enable a ban) ·
 `agent_max_depth` · `agent_max_concurrent` · `session_token_budget` ·
+`max_llm_turns` · `max_subagent_turns` · `max_tool_calls_per_turn` · `max_turn_seconds` ·
 `workspace_retention_hours` · `stream_thinking` · `incognito` · `log_message_content` ·
 `prompt_feeds_enabled` · `prompt_hide_personal_feeds` · `prompt_allow_unknown_feed_fields`
 · per-capability and per-field `feeds_*` toggles.
@@ -1370,9 +1370,8 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 Prompt-feed placement is Lucy's, not the sibling's. Spotify still owns playback defaults
 (`default_device`, `shuffle_on_play`, `repeat_mode`); environments owns shell behaviour
 (`persist_history`, `command_timeout_seconds`, `max_output_bytes`); search owns
-`default_result_count` and `recency_days`; media owns `confirm_before_start` and
-`notify_on_complete`. Lucy groups those with the matching `feeds_*` keys so the person
-sees Music, Workspace, Research, Media — never the service names.
+`default_result_count` and `recency_days`. Installed extensions own their settings and
+contribute matching `feeds_*` keys. Lucy groups them by capability, never by service name.
 
 ---
 

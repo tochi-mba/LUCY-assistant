@@ -120,19 +120,22 @@ lucy connect research --json
 ```
 
 Readiness describes the deployment. It does **not** prove that your account has connected
-Spotify or a model provider. The catalogue states account connection status separately,
-and currently uses `unknown` when Lucy cannot inspect it. Optional services can be skipped.
+music or a model provider. The catalogue states account connection status separately:
+`not_required`, `connected`, `disconnected`, `pending`, or `unknown` when the vault
+could not be read this request. Optional services can be skipped.
 The current catalogue uses explicit adapters to the services' readiness routes and setup
 documentation; the sibling services do not yet publish their own setup manifests.
 
-Browser sign-in, device login and Lucy's delegated token exchange are not implemented yet.
-For music, the guide points to Keyring's existing per-profile OAuth authorization flow:
-Keyring stores the Spotify connection and refreshes it for reuse. The CLI never claims to
-have completed that sign-in. A named `connect` command returns 1 when setup still needs
-attention. `--yes` and `--dry-run` perform no connection mutation in this version.
+Interactive setup now uses a short-lived browser device flow. Lucy prints a human-readable
+code and opens its subject-bound verification URL, then polls at the interval the hub gave
+it. The browser approval must come from an already authenticated Lucy client; the CLI never
+asks for a password. The resulting `aud=lucy-api` token is written only to the private
+configuration file. For a headless bootstrap, `--token-stdin` remains available; `--yes`
+never opens a browser.
 
-Conversation sessions and chat commands are also still planned. Setup configures the
-client and explains available services; it does not turn the current hub into a chat agent.
+Music connections use Lucy's `/v1/connections` surface over Keyring's delegated boundary.
+Provider credentials remain in Keyring. A named `connect` command returns 1 while setup
+still needs attention. `--dry-run` performs no connection mutation.
 
 ## Environment
 
@@ -144,7 +147,7 @@ client and explains available services; it does not turn the current hub into a 
 | `NO_COLOR` | Set to anything to turn colour off. So does `TERM=dumb`. |
 
 **A token is never a flag.** A flag lands in shell history and in the output of `ps`, where
-anybody on the machine can read it. Use the hidden setup prompt, stdin, or the existing
+anybody on the machine can read it. Use browser sign-in, stdin, or the existing
 `LUCY_TOKEN` override. Configuration inspection shows only a redacted token.
 
 An address is resolved **flag, then environment, then config file, then this machine**. An address with no

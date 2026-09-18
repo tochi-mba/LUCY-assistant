@@ -12,11 +12,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import UTC, datetime
 
+import httpx
 import pytest
+from keyring_client import USER_TOKEN_HEADER
 
 from lucy_api.clients.errors import UnavailableError
 from lucy_api.clients.keyring import (
     Connection,
+    DelegatedKeyringClient,
     FakeKeyringClient,
     HttpKeyringClient,
 )
@@ -152,3 +155,48 @@ async def test_the_fake_records_what_a_setup_flow_did_because_there_is_no_answer
     assert fake.authorized == [(PROFILE, "spotify")]
     assert fake.disconnected == [(PROFILE, "spotify")]
     assert await fake.connections(PROFILE) == ()
+
+
+async def test_the_delegated_client_uses_two_credentials_and_internal_paths() -> None:
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=CONNECTED)
+        if request.method == "POST":
+            return httpx.Response(200, json={"authorization_url": "https://provider.test"})
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        delegated = DelegatedKeyringClient(
+            http,
+            "http://keyring.test",
+            service_token="service-secret",
+            user_token="signed-user-proof",
+        )
+        assert (await delegated.connections(PROFILE))[0].service == "spotify"
+        assert (await delegated.authorize(PROFILE, "spotify")).url == "https://provider.test"
+        await delegated.disconnect(PROFILE, "spotify")
+
+    assert [request.url.path for request in seen] == [
+        "/v1/internal/profiles/personal",
+        "/v1/internal/profiles/personal/connections/spotify/authorize",
+        "/v1/internal/profiles/personal/connections/spotify",
+    ]
+    for request in seen:
+        assert request.headers["Authorization"] == "Bearer service-secret"
+        assert request.headers[USER_TOKEN_HEADER] == "signed-user-proof"
+
+
+async def test_the_delegated_client_reads_absent_profiles_and_connections_idempotently() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(404, json={"detail": "not found"})
+        )
+    ) as http:
+        delegated = DelegatedKeyringClient(
+            http, "http://keyring.test", service_token="service", user_token="user"
+        )
+        assert await delegated.connections(PROFILE) == ()
+        await delegated.disconnect(PROFILE, "spotify")

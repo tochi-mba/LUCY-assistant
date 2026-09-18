@@ -21,7 +21,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from lucy_api.packs.base import Catalogue
+    from lucy_api.packs.probes import ProbeCache
+    from lucy_api.permissions.gate import Grant
     from lucy_api.work import Registry
+
+from lucy_api.settings.policy import TurnPolicy
 
 
 class TokenSource(Protocol):
@@ -70,6 +74,45 @@ class SilentTokens:
         raise NoBrokerError
 
 
+class ChildRuntime(Protocol):
+    """Runs one helper and delivers a parent message to its inbox."""
+
+    async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume and schema
+        self,
+        parent: PackContext,
+        *,
+        objective: str,
+        role: str,
+        resume_from: str = "",
+        return_schema: str = "",
+        guidance: str = "",
+    ) -> tuple[str, int]: ...
+
+    async def run(
+        self,
+        parent: PackContext,
+        *,
+        objective: str,
+        role: str,
+        agent_id: str = "",
+        task_id: int = 0,
+    ) -> dict[str, Any]: ...
+
+    async def discard_setup(self, parent: PackContext, agent_id: str, task_id: int) -> None: ...
+
+    async def send(self, parent: PackContext, agent_id: str, body: str) -> dict[str, Any]: ...
+
+    async def reopen(
+        self, parent: PackContext, agent_id: str, *, return_schema: str = ""
+    ) -> dict[str, Any]: ...
+
+    async def read_journal(self, parent: PackContext) -> dict[str, Any]: ...
+
+    async def claim(self, parent: PackContext, task_id: str) -> dict[str, Any]: ...
+
+    async def complete(self, parent: PackContext, task_id: str) -> dict[str, Any]: ...
+
+
 @dataclass(slots=True)
 class PackContext:
     """One person, one profile, one session, for the life of one turn.
@@ -92,13 +135,19 @@ class PackContext:
     turn_id: str = ""
     agent_id: str = ""
     depth: int = 0
+    workspace_environment_id: str = ""
     workspace_path: str = ""
     permission_mode: str = "ask"
     incognito: bool = False
+    max_subagent_turns: int = 8
+    policy: TurnPolicy = field(default_factory=TurnPolicy)
     catalogue: Catalogue | None = None
     work: Registry | None = None
+    child: ChildRuntime | None = None
+    grants: dict[str, Grant] = field(default_factory=dict)
     bound_ids: set[str] = field(default_factory=set)
     limits: dict[str, asyncio.Semaphore] = field(default_factory=dict)
+    probes: ProbeCache | None = None
 
     def limit(self, service: str, *, concurrent: int = 2) -> asyncio.Semaphore:
         """The gate for one service, created the first time somebody asks for it."""
@@ -107,4 +156,12 @@ class PackContext:
         return self.limits[service]
 
 
-__all__ = ["Call", "Http", "NoBrokerError", "PackContext", "SilentTokens", "TokenSource"]
+__all__ = [
+    "Call",
+    "ChildRuntime",
+    "Http",
+    "NoBrokerError",
+    "PackContext",
+    "SilentTokens",
+    "TokenSource",
+]

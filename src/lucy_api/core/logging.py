@@ -196,12 +196,28 @@ NOTHING_BOUND = LogContext()
 """Read outside a request, a turn or an agent, which is where startup logging happens."""
 
 _context: ContextVar[LogContext | None] = ContextVar("lucy_log_context", default=None)
+_allow_content: ContextVar[bool] = ContextVar("lucy_log_message_content", default=False)
 
 
 def current_context() -> LogContext:
     """What the next log line will say about the work in flight."""
     bound = _context.get()
     return bound if bound is not None else NOTHING_BOUND
+
+
+@contextmanager
+def allow_message_content(enabled: bool) -> Iterator[None]:
+    """Unlock ``content`` fields on log lines for this turn only.
+
+    The process formatter stays redacted. A person who turned
+    ``lucy.log_message_content`` on is a fact about *this* conversation, not about
+    every account sharing the process.
+    """
+    token = _allow_content.set(enabled)
+    try:
+        yield
+    finally:
+        _allow_content.reset(token)
 
 
 @contextmanager
@@ -305,7 +321,7 @@ class JsonFormatter(logging.Formatter):
             return REDACTED
         if lowered in NEVER_FIELDS:
             return shape(value)
-        if lowered in CONTENT_FIELDS and not self.log_message_content:
+        if lowered in CONTENT_FIELDS and not (self.log_message_content or _allow_content.get()):
             return shape(value)
         if isinstance(value, str):
             return scrub(value)
@@ -373,6 +389,7 @@ __all__ = [
     "SECRET_HINTS",
     "JsonFormatter",
     "LogContext",
+    "allow_message_content",
     "bind",
     "configure",
     "current_context",

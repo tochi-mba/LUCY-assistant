@@ -50,7 +50,8 @@ class LogFormat(StrEnum):
 class ExtraSibling(BaseModel):
     """One operator-local service the published family does not name.
 
-    Capability packs look these up by product id (``media``, not a repository name).
+    Capability packs look these up by product id (for example ``archive``), not a
+    repository name.
     An empty ``base_url`` is the same as omitting the entry.
     """
 
@@ -95,6 +96,14 @@ class Settings(BaseSettings):
     rather than a directory it has to remember to make first.
     """
 
+    blobs_path: str = ""
+    """Where uploaded files and session artifacts live on disk.
+
+    Empty is a deliberate default: a file database gets a ``blobs`` directory beside it,
+    and an in-memory database (the test suite) gets a process-owned temp tree that dies
+    with the container. An operator who wants a specific volume sets this.
+    """
+
     # Identity. The audience is the hub's name in keyring's KEYRING_SERVICE_TOKENS, and it
     # must equal the audience_prefix settings-api grants it; a mismatch fails closed and
     # looks exactly like a correctly configured service whose every call is a 401.
@@ -121,6 +130,12 @@ class Settings(BaseSettings):
     spotify_api_base_url: str = "http://127.0.0.1:8007"
     environments_api_base_url: str = "http://127.0.0.1:8008"
     memory_api_base_url: str = "http://127.0.0.1:8009"
+    memory_api_token: str = ""
+    """Lucy's entry in Memory-api's ``MEMORY_SERVICE_TOKENS``. Empty refuses every notes call.
+
+    The person token is still minted for ``memory-api`` and travels as subject proof.
+    This value is Lucy's own credential, never a person's, and never a keyring token.
+    """
 
     extra_services: dict[str, ExtraSibling] = Field(default_factory=dict)
     """Operator-local siblings, keyed by capability id. Empty means none are wired."""

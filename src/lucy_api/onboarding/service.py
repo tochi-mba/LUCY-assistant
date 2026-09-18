@@ -12,6 +12,7 @@ import httpx
 from lucy_api.onboarding.catalogue import SetupManifest, manifests
 from lucy_api.onboarding.models import (
     CheckState,
+    ConnectionState,
     Readiness,
     SetupCheck,
     SetupResponse,
@@ -19,6 +20,8 @@ from lucy_api.onboarding.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from lucy_api.core.config import Settings
 
 
@@ -125,3 +128,35 @@ class SetupDiscovery:
                 for manifest, report in zip(self._manifests, reports, strict=True)
             ],
         )
+
+    def with_connections(
+        self, result: SetupResponse, by_service: Mapping[str, str] | None
+    ) -> SetupResponse:
+        """Overlay vault status onto capabilities that name one connection.
+
+        ``None`` means the inspect failed; those rows stay ``unknown`` rather than
+        pretending the person has never connected anything. Deployment probes stay
+        credential-free: this overlay is the only step that reads the vault.
+        """
+        if by_service is None:
+            return result
+        lookup = {manifest.id: manifest.connection_service for manifest in self._manifests}
+        return result.model_copy(
+            update={
+                "services": [
+                    row.model_copy(update={"connection_state": _account_state(by_service, service)})
+                    if (service := lookup.get(row.id))
+                    else row
+                    for row in result.services
+                ]
+            }
+        )
+
+
+def _account_state(by_service: Mapping[str, str], service: str) -> ConnectionState:
+    status = by_service.get(service)
+    if status == "active":
+        return "connected"
+    if status == "pending":
+        return "pending"
+    return "disconnected"

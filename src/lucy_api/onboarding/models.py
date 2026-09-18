@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Readiness = Literal["ready", "degraded", "unavailable"]
-ConnectionState = Literal["unknown", "not_required"]
+ConnectionState = Literal["unknown", "not_required", "connected", "disconnected", "pending"]
 CheckState = Literal["ready", "degraded", "unknown"]
 
 

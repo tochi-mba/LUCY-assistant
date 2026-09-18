@@ -49,7 +49,7 @@ async def test_the_plan_schema_documents_show_from_on_each_step() -> None:
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
     )
     catalogue = await capabilities.probe(context)
-    schema = capabilities.plan_schema(catalogue, "ses_a")
+    schema = capabilities.plan_schema(catalogue, "ses_a", context)
     assert "show_from" in json.dumps(schema)
 
 

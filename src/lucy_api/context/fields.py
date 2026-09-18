@@ -43,6 +43,14 @@ class FeedField:
 # Every field Lucy is willing to show. Adding a row here is what makes a new line both
 # renderable and togglable; a sibling sending a key that is not on this list is dropped.
 BUILTIN_FIELDS: tuple[FeedField, ...] = (
+    # Account: the always-load User-api block. Standing, and a separate capability from
+    # persona and memory, because the three stores must not share a ranking.
+    FeedField(
+        "account",
+        "pinned",
+        Volatility.standing,
+        "Pinned fields and notes the person asked to keep in view.",
+    ),
     # Persona: who Lucy is for this person, and the notes that person has pinned. Standing,
     # because a correction should break the cached prefix and nothing else should.
     FeedField("persona", "identity", Volatility.standing, "Who you are, in this profile."),

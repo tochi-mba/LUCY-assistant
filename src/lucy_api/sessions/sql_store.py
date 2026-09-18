@@ -41,6 +41,7 @@ class NewItem:
     content: object
     turn: str | None = None
     tokens: int = 0
+    agent_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +76,16 @@ def row_value(row: sqlite3.Row) -> dict[str, Any]:
     return value
 
 
+def claimed_one_row(db: sqlite3.Connection) -> bool:
+    """Whether the last UPDATE actually took the row.
+
+    The worker serializes writers today, so this is False only in a race a future
+    store could lose. Keeping the check here records the invariant rather than
+    assuming the SELECT still describes the row we just updated.
+    """
+    return int(db.execute("SELECT changes()").fetchone()[0]) == 1
+
+
 def session_row(db: sqlite3.Connection, account: str, session: str) -> sqlite3.Row:
     row: sqlite3.Row | None = db.execute(
         "SELECT * FROM sessions WHERE id=? AND account_id=?", (session, account)
@@ -82,6 +93,31 @@ def session_row(db: sqlite3.Connection, account: str, session: str) -> sqlite3.R
     if row is None:
         raise absent()
     return row
+
+
+def audit_row(  # noqa: PLR0913 - the row is six facts; collapsing them hides the schema
+    db: sqlite3.Connection,
+    account: str,
+    action: str,
+    *,
+    session: str | None = None,
+    turn: str | None = None,
+    detail: object | None = None,
+) -> None:
+    """Append one security-relevant fact. Never trimmed with the event stream."""
+    db.execute(
+        "INSERT INTO audit(account_id,session_id,turn_id,agent_id,action,detail_json,at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (
+            account,
+            session,
+            turn,
+            None,
+            action,
+            encoded(detail or {}),
+            time.time(),
+        ),
+    )
 
 
 def event_row(
@@ -146,7 +182,7 @@ def item_row(
         "seq": tail["seq"] + 1 if tail else 1,
         "parent_id": chained,
         "turn_id": item.turn,
-        "agent_id": None,
+        "agent_id": item.agent_id,
         "type": item.kind,
         "role": item.role,
         "content": item.content,
@@ -161,7 +197,7 @@ def item_row(
             value["seq"],
             value["parent_id"],
             item.turn,
-            None,
+            item.agent_id,
             item.kind,
             item.role,
             encoded(item.content),
@@ -295,12 +331,39 @@ class SessionStore:
     async def get(self, account: str, session: str) -> dict[str, Any]:
         return await self.worker.call(lambda db: row_value(session_row(db, account, session)))
 
+    async def attach_workspace(
+        self, account: str, session: str, environment_id: str, workspace_rel: str
+    ) -> dict[str, Any]:
+        """Attach the first provisioned workspace, once, without replacing one in use."""
+
+        def apply(db: sqlite3.Connection) -> dict[str, Any]:
+            current = session_row(db, account, session)
+            if current["workspace_environment_id"]:
+                return row_value(current)
+            now = time.time()
+            db.execute(
+                "UPDATE sessions SET workspace_environment_id=?,workspace_rel=?,updated_at=? "
+                "WHERE id=? AND workspace_environment_id IS NULL",
+                (environment_id, workspace_rel, now, session),
+            )
+            value = row_value(session_row(db, account, session))
+            event_row(
+                db,
+                session,
+                "lucy.session.workspace_attached",
+                {"environment_id": environment_id, "workspace_rel": workspace_rel},
+            )
+            return value
+
+        return await self.transaction(apply)
+
     async def claim_next_turn(self) -> dict[str, Any] | None:
         """Claim the oldest runnable queued turn, once, for this process.
 
         SQLite's writer transaction makes the selection and transition indivisible. A
         session may have queued input behind a running turn, but never two running turns:
-        the main loop is the single writer for its conversation.
+        the main loop is the single writer for its conversation. Ids are random, so a
+        created_at tie is broken by rowid (insertion order), not by the identifier.
         """
 
         def apply(db: sqlite3.Connection) -> dict[str, Any] | None:
@@ -309,7 +372,7 @@ class SessionStore:
                 "FROM turns JOIN sessions ON sessions.id=turns.session_id "
                 "WHERE turns.status='queued' AND NOT EXISTS ("
                 "SELECT 1 FROM turns running WHERE running.session_id=turns.session_id "
-                "AND running.status='running') ORDER BY turns.created_at,turns.id LIMIT 1"
+                "AND running.status='running') ORDER BY turns.created_at, turns.rowid LIMIT 1"
             ).fetchone()
             if row is None:
                 return None
@@ -320,7 +383,7 @@ class SessionStore:
             )
             # The update is guarded even though the worker serializes callers: keeping the
             # predicate records the invariant for a future store implementation.
-            if db.execute("SELECT changes()").fetchone()[0] != 1:
+            if not claimed_one_row(db):
                 return None
             db.execute(
                 "UPDATE sessions SET status='running',updated_at=? WHERE id=?",
@@ -333,6 +396,87 @@ class SessionStore:
                 (row["id"],),
             ).fetchone()
             return row_value(claimed)
+
+        return await self.transaction(apply)
+
+    async def interrupt_abandoned_turns(self) -> tuple[str, ...]:
+        """Fail turns a previous process left `running`, so queued work can proceed.
+
+        A crash mid-tool cannot prove the side effect did not already happen, so the turn
+        is failed rather than rerun. Parked turns (`input_required`, `auth_required`) wait
+        on a person, not this process, and are left alone. Queued turns stay queued.
+        """
+
+        def apply(db: sqlite3.Connection) -> tuple[str, ...]:
+            rows = db.execute(
+                "SELECT turns.id, turns.session_id "
+                "FROM turns JOIN sessions ON sessions.id=turns.session_id "
+                "WHERE turns.status='running' ORDER BY turns.created_at, turns.id"
+            ).fetchall()
+            interrupted: list[str] = []
+            now = time.time()
+            for row in rows:
+                turn = str(row["id"])
+                session = str(row["session_id"])
+                item_row(
+                    db,
+                    session,
+                    NewItem(
+                        "error",
+                        "assistant",
+                        {
+                            "code": "process_restarted",
+                            "detail": (
+                                "This turn was running when Lucy restarted. It was not "
+                                "replayed, because a tool that already ran must not run "
+                                "again. Send the message again if the work still matters."
+                            ),
+                        },
+                        turn=turn,
+                    ),
+                )
+                db.execute(
+                    "UPDATE turns SET status='failed', termination=?, stop_reason=?, "
+                    "error_code=?, finished_at=? WHERE id=? AND status='running'",
+                    (
+                        "error_during_execution",
+                        "process_restarted",
+                        "process_restarted",
+                        now,
+                        turn,
+                    ),
+                )
+                event_row(
+                    db,
+                    session,
+                    "lucy.turn.failed",
+                    {
+                        "termination": "error_during_execution",
+                        "stop_reason": "process_restarted",
+                    },
+                    turn,
+                )
+                queued = db.execute(
+                    "SELECT 1 FROM turns WHERE session_id=? AND status='queued' LIMIT 1",
+                    (session,),
+                ).fetchone()
+                waiting = db.execute(
+                    "SELECT status FROM turns WHERE session_id=? "
+                    "AND status IN ('input_required','auth_required') LIMIT 1",
+                    (session,),
+                ).fetchone()
+                if queued is not None:
+                    session_status = "queued"
+                elif waiting is not None:
+                    session_status = str(waiting["status"])
+                else:
+                    session_status = "idle"
+                db.execute(
+                    "UPDATE sessions SET status=?, updated_at=? WHERE id=?",
+                    (session_status, now, session),
+                )
+                interrupted.append(turn)
+            return tuple(interrupted)
 
         return await self.transaction(apply)
 
@@ -471,6 +615,40 @@ class SessionStore:
 
         return await self.worker.call(read)
 
+    async def record_audit(
+        self,
+        account: str,
+        action: str,
+        *,
+        session: str | None = None,
+        turn: str | None = None,
+        detail: object | None = None,
+    ) -> None:
+        def apply(db: sqlite3.Connection) -> None:
+            if session is not None:
+                session_row(db, account, session)
+            if turn is not None:
+                owned = db.execute(
+                    "SELECT turns.id FROM turns JOIN sessions ON sessions.id=turns.session_id "
+                    "WHERE turns.id=? AND sessions.account_id=?",
+                    (turn, account),
+                ).fetchone()
+                if owned is None:
+                    raise absent()
+            audit_row(db, account, action, session=session, turn=turn, detail=detail)
+
+        await self.transaction(apply)
+
+    async def audit_log(self, account: str) -> list[dict[str, Any]]:
+        def read(db: sqlite3.Connection) -> list[dict[str, Any]]:
+            rows = db.execute(
+                "SELECT * FROM audit WHERE account_id=? ORDER BY sequence",
+                (account,),
+            ).fetchall()
+            return [row_value(row) for row in rows]
+
+        return await self.worker.call(read)
+
     async def finish_turn(
         self,
         account: str,
@@ -480,6 +658,7 @@ class SessionStore:
         stop_reason: str | None = None,
     ) -> None:
         current = await self.turn(account, turn)
+        kept_reason = current.get("stop_reason") or stop_reason
 
         def apply(db: sqlite3.Connection) -> None:
             row = db.execute("SELECT status FROM turns WHERE id=?", (turn,)).fetchone()
@@ -490,7 +669,7 @@ class SessionStore:
                 (
                     status,
                     termination,
-                    stop_reason,
+                    kept_reason,
                     time.time() if status in TERMINAL else None,
                     turn,
                 ),
@@ -510,11 +689,71 @@ class SessionStore:
                 db,
                 current["session_id"],
                 "lucy.turn." + status,
-                {"termination": termination, "stop_reason": stop_reason},
+                {"termination": termination, "stop_reason": kept_reason},
                 turn,
             )
 
         await self.transaction(apply)
+
+    async def record_steps(
+        self,
+        account: str,
+        session: str,
+        turn_id: str,
+        plan: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
+        """Persist executed steps so a crash can name what already ran.
+
+        Replay is still refused: a tool that already ran must not run again. The row is
+        what a later process reads to explain *why* rather than to continue the plan.
+        """
+        planned = {
+            str(step.get("id")): step
+            for step in plan.get("steps") or []
+            if isinstance(step, dict) and step.get("id")
+        }
+
+        def apply(db: sqlite3.Connection) -> None:
+            session_row(db, account, session)
+            now = time.time()
+            for raw in result.get("steps") or []:
+                if not isinstance(raw, dict):
+                    continue
+                step_id = str(raw.get("id") or "")
+                if not step_id:
+                    continue
+                source = planned.get(step_id, {})
+                kind = str(raw.get("op") or raw.get("operation") or source.get("op") or "tool")
+                db.execute(
+                    "INSERT INTO steps(session_id,turn_id,step_id,kind,status,"
+                    "input_digest,result_json,created_at) VALUES (?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(session_id,turn_id,step_id) DO UPDATE SET "
+                    "status=excluded.status, result_json=excluded.result_json",
+                    (
+                        session,
+                        turn_id,
+                        step_id,
+                        kind,
+                        str(raw.get("status") or "ok"),
+                        digest(source.get("input", raw.get("input", {}))),
+                        encoded(raw),
+                        now,
+                    ),
+                )
+
+        await self.transaction(apply)
+
+    async def steps(self, account: str, session: str, turn_id: str) -> list[dict[str, Any]]:
+        def read(db: sqlite3.Connection) -> list[dict[str, Any]]:
+            session_row(db, account, session)
+            rows = db.execute(
+                "SELECT * FROM steps WHERE session_id=? AND turn_id=? ORDER BY created_at, step_id",
+                (session, turn_id),
+            ).fetchall()
+            return [row_value(row) for row in rows]
+
+        return await self.worker.call(read)
 
 
 def page(

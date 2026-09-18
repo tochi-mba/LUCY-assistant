@@ -57,8 +57,8 @@ class SessionResource(BaseModel):
     """A conversation, as a client sees it.
 
     ``parent_session_id`` and ``forked_from_item`` are only set on a fork, and together they
-    name exactly where the two conversations diverged. ``workspace_environment_id`` is
-    null on a fork: branching a conversation does not share the original files.
+    name exactly where the two conversations diverged. Every session, including a fork,
+    receives its own ``workspace_environment_id`` before its create response is returned.
     """
 
     id: str

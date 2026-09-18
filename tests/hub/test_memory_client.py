@@ -44,6 +44,7 @@ async def test_listing_and_mutations_use_the_memory_audience() -> None:
     }
     http = FakeHttp(
         Answer(body={"data": [stored]}),
+        Answer(body={"data": [stored]}),
         Answer(body=stored),
         Answer(body=stored),
         Answer(body=stored),
@@ -53,6 +54,7 @@ async def test_listing_and_mutations_use_the_memory_audience() -> None:
     client = HttpMemoryClient(http, "http://memory.test")
 
     listed = await client.listing(profile="personal")
+    searched = await client.search("tea", profile="personal")
     remembered = await client.remember(
         Draft(title="tea", body="prefers tea", kind="fact", profile="personal", session_id="ses")
     )
@@ -62,10 +64,68 @@ async def test_listing_and_mutations_use_the_memory_audience() -> None:
     blocks = await client.blocks(profile="personal")
 
     assert listed[0].title == "tea"
+    assert searched[0].title == "tea"
     assert remembered.id == "mem_1"
     assert confirmed.id == "mem_1"
     assert corrected.id == "mem_1"
     assert forgotten.id == "mem_1"
     assert blocks[0].label == "human"
     assert all(call.audience == "memory-api" for call in http.calls)
+    assert all("/v1/internal/memory" in call.url for call in http.calls)
+    assert http.calls[1].url.endswith("/v1/internal/memory/search")
     assert "account_id" not in as_dict(listed[0])
+
+
+async def test_the_topic_index_and_its_expansion_never_carry_an_account_id() -> None:
+    http = FakeHttp(
+        Answer(
+            body={
+                "data": [
+                    {
+                        "id": "top_1",
+                        "key": "tea",
+                        "title": "Tea",
+                        "summary": "How they take it",
+                        "count": 3,
+                        "importance": "0.5",
+                        "unread": 1,
+                        "trust": "stated",
+                        "last_seen": "2026-09-01T12:00:00Z",
+                        "account_id": "secret",
+                    },
+                    {"id": "top_bad", "importance": "not-a-number"},
+                    {"id": "top_obj", "importance": {"nested": True}},
+                    "not-an-object",
+                ]
+            }
+        ),
+        Answer(
+            body={
+                "memories": [
+                    {
+                        "id": "mem_1",
+                        "title": "tea",
+                        "body": "prefers tea",
+                        "account_id": "secret",
+                    }
+                ]
+            }
+        ),
+        Answer(body={"data": [{"id": "mem_2", "title": "also", "body": "green"}]}),
+    )
+    client = HttpMemoryClient(http, "http://memory.test")
+
+    topics = await client.topics(profile="personal")
+    from_memories = await client.topic_memories("top_1", profile="personal")
+    from_data = await client.topic_memories("top_1", profile="personal")
+
+    assert [card.id for card in topics] == ["top_1", "top_bad", "top_obj"]
+    assert topics[0].title == "Tea"
+    assert topics[0].importance == 0.5
+    assert topics[1].importance == 0.0
+    assert topics[2].importance == 0.0
+    assert topics[0].unread == 1
+    assert from_memories[0].body == "prefers tea"
+    assert from_data[0].id == "mem_2"
+    assert all("/v1/internal/memory/topics" in call.url for call in http.calls)
+    assert "account_id" not in as_dict(from_memories[0])

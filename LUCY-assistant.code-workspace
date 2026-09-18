@@ -2,14 +2,29 @@
   "folders": [
     { "name": "family", "path": "." },
     { "name": "Keyring-api", "path": "Keyring-api" },
-    { "name": "User-api", "path": "User-api" },
     { "name": "Settings-api", "path": "Settings-api" },
+    { "name": "User-api", "path": "User-api" },
     { "name": "Persona-api", "path": "Persona-api" },
     { "name": "Web-search-api", "path": "Web-search-api" },
     { "name": "Spotify-api", "path": "Spotify-api" },
-    { "name": "Environments-api", "path": "Environments-api" }
+    { "name": "Environments-api", "path": "Environments-api" },
+    { "name": "Memory-api", "path": "Memory-api" }
   ],
   "settings": {
+    "git.autoRepositoryDetection": "subFolders",
+    "git.repositoryScanMaxDepth": 2,
+    "git.openRepositoryInParentFolders": "never",
+    "git.scanRepositories": [
+      "Keyring-api",
+      "Settings-api",
+      "User-api",
+      "Persona-api",
+      "Web-search-api",
+      "Spotify-api",
+      "Environments-api",
+      "Memory-api"
+    ],
+    "scm.repositories.visible": 20,
     "editor.formatOnSave": true,
     "files.eol": "\n",
     "files.insertFinalNewline": true,

@@ -18,7 +18,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class SetupManifest:
-    """Only the deployment owns these URLs and the names accepted from its probes."""
+    """Only the deployment owns these URLs and the names accepted from its probes.
+
+    ``connection_service`` is the vault's name for the stored credential, when Lucy can
+    inspect one. Distinct from ``id`` because the person sees a product word (``music``)
+    and the vault stores a provider name. ``None`` means there is no single connection to
+    read, so the overlay leaves ``unknown`` rather than inventing a disconnected state.
+    """
 
     id: str
     title: str
@@ -28,6 +34,7 @@ class SetupManifest:
     checks: tuple[str, ...]
     required: bool = False
     connection_state: ConnectionState = "not_required"
+    connection_service: str | None = None
 
     def actions(self) -> list[SetupAction]:
         """Expose guidance without presenting an API route as a browser sign-in page."""
@@ -73,6 +80,7 @@ def _extra_manifest(capability: str, sibling: ExtraSibling) -> SetupManifest:
         instructions=sibling.instructions or _EXTRA_INSTRUCTIONS,
         checks=sibling.checks or ("ready",),
         connection_state="unknown",
+        connection_service=capability,
     )
 
 
@@ -95,7 +103,8 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             documentation=REPOSITORIES + "Keyring-api#readme",
             instructions=(
                 "Configure the identity service, unseal its credential vault, and create an "
-                "account. Lucy verifies your account token but cannot yet start browser sign-in."
+                "account. Sign in with lucy setup: it opens a browser, shows a one-time code, "
+                "and stores the token. Lucy never asks for a password."
             ),
             checks=("accounts", "vault", "connections"),
             required=True,
@@ -141,9 +150,9 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             base_url=settings.web_search_base_url,
             documentation=REPOSITORIES + "Web-search-api/blob/main/docs/keyring.md",
             instructions=(
-                "Choose a model provider. Local model runtimes need no provider credential; "
-                "remote provider keys belong to your profile in the identity vault. Lucy "
-                "cannot yet inspect your connected providers."
+                "Choose a model provider. Local runtimes need no provider credential; remote "
+                "keys belong in the identity vault, never in a prompt. Lucy lists what this "
+                "profile has connected; a local runtime needs no connection at all."
             ),
             checks=("keyring", "browser", "providers", "models", "settings"),
             connection_state="unknown",
@@ -154,14 +163,13 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             base_url=settings.spotify_api_base_url,
             documentation=REPOSITORIES + "Spotify-api#connecting-a-spotify-account",
             instructions=(
-                "Optional: configure Spotify's OAuth provider in Keyring. Sign in to Keyring "
-                "with your own account and use POST /v1/profiles/{profile}/connections/spotify/"
-                "authorize with that Keyring session, then open the returned consent URL. "
-                "Keyring stores and refreshes the connection for your account and profile; "
-                "Lucy cannot yet start this flow or inspect its state."
+                "Optional: connect music in the browser through Lucy (lucy connect music). "
+                "Lucy opens a short-lived link on its own origin, then the vault stores and "
+                "refreshes the connection. Never paste a password or token here."
             ),
             checks=("spotify",),
             connection_state="unknown",
+            connection_service="spotify",
         ),
         SetupManifest(
             id="workspace",

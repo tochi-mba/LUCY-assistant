@@ -64,7 +64,7 @@ _TERMINAL = tuple(sorted(TERMINAL))
 _MARKS = ",".join("?" for _ in _TERMINAL)
 # What is interpolated is placeholders, never values: one `?` per terminal state, because a
 # hand-written list of three would go stale on the day a fourth terminal state is added.
-_LIVE_TURNS = f"SELECT id FROM turns WHERE session_id=? AND status NOT IN ({_MARKS})"  # noqa: S608
+_LIVE_TURNS = f"SELECT id, status FROM turns WHERE session_id=? AND status NOT IN ({_MARKS})"  # noqa: S608
 _OWNED_TURN = (
     "SELECT turns.* FROM turns JOIN sessions ON sessions.id=turns.session_id "
     "WHERE turns.id=? AND sessions.account_id=?"
@@ -85,10 +85,11 @@ async def open_turn(
     loop knows when it actually began. ``events`` is stored verbatim as the turn's input, so
     a restart replays what was asked for rather than guessing at it.
 
-    Double-texting is decided here only as far as the data model can decide it. ``reject``
-    refuses a second turn outright; ``enqueue``, ``interrupt`` and ``rollback`` all produce a
-    queued turn, and what happens to the turn already in flight is the loop's call, since it
-    is the only thing holding the half-finished work. The policy in force travels on the
+    Double-texting is decided here. ``reject`` refuses a second turn outright.
+    ``enqueue`` records the new turn behind the live one. ``interrupt`` and ``rollback``
+    still record a new queued turn, but they also stop the live one: a running turn is
+    asked to end itself so in-flight work survives, and anything only queued is ended
+    here because nothing is in flight to unwind. The policy in force travels on the
     ``created`` event, so the decision is auditable next to the turn it applied to.
     """
 
@@ -102,20 +103,14 @@ async def open_turn(
         policy = current["input_policy"]
         if live is not None and policy == "reject":
             raise conflict(BUSY)
+        _displace_live(db, session, live, policy)
         turn = identifier("trn")
         now = time.time()
         db.execute(
             "INSERT INTO turns (id,session_id,status,input_json,created_at) VALUES (?,?,?,?,?)",
             (turn, session, QUEUED, encoded(events), now),
         )
-        if live is None:
-            # A session's status is the status of the turn it is working on, so a second
-            # turn queued behind a running one must not report the session as merely queued.
-            db.execute(
-                "UPDATE sessions SET status=?,updated_at=? WHERE id=?", (QUEUED, now, session)
-            )
-        else:
-            db.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session))
+        _mark_session(db, session, turn, now)
         event_row(
             db,
             session,
@@ -150,6 +145,7 @@ async def submit_messages(
         policy = current["input_policy"]
         if live is not None and policy == "reject":
             raise conflict(BUSY)
+        _displace_live(db, session, live, policy)
         turn = identifier("trn")
         now = time.time()
         db.execute(
@@ -158,12 +154,7 @@ async def submit_messages(
         )
         for event in events:
             item_row(db, session, NewItem("message", "user", event["content"], turn=turn))
-        if live is None:
-            db.execute(
-                "UPDATE sessions SET status=?,updated_at=? WHERE id=?", (QUEUED, now, session)
-            )
-        else:
-            db.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session))
+        _mark_session(db, session, turn, now)
         event_row(
             db,
             session,
@@ -227,14 +218,59 @@ async def cancel_turn(store: SessionStore, account: str, turn: str) -> dict[str,
     return await store.transaction(apply)
 
 
-def _finish_now(db: sqlite3.Connection, session: str, turn: str, was: str) -> None:
+def _displace_live(
+    db: sqlite3.Connection, session: str, live: sqlite3.Row | None, policy: str
+) -> None:
+    """Apply interrupt/rollback to the turn already in flight, if the policy names one."""
+    if live is None or policy not in {"interrupt", "rollback"}:
+        return
+    turn = str(live["id"])
+    was = str(live["status"])
+    payload = {"policy": policy, "was": was}
+    if was == RUNNING:
+        db.execute(
+            "UPDATE turns SET cancel_requested=1, stop_reason=? WHERE id=?",
+            (policy, turn),
+        )
+        event_row(db, session, "lucy.turn.superseded", payload, turn)
+        event_row(db, session, "lucy.turn.cancel_requested", payload, turn)
+        return
+    _finish_now(db, session, turn, was, ("superseded", policy))
+    event_row(db, session, "lucy.turn.superseded", payload, turn)
+
+
+def _mark_session(db: sqlite3.Connection, session: str, turn: str, now: float) -> None:
+    """A session's status is the status of the turn it is working on.
+
+    After interrupt/rollback the predecessor may no longer be live, so this looks again
+    rather than trusting the `live` row captured before the displace.
+    """
+    others = db.execute(_LIVE_TURNS + " AND id<>?", (session, *_TERMINAL, turn)).fetchone()
+    if others is None:
+        db.execute("UPDATE sessions SET status=?,updated_at=? WHERE id=?", (QUEUED, now, session))
+        return
+    db.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session))
+
+
+def _finish_now(
+    db: sqlite3.Connection,
+    session: str,
+    turn: str,
+    was: str,
+    ending: tuple[str | None, str | None] = (None, None),
+) -> None:
     """End a turn with nothing in flight, and hand the session back if it is now free.
 
     The session goes idle only when no other turn is still live: cancelling something that
     was queued behind a running turn must not tell every client the session stopped working.
+    ``ending`` is ``(termination, stop_reason)``.
     """
+    termination, stop_reason = ending
     now = time.time()
-    db.execute("UPDATE turns SET status=?,finished_at=? WHERE id=?", (CANCELLED, now, turn))
+    db.execute(
+        "UPDATE turns SET status=?,termination=?,stop_reason=?,finished_at=? WHERE id=?",
+        (CANCELLED, termination, stop_reason, now, turn),
+    )
     remaining = db.execute(_LIVE_TURNS + " AND id<>?", (session, *_TERMINAL, turn)).fetchone()
     if remaining is None:
         db.execute("UPDATE sessions SET status=?,updated_at=? WHERE id=?", (IDLE, now, session))

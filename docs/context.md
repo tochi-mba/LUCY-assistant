@@ -21,15 +21,19 @@ whole is worse than one that knows it is missing something.
 | zone | what | changes |
 | --- | --- | --- |
 | 0 static | identity, behaviour, tool idiom, safety | on deploy |
-| 1 slow | persona, pinned memory blocks, capability names | on connect or edit |
+| 1 slow | persona, pinned account facts, pinned memory blocks, capability names | on connect or edit |
 | 2 history | the conversation, projected through active compactions | grows at the end |
 | 3 live | the state block | **every turn** |
 | 4 input | what the person just said | new |
 
-Zone 3 is the one that keeps Lucy current, and it is therefore the one that must not go in
-the system prompt. Put it at the front and every turn pays full price for the entire
+Only zone 0 is sent through the provider's system channel. Standing persona claims in zone
+1 are stable prefix data, not instructions. Conversation and tool-result items are data as
+well. Zone 3 is the one that keeps Lucy current, and it is therefore the one that must not
+go in the system prompt. Put it at the front and every turn pays full price for the entire
 prefix. On a long session that is the difference between a conversation that is affordable
-and one that is not. Placed after the history, it costs its own length and nothing else.
+and one that is not. Placed after prior history and immediately before the current input on
+the first model call, it costs its own length and nothing else. After a tool round, the
+refreshed block follows the new results so it remains the last state the model reads.
 
 This is worth stating plainly because the instinct is the opposite. "Put the current state
 in the system prompt" sounds right and is exactly backwards.
@@ -56,12 +60,18 @@ compacted away, or waste a tool call discovering.
   This is how one agent sees another's work with no context transferred between them.
 - **memory** — the topic index, described below.
 - **workspace** — path, readiness, what changed since last turn, the last checkpoint, and a
+  sandbox expiry. On resume the group also carries cwd, the `progress.md` journal, `tasks.json`,
+  a short git log, and a smoke line, so a long-horizon helper re-orients before it writes.
   warning before the sandbox expires.
 - **capabilities** — what is ready, and especially what changed.
 - **pending** — approvals, elicitations and connections waiting on somebody else, so the
   model stops rather than spins.
-- **feeds** — standing claims (persona identity, notes) in zone 1; live facts (now playing,
-  cwd, active download) in this block. Each line is a setting the person can turn off.
+- **feeds** — standing claims (persona identity, pinned account facts, persona notes) in zone 1; live facts (now playing,
+  active playback and safe workspace state) in this block. Each line is a setting the
+  person can turn off. Persona data comes from Persona-api; pinned account fields come
+  from User-api as a **separate** feed from memory; playback and active-device
+  state come from Spotify-api; attached-environment state comes from Environments-api.
+  Workspace host paths are never included.
   Unknown keys from a sibling are dropped. A failed sibling is a trouble line, not a
   missing section the model is invited to invent.
 - **trouble** — repeated recent failures, so it stops retrying what cannot work.
@@ -94,6 +104,10 @@ A topic made entirely of unconfirmed memories never reaches the index. Its title
 untrusted content, and a memory store is a prompt-injection persistence layer — permanence
 is exactly what makes it worth attacking.
 
+Each turn fetches the index from notes, ranks it, and puts the trusted prefix in the live
+state block. Incognito sessions skip the fetch. The model expands one topic with
+`notes.openTopic`; it does not get the memories until it asks.
+
 ## Bands
 
 Five budgets, enforced independently, because one pool would let a large tool result evict
@@ -119,11 +133,13 @@ Each rung runs to exhaustion before the next. Only the last two lose information
 
 1. Never put it in context: references, sub-agent summaries, workspace files.
 2. Truncate at the tool boundary with an exact `showing N of M`.
-3. Clear old tool results. This invalidates the cache, so a clearing pass must free enough
+3. Clear old tool results, keeping `tool_results_kept` of the newest (notes results are
+   never dropped). This invalidates the cache, so a clearing pass must free enough
    to be worth it; frequent small clears cost more than they save.
 4. Clear thinking blocks.
-5. Compact, at 70–75% of the window rather than 90%. Quality is already degrading by then,
-   and at 95% there is no room for the summarisation call itself.
+5. Compact, at `compaction_trigger_percent` of the window (default 72%) rather than 90%.
+   Quality is already degrading by then, and at 95% there is no room for the summarisation
+   call itself. Auto-compact keeps `history_turns_kept` recent turns verbatim.
 6. Split the session, with a handoff note.
 
 Compaction is a projection, never a mutation. The transcript stays append-only and the

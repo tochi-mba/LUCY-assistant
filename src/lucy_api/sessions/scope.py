@@ -55,6 +55,14 @@ willing to overwrite JSON wholesale, and the operations it gets are append and m
 rather than write-the-whole-file.
 """
 
+PROGRESS_STARTER = "# Progress\n\nAppend-only journal for this conversation.\n"
+TASKS_STARTER = '{"tasks":[]}\n'
+GIT_INIT = "git init"
+GIT_BASELINE = (
+    "git add -A && git -c user.email=lucy@local -c user.name=lucy "
+    "commit --allow-empty -m session-start"
+)
+
 MODE_WIDTH = ("plan", "ask", "accept_edits", "auto")
 """Permission modes from narrowest to widest. A child may move left, never right."""
 
@@ -297,11 +305,15 @@ def scope_from_row(
 
 __all__ = [
     "AGENTS_DIR",
+    "GIT_BASELINE",
+    "GIT_INIT",
     "MODE_WIDTH",
     "PROGRESS_FILE",
+    "PROGRESS_STARTER",
     "SCRIPTS_DIR",
     "SESSIONS_ROOT",
     "TASKS_FILE",
+    "TASKS_STARTER",
     "ConfinementError",
     "SessionScope",
     "WorkspaceScope",

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from lucy_api.core.errors import LucyError
-from lucy_api.sessions.items import append_item, list_items, regenerate_item
+from lucy_api.sessions.items import append_item, list_agent_items, list_items, regenerate_item
 from lucy_api.sessions.models import CreateSession, Cursor
 from lucy_api.sessions.sql_store import NewItem, identifier
 
@@ -207,6 +207,26 @@ async def test_a_transcript_can_be_read_newest_first(sessions_store: SessionStor
 
     assert [row["id"] for row in page["data"]] == [last["id"], first["id"]]
     assert page["has_more"] is False
+
+
+async def test_helper_items_are_absent_from_the_parent_page(
+    sessions_store: SessionStore,
+) -> None:
+    session = await a_session(sessions_store)
+    parent = await append_item(sessions_store, OWNER, session, said("hello"))
+    helper = await sessions_store.append(
+        OWNER,
+        session,
+        NewItem("message", "assistant", {"text": "child"}, agent_id="agt_reviewer"),
+    )
+
+    listed = await list_items(sessions_store, OWNER, session, Cursor())
+    child = await list_agent_items(sessions_store, OWNER, session, "agt_reviewer", Cursor())
+    nobody = await list_agent_items(sessions_store, OWNER, session, "agt_missing", Cursor())
+
+    assert [row["id"] for row in listed["data"]] == [parent["id"]]
+    assert [row["id"] for row in child["data"]] == [helper["id"]]
+    assert nobody["data"] == []
 
 
 async def test_a_transcript_belonging_to_somebody_else_is_not_readable(

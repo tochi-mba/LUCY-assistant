@@ -45,8 +45,10 @@ hubs.
 4. Add the repository to the [lucy-assistant family CI](https://github.com/apps/lucy-assistant-family-ci) installation (Settings → Applications → Installed GitHub Apps → Repository access).
 5. From this meta-repo: `python scripts/parity.py --repo Your-api`.
 
-Optional: wire the service into `docker-compose.yml`, `scripts/genenv.py`, and
-`LUCY-assistant.code-workspace` when it should run with the rest of the family.
+Optional: wire a **public** service into `docker-compose.yml`, `scripts/genenv.py`,
+and `LUCY-assistant.code-workspace` when it should run with the rest of the family.
+A private checkout is listed only in gitignored `.repos.local.txt` and, for the
+editor, in a gitignored `*.local.code-workspace` — never in the committed workspace.
 Family ports are 8001–8008; see [ADR-0004](adr/0004-port-assignments.md).
 
 ## 4. CI caller

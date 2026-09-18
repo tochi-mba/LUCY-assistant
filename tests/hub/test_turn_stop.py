@@ -31,7 +31,7 @@ def test_a_turn_that_keeps_going_round_is_stopped_and_can_be_resumed() -> None:
     assert verdict.stop is True
     assert verdict.termination is Termination.max_iterations
     assert verdict.resumable is True
-    assert "12 rounds" in verdict.detail, "it says how far it got, not just that it stopped"
+    assert "12 model rounds" in verdict.detail, "it says how far it got, not just that it stopped"
 
 
 def test_a_turn_that_spends_its_tokens_says_how_many() -> None:
@@ -115,7 +115,7 @@ def test_the_model_is_warned_with_a_round_still_in_hand() -> None:
     """So it can write down where it got to. A model that hits the wall writes nothing."""
     notice = warning_for(Budget(max_iterations=10), Spent(iterations=8))
 
-    assert "2 of 10 rounds left" in notice
+    assert "2 of 10 model rounds left" in notice
     assert "write down where you got to" in notice
 
 
@@ -130,4 +130,4 @@ def test_an_unlimited_token_budget_never_warns_about_tokens() -> None:
 
 def test_the_threshold_can_be_moved() -> None:
     early = warning_for(Budget(max_iterations=10), Spent(iterations=5), at=0.5)
-    assert "5 of 10 rounds left" in early
+    assert "5 of 10 model rounds left" in early

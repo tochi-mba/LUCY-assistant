@@ -24,12 +24,13 @@ good?" on every request. They fetch JWKS, cache it, and verify. An outage of
 keyring degrades issuance, not verification of tokens already minted, until
 the keys go stale.
 
-**Two tokens on internal surfaces.** `/v1/internal` on keyring and on
-settings-api requires the caller's service token *and* the user's JWT. The
-service token names the caller; the JWT's `aud` must be that same name (or the
-grant's `audience_prefix`). A stolen service token without a matching user
-token reads nothing. A stolen user token without the service token never
-reaches the internal surface.
+**Two tokens on internal surfaces.** `/v1/internal` on keyring, settings-api
+and memory-api requires the caller's service token *and* the user's JWT. The
+service token names the caller; the JWT names the person. A stolen service
+token without a matching user token reads nothing. A stolen user token without
+the service token never reaches the internal surface. Lucy talks to Memory-api
+only this way: `LUCY_MEMORY_API_TOKEN` as Bearer, a minted `memory-api` JWT as
+`X-Keyring-User-Token`.
 
 **Unknown env vars fail startup.** A typo in `KEYRING_MASTER_KEY`'s name would
 otherwise start a sealed vault that looks healthy enough to ship. Each service

@@ -14,29 +14,85 @@ first request rather than on first use.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import hashlib
+import posixpath
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from keyring_client import JwksClient, SystemClock
+from settings_client import HttpSettingsClient
+from settings_client.errors import SettingsUnavailable
 
+from lucy_api.agents.journal import JournalLive
+from lucy_api.agents.runtime import ChildRuntime
+from lucy_api.agents.store import AgentStore
 from lucy_api.auth.broker import Delegation, TokenBroker, TokenCache
+from lucy_api.auth.device import DeviceFlow
 from lucy_api.auth.exchange import KeyringExchange
 from lucy_api.auth.verifier import TokenVerifier, VerifiedCaller
+from lucy_api.blobs import Blobs
+from lucy_api.clients.environments import HttpEnvironmentsClient
+from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.keyring import DelegatedKeyringClient
+from lucy_api.clients.live_feeds import MusicFeeds, PersonaFeeds, UserFeeds, WorkspaceFeeds
+from lucy_api.clients.memory import AUDIENCE as MEMORY_AUDIENCE
+from lucy_api.clients.memory import HttpMemoryClient
+from lucy_api.clients.spotify import HttpSpotifyClient
+from lucy_api.clients.user import HttpUserClient
+from lucy_api.connections.tickets import ConnectionTickets
+from lucy_api.context.build import Live
+from lucy_api.context.fields import FIELDS, feed_setting_key
+from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
+from lucy_api.context.sources import Sources
+from lucy_api.core.errors import LucyError, settings_unavailable
+from lucy_api.mcp.outbound import httpx_call, httpx_listing
+from lucy_api.mcp.servers import McpServers
+from lucy_api.memory.index import MemoryIndex
 from lucy_api.model.registry import ModelRegistry, http_registry
+from lucy_api.packs.context import NoBrokerError
+from lucy_api.packs.http import DownstreamError as TransportDownstreamError
 from lucy_api.packs.http import PackHttp
+from lucy_api.packs.mcp import McpPack
+from lucy_api.packs.probes import GuardedHttp
 from lucy_api.packs.service import Capabilities, installed_packs
-from lucy_api.sessions.scope import SessionScope
+from lucy_api.sessions.scope import (
+    GIT_BASELINE,
+    GIT_INIT,
+    PROGRESS_FILE,
+    PROGRESS_STARTER,
+    TASKS_FILE,
+    TASKS_STARTER,
+    SessionScope,
+    WorkspaceScope,
+)
 from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
+from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
-from lucy_api.turn.supervisor import TurnSupervisor
+from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
+from lucy_api.webhooks import Webhooks, httpx_deliver
+from lucy_api.work.live import WorkInFlight
+from lucy_api.work.registry import Registry as WorkRegistry
+from lucy_api.workspace.orient import WorkspaceLive
 
 if TYPE_CHECKING:
+    from settings_client import ResolvedSettings, SettingsClient
+
+    from lucy_api.clients.environments import EnvironmentsClient
+    from lucy_api.context.feeds import FeedSource
     from lucy_api.core.config import Settings
+    from lucy_api.memory.index import TopicListing
     from lucy_api.packs.context import PackContext
+    from lucy_api.permissions.gate import Grant
+    from lucy_api.sessions.models import CreateSession
+    from lucy_api.turn.stop import Budget as TurnBudget
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +129,18 @@ class Container:
     exchange: KeyringExchange
     token_cache: TokenCache
     outbound: httpx.AsyncClient
+    preferences: SettingsClient
+    connection_tickets: ConnectionTickets
+    device_flow: DeviceFlow
+    work: WorkRegistry
+    agents: AgentStore
+    mcp_servers: McpServers
+    blobs: Blobs
+    webhooks: Webhooks
+    environment_override: EnvironmentsClient | None = None
+    memory_topics: TopicListing | None = None
     started_at: float = field(default_factory=time.monotonic)
+    _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
     def pack_context(self, request: PackRequest) -> PackContext:
         """The seam a request uses to talk to siblings: minted tokens, never the caller's.
@@ -102,10 +169,19 @@ class Container:
             delegation=Delegation.for_person(request.caller, user_token=request.user_token),
             cache=self.token_cache,
         )
-        http = PackHttp(
-            tokens=broker,
-            timeout_seconds=self.settings.http_timeout_seconds,
-            client=self.outbound,
+        http = GuardedHttp(
+            PackHttp(
+                tokens=broker,
+                timeout_seconds=self.settings.http_timeout_seconds,
+                client=self.outbound,
+                service_tokens=_sibling_service_tokens(self.settings),
+            ),
+            self.capabilities.providers,
+            account_id=request.caller.account_id,
+            profile=request.profile,
+            on_disconnect=lambda: self.capabilities.forget_probes(
+                request.caller.account_id, request.profile
+            ),
         )
         return self.capabilities.context_for(
             SessionScope(
@@ -120,6 +196,259 @@ class Container:
             tokens=broker,
         )
 
+    def connection_client(self, request: PackRequest) -> DelegatedKeyringClient:
+        """Manage connection metadata through Keyring's two-credential internal surface."""
+        return DelegatedKeyringClient(
+            self.outbound,
+            self.settings.keyring_base_url,
+            service_token=self.settings.keyring_service_token,
+            user_token=request.user_token,
+        )
+
+    def environment_client(self, request: PackRequest) -> EnvironmentsClient:
+        """The delegated workspace client, replaceable by an in-memory one in tests."""
+        if self.environment_override is not None:
+            return self.environment_override
+        context = self.pack_context(request)
+        return HttpEnvironmentsClient(context.http, self.settings.environments_api_base_url)
+
+    async def ensure_workspace(
+        self, request: PackRequest, session: dict[str, object]
+    ) -> dict[str, object]:
+        """Provision and durably attach the isolated workspace for one session.
+
+        One environment belongs to the account/profile and each session receives its own
+        confined directory inside it. Listing before create makes a retry after a process
+        interruption recover that environment rather than consume another quota slot.
+        """
+        if session.get("workspace_environment_id"):
+            return session
+        session_id = str(session["id"])
+        name = _workspace_name(request.caller.account_id, request.profile)
+        lock = self._workspace_locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            current = await self.store.get(request.caller.account_id, session_id)
+            if current.get("workspace_environment_id"):
+                return current
+            client = self.environment_client(request)
+            available = await client.environments(profile=request.profile)
+            existing = next((item for item in available if item.name == name), None)
+            environment = existing or await client.create(name, profile=request.profile)
+            workspace = WorkspaceScope(environment.environment_id, session_id)
+            await client.mkdir(environment.environment_id, workspace.root)
+            await _bootstrap_session_workspace(client, workspace)
+            return await self.store.attach_workspace(
+                request.caller.account_id,
+                session_id,
+                environment.environment_id,
+                workspace.root,
+            )
+
+    def workspace_view(self, session: dict[str, object]) -> dict[str, object]:
+        """What a client may know: an environment id and a relative path, never a host path."""
+        env_id = str(session.get("workspace_environment_id") or "")
+        rel = str(session.get("workspace_rel") or "")
+        return {
+            "environment_id": env_id or None,
+            "path": rel,
+            "status": "attached" if env_id and rel else "missing",
+        }
+
+    async def reset_workspace(self, request: PackRequest, session_id: str) -> dict[str, object]:
+        """Wipe the session subtree and seed it again. The environment itself stays."""
+        row = await self.store.get(request.caller.account_id, session_id)
+        if not row.get("workspace_environment_id"):
+            row = await self.ensure_workspace(request, row)
+        env_id = str(row.get("workspace_environment_id") or "")
+        recorded = str(row.get("workspace_rel") or "")
+        rel = recorded or WorkspaceScope(env_id, session_id).root
+        if env_id and not recorded:
+
+            def restore(db: Any) -> None:
+                db.execute(
+                    "UPDATE sessions SET workspace_rel=? WHERE id=?",
+                    (rel, session_id),
+                )
+
+            await self.store.transaction(restore)
+            row = {**row, "workspace_rel": rel}
+        client = self.environment_client(request)
+        with contextlib.suppress(DownstreamError, KeyError, LucyError):
+            await client.delete(env_id, rel, recursive=True)
+        await client.mkdir(env_id, rel)
+        await _bootstrap_session_workspace(client, WorkspaceScope(env_id, session_id))
+        return self.workspace_view(row)
+
+    async def session_memory(
+        self, request: PackRequest, session: dict[str, object]
+    ) -> dict[str, object]:
+        """The topic index currently eligible for this conversation's prompt."""
+        if session.get("incognito"):
+            return {"data": [], "incognito": True}
+        listing = self.memory_topics
+        if listing is None:
+            listing = HttpMemoryClient(
+                self.pack_context(request).http, self.settings.memory_api_base_url
+            )
+        resolved = await self._turn_settings(request.user_token, request.profile)
+        policy = TurnPolicy.from_resolved(resolved)
+        index = MemoryIndex(
+            listing,
+            profile=request.profile,
+            limit=policy.memory_retrieval_limit,
+            incognito=False,
+        )
+        try:
+            snapshots = await index.fetch(request.session_id)
+        except (DownstreamError, TransportDownstreamError, LucyError, NoBrokerError):
+            return {"data": [], "incognito": False, "notice": "memory is unavailable"}
+        return {
+            "data": [
+                {
+                    "id": topic.id,
+                    "title": topic.title,
+                    "summary": topic.summary,
+                    "count": topic.count,
+                    "trust": topic.trust,
+                    "unread": topic.unread,
+                    "last_seen": None if topic.last_seen is None else topic.last_seen.isoformat(),
+                }
+                for topic in snapshots
+            ],
+            "incognito": False,
+        }
+
+    async def discard_session(self, request: PackRequest, session_id: str) -> None:
+        """Drop the session, its artifacts, and its confined workspace subtree.
+
+        The account's environment is shared across conversations, so this deletes the
+        session directory rather than the sandbox. Memory is not this service's to erase.
+        """
+        row = await self.store.get(request.caller.account_id, session_id)
+        await self.blobs.delete_session(request.caller.account_id, session_id)
+        env_id = str(row.get("workspace_environment_id") or "")
+        rel = str(row.get("workspace_rel") or "")
+        await self.store.delete(request.caller.account_id, session_id)
+        if not env_id or not rel:
+            return
+        bound = PackRequest(
+            caller=request.caller,
+            user_token=request.user_token,
+            profile=str(row["profile"]),
+            session_id=session_id,
+        )
+        try:
+            await self.environment_client(bound).delete(env_id, rel, recursive=True)
+        except (DownstreamError, KeyError, LucyError):
+            return
+
+    async def erase_account(self, request: PackRequest) -> None:
+        """Wipe Lucy's copy of this person. Memory-api is a different store and is left."""
+        workspaces = await self.blobs.erase_account(request.caller.account_id)
+        client = self.environment_client(request)
+        for env_id, rel in workspaces:
+            try:
+                await client.delete(env_id, rel, recursive=True)
+            except (DownstreamError, KeyError, LucyError):
+                continue
+
+    async def apply_create_defaults(self, request: CreateSession, user_token: str) -> CreateSession:
+        """Fill omitted create fields from this person's lucy settings.
+
+        The session row is the live override after this. A later PATCH still wins. An
+        omitted model is not the CreateSession constructor default leaking through as if
+        the person chose it.
+        """
+        resolved = await self._turn_settings(user_token, request.profile)
+        policy = TurnPolicy.from_resolved(resolved)
+        sent = request.model_fields_set
+        updates: dict[str, object] = {}
+        if "model" not in sent:
+            updates["model"] = policy.model
+        if "thinking_config" not in sent:
+            updates["thinking_config"] = policy.thinking
+        if "permission_mode" not in sent:
+            updates["permission_mode"] = policy.permission_mode
+        if "input_policy" not in sent:
+            updates["input_policy"] = policy.input_policy
+        if "incognito" not in sent:
+            updates["incognito"] = policy.incognito
+        if not updates:
+            return request
+        return request.model_copy(update=updates)
+
+    async def prepare_turn(self, request: PackRequest, session: dict[str, object]) -> PreparedTurn:
+        """Resolve one turn's ephemeral authority, feeds, and feed policy.
+
+        The caller token is consumed here by the two clients that must prove a subject. It
+        is never copied into the session, turn, event, or prompt and the returned brokers
+        stay in memory only until the supervisor claims this turn.
+        """
+        resolved = await self._turn_settings(request.user_token, request.profile)
+        policy = TurnPolicy.from_resolved(resolved)
+        if policy.blocks_turn:
+            raise settings_unavailable(SETTINGS_UNAVAILABLE)
+        pack_context = self.pack_context(request)
+        pack_context.policy = policy
+        pack_context.max_subagent_turns = policy.max_subagent_turns
+        feeds: list[FeedSource] = [
+            PersonaFeeds(pack_context.http, self.settings.persona_api_base_url),
+            UserFeeds(HttpUserClient(pack_context.http, self.settings.user_api_base_url)),
+            MusicFeeds(HttpSpotifyClient(pack_context.http, self.settings.spotify_api_base_url)),
+        ]
+        environment_id = str(session.get("workspace_environment_id") or "")
+        workspace_live = None
+        if environment_id:
+            workspace = WorkspaceScope(environment_id, request.session_id)
+            pack_context.workspace_environment_id = environment_id
+            pack_context.workspace_path = workspace.root
+            workspace_live = WorkspaceLive(self.environment_client(request), workspace)
+            feeds.append(
+                WorkspaceFeeds(
+                    HttpEnvironmentsClient(
+                        pack_context.http, self.settings.environments_api_base_url
+                    ),
+                    environment_id,
+                )
+            )
+        pack_context.grants = await _load_grants(
+            self.store, request.caller.account_id, request.profile, request.session_id
+        )
+        sources = Sources(
+            in_flight=WorkInFlight(self.work),
+            tasks=JournalLive(self.agents, request.caller.account_id),
+            workspace=workspace_live,
+            topics=MemoryIndex(
+                HttpMemoryClient(pack_context.http, self.settings.memory_api_base_url),
+                profile=request.profile,
+                limit=policy.memory_retrieval_limit,
+                incognito=request.incognito,
+            ),
+        )
+        return PreparedTurn(
+            pack_context=pack_context,
+            live=Live(sources=sources, feeds=tuple(feeds), flags=_feed_flags(resolved)),
+            budget=_budget_for(policy),
+            max_subagent_turns=policy.max_subagent_turns,
+        )
+
+    async def _turn_settings(
+        self, user_token: str, profile: str | None = None
+    ) -> ResolvedSettings | None:
+        """Resolve the Lucy namespace once for everything this turn reads from it."""
+        try:
+            try:
+                return await self.preferences.resolve(  # type: ignore[call-arg]
+                    "lucy",
+                    user_token=user_token,
+                    profile=profile,
+                )
+            except TypeError:
+                # settings-client v0.1.0 has no profile argument; later tags do.
+                return await self.preferences.resolve("lucy", user_token=user_token)
+        except SettingsUnavailable:
+            return None
+
     @property
     def uptime_seconds(self) -> float:
         return time.monotonic() - self.started_at
@@ -130,28 +459,93 @@ class Container:
         await self.turns.start()
 
     async def aclose(self) -> None:
-        """Release both long-lived resources, even if the first one objects.
-
-        The worker's thread is retired whatever the JWKS client does on the way out. A leaked
-        thread holds an open SQLite connection, and on a file-backed database that means a
-        WAL nothing ever checkpoints.
-        """
+        """Release every long-lived resource, even if an earlier close objects."""
         try:
-            await self.turns.aclose()
+            await self.work.shutdown()
         finally:
             try:
-                await self.models.aclose()
+                await self.turns.aclose()
             finally:
                 try:
-                    await self.jwks.aclose()
+                    await self.models.aclose()
                 finally:
                     try:
-                        await self.exchange.aclose()
+                        await self.jwks.aclose()
                     finally:
                         try:
-                            await self.outbound.aclose()
+                            await self.exchange.aclose()
                         finally:
-                            await self.worker.aclose()
+                            try:
+                                await self.outbound.aclose()
+                            finally:
+                                try:
+                                    await self.preferences.aclose()
+                                finally:
+                                    try:
+                                        self.blobs.close()
+                                    finally:
+                                        await self.worker.aclose()
+
+
+def _feed_flags(resolved: ResolvedSettings | None) -> ExplicitFlags:
+    """This person's feed switches, or the catalogue's conservative defaults."""
+    values: dict[str, bool] = {}
+    if resolved is None:
+        return ExplicitFlags(values)
+    keys = {
+        MASTER,
+        HIDE_PERSONAL,
+        ALLOW_UNKNOWN,
+        *(feed_setting_key(field.capability) for field in FIELDS),
+        *(field.setting_key for field in FIELDS),
+    }
+    for key in keys:
+        value = resolved.get(key, None)
+        if isinstance(value, bool):
+            values[key] = value
+    return ExplicitFlags(values)
+
+
+def _budget_for(policy: TurnPolicy) -> TurnBudget:
+    """The loop ceilings, taken from the policy already clamped at the consuming edge."""
+    from lucy_api.turn.stop import Budget  # noqa: PLC0415 - avoids a composition-root cycle
+
+    return Budget(
+        max_iterations=policy.max_llm_turns,
+        max_tool_calls=policy.max_tool_calls,
+        max_seconds=float(policy.max_turn_seconds),
+        max_tokens=policy.session_token_budget,
+    )
+
+
+async def _load_grants(
+    store: SessionStore, account: str, profile: str, session_id: str = ""
+) -> dict[str, Grant]:
+    from lucy_api.permissions.store import grants_for  # noqa: PLC0415 - keeps the root acyclic
+
+    return dict(await grants_for(store, account, profile, session_id=session_id))
+
+
+def _integer(
+    resolved: ResolvedSettings | None,
+    key: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if resolved is None:
+        return default
+    value = resolved.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return min(maximum, max(minimum, value))
+
+
+def _workspace_name(account: str, profile: str) -> str:
+    """A non-identifying, valid and stable environment name for one profile."""
+    digest = hashlib.sha256(f"{account}\0{profile}".encode()).hexdigest()[:20]
+    return f"lucy-{digest}"
 
 
 def build_container(
@@ -181,17 +575,41 @@ def build_container(
         transport=transport,
         timeout=settings.http_timeout_seconds,
     )
-    capabilities = Capabilities(installed_packs(memory_base_url=settings.memory_api_base_url))
+    work = WorkRegistry(now=lambda: datetime.now(UTC))
+    outbound = httpx.AsyncClient(
+        timeout=settings.http_timeout_seconds,
+        transport=transport,
+        follow_redirects=False,
+    )
+    mcp_servers = McpServers(store, httpx_listing(outbound))
+    webhooks = Webhooks(store, deliver=httpx_deliver(outbound))
+    capabilities = Capabilities(
+        (
+            *installed_packs(
+                memory_base_url=settings.memory_api_base_url,
+                user_base_url=settings.user_api_base_url,
+                spotify_base_url=settings.spotify_api_base_url,
+                search_base_url=settings.web_search_base_url,
+                settings_base_url=settings.settings_api_base_url,
+                environments_base_url=settings.environments_api_base_url,
+            ),
+            McpPack(mcp_servers, httpx_call(outbound)),
+        ),
+        work=work,
+    )
+    agents = AgentStore(store)
+    capabilities.child = ChildRuntime(store, agents, models, capabilities)
     exchange = KeyringExchange(
         base_url=settings.keyring_base_url,
         service_token=settings.keyring_service_token,
         timeout_seconds=min(settings.http_timeout_seconds, 5.0),
         transport=transport,
     )
-    outbound = httpx.AsyncClient(
-        timeout=settings.http_timeout_seconds,
+    preferences = HttpSettingsClient(
+        base_url=settings.settings_api_base_url,
+        service_token=settings.settings_api_token,
+        timeout_seconds=min(settings.http_timeout_seconds, 5.0),
         transport=transport,
-        follow_redirects=False,
     )
     return Container(
         settings=settings,
@@ -202,11 +620,58 @@ def build_container(
         events=events,
         models=models,
         capabilities=capabilities,
-        turns=TurnSupervisor(store, models, events, capabilities),
+        turns=TurnSupervisor(
+            store, models, events, capabilities, agents=agents, on_status=webhooks.notify
+        ),
         exchange=exchange,
         token_cache=TokenCache(),
         outbound=outbound,
+        preferences=preferences,
+        connection_tickets=ConnectionTickets(),
+        device_flow=DeviceFlow(worker),
+        work=work,
+        agents=agents,
+        mcp_servers=McpServers(store, httpx_listing(outbound)),
+        blobs=Blobs(store, root=_blobs_root(settings)),
+        webhooks=webhooks,
     )
+
+
+async def _bootstrap_session_workspace(
+    client: EnvironmentsClient, workspace: WorkspaceScope
+) -> None:
+    """Seed the journal files and a git baseline. Missing git is not a failed session."""
+    env_id = workspace.environment_id
+    listing = await client.files(env_id, workspace.root)
+    names = {entry.name for entry in listing.entries}
+    if PROGRESS_FILE not in names:
+        await client.write(env_id, posixpath.join(workspace.root, PROGRESS_FILE), PROGRESS_STARTER)
+    if TASKS_FILE not in names:
+        await client.write(env_id, posixpath.join(workspace.root, TASKS_FILE), TASKS_STARTER)
+    try:
+        await client.run(env_id, GIT_INIT, cwd=workspace.root)
+        await client.run(env_id, GIT_BASELINE, cwd=workspace.root)
+    except DownstreamError:
+        return
+
+
+def _blobs_root(settings: Settings) -> Path | None:
+    """A configured volume, a sibling of the database, or a process-owned temp tree."""
+    if settings.blobs_path.strip():
+        return Path(settings.blobs_path)
+    if settings.database_path == ":memory:":
+        return None
+    return Path(settings.database_path).expanduser().resolve().parent / "blobs"
+
+
+def _sibling_service_tokens(settings: Settings) -> dict[str, str]:
+    """Lucy's own credentials for siblings that speak the two-credential internal contract.
+
+    Empty values are omitted: PackHttp then mints a Bearer, which those surfaces refuse.
+    That fail-closed is cheaper than silently calling the person-facing routes.
+    """
+    token = settings.memory_api_token.strip()
+    return {MEMORY_AUDIENCE: token} if token else {}
 
 
 __all__ = ["Container", "PackRequest", "build_container"]

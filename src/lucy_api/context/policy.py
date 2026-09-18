@@ -65,11 +65,12 @@ def apply_policy(
         allowed = known_keys(feed.id)
         entries: list[FeedEntry] = []
         for entry in feed.entries:
-            if entry.key not in allowed and not allow_unknown:
+            category = entry.setting_key
+            if category not in allowed and not allow_unknown:
                 continue
-            if entry.key in allowed and not view.flag(
-                field_setting_key(feed.id, entry.key),
-                FIELD_DEFAULTS.get(field_setting_key(feed.id, entry.key), True),
+            if category in allowed and not view.flag(
+                field_setting_key(feed.id, category),
+                FIELD_DEFAULTS.get(field_setting_key(feed.id, category), True),
             ):
                 continue
             entries.append(entry)

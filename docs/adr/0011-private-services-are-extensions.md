@@ -4,18 +4,11 @@
 
 ## Context
 
-The family is public. Some members of it are not, and more will not be: a tool somebody
-builds for themselves, a service wrapping a licence they cannot redistribute, an integration
-with something under NDA. Today exactly one such service exists, and the public repositories
-name it **fifty-three times**.
-
-Most of those are prose — a docstring reaching for an example and picking the service that
-happened to be nearby. Two are worse:
-
-* `Settings-api` ships a whole settings namespace for it, in `domain/catalogue/media.py`,
-  assembled into the public catalogue by name.
-* The hub ships four prompt-feed toggles for it, and lists it in `docker-compose.yml` behind
-  a profile.
+The family is public. Some integrations are not, and more will not be: a tool somebody
+builds for themselves, a service wrapping a licence they cannot redistribute, or an
+integration with something under NDA. Public repositories had accumulated names and
+implementation details for an operator-local integration in prose, settings, tests and
+deployment configuration.
 
 So a private service is not private. Its name, its capabilities, its retention policy and its
 quality settings are published, and anybody who clones the family learns that it exists and
@@ -81,8 +74,8 @@ real service, because picking another real service is how this happens again.
 ## What would change our minds
 
 If the family ever had no private members, the seams would be unused indirection. That is
-not the direction of travel: the reason this ADR exists is that the first private service
-already leaked, and the mechanism is cheaper than auditing prose forever.
+not the direction of travel: the mechanism is cheaper and safer than auditing prose
+forever.
 
 If a private service needed to change public *behaviour* rather than extend it, an extension
 point would not be enough. None does, and one that did would be an argument for it being

@@ -8,6 +8,7 @@ the *exact* prompt that was assembled, the *exact* items that were appended, and
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from lucy_api.model.scripted import (
@@ -19,11 +20,31 @@ from lucy_api.model.scripted import (
     runs_out_of_room,
     speaks,
 )
-from lucy_api.model.types import Message, Role, Stop, Usage
+from lucy_api.model.types import Chunk, Message, Reply, Role, Stop, Usage
+from lucy_api.model.wire import CHUNK_DONE, CHUNK_TEXT
 from lucy_api.turn.loop import Outcome, Turn, run_turn
 from lucy_api.turn.stop import Budget, Termination
 
 PLAN = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
+
+
+class _EmptyStream:
+    """A provider whose stream finishes without a done chunk, so that path is pinned."""
+
+    name = "empty"
+
+    async def complete(self, request: object) -> Reply:
+        del request
+        return Reply(text="unused")
+
+    async def stream(self, request: object) -> AsyncIterator[Chunk]:
+        del request
+        if False:
+            yield Chunk(kind=CHUNK_DONE)
+
+
+async def _ignore_chunk(chunk: Chunk) -> None:
+    del chunk
 
 
 class Transcript:
@@ -97,6 +118,27 @@ async def test_a_model_that_simply_answers_ends_the_turn() -> None:
     assert outcome.text == "Three dates in March."
     assert outcome.spent.iterations == 1
     assert provider.remaining == 0, "the script was used exactly up"
+
+
+async def test_a_streaming_callback_sees_chunks_and_the_turn_still_answers() -> None:
+    provider = ScriptedProvider([speaks("abcdefghij")], chunk_size=4)
+    kinds: list[str] = []
+
+    async def on_chunk(chunk: Chunk) -> None:
+        kinds.append(chunk.kind)
+
+    outcome = await run_turn(turn(provider, on_chunk=on_chunk))
+
+    assert outcome.text == "abcdefghij"
+    assert kinds[-1] == CHUNK_DONE
+    assert CHUNK_TEXT in kinds
+
+
+async def test_a_stream_that_ends_without_a_reply_fails_the_turn() -> None:
+    outcome = await run_turn(turn(_EmptyStream(), on_chunk=_ignore_chunk))
+
+    assert outcome.termination is Termination.failed
+    assert "without a reply" in outcome.detail
 
 
 async def test_a_plan_is_run_and_the_model_gets_another_go() -> None:
@@ -226,7 +268,7 @@ async def test_a_loop_that_never_settles_is_stopped_and_says_how_far_it_got() ->
     )
 
     assert outcome.termination is Termination.max_iterations
-    assert "3 rounds" in outcome.detail
+    assert "3 model rounds" in outcome.detail
     assert len(outcome.rounds) == 3
 
 
@@ -247,6 +289,15 @@ async def test_a_turn_can_be_stopped_from_outside_and_that_is_not_a_failure() ->
         )
     )
 
+    assert outcome.termination is Termination.cancelled
+    assert outcome.stop_reason is Stop.cancelled
+
+
+async def test_an_awaitable_cancel_check_is_honoured() -> None:
+    async def flagged() -> bool:
+        return True
+
+    outcome = await run_turn(turn(ScriptedProvider([speaks("no")]), cancelled=flagged))
     assert outcome.termination is Termination.cancelled
     assert outcome.stop_reason is Stop.cancelled
 
@@ -336,6 +387,14 @@ async def test_what_the_turn_cost_is_added_up_across_every_round() -> None:
 
 async def test_a_turn_stopped_by_its_token_budget_says_so() -> None:
     usage = Usage(input_tokens=500, output_tokens=100)
+    combined = usage + Usage(
+        input_tokens=1, output_tokens=2, cache_read_tokens=3, cache_write_tokens=4, cost_micros=5
+    )
+    assert combined.input_tokens == 501
+    assert combined.output_tokens == 102
+    assert combined.cache_read_tokens == 3
+    assert combined.cache_write_tokens == 4
+    assert combined.cost_micros == 5
     provider = ScriptedProvider([plans(PLAN, usage=usage) for _ in range(5)])
 
     outcome = await run_turn(
@@ -488,3 +547,158 @@ async def test_a_missing_result_body_contributes_nothing() -> None:
     provider = ScriptedProvider([plans(PLAN), speaks("Done.")])
     outcome = await run_turn(turn(provider, execute=executor(ok_result(data=None))))
     assert outcome.rounds[0].steps[0].summary == ""
+
+
+async def test_a_write_that_needs_approval_parks_instead_of_repairing_the_plan() -> None:
+    provider = ScriptedProvider([plans(PLAN), speaks("this round must not run")])
+    waiting = {
+        "issues": [
+            {
+                "code": "permission_required",
+                "message": "Remembering notes needs approval before it can run.",
+                "permission": "notes.write",
+                "operation": "research.search",
+            }
+        ],
+        "text": "Remembering notes needs approval before it can run.",
+        "steps": [],
+    }
+
+    outcome = await run_turn(turn(provider, execute=executor(waiting)))
+
+    assert outcome.termination is Termination.input_required
+    assert outcome.permission == "notes.write"
+    assert outcome.operation == "research.search"
+    assert outcome.arguments == {"query": "tour dates"}
+    assert len(outcome.asks) == 1
+    assert provider.remaining == 1
+
+
+async def test_every_gated_write_in_the_plan_is_named_so_a_subset_can_be_answered() -> None:
+    provider = ScriptedProvider([plans(PLAN), speaks("this round must not run")])
+    waiting = {
+        "issues": [
+            {
+                "code": "permission_required",
+                "message": "Remembering notes needs approval before it can run.",
+                "permission": "notes.write",
+                "operation": "notes.remember",
+                "arguments": {"title": "tea"},
+                "description": "Keep tea",
+            },
+            {
+                "code": "permission_required",
+                "message": "Remembering notes needs approval before it can run.",
+                "permission": "notes.write",
+                "operation": "notes.forget",
+                "arguments": {"id": "mem_1"},
+                "description": "Drop coffee",
+            },
+        ],
+        "text": "Remembering notes needs approval before it can run.",
+        "steps": [],
+    }
+
+    outcome = await run_turn(turn(provider, execute=executor(waiting)))
+
+    assert outcome.termination is Termination.input_required
+    assert [ask["operation"] for ask in outcome.asks] == ["notes.remember", "notes.forget"]
+    assert provider.remaining == 1
+
+
+async def test_a_parked_write_without_a_step_still_names_the_permission() -> None:
+    provider = ScriptedProvider([plans({"steps": []}), speaks("this round must not run")])
+    waiting = {
+        "issues": [
+            {
+                "code": "permission_required",
+                "message": "Remembering notes needs approval before it can run.",
+                "permission": "notes.write",
+            }
+        ],
+        "text": "Remembering notes needs approval before it can run.",
+        "steps": [],
+    }
+
+    outcome = await run_turn(turn(provider, execute=executor(waiting)))
+
+    assert outcome.termination is Termination.input_required
+    assert outcome.permission == "notes.write"
+    assert outcome.operation == ""
+    assert outcome.arguments == {}
+    assert provider.remaining == 1
+
+
+async def test_a_denied_write_is_handed_back_like_a_broken_plan() -> None:
+    prompts = Prompts()
+    provider = ScriptedProvider([plans(PLAN), speaks("I will not keep that.")])
+    denied = {
+        "issues": [
+            {
+                "code": "permission_denied",
+                "message": "Remembering notes is not allowed.",
+                "permission": "notes.write",
+            }
+        ],
+        "text": "Remembering notes is not allowed.",
+        "steps": [],
+    }
+
+    log = Transcript()
+    outcome = await run_turn(
+        turn(
+            provider,
+            execute=executor(denied),
+            assemble=prompts.assemble,
+            append=log.append,
+        )
+    )
+
+    assert outcome.termination is Termination.success
+    assert outcome.text == "I will not keep that."
+    assert "Remembering notes is not allowed." in prompts.notices[1]
+    assert ("tool_result", "tool") in [(kind, role) for kind, role, _content in log.items]
+
+
+async def test_a_denied_write_still_repairs_when_there_is_no_item_log() -> None:
+    prompts = Prompts()
+    provider = ScriptedProvider([plans(PLAN), speaks("I will not keep that.")])
+    denied = {
+        "issues": [
+            {
+                "code": "permission_denied",
+                "message": "Remembering notes is not allowed.",
+                "permission": "notes.write",
+            }
+        ],
+        "text": "Remembering notes is not allowed.",
+        "steps": [],
+    }
+    outcome = await run_turn(turn(provider, execute=executor(denied), assemble=prompts.assemble))
+    assert outcome.termination is Termination.success
+    assert "Remembering notes is not allowed." in prompts.notices[1]
+
+
+async def test_a_non_dict_issue_is_treated_as_a_broken_plan() -> None:
+    prompts = Prompts()
+    provider = ScriptedProvider([plans(PLAN), speaks("I will try another way.")])
+    outcome = await run_turn(
+        turn(
+            provider,
+            execute=executor({"issues": ["nope"], "text": "nope", "steps": []}),
+            assemble=prompts.assemble,
+        )
+    )
+    assert outcome.termination is Termination.success
+    assert "nope" in prompts.notices[1]
+
+
+def test_a_plan_that_is_not_a_mapping_has_no_first_step() -> None:
+    from lucy_api.turn.loop import _first_step, _steps_by_operation
+
+    assert _first_step(None) == {}
+    assert _first_step({"steps": "hits"}) == {}
+    assert _first_step({"steps": ["hits"]}) == {}
+    assert _first_step({"steps": [{"id": "hits"}]}) == {"id": "hits"}
+    assert _steps_by_operation(None) == {}
+    assert _steps_by_operation({"steps": "hits"}) == {}

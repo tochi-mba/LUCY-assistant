@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from lucy_api.context.fields import FIELDS, capabilities
 from lucy_api.settings.groups import (
     GROUPS,
+    PUBLIC_SERVICE_NAMES,
     SERVICE_NAMES,
     feed_keys_for,
     group,
     group_for,
+    service_names,
 )
 
 
@@ -33,6 +39,7 @@ def test_a_feed_toggle_is_shown_with_the_capability_it_describes() -> None:
     assert group_for("lucy.feeds_music_now_playing") == "music"
     assert group_for("lucy.feeds_workspace_last_command") == "workspace"
     assert group_for("lucy.feeds_persona_notes") == "persona"
+    assert group_for("lucy.feeds_account_pinned") == "account"
     # A toggle for a capability this build does not ship falls back to `lucy` rather than
     # inventing a group. A privately installed capability registers its own fields and
     # brings its own group with it; see ADR-0011.
@@ -64,3 +71,18 @@ def test_every_declared_feed_field_has_a_grouped_lucy_key() -> None:
 def test_group_lookup_is_the_row_in_groups() -> None:
     assert group("music") is GROUPS[4]
     assert group("music").namespaces == ("spotify",)
+
+
+def test_private_manifest_names_join_the_prompt_denylist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert service_names() == PUBLIC_SERVICE_NAMES
+    (tmp_path / ".repos.local.txt").write_text(
+        "# operator extras\nArchive-api https://example.invalid/Archive-api.git\n\n",
+        encoding="utf-8",
+    )
+    names = service_names()
+    assert "archive-api" in names
+    assert names >= PUBLIC_SERVICE_NAMES
+    assert SERVICE_NAMES == PUBLIC_SERVICE_NAMES

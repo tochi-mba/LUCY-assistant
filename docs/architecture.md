@@ -25,11 +25,15 @@ Keyring is the only service that knows a password, an OAuth grant, or an API key
   `aud` is that service's name. Verification is local, against
   `/.well-known/jwks.json`. [ADR-0003](adr/0003-bearer-canonical.md).
 - A service that needs a credential presents **two** tokens on `/v1/internal`: its
-  own shared secret (the entry in `KEYRING_SERVICE_TOKENS`) and the user's JWT.
-  Either alone is useless. That is the confused-deputy defence.
+  own shared secret and the user's JWT. Either alone is useless. That is the
+  confused-deputy defence. Keyring's secret is the entry in
+  `KEYRING_SERVICE_TOKENS`; Memory-api's is the entry in `MEMORY_SERVICE_TOKENS`;
+  Settings-api's is the row in `SETTINGS_API_SERVICES`. Lucy holds matching
+  copies as `LUCY_KEYRING_SERVICE_TOKEN`, `LUCY_MEMORY_API_TOKEN` and
+  `LUCY_SETTINGS_API_TOKEN`.
 
-User-api, Persona-api, and Settings-api never call `/v1/internal`. They pin
-`iss` and `aud` and fetch keys. They have no service token.
+User-api and Persona-api never call `/v1/internal`. They pin `iss` and `aud`
+and fetch keys. They have no service token.
 
 ## Data, not the vault
 

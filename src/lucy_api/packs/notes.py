@@ -1,9 +1,14 @@
 """Facts and lessons about the person, named `notes` so the model never sees a service.
 
-Persona is the assistant's voice. Memory is what it remembers. This pack is the one place
-the model writes and reads both as "notes", because a model that has to pick between two
-services to answer "what do we know about them" will pick wrong, and a model that never
-sees a service cannot.
+Persona is the assistant's voice. Memory is what it remembers. Account is the pinned
+fields a person asked to keep in view. This pack is the one place the model reads those
+as "notes", because a model that has to pick between three services to answer "what do we
+know about them" will pick wrong, and a model that never sees a service cannot.
+
+The three stores stay separate lists. Memory retrieval scores and account pinning are not
+the same ranking, and merging them would hide a pinned name under a bm25 that meant
+something else. `notes.search` is memory only. `notes.aboutMe` returns `blocks`, `facts`
+and `account` as three keys.
 
 Untrusted notes stay out of search: Memory-api already excludes them from retrieval. This
 pack never offers a way around that. Confirming is an explicit operation, because permanence
@@ -21,6 +26,9 @@ from weftai.schema.types import value
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.memory import AUDIENCE, DEFAULT_LIMIT, Draft, HttpMemoryClient, as_dict
+from lucy_api.clients.user import AUDIENCE as USER_AUDIENCE
+from lucy_api.clients.user import HttpUserClient
+from lucy_api.clients.user import as_dict as account_dict
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import NOTE
 from lucy_api.packs.context import NoBrokerError
@@ -39,8 +47,10 @@ NOTES_MARKDOWN = """# Notes
 Facts, procedures and episodes about the person, plus the small pinned blocks that travel
 with every turn.
 
-`notes.aboutMe` is the always-on picture: pinned blocks and the highest-ranked facts.
-`notes.search` is for a question. `notes.remember` records something they asked to keep;
+`notes.aboutMe` is the always-on picture: pinned memory blocks, the highest-ranked
+memory facts, and pinned account fields as a **separate** list. Do not treat those lists
+as one ranking. `notes.search` is memory only. The live index lists topics;
+`notes.openTopic` expands one. `notes.remember` records something they asked to keep;
 `notes.setFact` records a durable fact. Confirm before treating anything that came from a
 page as true. Correct rather than overwrite: history is the point.
 """
@@ -55,9 +65,18 @@ class NotesPack:
     title = "Notes"
     summary = "Remember, search, confirm, correct and forget facts about the person."
 
-    def __init__(self, base_url: str, *, audience: str = AUDIENCE) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        audience: str = AUDIENCE,
+        user_base_url: str = "",
+        user_audience: str = USER_AUDIENCE,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
+        self.user_base_url = user_base_url.rstrip("/")
+        self.user_audience = user_audience
 
     @property
     def docs(self) -> Path | None:
@@ -101,8 +120,10 @@ class NotesPack:
                 {
                     "name": "notes.aboutMe",
                     "description": (
-                        "Who this person is, in the notes they keep: pinned blocks and the "
-                        "highest-ranked facts (about me, profile, identity, preferences)."
+                        "Who this person is: pinned memory blocks, the highest-ranked "
+                        "memories, and pinned account facts as a separate list. Do not "
+                        "merge the lists or treat their order as one ranking (about me, "
+                        "profile, identity, preferences)."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({})),
@@ -127,7 +148,9 @@ class NotesPack:
                 {
                     "name": "notes.search",
                     "description": (
-                        "Find notes worth putting in front of the model. Untrusted and "
+                        "Find remembered notes worth putting in front of the model. This "
+                        "is memory only — pinned account fields are on notes.aboutMe, not "
+                        "here, because the scores are not comparable. Untrusted and "
                         "forgotten notes are excluded (search, recall, remember, lookup)."
                     ),
                     "input": object_schema(
@@ -145,6 +168,25 @@ class NotesPack:
                     "output": NOTE,
                     "effects": "read",
                     "run": self._search,
+                }
+            ),
+            define_operation(
+                {
+                    "name": "notes.openTopic",
+                    "description": (
+                        "Expand one memory topic from the live index into its notes. Use "
+                        "after reading the index; do not expand several on speculation."
+                    ),
+                    "input": object_schema(
+                        {
+                            "topic_id": string_schema().describe(
+                                "The topic id from the live memory index."
+                            )
+                        }
+                    ),
+                    "output": NOTE,
+                    "effects": "read",
+                    "run": self._open_topic,
                 }
             ),
             define_operation(
@@ -241,16 +283,38 @@ class NotesPack:
     def _client(self, context: PackContext) -> HttpMemoryClient:
         return HttpMemoryClient(context.http, self.base_url, audience=self.audience)
 
+    def _account(self, context: PackContext) -> HttpUserClient | None:
+        if not self.user_base_url:
+            return None
+        return HttpUserClient(context.http, self.user_base_url, audience=self.user_audience)
+
     async def _about_me(self, run: RunContext[PackContext]) -> dict[str, Any]:
         if run.ctx.incognito:
-            return {"status": "incognito", "message": INCOGNITO, "blocks": [], "facts": []}
+            return {
+                "status": "incognito",
+                "message": INCOGNITO,
+                "blocks": [],
+                "facts": [],
+                "account": [],
+            }
         client = self._client(run.ctx)
         blocks = await client.blocks(profile=run.ctx.profile)
         facts = await client.search(profile=run.ctx.profile, limit=DEFAULT_LIMIT)
         return {
             "blocks": [{"label": block.label, "body": block.body} for block in blocks],
             "facts": [as_dict(note) for note in facts],
+            "account": await self._pinned_account(run.ctx),
         }
+
+    async def _pinned_account(self, context: PackContext) -> list[dict[str, Any]]:
+        """Pinned account facts, or empty. A user-api miss must not blank the memories."""
+        client = self._account(context)
+        if client is None:
+            return []
+        try:
+            return [account_dict(fact) for fact in await client.pinned(profile=context.profile)]
+        except (NoBrokerError, ExchangeError, DownstreamError, TransportError):
+            return []
 
     async def _search(self, run: RunContext[PackContext]) -> list[dict[str, Any]]:
         """The notes themselves. The runtime labels, counts and references them.
@@ -266,6 +330,17 @@ class NotesPack:
         limit = int(run.input.get("limit") or DEFAULT_LIMIT)
         notes = await self._client(run.ctx).search(
             query, profile=run.ctx.profile, limit=max(1, min(limit, 20))
+        )
+        return [as_dict(note) for note in notes]
+
+    async def _open_topic(self, run: RunContext[PackContext]) -> list[dict[str, Any]]:
+        """The memories inside one topic. The index exists so this is paid for on purpose."""
+        if run.ctx.incognito:
+            run.notice(INCOGNITO)
+            return []
+        notes = await self._client(run.ctx).topic_memories(
+            str(run.input.get("topic_id") or ""),
+            profile=run.ctx.profile,
         )
         return [as_dict(note) for note in notes]
 
@@ -338,6 +413,14 @@ async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:
             "episode": "Something that happened in a session.",
             "procedure": "How they like something done.",
             "summary": "A distilled cluster of older notes.",
+        },
+        "sections": {
+            "blocks": "Pinned memory blocks that travel with every turn.",
+            "facts": "Highest-ranked memories. Not mixed with account.",
+            "account": (
+                "Pinned account fields and notes. A separate list; do not treat order "
+                "as shared with facts."
+            ),
         },
         "scopes": {
             "account": "True in every profile.",

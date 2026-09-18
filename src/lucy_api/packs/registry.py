@@ -17,6 +17,11 @@ turn: that capability reports itself unavailable, its operations are absent for 
 and the model is told in the state block. One service being down must never be the reason a
 person cannot ask a question that had nothing to do with it.
 
+Availability is cached per (account, profile, pack) for a few seconds so a conversation
+that never mentions music does not wait on music's devices list every turn. Operations
+still run locally on a hit, because they close over this turn's context. A connect,
+disconnect, settings write, or 502 naming a missing credential drops the row.
+
 ## Why an unusable capability is *absent* rather than present-and-failing
 
 A tool the model can call and that always errors is worse than no tool. It will call it,
@@ -47,6 +52,7 @@ from weftai import create_formatter, create_registry, create_runtime, standard_o
 
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
+from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -69,9 +75,11 @@ both reason about, and because a capability's operations are useless apart from 
 KEEP_RECENT = 4
 """How many of them stay bound when deferral kicks in, most recently used first."""
 
-ALWAYS = ("help",)
+ALWAYS = ("help", "work", "agents")
 """Never deferred. Without `help` the model cannot ask for what was deferred, which would
-make deferral a one-way door."""
+make deferral a one-way door. `work` and `agents` are the check-in path for everything
+that outlives a step, so hiding them when the system is busy hides the one capability
+that exists specifically for that case."""
 
 STEP_TIMEOUT_MS = 10_000
 PLAN_TIMEOUT_MS = 60_000
@@ -104,9 +112,12 @@ asks for them.
 The total is a ceiling on the rendering, not on the data. Everything is still stored and
 still addressable by reference; what is bounded is how much of it becomes tokens."""
 
-SLOW_SERVICES = frozenset({"media", "research"})
-"""Capabilities whose steps are allowed longer. A media job or a page fetch is not a bug for
-taking twelve seconds, and failing it at ten only produces a retry that takes twelve too."""
+SLOW_SERVICES = frozenset({"research", "mcp"})
+"""Built-in capabilities whose steps are allowed longer.
+
+A page fetch taking twelve seconds is not a bug, and failing it at ten only produces a
+retry that takes twelve too. Extensions own any additional timeout policy they need.
+"""
 
 
 async def probe_all(
@@ -120,23 +131,34 @@ async def probe_all(
     """
 
     async def one(pack: CapabilityPack) -> Bound:
-        try:
-            async with asyncio.timeout(seconds):
-                availability = await pack.probe(context)
-        except TimeoutError:
-            availability = Availability(
-                state=State.unavailable, detail="did not answer in time", checked_at=time.time()
-            )
-        except Exception as exc:
-            availability = Availability(
-                state=State.unavailable,
-                detail=f"unreachable ({type(exc).__name__})",
-                checked_at=time.time(),
-            )
+        cached = None
+        if context.probes is not None:
+            cached = context.probes.get(context.account_id, context.profile, pack.id)
+        if cached is not None:
+            availability = cached
+        else:
+            try:
+                async with asyncio.timeout(seconds):
+                    availability = await pack.probe(context)
+            except TimeoutError:
+                availability = Availability(
+                    state=State.unavailable,
+                    detail="did not answer in time",
+                    checked_at=time.time(),
+                )
+            except Exception as exc:
+                availability = Availability(
+                    state=State.unavailable,
+                    detail=f"unreachable ({type(exc).__name__})",
+                    checked_at=time.time(),
+                )
+            if context.probes is not None:
+                context.probes.put(context.account_id, context.profile, pack.id, availability)
         operations = tuple(pack.operations(context)) if availability.usable else ()
         return Bound(pack=pack, availability=availability, operations=operations)
 
-    return Catalogue(bound=tuple(await asyncio.gather(*(one(pack) for pack in packs))))
+    catalogue = Catalogue(bound=tuple(await asyncio.gather(*(one(pack) for pack in packs))))
+    return apply_disabled(catalogue, context.policy.disabled)
 
 
 def choose_bound(
@@ -169,6 +191,35 @@ def choose_bound(
     # ends the prompt cache for no reason at all.
     keep_ids = {item.pack.id for item in kept}
     return tuple(item for item in ready if item.pack.id in keep_ids), tuple(sorted(deferred))
+
+
+def apply_disabled(catalogue: Catalogue, disabled: Sequence[str]) -> Catalogue:
+    """Hide capabilities the person turned off. Help, work and helpers stay.
+
+    A disabled pack is absent from the registry, which is how the model learns it must not
+    offer it. The live-state listing still names it so the model can say it is off rather
+    than inventing a connect link.
+    """
+    blocked = {name for name in disabled if name not in ALWAYS_ON}
+    if not blocked:
+        return catalogue
+    bound: list[Bound] = []
+    for item in catalogue.bound:
+        if item.pack.id not in blocked:
+            bound.append(item)
+            continue
+        bound.append(
+            Bound(
+                pack=item.pack,
+                availability=Availability(
+                    state=State.disabled,
+                    detail="turned off in settings",
+                    checked_at=item.availability.checked_at,
+                ),
+                operations=(),
+            )
+        )
+    return Catalogue(bound=tuple(bound))
 
 
 def build_registry(
@@ -212,19 +263,20 @@ def _collections_in_play(
     return tuple(declared for declared in COLLECTIONS if declared.name in produced)
 
 
-def limits_for(bound: Sequence[Bound]) -> dict[str, Any]:
+def limits_for(bound: Sequence[Bound], policy: TurnPolicy | None = None) -> dict[str, Any]:
     """Step and plan timeouts, widened when a slow capability is in play.
 
     Keys are camelCase because weftai's option TypedDicts are `total=False`: a snake_case
     key is not an error, it is silently dropped, and the limit you thought you set is the
     default. That failure is invisible until something times out early in production.
     """
+    limits = policy if policy is not None else TurnPolicy()
     slow = any(item.pack.id in SLOW_SERVICES for item in bound)
     return {
-        "maxSteps": MAX_STEPS,
-        "maxParallel": MAX_PARALLEL,
-        "stepTimeoutMs": STEP_TIMEOUT_MS * (3 if slow else 1),
-        "planTimeoutMs": PLAN_TIMEOUT_MS * (3 if slow else 1),
+        "maxSteps": limits.max_steps,
+        "maxParallel": limits.max_parallel,
+        "stepTimeoutMs": limits.step_timeout_ms * (3 if slow else 1),
+        "planTimeoutMs": limits.plan_timeout_ms * (3 if slow else 1),
     }
 
 
@@ -233,6 +285,7 @@ def build_runtime(
     store: ResultStore | None = None,
     *,
     limits: dict[str, Any] | None = None,
+    policy: TurnPolicy | None = None,
 ) -> Any:
     """The runtime that executes a plan.
 
@@ -241,31 +294,39 @@ def build_runtime(
     steps that had already succeeded. `abort` is for the rare plan where partial execution
     is worse than none, and that is a per-plan decision rather than a default.
     """
+    budgets = policy if policy is not None else TurnPolicy()
     options: dict[str, Any] = {
         "registry": registry,
         "failure": "continue",
         # Named rather than left to the library's defaults: see the budget constants above.
         # A formatter that is not given budgets is a formatter nobody has thought about.
         "formatter": create_formatter(
-            {"budgets": {"read": READ_BUDGET, "preview": PREVIEW_BUDGET, "total": TOTAL_BUDGET}}
+            {
+                "budgets": {
+                    "read": budgets.render_read_tokens,
+                    "preview": budgets.render_preview_tokens,
+                    "total": budgets.render_total_tokens,
+                }
+            }
         ),
     }
     if store is not None:
         options["store"] = store
-    options["limits"] = limits if limits is not None else {"maxSteps": MAX_STEPS}
+    options["limits"] = limits if limits is not None else {"maxSteps": budgets.max_steps}
     # weftai types its options as a TypedDict; we assemble the mapping conditionally
     # because passing store=None is not the same as leaving it out.
     return create_runtime(cast("Any", options))
 
 
-def plan_schema_for(registry: Registry[Any]) -> dict[str, Any]:
+def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -> dict[str, Any]:
     """The JSON schema the model answers with.
 
     `maxSteps` is passed explicitly. weftai's tool binding leaves it out, so a model that is
     never told the cap discovers it by exceeding it — which costs a whole turn to learn
     something a single line of schema could have said.
     """
-    schema: dict[str, Any] = registry.plan_schema({"maxSteps": MAX_STEPS})
+    steps = (policy or TurnPolicy()).max_steps
+    schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
     return allow_show_from(schema)
@@ -283,6 +344,7 @@ __all__ = [
     "SLOW_SERVICES",
     "STEP_TIMEOUT_MS",
     "TOTAL_BUDGET",
+    "apply_disabled",
     "build_registry",
     "build_runtime",
     "choose_bound",

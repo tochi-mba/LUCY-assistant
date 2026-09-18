@@ -214,7 +214,7 @@ def _summary(payload: Any) -> Summary | None:
     from are the service's and would otherwise have to be carried through the projection
     just so that somebody else could phrase them.
     """
-    if not payload:
+    if not isinstance(payload, dict):
         return None
     submitted, original = number(payload, "chars_submitted"), number(payload, "original_chars")
     truncated = flag(payload, "truncated")

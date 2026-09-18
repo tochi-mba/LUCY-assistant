@@ -57,12 +57,13 @@ if TYPE_CHECKING:
 OWNER = "acct_owner"
 STRANGER = "acct_stranger"
 
-GUARDED_ELSEWHERE = frozenset({"create", "list_sessions"})
-"""The two account-taking methods a stranger cannot meet a 404 at, and why.
+GUARDED_ELSEWHERE = frozenset({"create", "list_sessions", "audit_log"})
+"""Account-taking methods a stranger cannot meet a 404 at, and why.
 
 `create` makes a row rather than finding one, so there is nothing to be refused access to.
 A listing is a collection the caller owns, so an account with no sessions is honestly empty
-rather than missing. Both are covered by their own tests; every other method is a door.
+rather than missing. The audit log is the same idea: it is this account's own rows, not a
+lookup of somebody else's. Each is covered by its own tests; every other method is a door.
 """
 
 
@@ -164,6 +165,10 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
 
     doors: list[tuple[str, Callable[[], Awaitable[object]]]] = [
         ("get", lambda: store.get(STRANGER, session)),
+        (
+            "attach_workspace",
+            lambda: store.attach_workspace(STRANGER, session, "env-stolen", "sessions/stolen"),
+        ),
         ("update", lambda: store.update(STRANGER, session, {"title": "taken over"})),
         ("append", lambda: store.append(STRANGER, session, NewItem("message", "user", "hi"))),
         ("event", lambda: store.event(STRANGER, session, "lucy.session.updated", None)),
@@ -172,6 +177,15 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
         ("turn", lambda: store.turn(STRANGER, turn)),
         ("finish_turn", lambda: store.finish_turn(STRANGER, turn, "cancelled")),
         ("delete", lambda: store.delete(STRANGER, session)),
+        (
+            "record_audit",
+            lambda: store.record_audit(STRANGER, "permission.granted", session=session),
+        ),
+        (
+            "record_steps",
+            lambda: store.record_steps(STRANGER, session, turn, {"steps": []}, {"steps": []}),
+        ),
+        ("steps", lambda: store.steps(STRANGER, session, turn)),
     ]
 
     # The list above is hand-written, so on its own it would not notice a method that
@@ -195,6 +209,37 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
         "lucy.session.created",
         "lucy.content.item.added",
     ]
+
+
+async def test_the_audit_log_is_this_account_s_rows_and_a_foreign_session_is_a_miss(
+    store: SessionStore,
+) -> None:
+    """An audit row names whose fact it is; attaching it to somebody else's session is a 404."""
+    session = await a_session(store)
+    turn = await a_turn(store, session)
+
+    await store.record_audit(
+        OWNER,
+        "permission.granted",
+        session=session,
+        turn=turn,
+        detail={"permission": "notes.write"},
+    )
+    await store.record_audit(OWNER, "permission.revoked")
+
+    with pytest.raises(LucyError) as caught:
+        await store.record_audit(STRANGER, "permission.granted", session=session)
+    assert_not_found(caught, "record_audit session")
+
+    with pytest.raises(LucyError) as caught:
+        await store.record_audit(STRANGER, "permission.granted", turn=turn)
+    assert_not_found(caught, "record_audit turn")
+
+    rows = await store.audit_log(OWNER)
+    assert [row["action"] for row in rows] == ["permission.granted", "permission.revoked"]
+    assert rows[0]["session_id"] == session
+    assert rows[1]["session_id"] is None
+    assert await store.audit_log(STRANGER) == []
 
 
 async def test_a_session_that_never_existed_fails_exactly_as_a_foreign_one_does(
@@ -819,3 +864,94 @@ def test_a_cursor_from_outside_the_collection_is_refused_rather_than_ignored() -
     with pytest.raises(LucyError) as before:
         page(rows, 10, None, "elsewhere", "asc")
     assert before.value.status == HTTPStatus.NOT_FOUND
+
+
+async def test_a_restart_fails_turns_left_running_and_leaves_queued_ones_runnable(
+    store: SessionStore,
+) -> None:
+    """A crashed process cannot prove a tool did not already run, so it does not rerun it."""
+    session = await a_session(store)
+    abandoned = await a_turn(store, session, status="running")
+    waiting = await a_turn(store, session, status="queued")
+
+    interrupted = await store.interrupt_abandoned_turns()
+
+    assert interrupted == (abandoned,)
+    failed = await store.turn(OWNER, abandoned)
+    assert failed["status"] == "failed"
+    assert failed["stop_reason"] == "process_restarted"
+    assert failed["error_code"] == "process_restarted"
+    assert (await store.turn(OWNER, waiting))["status"] == "queued"
+    assert (await store.get(OWNER, session))["status"] == "queued"
+    items = await store.records(OWNER, session, "items")
+    assert items[-1]["type"] == "error"
+    assert items[-1]["content"]["code"] == "process_restarted"
+    assert "lucy.turn.failed" in await event_types(store, session)
+
+
+async def test_a_turn_waiting_on_a_person_survives_a_restart(store: SessionStore) -> None:
+    session = await a_session(store)
+    parked = await a_turn(store, session, status="input_required")
+
+    assert await store.interrupt_abandoned_turns() == ()
+    assert (await store.turn(OWNER, parked))["status"] == "input_required"
+
+
+async def test_interrupting_nothing_is_a_no_op(store: SessionStore) -> None:
+    session = await a_session(store)
+
+    assert await store.interrupt_abandoned_turns() == ()
+    assert (await store.get(OWNER, session))["status"] == "idle"
+
+
+async def test_a_session_with_only_the_abandoned_turn_goes_idle(store: SessionStore) -> None:
+    session = await a_session(store)
+    abandoned = await a_turn(store, session, status="running")
+
+    assert await store.interrupt_abandoned_turns() == (abandoned,)
+    assert (await store.get(OWNER, session))["status"] == "idle"
+
+
+async def test_a_parked_turn_keeps_the_session_waiting_after_a_restart(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    abandoned = await a_turn(store, session, status="running")
+    parked = await a_turn(store, session, status="input_required")
+
+    interrupted = await store.interrupt_abandoned_turns()
+
+    assert interrupted == (abandoned,)
+    assert (await store.turn(OWNER, parked))["status"] == "input_required"
+    assert (await store.get(OWNER, session))["status"] == "input_required"
+
+
+async def test_executed_steps_are_recorded_once_and_junk_is_skipped(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    turn = await a_turn(store, session)
+    plan = {"steps": [{"id": "search", "op": "notes.search", "input": {"q": "tea"}}]}
+    result = {
+        "steps": [
+            "skip",
+            {"id": ""},
+            {"id": "search", "status": "ok", "operation": "notes.search"},
+        ]
+    }
+
+    await store.record_steps(OWNER, session, turn, plan, result)
+    await store.record_steps(
+        OWNER,
+        session,
+        turn,
+        plan,
+        {"steps": [{"id": "search", "status": "ok", "op": "notes.search"}]},
+    )
+    rows = await store.steps(OWNER, session, turn)
+
+    assert len(rows) == 1
+    assert rows[0]["step_id"] == "search"
+    assert rows[0]["kind"] == "notes.search"
+    assert rows[0]["status"] == "ok"
+    assert rows[0]["input_digest"]

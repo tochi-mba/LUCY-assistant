@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.core.errors import LucyError, conflict
+from lucy_api.packs.agents import AgentsPack
 from lucy_api.packs.context import PackContext, SilentTokens
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import NullHttp
+from lucy_api.packs.music import MusicPack
 from lucy_api.packs.notes import NotesPack
+from lucy_api.packs.probes import ProbeCache, ProviderLocks
 from lucy_api.packs.registry import (
     build_registry,
     build_runtime,
@@ -21,8 +25,15 @@ from lucy_api.packs.registry import (
     plan_schema_for,
     probe_all,
 )
+from lucy_api.packs.research import ResearchPack
+from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
+from lucy_api.packs.workspace import WorkspacePack
+from lucy_api.permissions.gate import PermissionGate
 from lucy_api.turn.window import without_needles
+
+NOT_FOUND = "not-found"
+TOOL_FAILED = "this tool could not run"
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,13 +41,19 @@ if TYPE_CHECKING:
     from weftai.registry import Registry
 
     from lucy_api.packs.base import CapabilityPack, Catalogue
-    from lucy_api.packs.context import Http, TokenSource
+    from lucy_api.packs.context import ChildRuntime, Http, TokenSource
     from lucy_api.sessions.scope import SessionScope
     from lucy_api.work import Registry as WorkRegistry
 
 
-def installed_packs(
-    *, memory_base_url: str = "http://127.0.0.1:8009"
+def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build ships
+    *,
+    memory_base_url: str = "http://127.0.0.1:8009",
+    user_base_url: str = "http://127.0.0.1:8002",
+    spotify_base_url: str = "http://127.0.0.1:8007",
+    search_base_url: str = "http://127.0.0.1:8006",
+    settings_base_url: str = "http://127.0.0.1:8003",
+    environments_base_url: str = "http://127.0.0.1:8008",
 ) -> tuple[CapabilityPack, ...]:
     """What this build ships. Third-party packs arrive through entry points later.
 
@@ -48,7 +65,16 @@ def installed_packs(
     nothing to be unavailable. It is the capability a model reaches for precisely when
     something else is slow, so it must not be the one that disappears when things are.
     """
-    return (HelpPack(), NotesPack(memory_base_url), WorkPack())
+    return (
+        HelpPack(),
+        NotesPack(memory_base_url, user_base_url=user_base_url),
+        ResearchPack(search_base_url),
+        MusicPack(spotify_base_url),
+        SettingsPack(settings_base_url),
+        WorkspacePack(environments_base_url),
+        WorkPack(),
+        AgentsPack(),
+    )
 
 
 class Capabilities:
@@ -59,10 +85,18 @@ class Capabilities:
         packs: Sequence[CapabilityPack] | None = None,
         *,
         work: WorkRegistry | None = None,
+        probes: ProbeCache | None = None,
     ) -> None:
         self.packs = tuple(packs) if packs is not None else installed_packs()
         self.work = work
+        self.child: ChildRuntime | None = None
+        self.probes = probes if probes is not None else ProbeCache()
+        self.providers = ProviderLocks()
         self._uses: dict[str, list[str]] = {}
+
+    def forget_probes(self, account_id: str, profile: str, pack_id: str | None = None) -> None:
+        """Drop cached availability so the next turn asks the pack again."""
+        self.probes.drop(account_id, profile, pack_id)
 
     def remember_use(self, session_id: str, pack_id: str) -> None:
         used = self._uses.setdefault(session_id, [])
@@ -93,10 +127,18 @@ class Capabilities:
             http=http if http is not None else NullHttp(),
             tokens=tokens if tokens is not None else SilentTokens(),
             turn_id=scope.turn_id,
+            agent_id=scope.agent_id,
+            depth=scope.depth,
             permission_mode=scope.permission_mode,
             incognito=scope.incognito,
+            workspace_environment_id=(
+                scope.workspace.environment_id if scope.workspace is not None else ""
+            ),
+            workspace_path=scope.workspace_root,
             bound_ids=set(self.recent(scope.session_id)),
             work=self.work,
+            child=self.child,
+            probes=self.probes,
         )
 
     async def probe(self, context: PackContext) -> Catalogue:
@@ -140,12 +182,18 @@ class Capabilities:
         operations = tuple(operation for item in bound for operation in item.operations)
         return build_registry(operations)
 
-    def runtime_for(self, catalogue: Catalogue, session_id: str) -> Any:
+    def runtime_for(self, catalogue: Catalogue, session_id: str, context: PackContext) -> Any:
         bound, _deferred = choose_bound(catalogue, recent=self.recent(session_id))
-        return build_runtime(self.registry_for(catalogue, session_id), limits=limits_for(bound))
+        return build_runtime(
+            self.registry_for(catalogue, session_id),
+            limits=limits_for(bound, context.policy),
+            policy=context.policy,
+        )
 
-    def plan_schema(self, catalogue: Catalogue, session_id: str) -> dict[str, Any]:
-        return plan_schema_for(self.registry_for(catalogue, session_id))
+    def plan_schema(
+        self, catalogue: Catalogue, session_id: str, context: PackContext
+    ) -> dict[str, Any]:
+        return plan_schema_for(self.registry_for(catalogue, session_id), context.policy)
 
     async def execute(self, plan: dict[str, Any], context: PackContext) -> dict[str, Any]:
         """Run one plan against the tools this turn actually bound.
@@ -157,7 +205,30 @@ class Capabilities:
         catalogue = context.catalogue
         if catalogue is None:
             catalogue = await self.probe(context)
-        runtime = self.runtime_for(catalogue, context.session_id)
+        verdict = PermissionGate().inspect(
+            plan,
+            mode=context.permission_mode,
+            grants=context.grants,
+            catalogue=catalogue,
+            memory_write_policy=context.policy.memory_write_policy,
+        )
+        if not verdict.allowed:
+            return {
+                "issues": [
+                    {
+                        "code": "permission_denied" if item.denied else "permission_required",
+                        "message": item.message,
+                        "permission": item.permission,
+                        "operation": item.operation,
+                        "arguments": item.arguments,
+                        "description": item.description,
+                    }
+                    for item in verdict.blocked
+                ],
+                "text": verdict.message,
+                "steps": [],
+            }
+        runtime = self.runtime_for(catalogue, context.session_id, context)
         result = await runtime.execute(
             without_needles(plan),
             {
@@ -170,9 +241,40 @@ class Capabilities:
             self.remember_use(context.session_id, pack_id)
         return as_loop_result(result)
 
+    async def invoke(
+        self, name: str, arguments: dict[str, Any], context: PackContext
+    ) -> dict[str, Any]:
+        """Run one named operation as a one-step plan. Same gate, no model tokens."""
+        catalogue = context.catalogue
+        if catalogue is None:
+            catalogue = await self.probe(context)
+        listing = self.tools(catalogue, context.session_id)
+        bound = {tool["name"] for tool in listing["tools"]}
+        if name not in bound:
+            raise LucyError(NOT_FOUND, _unknown_tool(name, bound, listing["deferred"]), 404)
+        result = await self.execute(
+            {"steps": [{"id": "invoke", "op": name, "input": arguments}]},
+            context,
+        )
+        issues = result.get("issues") or []
+        if issues:
+            first = issues[0] if isinstance(issues[0], dict) else {}
+            message = str(first.get("message") or TOOL_FAILED)
+            raise conflict(message)
+        return result
+
 
 def context_ids(catalogue: Catalogue) -> tuple[str, ...]:
     return tuple(item.pack.id for item in catalogue.ready())
+
+
+def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:
+    available = ", ".join(sorted(bound)) if bound else "no bound tools"
+    message = f"Unknown tool `{name}`; this turn has {available}"
+    if deferred:
+        held = ", ".join(sorted(deferred))
+        return f"{message}. Deferred: {held}. Bind one with capabilities.use."
+    return f"{message}."
 
 
 def as_loop_result(result: Any) -> dict[str, Any]:

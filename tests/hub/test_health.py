@@ -82,3 +82,13 @@ async def test_health_routes_name_no_account(client: Client) -> None:
     for path in ("/healthy", "/ready"):
         body = (await client.get(path)).text
         assert "acct_" not in body
+
+
+@pytest.mark.asyncio
+async def test_the_wrong_method_on_a_health_route_is_a_problem_document(
+    client: Client,
+) -> None:
+    response = await client.post("/healthy")
+    assert response.status_code == 405
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert "secret" not in response.text

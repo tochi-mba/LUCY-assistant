@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,6 +21,7 @@ from lucy_api.cli.base import (
 )
 from lucy_api.cli.config import ConfigError, load_config, redact, save_config
 from lucy_api.cli.connect import discover
+from lucy_api.cli.device import sign_in
 from lucy_api.cli.family import (
     APP_PAGE,
     PACKAGE_ROOT,
@@ -103,12 +103,7 @@ def _setup_token(ctx: Context, url: str) -> str:
             raise CliError(msg, USAGE)
         return resolve_token({TOKEN_VAR: token})
     if ctx.interactive and not ctx.args.yes and not ctx.environ.get(TOKEN_VAR):
-        ctx.say(
-            "Browser sign-in is not available in this hub yet. A token must have audience lucy-api."
-        )
-        ctx.say("Leave this blank to keep the saved token, or continue without signing in.")
-        token = getpass.getpass("Keyring token (hidden): ", stream=ctx.err).strip()
-        return resolve_token({TOKEN_VAR: token or existing})
+        return resolve_token({TOKEN_VAR: sign_in(ctx, url)})
     return existing
 
 

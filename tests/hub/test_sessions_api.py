@@ -29,14 +29,17 @@ import pytest
 from asgi_lifespan import LifespanManager
 from conftest import ACCOUNT, bearer
 from httpx import ASGITransport, AsyncClient
+from settings_client.testing import FakeSettingsClient
 
 from lucy_api.api.app import create_app
-from lucy_api.api.dependencies import StreamCursor
+from lucy_api.api.dependencies import StreamCursor, get_stream_cursor
 from lucy_api.api.routers.sessions import stream_session_events
 from lucy_api.api.schemas.problem import PROBLEM_CONTENT_TYPE
 from lucy_api.auth.verifier import VerifiedCaller
+from lucy_api.clients.environments import FakeEnvironmentsClient
 from lucy_api.core.errors import LucyError
-from lucy_api.sessions.models import Outcome
+from lucy_api.packs.http import DownstreamUnavailableError
+from lucy_api.sessions.models import CreateSession, Outcome
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.sessions.turns import close_turn, open_turn
 
@@ -50,6 +53,20 @@ if TYPE_CHECKING:
     from lucy_api.sessions.sql_store import SessionStore
 
 OTHER = "acct_someone_else"
+
+
+class FailingWorkspace(FakeEnvironmentsClient):
+    """A service that fails once after creation, exercising stable recovery."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail = True
+
+    async def mkdir(self, environment_id: str, path: str) -> str:
+        if self.fail:
+            self.fail = False
+            raise DownstreamUnavailableError("offline", audience="environments-api")
+        return await super().mkdir(environment_id, path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +91,9 @@ async def hub(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[Hub]:
         AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
     ):
         container = app.state.container
+        await container.preferences.aclose()
+        container.preferences = FakeSettingsClient()
+        container.environment_override = FakeEnvironmentsClient()
         yield Hub(http=http, store=container.store, container=container)
 
 
@@ -99,7 +119,100 @@ class TestCreating:
         assert created["title"] == "Planning"
         assert created["status"] == "idle"
         assert created["input_policy"] == "enqueue"
+        assert created["model"] == "anthropic:claude-opus-5"
+        assert created["thinking_config"] == "medium"
+        assert created["permission_mode"] == "ask"
+        assert created["incognito"] is False
         assert created["id"].startswith("ses_")
+        assert created["workspace_environment_id"].startswith("env-")
+        assert created["workspace_rel"] == f"sessions/{created['id']}"
+        fake = hub.container.environment_override
+        assert isinstance(fake, FakeEnvironmentsClient)
+        root = created["workspace_rel"]
+        env = created["workspace_environment_id"]
+        assert fake.contents[(env, f"{root}/progress.md")].startswith("# Progress")
+        assert '"tasks"' in fake.contents[(env, f"{root}/tasks.json")]
+        assert any(command == "git init" for _env, command, *_rest in fake.ran)
+
+    async def test_an_explicit_create_field_is_not_overwritten_by_settings(self, hub: Hub) -> None:
+        created = await create(
+            hub,
+            title="Named",
+            model="openai:gpt-5",
+            thinking_config="high",
+            permission_mode="plan",
+            input_policy="reject",
+            incognito=False,
+        )
+
+        assert created["model"] == "openai:gpt-5"
+        assert created["permission_mode"] == "plan"
+        assert created["thinking_config"] == "high"
+        assert created["input_policy"] == "reject"
+        assert created["incognito"] is False
+
+    async def test_an_omitted_incognito_flag_follows_the_person_setting(self, hub: Hub) -> None:
+        hub.container.preferences.seed("lucy", {"incognito": True})
+        created = await create(hub, key="incog-default", title="Quiet")
+
+        assert created["incognito"] is True
+
+    async def test_an_explicit_incognito_flag_is_not_overwritten_by_settings(
+        self, hub: Hub
+    ) -> None:
+        hub.container.preferences.seed("lucy", {"incognito": True})
+        created = await create(hub, key="incog-explicit", title="Named", incognito=False)
+
+        assert created["incognito"] is False
+
+    async def test_retrying_creation_reuses_the_same_workspace(self, hub: Hub) -> None:
+        first = await create(hub, title="Planning")
+        again = await create(hub, key="key-1", title="Planning")
+
+        assert again["workspace_environment_id"] == first["workspace_environment_id"]
+        fake = hub.container.environment_override
+        assert isinstance(fake, FakeEnvironmentsClient)
+        assert len(fake.workspaces) == 1
+
+    async def test_sessions_share_the_profile_environment_but_not_their_directories(
+        self, hub: Hub
+    ) -> None:
+        first = await create(hub, key="first-session")
+        second = await create(hub, key="second-session")
+
+        assert second["workspace_environment_id"] == first["workspace_environment_id"]
+        assert second["workspace_rel"] != first["workspace_rel"]
+        fake = hub.container.environment_override
+        assert isinstance(fake, FakeEnvironmentsClient)
+        assert len(fake.workspaces) == 1
+
+    async def test_failed_workspace_creation_is_recoverable_with_the_same_key(
+        self, hub: Hub
+    ) -> None:
+        failing = FailingWorkspace()
+        hub.container.environment_override = failing
+
+        unavailable = await hub.http.post(
+            "/v1/sessions",
+            json={"title": "Recover me"},
+            headers={**bearer(), "Idempotency-Key": "recover-workspace"},
+        )
+
+        assert unavailable.status_code == 503
+        assert unavailable.json()["type"].endswith("/workspace-unavailable")
+        assert len(failing.workspaces) == 1
+
+        recovered = await hub.http.post(
+            "/v1/sessions",
+            json={"title": "Recover me"},
+            headers={**bearer(), "Idempotency-Key": "recover-workspace"},
+        )
+
+        assert recovered.status_code == 201
+        assert recovered.json()["workspace_environment_id"] == "env-1"
+        assert len(failing.workspaces) == 1
+        listed = await hub.http.get("/v1/sessions", headers=bearer())
+        assert len(listed.json()["data"]) == 1
 
     async def test_a_session_document_never_names_the_account_that_owns_it(self, hub: Hub) -> None:
         # Not squeamishness: a session document gets pasted into bug reports.
@@ -292,6 +405,52 @@ class TestDeleting:
         after = await hub.http.get(f"/v1/sessions/{created['id']}", headers=bearer())
         assert after.status_code == 404
 
+    async def test_deleting_a_session_removes_its_workspace_subtree_not_the_sandbox(
+        self, hub: Hub
+    ) -> None:
+        created = await create(hub)
+        env = hub.container.environment_override
+        assert env is not None
+        env_id = str(created["workspace_environment_id"])
+        rel = str(created["workspace_rel"])
+        env.contents[(env_id, f"{rel}/notes.md")] = "keep me out of the next chat"
+        env.contents[(env_id, "shared.txt")] = "still here"
+
+        response = await hub.http.delete(f"/v1/sessions/{created['id']}", headers=bearer())
+
+        assert response.status_code == 204
+        assert (env_id, f"{rel}/notes.md") not in env.contents
+        assert (env_id, "shared.txt") in env.contents
+        assert env_id in env.workspaces
+
+    async def test_deleting_a_session_that_never_got_a_workspace_is_still_gone(
+        self, hub: Hub
+    ) -> None:
+        row = await hub.store.create(ACCOUNT, CreateSession(), "no-workspace")
+
+        response = await hub.http.delete(f"/v1/sessions/{row['id']}", headers=bearer())
+
+        assert response.status_code == 204
+
+    async def test_a_workspace_teardown_failure_does_not_resurrect_the_session(
+        self, hub: Hub
+    ) -> None:
+        created = await create(hub)
+
+        class Boom(FakeEnvironmentsClient):
+            async def delete(
+                self, environment_id: str, path: str, *, recursive: bool = False
+            ) -> None:
+                del environment_id, path, recursive
+                raise KeyError("gone")
+
+        hub.container.environment_override = Boom()
+        response = await hub.http.delete(f"/v1/sessions/{created['id']}", headers=bearer())
+        after = await hub.http.get(f"/v1/sessions/{created['id']}", headers=bearer())
+
+        assert response.status_code == 204
+        assert after.status_code == 404
+
     async def test_deleting_another_accounts_session_finds_nothing_and_changes_nothing(
         self, hub: Hub
     ) -> None:
@@ -321,6 +480,8 @@ class TestForking:
         fork = response.json()
         assert fork["id"] != created["id"]
         assert fork["parent_session_id"] == created["id"]
+        assert fork["workspace_environment_id"] == created["workspace_environment_id"]
+        assert fork["workspace_rel"] == f"sessions/{fork['id']}"
         copies = await hub.http.get(f"/v1/sessions/{fork['id']}/items", headers=bearer())
         assert [row["content"] for row in copies.json()["data"]] == [{"text": "hello"}]
 
@@ -455,6 +616,53 @@ class TestTurns:
         assert first.json()["id"] == again.json()["id"]
         items = await hub.http.get(f"/v1/sessions/{created['id']}/items", headers=bearer())
         assert len(items.json()["data"]) == 1
+
+    async def test_an_unknown_approval_is_the_same_miss_as_a_foreign_one(self, hub: Hub) -> None:
+        created = await create(hub)
+
+        response = await hub.http.post(
+            f"/v1/sessions/{created['id']}/inputs",
+            json={
+                "events": [
+                    {"type": "input.approval", "approval_id": "apr_invented", "approved": True}
+                ]
+            },
+            headers={**bearer(), "Idempotency-Key": "unknown-approval"},
+        )
+
+        assert response.status_code == 404
+
+    async def test_two_approvals_cannot_share_one_write(self, hub: Hub) -> None:
+        created = await create(hub)
+
+        response = await hub.http.post(
+            f"/v1/sessions/{created['id']}/inputs",
+            json={
+                "events": [
+                    {"type": "input.approval", "approval_id": "apr_a", "approved": True},
+                    {"type": "input.approval", "approval_id": "apr_b", "approved": False},
+                ]
+            },
+            headers={**bearer(), "Idempotency-Key": "two-approvals"},
+        )
+
+        assert response.status_code == 409
+
+    async def test_a_message_and_an_approval_cannot_share_one_write(self, hub: Hub) -> None:
+        created = await create(hub)
+
+        response = await hub.http.post(
+            f"/v1/sessions/{created['id']}/inputs",
+            json={
+                "events": [
+                    {"type": "input.message", "content": "Hello."},
+                    {"type": "input.approval", "approval_id": "apr_x", "approved": True},
+                ]
+            },
+            headers={**bearer(), "Idempotency-Key": "mixed-input"},
+        )
+
+        assert response.status_code == 409
 
     async def test_a_sessions_turns_are_listed_in_the_order_they_were_opened(
         self, hub: Hub
@@ -606,7 +814,91 @@ class TestEventStream:
         assert response.headers["x-vercel-ai-ui-message-stream"] == "v1"
         assert response.headers["x-lucy-ui-message-stream"] == "v1"
 
-        # The generator holds a subscription open until something drains it. Closing it is
-        # what a disconnecting client does, and leaving it open leaks a subscriber into
-        # every test that runs after this one.
+        body = aiter(response.body_iterator)
+        first = await anext(body)
+        assert first
         await response.body_iterator.aclose()
+
+    async def test_a_closed_subscriber_ends_both_stream_encodings(self, hub: Hub) -> None:
+        from contextlib import asynccontextmanager
+
+        from lucy_api.stream.emitter import Subscriber
+
+        created = await create(hub, key="closed-stream")
+
+        @asynccontextmanager
+        async def already_closed(session_id: str, *, starting_after: int | None = None) -> Any:
+            del starting_after
+            subscriber = Subscriber(session_id)
+            subscriber.close()
+            yield subscriber
+
+        hub.container.events.subscribe = already_closed  # type: ignore[method-assign]
+        sse_response = await stream_session_events(
+            created["id"],
+            VerifiedCaller(ACCOUNT, "lucy-api"),
+            hub.store,
+            hub.container,
+            StreamCursor(starting_after=None, last_event_id=None),
+        )
+        sse_frames = [frame async for frame in sse_response.body_iterator]
+        assert sse_frames[-1]
+        ui_response = await stream_session_events(
+            created["id"],
+            VerifiedCaller(ACCOUNT, "lucy-api"),
+            hub.store,
+            hub.container,
+            StreamCursor(starting_after=None, last_event_id=None),
+            accept="text/event-stream",
+            ui_stream="v1",
+        )
+        ui_frames = [frame async for frame in ui_response.body_iterator]
+        assert ui_frames[-1]
+
+
+async def test_a_non_queued_input_is_not_authorized_to_run(
+    hub: Hub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = await create(hub, key="parked-input")
+    authorized: list[str] = []
+    original = hub.container.turns.authorize
+
+    def track(turn_id: str, prepared: object) -> None:
+        authorized.append(turn_id)
+        original(turn_id, prepared)
+
+    hub.container.turns.authorize = track  # type: ignore[method-assign]
+
+    async def parked(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "id": "trn_parked",
+            "session_id": created["id"],
+            "status": "input_required",
+            "termination": None,
+            "stop_reason": None,
+            "created_at": 1.0,
+            "started_at": None,
+            "finished_at": None,
+            "error_code": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_micros": 0,
+            "iterations": 0,
+            "cancel_requested": 0,
+        }
+
+    monkeypatch.setattr("lucy_api.api.routers.sessions.submit_messages", parked)
+    response = await hub.http.post(
+        f"/v1/sessions/{created['id']}/inputs",
+        headers={**bearer(), "Idempotency-Key": "parked-input"},
+        json={"events": [{"type": "input.message", "content": "Hello"}]},
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["status"] == "input_required"
+    assert authorized == []
+
+
+def test_stream_cursors_are_collected_without_choosing_between_them() -> None:
+    cursor = get_stream_cursor(starting_after="12", last_event_id="evt_1")
+    assert cursor.starting_after == "12"
+    assert cursor.last_event_id == "evt_1"
