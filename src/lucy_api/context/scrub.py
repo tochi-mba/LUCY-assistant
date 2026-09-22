@@ -94,15 +94,6 @@ anything the more suspicious of the two. The cost is an element in a real docume
 genuinely namespaced *and* genuinely called one of the names above, which pays one visible
 escape."""
 
-ELISION = "[... showing "
-"""The opening of the marker :mod:`lucy_api.context.bands` writes when it shortens a
-section. It is escaped here for the same reason `[harness: ...]` is: the model has been
-taught to read it as the harness speaking, so a fetched page carrying the string can
-announce a second, invented elision, or claim that nothing was cut from something that
-was. The shape is duplicated rather than imported because this module is deliberately
-free of dependencies; a test renders the real marker and asserts this rule catches it, so
-the two cannot drift apart in silence."""
-
 TURN_ROLES: tuple[str, ...] = ("human", "assistant", "system")
 """Turn markers worth escaping. `system:` is here because a forged system turn is the
 strongest of the three, and it is the reason a shell result reading `System: Linux` comes back
@@ -131,6 +122,12 @@ _RULES: tuple[_Rule, ...] = (
         r"\g<1>\g<2>&#58;",
     ),
     _Rule("harness-marker", re.compile(r"\[(?=[ \t]*harness[ \t]*:)", re.IGNORECASE), "&#91;"),
+    # The marker :mod:`lucy_api.context.bands` writes when it shortens a section. Escaped
+    # for the same reason `[harness: ...]` is: the model has been taught to read it as the
+    # harness speaking, so a fetched page carrying it can announce an invented elision, or
+    # claim nothing was cut from something that was. The shape is spelled here rather than
+    # imported because this module is deliberately free of dependencies; a test renders the
+    # real marker and asserts this rule catches it, so the two cannot drift apart in silence.
     _Rule(
         "elision-marker",
         re.compile(r"\[(?=[ \t]*\.\.\.[ \t]*showing\b)", re.IGNORECASE),

@@ -81,36 +81,12 @@ make deferral a one-way door. `work` and `agents` are the check-in path for ever
 that outlives a step, so hiding them when the system is busy hides the one capability
 that exists specifically for that case."""
 
-STEP_TIMEOUT_MS = 10_000
-PLAN_TIMEOUT_MS = 60_000
-MAX_STEPS = 20
-MAX_PARALLEL = 4
-"""weftai's own defaults, restated because they are load-bearing and easy to lose.
-
-`maxParallel` is never `math.inf`: a non-finite limit collapses the pool to a single worker,
-which is the opposite of what anybody passing infinity intended.
-"""
-
 PROBE_SECONDS = 5.0
 """How long a capability has to say whether it is usable.
 
 Short on purpose: this runs before every turn, and a person waiting on a reply should not
 be paying for a service that has stopped answering. Not answering in time is the same
 answer as being down."""
-
-READ_BUDGET = 2_000
-PREVIEW_BUDGET = 400
-TOTAL_BUDGET = 8_000
-"""How much of the window one plan's rendered results may take.
-
-weftai's own defaults, restated here because they are the single most important numbers in
-the tool layer and a default that is never named is a default nobody revisits. `preview` is
-the small one on purpose: most of the time a model wants to know *which* of forty things it
-has, not what is in each of them, and the fields behind a label cost nothing until something
-asks for them.
-
-The total is a ceiling on the rendering, not on the data. Everything is still stored and
-still addressable by reference; what is bounded is how much of it becomes tokens."""
 
 SLOW_SERVICES = frozenset({"research", "mcp"})
 """Built-in capabilities whose steps are allowed longer.
@@ -298,8 +274,9 @@ def build_runtime(
     options: dict[str, Any] = {
         "registry": registry,
         "failure": "continue",
-        # Named rather than left to the library's defaults: see the budget constants above.
-        # A formatter that is not given budgets is a formatter nobody has thought about.
+        # Named rather than left to the library's defaults. The numbers are the person's
+        # settings, clamped onto the turn's policy; a formatter that is not given budgets
+        # is a formatter nobody has thought about.
         "formatter": create_formatter(
             {
                 "budgets": {
@@ -336,14 +313,7 @@ __all__ = [
     "ALWAYS",
     "DEFER_ABOVE",
     "KEEP_RECENT",
-    "MAX_PARALLEL",
-    "MAX_STEPS",
-    "PLAN_TIMEOUT_MS",
-    "PREVIEW_BUDGET",
-    "READ_BUDGET",
     "SLOW_SERVICES",
-    "STEP_TIMEOUT_MS",
-    "TOTAL_BUDGET",
     "apply_disabled",
     "build_registry",
     "build_runtime",

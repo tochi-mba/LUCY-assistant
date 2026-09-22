@@ -210,3 +210,121 @@ def test_accept_edits_lets_workspace_writes_through_and_records_them_as_bypassed
 
     assert verdict.allowed is True
     assert verdict.auto_bypassed == ("workspace.files",)
+
+
+def test_an_outward_write_asks_even_in_auto_unless_a_grant_already_allows_it() -> None:
+    from lucy_api.packs.base import Permission
+    from lucy_api.permissions.gate import Grant
+
+    class Playback:
+        id = "music"
+        title = "Music"
+        summary = ""
+
+        def permissions(self) -> tuple[Permission, ...]:
+            return (
+                Permission(
+                    id="music.control",
+                    title="Control music playback",
+                    description="Start playback on a connected device.",
+                    risk="write",
+                    covers=("music.play",),
+                    outward=True,
+                ),
+            )
+
+    catalogue = Catalogue(
+        bound=(
+            Bound(
+                pack=Playback(),  # type: ignore[arg-type]
+                availability=Availability(state=State.ready),
+                operations=(SimpleNamespace(name="music.play", effects="write", description=""),),
+            ),
+        )
+    )
+    plan = {"steps": [{"op": "music.play", "input": {"query": "this"}}]}
+    asked = PermissionGate().inspect(plan, mode="auto", grants={}, catalogue=catalogue)
+    assert asked.allowed is False
+    assert asked.denied is False
+    assert "other people will see" in asked.message
+
+    silent = PermissionGate().inspect(
+        plan, mode="auto", grants={}, catalogue=catalogue, confirm_outward=False
+    )
+    assert silent.allowed is True
+    assert silent.auto_bypassed == ("music.control",)
+
+    granted = PermissionGate().inspect(
+        plan,
+        mode="auto",
+        grants={"music.control": Grant("music.control", "allow", "*")},
+        catalogue=catalogue,
+    )
+    assert granted.allowed is True
+    assert granted.auto_bypassed == ()
+
+
+def test_destructive_and_spend_floors_ask_even_in_auto_unless_already_granted() -> None:
+    from lucy_api.packs.base import Permission
+    from lucy_api.permissions.gate import Grant
+
+    class Paid:
+        id = "gadget"
+        title = "Gadget"
+        summary = ""
+
+        def permissions(self) -> tuple[Permission, ...]:
+            return (
+                Permission(
+                    id="gadget.buy",
+                    title="Buy something",
+                    description="Spend money.",
+                    risk="spend",
+                    covers=("gadget.buy",),
+                ),
+            )
+
+    catalogue = Catalogue(
+        bound=(
+            Bound(
+                pack=Paid(),  # type: ignore[arg-type]
+                availability=Availability(state=State.ready),
+                operations=(SimpleNamespace(name="gadget.buy", effects="write", description=""),),
+            ),
+        )
+    )
+    plan = {"steps": [{"op": "gadget.buy", "input": {"sku": "x"}}]}
+    asked = PermissionGate().inspect(
+        plan,
+        mode="auto",
+        grants={},
+        catalogue=catalogue,
+        approval_policy="spend_and_destructive_ask",
+    )
+    assert asked.allowed is False
+    assert "spends money" in asked.message
+    granted = PermissionGate().inspect(
+        plan,
+        mode="auto",
+        grants={"gadget.buy": Grant("gadget.buy", "allow", "*")},
+        catalogue=catalogue,
+        approval_policy="spend_and_destructive_ask",
+    )
+    assert granted.allowed is True
+    silent = PermissionGate().inspect(
+        plan,
+        mode="auto",
+        grants={},
+        catalogue=catalogue,
+        approval_policy="destructive_always_asks",
+    )
+    assert silent.allowed is True
+
+    forget = PermissionGate().inspect(
+        {"steps": [{"op": "notes.forget", "input": {"id": "mem_1"}}]},
+        mode="auto",
+        grants={},
+        catalogue=_notes_catalogue(),
+    )
+    assert forget.allowed is False
+    assert "destructive" in forget.message

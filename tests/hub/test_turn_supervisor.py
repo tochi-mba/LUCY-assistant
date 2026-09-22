@@ -12,6 +12,8 @@ from lucy_api.context.build import Live
 from lucy_api.context.feeds import Feed, FeedEntry, StaticFeeds
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
+from lucy_api.model.types import Chunk, Reply
+from lucy_api.model.wire import CHUNK_DONE
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.notes import NotesPack
 from lucy_api.packs.service import Capabilities
@@ -56,13 +58,23 @@ async def session(store: SessionStore, *, model: str = "scripted:demo") -> str:
 
 def supervisor(
     store: SessionStore,
-    provider: ScriptedProvider,
+    provider: Any,
+    *,
     capabilities: Capabilities | None = None,
     on_status: Any = None,
+    sleeper: Any = None,
+    models: ModelRegistry | None = None,
 ) -> TurnSupervisor:
-    registry = ModelRegistry({"scripted": lambda _: provider})
+    registry = models or ModelRegistry({"scripted": lambda _: provider})
     events = EventEmitter(SqlEventLog(store), Snapshot())
-    return TurnSupervisor(store, registry, events, capabilities=capabilities, on_status=on_status)
+    return TurnSupervisor(
+        store,
+        registry,
+        events,
+        capabilities=capabilities,
+        on_status=on_status,
+        sleeper=sleeper,
+    )
 
 
 async def test_queued_input_becomes_an_assistant_item_and_a_completed_turn(
@@ -353,7 +365,7 @@ async def test_a_gated_write_parks_until_the_person_answers_then_resumes(
     capabilities = Capabilities((HelpPack(), NotesPack("http://memory.test")))
     scope = SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
     provider = ScriptedProvider([plans(WRITE), speaks("I will keep that.")])
-    running = supervisor(store, provider, capabilities)
+    running = supervisor(store, provider, capabilities=capabilities)
     running.authorize(
         str(queued["id"]),
         PreparedTurn(
@@ -425,7 +437,7 @@ async def test_auto_mode_records_an_audit_row_instead_of_asking(store: SessionSt
         permission_mode="auto",
     )
     provider = ScriptedProvider([plans(WRITE), speaks("Kept.")])
-    running = supervisor(store, provider, capabilities)
+    running = supervisor(store, provider, capabilities=capabilities)
     running.authorize(
         str(queued["id"]),
         PreparedTurn(
@@ -621,3 +633,253 @@ class _GateProvider:
         await self.release.wait()
         async for chunk in self._inner.stream(request):
             yield chunk
+
+
+async def test_an_untitled_conversation_is_named_from_the_first_user_message(
+    store: SessionStore,
+) -> None:
+    conversation = await session(store)
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "What changed?"}],
+        "title-key",
+    )
+    running = supervisor(store, ScriptedProvider([speaks("The tests cover this.")]))
+    running.wake()
+    await running.join()
+    assert (await store.get(ACCOUNT, conversation))["title"] == "What changed?"
+    await store.turn(ACCOUNT, str(turn["id"]))
+    await running.aclose()
+
+
+async def test_an_existing_title_is_left_alone_when_auto_title_is_off(store: SessionStore) -> None:
+    conversation = await session(store)
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Keep the default."}],
+        "no-title-key",
+    )
+    running = supervisor(store, ScriptedProvider([speaks("Done.")]))
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(auto_title=False)
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    assert (await store.get(ACCOUNT, conversation))["title"] == "New conversation"
+    await running.aclose()
+
+
+async def test_vision_off_tells_the_model_images_were_not_sent(store: SessionStore) -> None:
+    conversation = await session(store)
+    provider = ScriptedProvider([speaks("I cannot see that.")])
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": {"type": "input_image", "mime": "image/png"}}],
+        "vision-key",
+    )
+    running = supervisor(store, provider)
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(vision_enabled=False, auto_title=False)
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    assert "Vision is off" in provider.requests[0].system
+    await running.aclose()
+
+
+async def test_disconnected_capabilities_are_advertised_only_when_enabled(
+    store: SessionStore,
+) -> None:
+    conversation = await session(store)
+    provider = ScriptedProvider([speaks("Ready.")])
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "hi"}],
+        "advertise-key",
+    )
+    running = supervisor(store, provider, capabilities=Capabilities((HelpPack(),)))
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(enabled=("music",), auto_title=False)
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    prompt = provider.requests[0].system + "\n".join(
+        message.content
+        for message in provider.requests[0].messages
+        if isinstance(message.content, str)
+    )
+    assert "music" in prompt
+    assert "connect link" in prompt
+    await running.aclose()
+
+
+async def test_a_slow_turn_emits_once_the_wait_has_elapsed(store: SessionStore) -> None:
+    conversation = await session(store)
+    provider = _HoldsUntilFlag()
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "wait"}],
+        "slow-key",
+    )
+
+    async def sleeper(_seconds: float) -> None:
+        return
+
+    running = supervisor(store, provider, sleeper=sleeper)
+    emit = running._events.emit
+
+    async def release_after_notice(session_id: str, event: Any) -> Any:
+        stored = await emit(session_id, event)
+        if getattr(event, "type", "") == "lucy.turn.slow":
+            provider.release.set()
+        return stored
+
+    running._events.emit = release_after_notice  # type: ignore[method-assign]
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(
+        notify_on_long_turn=True, long_turn_seconds=5, auto_title=False
+    )
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    types = [str(event["type"]) for event in await store.records(ACCOUNT, conversation, "events")]
+    assert "lucy.turn.slow" in types
+    await running.aclose()
+
+
+async def test_an_unknown_fallback_model_is_ignored_rather_than_failing_the_turn(
+    store: SessionStore,
+) -> None:
+    conversation = await session(store)
+    provider = ScriptedProvider([speaks("Primary still works.")])
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "hi"}],
+        "fallback-unknown-key",
+    )
+    running = supervisor(store, provider)
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(fallback_model="missing:model", auto_title=False)
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    assert (await store.turn(ACCOUNT, str(turn["id"])))["status"] == "completed"
+    await running.aclose()
+
+
+def test_advertised_names_are_the_enabled_ones_that_are_not_ready() -> None:
+    from lucy_api.turn.supervisor import _advertised, _first_user_text, _looks_like_images
+
+    assert _advertised((), ("help",), ()) == ()
+    assert _advertised(("music", "help"), ("help",), ("music",)) == ()
+    assert _advertised(("music", "help"), ("help",), ()) == ("music",)
+    assert _looks_like_images("image/png") is True
+    assert _looks_like_images({"type": "input_image"}) is True
+    assert _looks_like_images([{"mime": "image/jpeg"}]) is True
+    assert _looks_like_images({"nested": {"mime": "image/webp"}}) is True
+    assert _looks_like_images({"type": "text", "text": "hi"}) is False
+    assert _looks_like_images(3) is False
+    assert _first_user_text([{"type": "tool", "role": "user", "content": "skip"}]) == ""
+    assert (
+        _first_user_text([{"type": "message", "role": "user", "content": {"text": "  hi  "}}])
+        == "hi"
+    )
+    assert _first_user_text([{"type": "message", "role": "user", "content": "plain"}]) == "plain"
+    assert _first_user_text([{"type": "message", "role": "assistant", "content": "no"}]) == ""
+    assert _first_user_text([{"type": "message", "role": "user", "content": {"text": 3}}]) == ""
+    assert _first_user_text([{"type": "message", "role": "user", "content": {"text": "  "}}]) == ""
+    assert _first_user_text([{"type": "message", "role": "user", "content": ""}]) == ""
+    assert _first_user_text([{"type": "message", "role": "user", "content": ["hi"]}]) == ""
+
+
+async def test_a_known_fallback_model_is_handed_to_the_loop(store: SessionStore) -> None:
+    conversation = await session(store)
+    provider = ScriptedProvider([speaks("Primary still works.")])
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "hi"}],
+        "fallback-known-key",
+    )
+    running = supervisor(store, provider)
+    pack_context = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    pack_context.policy = TurnPolicy(
+        fallback_model="scripted:backup",
+        auto_title=False,
+        notify_on_long_turn=False,
+    )
+    running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
+    running.wake()
+    await running.join()
+    assert (await store.turn(ACCOUNT, str(turn["id"])))["status"] == "completed"
+    await running.aclose()
+
+
+async def test_helpers_and_named_sessions_do_not_steal_the_title(store: SessionStore) -> None:
+    from lucy_api.turn.supervisor import ClaimedTurn, _maybe_title
+
+    conversation = await session(store)
+    claimed = ClaimedTurn(
+        id="trn_title",
+        session_id=conversation,
+        account_id=ACCOUNT,
+        model="scripted:demo",
+        thinking="medium",
+    )
+    helper = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    helper.agent_id = "agt_1"
+    await _maybe_title(store, claimed, helper, {"title": "New conversation"})
+    assert (await store.get(ACCOUNT, conversation))["title"] == "New conversation"
+    parent = Capabilities((HelpPack(),)).context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+    )
+    await _maybe_title(store, claimed, parent, {"title": "Already named"})
+    assert (await store.get(ACCOUNT, conversation))["title"] == "New conversation"
+    await _maybe_title(store, claimed, parent, {"title": "New conversation"})
+    assert (await store.get(ACCOUNT, conversation))["title"] == "New conversation"
+
+
+class _HoldsUntilFlag:
+    """A provider that does not answer until a test sets ``release``."""
+
+    name = "scripted"
+
+    def __init__(self) -> None:
+        self.release = asyncio.Event()
+        self.requests: list[Any] = []
+
+    async def complete(self, request: Any) -> Reply:
+        self.requests.append(request)
+        await self.release.wait()
+        return Reply(text="done")
+
+    async def stream(self, request: Any) -> Any:
+        reply = await self.complete(request)
+        yield Chunk(kind=CHUNK_DONE, reply=reply)

@@ -211,6 +211,8 @@ class Capabilities:
             grants=context.grants,
             catalogue=catalogue,
             memory_write_policy=context.policy.memory_write_policy,
+            confirm_outward=context.policy.confirm_outward_actions,
+            approval_policy=context.policy.approval_policy,
         )
         if not verdict.allowed:
             return {

@@ -154,6 +154,14 @@ async def test_a_thinking_depth_becomes_adaptive_thinking_and_an_effort_level(bu
     assert body["output_config"] == {"effort": "high"}
 
 
+async def test_a_thinking_token_budget_is_an_explicit_ceiling_not_an_effort_level(build) -> None:
+    fake = build(httpx.Response(200, json=message()))
+    await fake.provider.complete(ask(thinking="high", max_thinking_tokens=1_024))
+    body = fake.body()
+    assert body["thinking"] == {"type": "enabled", "budget_tokens": 1_024}
+    assert "output_config" not in body
+
+
 async def test_thinking_switched_off_is_said_explicitly_because_it_is_on_by_default(
     build,
 ) -> None:

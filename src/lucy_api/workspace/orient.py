@@ -8,6 +8,8 @@ assemble of a turn that is coming back, never on every tool round.
 from __future__ import annotations
 
 import posixpath
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from lucy_api.clients.errors import DownstreamError
@@ -33,10 +35,17 @@ STATUS_SPACE = 2
 class WorkspaceLive:
     """The workspace group of the live block, with an optional resume pass."""
 
-    def __init__(self, client: EnvironmentsClient, workspace: WorkspaceScope) -> None:
+    def __init__(
+        self,
+        client: EnvironmentsClient,
+        workspace: WorkspaceScope,
+        *,
+        retention_hours: int = 24,
+    ) -> None:
         self._client = client
         self._workspace = workspace
         self._resume = False
+        self._retention_hours = retention_hours
 
     def arm(self, resume: bool) -> None:
         """Spend the expensive reads only when this assemble is a resume."""
@@ -44,9 +53,34 @@ class WorkspaceLive:
 
     async def fetch(self, session_id: str) -> WorkspaceSnapshot | None:
         del session_id
+        expires = await self._expires()
         if not self._resume:
-            return WorkspaceSnapshot(path=self._workspace.root, ready=True)
-        return await orient(self._client, self._workspace)
+            return WorkspaceSnapshot(
+                path=self._workspace.root, ready=True, expires_in_seconds=expires
+            )
+        snapshot = await orient(self._client, self._workspace)
+        return replace(snapshot, expires_in_seconds=expires)
+
+    async def _expires(self) -> float | None:
+        try:
+            environments = await self._client.environments()
+        except DownstreamError:
+            return None
+        current = next(
+            (
+                item
+                for item in environments
+                if item.environment_id == self._workspace.environment_id
+            ),
+            None,
+        )
+        if current is None or current.last_activity_at is None:
+            return None
+        activity = current.last_activity_at
+        if activity.tzinfo is None:
+            activity = activity.replace(tzinfo=UTC)
+        remaining = self._retention_hours * 3600 - (datetime.now(UTC) - activity).total_seconds()
+        return max(0.0, remaining)
 
 
 async def orient(client: EnvironmentsClient, workspace: WorkspaceScope) -> WorkspaceSnapshot:

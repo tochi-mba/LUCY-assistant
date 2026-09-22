@@ -14,6 +14,7 @@ agreeing. The siblings are `httpx.MockTransport`.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import httpx
@@ -32,7 +33,9 @@ from lucy_api.packs.http import (
     DownstreamRejectedError,
     DownstreamUnavailableError,
     PackHttp,
+    apply_downstream_policy,
 )
+from lucy_api.settings.policy import TurnPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -432,3 +435,147 @@ async def test_a_capability_is_handed_these_two_and_no_credential_at_all(make_cl
     assert await context.tokens.token_for(HOME) == f"minted-{HOME}-1"
     assert CALLER_TOKEN not in repr(context)
     assert seen[0].headers["Authorization"].startswith("Bearer minted-")
+
+
+async def test_a_retryable_sibling_is_retried_up_to_the_budget() -> None:
+    handler, seen = recording(
+        lambda: httpx.Response(503, json={"detail": "busy"}, headers={"Retry-After": "-1"}),
+        ok(json={"rooms": 3}),
+    )
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        retry_attempts=2,
+        clock=lambda: 0.0,
+        sleeper=_no_wait,
+    )
+    try:
+        assert await client.request(Call(method="GET", url=URL, audience=HOME)) == {"rooms": 3}
+    finally:
+        await client.aclose()
+    assert len(seen) == 2
+
+
+async def test_zero_retry_attempts_leave_the_first_failure_as_the_answer() -> None:
+    handler, seen = recording(lambda: httpx.Response(503, json={"detail": "busy"}))
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        retry_attempts=0,
+        clock=lambda: 0.0,
+        sleeper=_no_wait,
+    )
+    try:
+        with pytest.raises(DownstreamUnavailableError):
+            await client.request(Call(method="GET", url=URL, audience=HOME))
+    finally:
+        await client.aclose()
+    assert len(seen) == 1
+
+
+async def test_a_401_is_never_retried_as_a_transient_failure(make_client) -> None:
+    handler, seen = recording(refusing)
+    client = make_client(handler, a_broker(FakeExchange()))
+    client.retry_attempts = 4
+    with pytest.raises(DownstreamRefusedError):
+        await client.request(Call(method="GET", url=URL, audience=HOME))
+    assert len(seen) == 2
+
+
+async def test_a_turn_policy_copies_timeout_and_retries_onto_the_client() -> None:
+    handler, seen = recording(
+        lambda: httpx.Response(429, headers={"Retry-After": "1"}, json={"detail": "slow"}),
+        ok(json={"ok": True}),
+    )
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        clock=lambda: 0.0,
+        sleeper=_no_wait,
+    )
+    try:
+        apply_downstream_policy(
+            SimpleNamespace(inner=client),
+            TurnPolicy(retry_attempts=1, retry_max_seconds=12, downstream_timeout_seconds=4),
+        )
+        apply_downstream_policy(object(), TurnPolicy())
+        client.apply_policy(SimpleNamespace(retry_attempts=True, downstream_timeout_seconds="no"))
+        assert await client.request(Call(method="GET", url=URL, audience=HOME)) == {"ok": True}
+    finally:
+        await client.aclose()
+    assert len(seen) == 2
+    assert client.retry_attempts == 1
+    assert client.retry_max_seconds == 12
+    assert client._timeout_seconds == 4.0
+
+
+async def test_retries_stop_once_the_retry_window_has_elapsed() -> None:
+    times = iter((0.0, 100.0, 100.0))
+    handler, seen = recording(lambda: httpx.Response(500, json={"detail": "down"}))
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        retry_attempts=5,
+        retry_max_seconds=30,
+        clock=lambda: next(times, 100.0),
+        sleeper=_no_wait,
+    )
+    try:
+        with pytest.raises(DownstreamUnavailableError):
+            await client.request(Call(method="GET", url=URL, audience=HOME))
+    finally:
+        await client.aclose()
+    assert len(seen) == 1
+
+
+async def test_a_connection_error_is_retried_like_a_5xx() -> None:
+    seen = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        seen["n"] += 1
+        if seen["n"] == 1:
+            raise httpx.ConnectError("down")
+        return httpx.Response(200, json={"ok": True})
+
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        retry_attempts=1,
+        clock=lambda: 0.0,
+        sleeper=_no_wait,
+    )
+    try:
+        assert await client.request(Call(method="GET", url=URL, audience=HOME)) == {"ok": True}
+    finally:
+        await client.aclose()
+    assert seen["n"] == 2
+
+
+async def test_a_connection_error_with_no_retries_is_the_answer() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down")
+
+    client = PackHttp(
+        tokens=a_broker(FakeExchange()),
+        transport=httpx.MockTransport(handler),
+        retry_attempts=0,
+        clock=lambda: 0.0,
+        sleeper=_no_wait,
+    )
+    try:
+        with pytest.raises(DownstreamUnavailableError):
+            await client.request(Call(method="GET", url=URL, audience=HOME))
+    finally:
+        await client.aclose()
+
+
+async def _no_wait(_seconds: float) -> None:
+    return
+
+
+def test_retry_after_values_that_cannot_be_waited_are_treated_as_no_wait() -> None:
+    from lucy_api.packs.http import _backoff
+
+    assert _backoff(-1.0, 30) == 0.0
+    assert _backoff(None, 30) == 0.0
+    assert _backoff(5.0, 3.0) == 3.0

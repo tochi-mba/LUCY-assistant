@@ -17,12 +17,15 @@ from lucy_api.context.build import Live
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content
+from lucy_api.model.registry import UnknownModelError
 from lucy_api.permissions.approvals import Ask, open_approval
 from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import scope_from_row
 from lucy_api.sessions.sql_store import NewItem
+from lucy_api.stream.emitter import NewEvent
+from lucy_api.stream.events import TURN_SLOW
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.project import StreamProjector
 from lucy_api.turn.prompt import (
@@ -93,6 +96,7 @@ class TurnSupervisor:
         capabilities: Capabilities | None = None,
         agents: AgentStore | None = None,
         on_status: Callable[[str, str, str, str], Awaitable[None]] | None = None,
+        sleeper: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         from lucy_api.packs.service import (  # noqa: PLC0415 - packs imports turn
             Capabilities as Installed,
@@ -104,6 +108,7 @@ class TurnSupervisor:
         self._capabilities = capabilities if capabilities is not None else Installed()
         self._agents = agents
         self._on_status = on_status
+        self._sleeper = sleeper or asyncio.sleep
         self._task: asyncio.Task[None] | None = None
         self._closed = False
         self._prepared: dict[str, PreparedTurn] = {}
@@ -164,7 +169,7 @@ class TurnSupervisor:
             finally:
                 await self._events.publish_persisted(claimed.session_id)
 
-    async def _run(self, claimed: ClaimedTurn) -> None:
+    async def _run(self, claimed: ClaimedTurn) -> None:  # noqa: PLR0915 - one turn is one function
         prepared = self._prepared.pop(claimed.id, None)
         try:
             provider = self._models.resolve(claimed.model)
@@ -192,9 +197,17 @@ class TurnSupervisor:
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         catalogue = await self._capabilities.probe(pack_ctx)
         ready = tuple(item.pack.id for item in catalogue.ready())
+        policy = pack_ctx.policy
+        advertised = _advertised(policy.enabled, ready, policy.disabled)
         oriented = False
         compacted = False
-        policy = pack_ctx.policy
+
+        fallback_provider = None
+        fallback_model = ""
+        if policy.fallback_model and policy.fallback_model != claimed.model:
+            with contextlib.suppress(UnknownModelError):
+                fallback_provider = self._models.resolve(policy.fallback_model)
+                fallback_model = policy.fallback_model
 
         async def cancelled() -> bool:
             row = await self._store.turn(claimed.account_id, claimed.id)
@@ -221,6 +234,7 @@ class TurnSupervisor:
                 session_id=claimed.session_id,
                 items=ordered,
                 capabilities=ready,
+                advertised=advertised,
                 session=session,
                 compactions=compact,
                 turn_number=turn_number,
@@ -236,7 +250,7 @@ class TurnSupervisor:
                         self._store,
                         claimed.account_id,
                         claimed.session_id,
-                        keep_recent=max(1, policy.history_turns_kept),
+                        keep_recent=policy.history_turns_kept,
                     )
                     view = replace(
                         view,
@@ -244,7 +258,10 @@ class TurnSupervisor:
                             claimed.account_id, claimed.session_id, "compactions"
                         ),
                     )
-            return await system_and_messages(view, notice=notice)
+            notices = [notice]
+            if not policy.vision_enabled and _looks_like_images(ordered):
+                notices.append("Vision is off. Image attachments were not sent to the model.")
+            return await system_and_messages(view, notice="\n".join(filter(None, notices)))
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             executed = await self._capabilities.execute(plan, pack_ctx)
@@ -262,35 +279,61 @@ class TurnSupervisor:
                 NewItem(kind, role, content, turn=claimed.id),
             )
 
-        with allow_message_content(policy.log_message_content):
-            result = await run_turn(
-                Turn(
-                    provider=provider,
-                    assemble=assemble,
-                    execute=execute,
-                    plan_schema=self._capabilities.plan_schema(
-                        catalogue, claimed.session_id, pack_ctx
-                    ),
-                    append=append,
-                    model=claimed.model,
-                    budget=prepared.budget if prepared is not None else None,
-                    max_output_tokens=pack_ctx.policy.max_output_tokens,
-                    temperature=pack_ctx.policy.temperature,
-                    thinking=pack_ctx.policy.thinking,
-                    result_token_cap=pack_ctx.policy.max_tool_result_tokens,
-                    cancelled=cancelled,
-                    on_chunk=StreamProjector(
-                        self._events,
-                        claimed.session_id,
-                        claimed.id,
-                        stream_thinking=policy.stream_thinking,
-                    ),
-                )
+        slow: asyncio.Task[None] | None = None
+        if policy.notify_on_long_turn:
+            slow = asyncio.create_task(
+                self._notify_slow(claimed, policy.long_turn_seconds),
+                name=f"lucy-turn-slow-{claimed.id}",
             )
-            await self._finish_result(claimed, result, pack_ctx)
+        try:
+            with allow_message_content(policy.log_message_content):
+                result = await run_turn(
+                    Turn(
+                        provider=provider,
+                        assemble=assemble,
+                        execute=execute,
+                        plan_schema=self._capabilities.plan_schema(
+                            catalogue, claimed.session_id, pack_ctx
+                        ),
+                        append=append,
+                        model=claimed.model,
+                        budget=prepared.budget if prepared is not None else None,
+                        max_output_tokens=pack_ctx.policy.max_output_tokens,
+                        temperature=pack_ctx.policy.temperature,
+                        thinking=pack_ctx.policy.thinking,
+                        result_token_cap=pack_ctx.policy.max_tool_result_tokens,
+                        cancelled=cancelled,
+                        on_chunk=StreamProjector(
+                            self._events,
+                            claimed.session_id,
+                            claimed.id,
+                            stream_thinking=policy.stream_thinking,
+                        ),
+                        fallback_provider=fallback_provider,
+                        fallback_model=fallback_model,
+                        max_thinking_tokens=policy.max_thinking_tokens,
+                    )
+                )
+                await self._finish_result(claimed, result, pack_ctx, session)
+        finally:
+            if slow is not None:
+                slow.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await slow
+
+    async def _notify_slow(self, claimed: ClaimedTurn, seconds: int) -> None:
+        await self._sleeper(seconds)
+        await self._events.emit(
+            claimed.session_id,
+            NewEvent(TURN_SLOW, {"seconds": seconds}, turn_id=claimed.id),
+        )
 
     async def _finish_result(
-        self, claimed: ClaimedTurn, result: Any, pack_ctx: PackContext
+        self,
+        claimed: ClaimedTurn,
+        result: Any,
+        pack_ctx: PackContext,
+        session: dict[str, Any],
     ) -> None:
         if result.termination is Termination.input_required:
             asks = result.asks or (
@@ -331,6 +374,8 @@ class TurnSupervisor:
             result.termination.value,
             result.stop_reason.value,
         )
+        if status == "completed":
+            await _maybe_title(self._store, claimed, pack_ctx, session)
         await self._signal(claimed, status)
 
     async def _finish_failure(self, claimed: ClaimedTurn, detail: str) -> None:
@@ -356,6 +401,74 @@ class TurnSupervisor:
         if self._on_status is None:
             return
         await self._on_status(claimed.account_id, claimed.session_id, claimed.id, status)
+
+
+def _advertised(
+    enabled: tuple[str, ...], ready: tuple[str, ...], disabled: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Disconnected capabilities this profile asked to hear about. Empty means stay quiet."""
+    if not enabled:
+        return ()
+    usable = frozenset(ready)
+    off = frozenset(disabled)
+    return tuple(name for name in enabled if name not in usable and name not in off)
+
+
+def _looks_like_images(value: object) -> bool:
+    """Whether this turn's items look like they carry an image the model cannot see."""
+    if isinstance(value, str):
+        lowered = value.lower()
+        return lowered.startswith("image/") or lowered in {"image", "input_image", "image_url"}
+    if isinstance(value, dict):
+        mime = str(value.get("mime") or value.get("media_type") or value.get("mime_type") or "")
+        kind = str(value.get("type") or value.get("kind") or "")
+        if mime.lower().startswith("image/") or kind.lower() in {
+            "image",
+            "input_image",
+            "image_url",
+        }:
+            return True
+        return any(_looks_like_images(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return any(_looks_like_images(item) for item in value)
+    return False
+
+
+UNTITLED = frozenset({"", "New conversation"})
+
+
+async def _maybe_title(
+    store: SessionStore,
+    claimed: ClaimedTurn,
+    pack_ctx: PackContext,
+    session: dict[str, Any],
+) -> None:
+    """Name an untitled parent conversation from the first user message, once."""
+    if pack_ctx.agent_id or not pack_ctx.policy.auto_title:
+        return
+    if str(session.get("title") or "") not in UNTITLED:
+        return
+    rows = await store.records(claimed.account_id, claimed.session_id, "items")
+    text = _first_user_text(_items_for(rows, ""))
+    if not text:
+        return
+    await store.update(claimed.account_id, claimed.session_id, {"title": text[:80]})
+
+
+def _first_user_text(rows: list[dict[str, Any]]) -> str:
+    for row in rows:
+        if str(row.get("type") or "message") != "message":
+            continue
+        if row.get("role") != "user":
+            continue
+        content = row.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        if isinstance(content, dict):
+            text = content.get("text") or content.get("content")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return ""
 
 
 def _arm_workspace(live: Live | None, *, resume: bool) -> None:
@@ -388,6 +501,8 @@ async def _audit_bypasses(
         mode=pack_ctx.permission_mode,
         grants=pack_ctx.grants,
         catalogue=pack_ctx.catalogue,
+        memory_write_policy=pack_ctx.policy.memory_write_policy,
+        confirm_outward=pack_ctx.policy.confirm_outward_actions,
     )
     for permission in verdict.auto_bypassed:
         await store.record_audit(

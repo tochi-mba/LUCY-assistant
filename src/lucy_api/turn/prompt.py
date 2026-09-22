@@ -36,6 +36,7 @@ class SessionView:
     session_id: str
     items: list[dict[str, Any]]
     capabilities: tuple[str, ...] = ()
+    advertised: tuple[str, ...] = ()
     session: dict[str, Any] | None = None
     compactions: list[dict[str, Any]] | None = None
     turn_number: int = 1
@@ -262,7 +263,11 @@ def _model_prompt(view: SessionView, built: Built) -> tuple[str, tuple[Message, 
 async def _build(view: SessionView) -> Built:
     rows, reclaimed = projected_rows(view)
     row = view.session or {}
-    prompt = PromptContext(capabilities=view.capabilities, response_style=view.response_style)
+    prompt = PromptContext(
+        capabilities=view.capabilities,
+        advertised=view.advertised,
+        response_style=view.response_style,
+    )
     allowance = Budget(window=view.window, shares=shares_for(view.reserve_percent))
     built = await build_context(
         StateRequest(

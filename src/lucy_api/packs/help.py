@@ -65,8 +65,8 @@ class HelpPack:
     summary = "List what you can do, read a capability's docs, and bind one that was deferred."
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return HELP_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return ()
@@ -341,11 +341,13 @@ def _pack_docs(context: PackContext, topic: str) -> str:
     bound = _find(context, topic)
     if bound is None:
         return f"there is no capability '{topic}'"
-    path = bound.pack.docs
-    if path is None:
+    docs = bound.pack.docs
+    if docs is None:
         summary: str = bound.pack.summary
         return summary
-    text: str = path.read_text(encoding="utf-8")
+    if isinstance(docs, str):
+        return docs
+    text: str = docs.read_text(encoding="utf-8")
     return text
 
 

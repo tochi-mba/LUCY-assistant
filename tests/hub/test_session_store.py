@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 OWNER = "acct_owner"
 STRANGER = "acct_stranger"
 
-GUARDED_ELSEWHERE = frozenset({"create", "list_sessions", "audit_log"})
+GUARDED_ELSEWHERE = frozenset({"create", "list_sessions", "audit_log", "archive_idle"})
 """Account-taking methods a stranger cannot meet a 404 at, and why.
 
 `create` makes a row rather than finding one, so there is nothing to be refused access to.
@@ -209,6 +209,35 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
         "lucy.session.created",
         "lucy.content.item.added",
     ]
+
+
+async def test_idle_conversations_are_archived_and_live_ones_are_not(
+    store: SessionStore,
+) -> None:
+    """Quiet means no live turn, and zero days means never. A stranger's call is a no-op."""
+    now = 1_800_000_000.0
+    idle = await a_session(store)
+    parked = await a_session(store)
+    await a_turn(store, parked, status="input_required")
+    foreign = await a_session(store, STRANGER)
+
+    def age(db: sqlite3.Connection) -> None:
+        db.execute(
+            "UPDATE sessions SET updated_at=? WHERE id IN (?,?,?)",
+            (now - 2 * 86_400, idle, parked, foreign),
+        )
+
+    await store.transaction(age)
+
+    assert await store.archive_idle(OWNER, days=0, now=now) == 0
+    assert (await store.get(OWNER, idle))["archived_at"] is None
+    assert await store.archive_idle(OWNER, days=1, now=now) == 1
+    assert (await store.get(OWNER, idle))["archived_at"] == now
+    assert (await store.get(OWNER, parked))["archived_at"] is None
+    assert await store.archive_idle(STRANGER, days=1, now=now) == 1
+    assert (await store.get(OWNER, idle))["archived_at"] == now
+    listed = await store.list_sessions(OWNER, 50, None, None, "asc")
+    assert {row["id"] for row in listed["data"]} >= {idle, parked}
 
 
 async def test_the_audit_log_is_this_account_s_rows_and_a_foreign_session_is_a_miss(

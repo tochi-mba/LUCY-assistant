@@ -6,7 +6,7 @@ from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamUnavailableError
-from lucy_api.packs.notes import INCOGNITO, NotesPack
+from lucy_api.packs.notes import INCOGNITO, NOTES_MARKDOWN, NotesPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.permissions.gate import Grant
 from lucy_api.sessions.scope import SessionScope
@@ -147,8 +147,11 @@ async def test_schema_and_writes_go_through_memory_api() -> None:
     await capabilities.probe(context)
     pack = NotesPack("http://memory.test")
     assert pack.setup() is None
-    assert pack.docs is None
+    assert pack.docs == NOTES_MARKDOWN
     assert pack.permissions()[0].id == "notes.write"
+    assert pack.permissions()[1].id == "notes.erase"
+    assert pack.permissions()[1].covers == ("notes.forget",)
+    context.grants["notes.erase"] = Grant("notes.erase", "allow", "*")
 
     schema = await capabilities.execute(
         {"steps": [{"id": "s", "op": "notes.schema", "input": {}}]},
@@ -292,6 +295,7 @@ async def test_search_does_not_call_the_account_store() -> None:
 async def test_incognito_writes_are_refused_without_calling_the_store() -> None:
     http = FakeHttp(Answer(body={"data": []}))
     capabilities, context = _capabilities(http, permission_mode="auto", incognito=True)
+    context.grants["notes.erase"] = Grant("notes.erase", "allow", "*")
     await capabilities.probe(context)
     for op, payload in (
         ("notes.confirm", {"memory_id": "mem_2"}),

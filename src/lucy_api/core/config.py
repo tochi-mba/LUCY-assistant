@@ -116,8 +116,17 @@ class Settings(BaseSettings):
     # Model credentials are optional at boot so a new installation can still expose setup
     # and readiness. They never enter a prompt, event or log; the model registry consumes
     # them only while it constructs an HTTP client.
+    #
+    # `model_keys` is one key per catalogued provider id (`{"deepseek": "sk-..."}`); the two
+    # named fields below predate it and are folded in by `api_keys()`. A local runtime has
+    # no key and is switched on by naming it there with any value, or by giving it a base
+    # URL. `model_base_urls` overrides a catalogue row's endpoint -- a cloud tenant, a
+    # runtime on another port, a proxy -- and is required for the rows that have no
+    # public endpoint at all.
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    model_keys: dict[str, str] = Field(default_factory=dict)
+    model_base_urls: dict[str, str] = Field(default_factory=dict)
 
     # The rest of the family. Each is a base URL only; what the hub does with them lives in
     # a capability pack, and a pack whose service is unreachable is absent from the model's
@@ -152,6 +161,16 @@ class Settings(BaseSettings):
             msg = "LUCY_AUDIENCE must be non-empty and carry no leading or trailing space"
             raise ValueError(msg)
         return self
+
+    def api_keys(self) -> dict[str, str]:
+        """Every model credential this deployment supplies, keyed by provider id.
+
+        The two named fields are older than the mapping and are merged into it, with the
+        mapping winning on a clash: a person who set both meant the newer one.
+        """
+        merged = {"openai": self.openai_api_key, "anthropic": self.anthropic_api_key}
+        merged.update(self.model_keys)
+        return {provider: key for provider, key in merged.items() if key}
 
     def extra(self, capability: str) -> ExtraSibling | None:
         """The configured sibling for a capability, or none when it is not wired."""

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from lucy_api.clients.environments import Environment, FakeEnvironmentsClient, Ran
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.context.build import Live
@@ -148,3 +150,53 @@ def test_status_paths_ignore_blank_and_short_lines() -> None:
     assert _status_paths(" M  \n??  \n M \n") == ()
     clipped = _clip("word " * 200, 20)
     assert clipped.endswith("characters omitted]")
+
+
+async def test_workspace_live_exposes_how_long_the_sandbox_has_left() -> None:
+    fake = FakeEnvironmentsClient()
+    activity = datetime.now(UTC) - timedelta(hours=1)
+    fake.seed(Environment("env-1", "Conversation", last_activity_at=activity))
+    live = WorkspaceLive(fake, WorkspaceScope("env-1", "sess-a"), retention_hours=24)
+    snapshot = await live.fetch("sess-a")
+    assert snapshot is not None
+    assert snapshot.expires_in_seconds is not None
+    assert 22 * 3600 < snapshot.expires_in_seconds <= 23 * 3600
+
+    fake.seed(Environment("env-1", "Conversation", last_activity_at=activity.replace(tzinfo=None)))
+    naive = await live.fetch("sess-a")
+    assert naive is not None
+    assert naive.expires_in_seconds is not None
+    assert 22 * 3600 < naive.expires_in_seconds <= 23 * 3600
+
+    fake.seed(Environment("env-1", "Conversation"))
+    missing_stamp = await live.fetch("sess-a")
+    assert missing_stamp is not None
+    assert missing_stamp.expires_in_seconds is None
+
+    stranger = FakeEnvironmentsClient()
+    stranger.seed(Environment("other", "Conversation", last_activity_at=activity))
+    missing_env = await WorkspaceLive(
+        stranger, WorkspaceScope("env-1", "sess-a"), retention_hours=24
+    ).fetch("sess-a")
+    assert missing_env is not None
+    assert missing_env.expires_in_seconds is None
+
+    fake.seed(
+        Environment("env-1", "Conversation", last_activity_at=datetime.now(UTC) - timedelta(days=2))
+    )
+    expired = await live.fetch("sess-a")
+    assert expired is not None
+    assert expired.expires_in_seconds == 0.0
+
+
+async def test_a_workspace_listing_outage_omits_expiry_rather_than_the_group() -> None:
+    class Dead(FakeEnvironmentsClient):
+        async def environments(self, *, profile: str = "") -> tuple[Environment, ...]:
+            del profile
+            raise DownstreamError("environments", 503, "down")
+
+    live = WorkspaceLive(Dead(), WorkspaceScope("env-1", "sess-a"), retention_hours=24)
+    snapshot = await live.fetch("sess-a")
+    assert snapshot is not None
+    assert snapshot.path.endswith("sess-a")
+    assert snapshot.expires_in_seconds is None

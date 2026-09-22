@@ -54,6 +54,21 @@ class Verdict:
 
 
 @dataclass(frozen=True, slots=True)
+class Floors:
+    """The three policy floors a mode cannot lower.
+
+    They travel together because they are decided together -- by the person's settings,
+    once per turn -- and read together, by every step the gate inspects. Three loose
+    keyword arguments threaded through two functions is how one of them gets defaulted
+    on one path and not the other.
+    """
+
+    memory_write_policy: str = "ask_first"
+    confirm_outward: bool = True
+    approval_policy: str = "destructive_always_asks"
+
+
+@dataclass(frozen=True, slots=True)
 class Grant:
     permission: str
     decision: str
@@ -65,7 +80,7 @@ class Grant:
 class PermissionGate:
     """Mode, grants, and the catalogue's permission list, applied to one plan."""
 
-    def inspect(
+    def inspect(  # noqa: PLR0913 - mode, grants and the two floors are independent inputs
         self,
         plan: Mapping[str, object],
         *,
@@ -73,7 +88,14 @@ class PermissionGate:
         grants: Mapping[str, Grant],
         catalogue: Catalogue | None,
         memory_write_policy: str = "ask_first",
+        confirm_outward: bool = True,
+        approval_policy: str = "destructive_always_asks",
     ) -> Verdict:
+        floors = Floors(
+            memory_write_policy=memory_write_policy,
+            confirm_outward=confirm_outward,
+            approval_policy=approval_policy,
+        )
         permissions = _permissions(catalogue)
         by_operation = _covers(permissions)
         steps = _steps_of(plan)
@@ -91,12 +113,7 @@ class PermissionGate:
                 continue
             if not _is_gated(permission, name, catalogue):
                 continue
-            verdict = _decide(
-                permission,
-                mode=mode,
-                grants=grants,
-                memory_write_policy=memory_write_policy,
-            )
+            verdict = _decide(permission, mode=mode, grants=grants, floors=floors)
             raw_input = step.get("input")
             arguments = raw_input if isinstance(raw_input, dict) else {}
             if not verdict.allowed:
@@ -124,17 +141,13 @@ def _is_gated(permission: Permission, name: str, catalogue: Catalogue | None) ->
 
 
 def _decide(
-    permission: Permission,
-    *,
-    mode: str,
-    grants: Mapping[str, Grant],
-    memory_write_policy: str = "ask_first",
+    permission: Permission, *, mode: str, grants: Mapping[str, Grant], floors: Floors
 ) -> Verdict:
     grant = grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
     if grant is not None and grant.decision.startswith("deny"):
         message = grant.instruction or f"{permission.title} is not allowed."
         return Verdict(False, message, permission.id, permission.title, denied=True)
-    if permission.id == "notes.write" and memory_write_policy == "never":
+    if permission.id == "notes.write" and floors.memory_write_policy == "never":
         return Verdict(
             False,
             "Remembering is off. Only an explicit request from the person writes a new note.",
@@ -144,14 +157,23 @@ def _decide(
         )
     if grant is not None and grant.decision.startswith("allow"):
         return Verdict(True)
-    if permission.id == "notes.write" and memory_write_policy == "automatic" and mode != "plan":
+    if (
+        permission.id == "notes.write"
+        and floors.memory_write_policy == "automatic"
+        and mode != "plan"
+    ):
         return Verdict(True, bypassed=True)
-    return _mode_verdict(permission, mode)
+    if floors.confirm_outward and permission.outward and mode != "plan":
+        return Verdict(
+            False,
+            f"{permission.title} is something other people will see, so it needs approval.",
+            permission.id,
+            permission.title,
+        )
+    return _mode_verdict(permission, mode, floors.approval_policy)
 
 
-def _mode_verdict(permission: Permission, mode: str) -> Verdict:
-    if mode == "auto":
-        return Verdict(True, bypassed=True)
+def _mode_verdict(permission: Permission, mode: str, approval_policy: str) -> Verdict:
     if mode == "plan":
         return Verdict(
             False,
@@ -160,6 +182,11 @@ def _mode_verdict(permission: Permission, mode: str) -> Verdict:
             permission.title,
             denied=True,
         )
+    floor = _approval_floor(permission, approval_policy)
+    if floor is not None:
+        return floor
+    if mode == "auto":
+        return Verdict(True, bypassed=True)
     if (
         mode == "accept_edits"
         and permission.risk == "write"
@@ -172,6 +199,28 @@ def _mode_verdict(permission: Permission, mode: str) -> Verdict:
         permission.id,
         permission.title,
     )
+
+
+def _approval_floor(permission: Permission, approval_policy: str) -> Verdict | None:
+    """A stored grant may skip this. Auto mode may not: that is what makes it a floor."""
+    if permission.risk == "destructive" and approval_policy in {
+        "destructive_always_asks",
+        "spend_and_destructive_ask",
+    }:
+        return Verdict(
+            False,
+            f"{permission.title} is destructive, so it needs approval.",
+            permission.id,
+            permission.title,
+        )
+    if permission.risk == "spend" and approval_policy == "spend_and_destructive_ask":
+        return Verdict(
+            False,
+            f"{permission.title} spends money, so it needs approval.",
+            permission.id,
+            permission.title,
+        )
+    return None
 
 
 def _permissions(catalogue: Catalogue | None) -> tuple[Permission, ...]:

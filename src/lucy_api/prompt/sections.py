@@ -106,6 +106,9 @@ class PromptContext:
     capabilities: tuple[str, ...] = ()
     """Product names of what is connected and usable right now."""
 
+    advertised: tuple[str, ...] = ()
+    """Disconnected capabilities this profile asked to hear about. Empty stays quiet."""
+
     response_style: str = "natural"
     """How long an ordinary answer should run: brief, natural, or thorough."""
 
@@ -188,13 +191,18 @@ def _behaviour(context: PromptContext) -> str:
 
 def _capabilities(context: PromptContext) -> str:
     """Naming what is connected is cheaper than watching the model guess and apologise."""
-    if not context.capabilities:
+    if not context.capabilities and not context.advertised:
         return ""
-    return (
-        f"Ready now: {', '.join(context.capabilities)}.\n"
-        "Anything not in that list is not connected yet. Offer the person the connect link\n"
-        "for it rather than working around it."
-    )
+    lines: list[str] = []
+    if context.capabilities:
+        lines.append(f"Ready now: {', '.join(context.capabilities)}.")
+    if context.advertised:
+        lines.append(
+            "Not connected yet, and this profile asked to hear about them: "
+            f"{', '.join(context.advertised)}. Offer the person the connect link "
+            "for those rather than working around them."
+        )
+    return "\n".join(lines)
 
 
 def _framed_notes(notes: Sequence[Claim], omitted: int = 0) -> str:

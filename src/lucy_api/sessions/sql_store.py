@@ -504,6 +504,38 @@ class SessionStore:
 
         return await self.worker.call(read)
 
+    async def archive_idle(self, account: str, *, days: int, now: float) -> int:
+        """Mark this account's quiet conversations archived. Zero days means never.
+
+        A live or parked turn is not idle: `input_required` is somebody mid-answer, not a
+        conversation that went quiet. `updated_at` is the clock, because that is what a
+        message, a fork and a title change already bump. Archiving is a list decision,
+        not a delete -- the rows stay, and a later list still returns them.
+        """
+        if days <= 0:
+            return 0
+        cutoff = now - days * 86_400
+        marks = tuple(sorted(TERMINAL))
+        placeholders = ",".join("?" for _ in marks)
+
+        def apply(db: sqlite3.Connection) -> int:
+            db.execute(
+                f"""
+                UPDATE sessions
+                   SET archived_at=?
+                 WHERE account_id=?
+                   AND archived_at IS NULL
+                   AND updated_at<=?
+                   AND id NOT IN (
+                       SELECT session_id FROM turns WHERE status NOT IN ({placeholders})
+                   )
+                """,  # noqa: S608 - placeholders are the closed TERMINAL set
+                (now, account, cutoff, *marks),
+            )
+            return int(db.execute("SELECT changes()").fetchone()[0])
+
+        return await self.transaction(apply)
+
     async def list_sessions(
         self, account: str, limit: int, after: str | None, before: str | None, order: str
     ) -> dict[str, Any]:

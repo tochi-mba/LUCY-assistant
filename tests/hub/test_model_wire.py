@@ -8,6 +8,7 @@ anybody can act on. All three are the kind of thing that is only noticed in prod
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -15,6 +16,7 @@ import pytest
 
 from lucy_api.model.types import Message, ModelUnavailableError, Request, Role
 from lucy_api.model.wire import (
+    MESSAGE_LIMIT,
     ModelCallFailedError,
     as_dict,
     as_list,
@@ -114,6 +116,30 @@ def test_the_providers_own_sentence_is_preferred_and_the_body_is_the_fallback(
 
 def test_an_empty_body_falls_back_to_the_sentence_we_wrote() -> None:
     assert error_message("", fallback="no detail given") == "no detail given"
+
+
+def test_a_providers_sentence_is_bounded_like_the_fallback_is() -> None:
+    """The long one is the one echoing the request back, and that must not reach a log."""
+    body = json.dumps({"error": {"message": "you sent: " + "x" * 2_000}})
+    message = error_message(body, fallback="no detail given")
+    assert len(message) == MESSAGE_LIMIT
+    assert message.startswith("you sent: ")
+
+
+async def test_a_transport_failure_never_carries_the_url() -> None:
+    """For a provider that authenticates in the query string, the URL is the credential."""
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    http = await client_over(refuse)
+    request = http.build_request("POST", "/v1/models:generate?key=sk-live-SECRET", json={})
+    with pytest.raises(ModelUnavailableError) as raised:
+        await send(http, request, provider="gemini")
+    await http.aclose()
+
+    assert str(raised.value) == "gemini could not be reached (ConnectTimeout)"
+    assert "SECRET" not in str(raised.value)
 
 
 def test_a_good_status_raises_nothing() -> None:

@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.clients.errors import AbsentError, NotConnectedError
+from lucy_api.clients.errors import AbsentError, DownstreamError, NotConnectedError
 from lucy_api.clients.transport import Sibling, field, rows, segment, text
 from lucy_api.context.feeds import Feed, FeedEntry, FeedRequest, Volatility
 from lucy_api.context.types import Trust
@@ -144,6 +144,24 @@ class MusicFeeds:
                     source="music account",
                 )
             )
+        if playing.shuffled is not None:
+            entries.append(
+                FeedEntry(
+                    key="shuffled",
+                    line="queue is shuffled" if playing.shuffled else "queue is in order",
+                    trust=Trust.observed,
+                    source="music account",
+                )
+            )
+        if playing.repeat:
+            entries.append(
+                FeedEntry(
+                    key="repeat",
+                    line=f"repeat: {playing.repeat}",
+                    trust=Trust.observed,
+                    source="music account",
+                )
+            )
         active = next((device for device in devices if device.is_active), None)
         if active is not None:
             kind = f" ({active.kind})" if active.kind else ""
@@ -176,6 +194,7 @@ class WorkspaceFeeds:
 
     client: EnvironmentsClient
     environment_id: str
+    workspace_rel: str = ""
     name: str = "workspace"
 
     async def fetch(self, request: FeedRequest) -> tuple[Feed, ...]:
@@ -185,7 +204,7 @@ class WorkspaceFeeds:
         )
         if current is None:
             return ()
-        entries = (
+        entries: list[FeedEntry] = [
             FeedEntry(
                 key="shells_running",
                 line=(
@@ -201,17 +220,88 @@ class WorkspaceFeeds:
                 trust=Trust.observed,
                 source="workspace",
             ),
-        )
+        ]
+        if self.workspace_rel:
+            entries.append(
+                FeedEntry(
+                    key="cwd",
+                    line=f"working directory: {self.workspace_rel}",
+                    trust=Trust.observed,
+                    source="workspace",
+                )
+            )
+        branch = await _git_branch(self.client, self.environment_id, self.workspace_rel)
+        if branch:
+            entries.append(
+                FeedEntry(
+                    key="git_branch",
+                    line=f"git branch: {branch}",
+                    trust=Trust.observed,
+                    source="workspace",
+                )
+            )
         return (
             Feed(
                 id="workspace",
                 title="attached workspace right now",
                 volatility=Volatility.live,
                 version=current.last_activity_at.isoformat() if current.last_activity_at else "",
-                entries=entries,
+                entries=tuple(entries),
                 trust=Trust.observed,
             ),
         )
+
+
+_BACKEND_LABELS = {
+    "google": "Google",
+    "searxng": "SearXNG",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchFeeds:
+    """Which search backend is in force, never a service name."""
+
+    backend: str
+    name: str = "research"
+
+    async def fetch(self, request: FeedRequest) -> tuple[Feed, ...]:
+        del request
+        label = _BACKEND_LABELS.get(self.backend)
+        if not label:
+            return ()
+        return (
+            Feed(
+                id="research",
+                title="search in force",
+                volatility=Volatility.live,
+                entries=(
+                    FeedEntry(
+                        key="backend",
+                        line=f"search backend: {label}",
+                        trust=Trust.observed,
+                        source="research",
+                    ),
+                ),
+                trust=Trust.observed,
+            ),
+        )
+
+
+GIT_BRANCH = "git rev-parse --abbrev-ref HEAD"
+
+
+async def _git_branch(client: EnvironmentsClient, environment_id: str, cwd: str) -> str:
+    try:
+        ran = await client.run(environment_id, GIT_BRANCH, cwd=cwd or ".")
+    except DownstreamError:
+        return ""
+    if ran.exit_code not in {0, None}:
+        return ""
+    branch = ran.output.strip().splitlines()[0].strip() if ran.output.strip() else ""
+    if not branch or branch == "HEAD":
+        return ""
+    return branch
 
 
 def _persona_entries(payload: Any) -> tuple[FeedEntry, ...]:
@@ -291,4 +381,11 @@ def _timestamp(value: Any) -> Any:
     return moment(value)
 
 
-__all__ = ["MusicFeeds", "PersonaFeeds", "UserFeeds", "WorkspaceFeeds"]
+__all__ = [
+    "GIT_BRANCH",
+    "MusicFeeds",
+    "PersonaFeeds",
+    "ResearchFeeds",
+    "UserFeeds",
+    "WorkspaceFeeds",
+]

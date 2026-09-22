@@ -550,6 +550,7 @@ private; its callers continue using the canonical public workflow. The
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | How Lucy's context is built | [docs/context.md](docs/context.md) |
+| Model providers and keys | [docs/models.md](docs/models.md) |
 | Sessions and the one write path | [docs/sessions.md](docs/sessions.md) |
 | Prompt sections | [docs/prompts.md](docs/prompts.md) |
 | Memory as the model sees it | [docs/memory.md](docs/memory.md) |

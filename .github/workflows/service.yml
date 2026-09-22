@@ -5,13 +5,13 @@ on:
     inputs:
       python-versions:
         description: JSON list of Python versions for the test matrix
-        # 3.13 is not in the default yet: on Linux it makes hypothesis raise an unraisable
-        # exception during collection, which the family's `filterwarnings = error` turns into
-        # a failure in whichever test happened to be running. It reproduces in CI on all four
-        # services that use hypothesis and on none of the four that do not, and it does not
-        # reproduce on Windows. See docs/adr/0008-python-3-12-floor.md.
+        # Both gated. 3.13 was briefly dropped when four services failed under it; the cause
+        # was a real leak in each -- a sqlite connection opened and then refused by its own
+        # startup check, never closed -- which 3.13 is the first interpreter to report. The
+        # leak is fixed, the report is wanted, and a gate that only passes on the interpreter
+        # that cannot see the bug is not a gate. See docs/adr/0008-python-3-12-floor.md.
         type: string
-        default: '["3.12"]'
+        default: '["3.12","3.13"]'
       extras:
         description: Extra arguments passed to `uv sync` (for example `--all-extras`)
         type: string

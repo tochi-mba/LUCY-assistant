@@ -68,6 +68,7 @@ class ChildRuntime:
         self.agents = agents
         self.models = models
         self.capabilities = capabilities
+        self._wait = asyncio.wait_for
 
     async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume and schema
         self,
@@ -153,7 +154,10 @@ class ChildRuntime:
                 parent.session_id,
                 NewItem("message", "user", _brief_text(delegation), agent_id=agent_id),
             )
-            result = await self._loop(parent, agent_id, delegation)
+            result = await self._wait(
+                self._loop(parent, agent_id, delegation),
+                timeout=parent.policy.agent_wall_clock_seconds,
+            )
         except asyncio.CancelledError:
             await self.agents.finish(
                 parent.account_id,
@@ -165,6 +169,14 @@ class ChildRuntime:
                 parent.account_id, parent.session_id, task_id, status="cancelled"
             )
             raise
+        except TimeoutError:
+            result = {
+                "status": "failed",
+                "agent_id": agent_id,
+                "role": delegation.role,
+                "summary": "the helper was stopped because it ran out of time",
+                "tokens": 0,
+            }
         except Exception as exc:
             result = {
                 "status": "failed",
@@ -205,7 +217,13 @@ class ChildRuntime:
         if not text:
             return {"status": "invalid", "message": "say what the helper should do next"}
         try:
-            await self.agents.send_mail(parent.account_id, agent_id, text)
+            await self.agents.send_mail(
+                parent.account_id,
+                agent_id,
+                text,
+                max_chars=parent.policy.agent_message_max_chars,
+                burst=parent.policy.agent_message_burst,
+            )
         except LucyError as exc:
             return {"status": exc.code, "message": str(exc)}
         return {"status": "delivered", "id": agent_id}
@@ -362,6 +380,7 @@ class ChildRuntime:
                 temperature=parent.policy.temperature,
                 thinking=parent.policy.thinking,
                 result_token_cap=parent.policy.agent_result_token_cap,
+                max_thinking_tokens=parent.policy.max_thinking_tokens,
             )
         )
         summary, tokens, notice = capped_summary(outcome.text or outcome.detail)

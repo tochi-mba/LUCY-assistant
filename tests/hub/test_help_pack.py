@@ -15,6 +15,7 @@ from lucy_api.mcp.skills import CATALOGUE
 from lucy_api.packs.base import Availability, Bound, Catalogue, SetupPlan, SetupStep, State
 from lucy_api.packs.context import Call, NoBrokerError, PackContext, SilentTokens
 from lucy_api.packs.help import (
+    HELP_MARKDOWN,
     HelpPack,
     _docs,
     _list,
@@ -38,7 +39,7 @@ class Gadget:
         pack_id: str = "gadget",
         *,
         state: State = State.not_connected,
-        docs: Path | None = None,
+        docs: str | Path | None = None,
         setup_plan: SetupPlan | None = None,
     ) -> None:
         self.id = pack_id
@@ -49,7 +50,7 @@ class Gadget:
         self._setup = setup_plan
 
     @property
-    def docs(self) -> Path | None:
+    def docs(self) -> str | Path | None:
         return self._docs
 
     def permissions(self) -> tuple[Any, ...]:
@@ -94,9 +95,9 @@ def _context(capabilities: Capabilities) -> PackContext:
     )
 
 
-async def test_help_declares_no_docs_permissions_or_setup() -> None:
+async def test_help_always_has_docs_and_never_needs_setup() -> None:
     pack = HelpPack()
-    assert pack.docs is None
+    assert pack.docs == HELP_MARKDOWN
     assert pack.permissions() == ()
     assert pack.setup() is None
     assert (await pack.probe(_context(Capabilities((pack,))))).state is State.ready
@@ -209,7 +210,14 @@ async def test_docs_without_a_file_fall_back_to_the_pack_summary() -> None:
     context = _context(capabilities)
     await capabilities.probe(context)
     assert _pack_docs(context, "gadget") == "The gadget capability."
-    assert _pack_docs(context, "help") == HelpPack.summary
+    assert _pack_docs(context, "help") == HELP_MARKDOWN
+
+
+async def test_inline_docs_are_returned_as_written() -> None:
+    capabilities = Capabilities((HelpPack(), Gadget(state=State.ready, docs="# Inline gadget\n")))
+    context = _context(capabilities)
+    await capabilities.probe(context)
+    assert _pack_docs(context, "gadget") == "# Inline gadget\n"
 
 
 async def test_operation_returns_the_schema_or_says_the_name_is_unknown() -> None:

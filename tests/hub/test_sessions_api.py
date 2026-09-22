@@ -22,6 +22,7 @@ below the route is faked. Half of what these assert is transactional.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -308,6 +309,27 @@ class TestReading:
         }
         assert [row["id"] for row in rest.json()["data"]] == made[2:]
         assert rest.json()["has_more"] is False
+
+    async def test_listing_archives_quiet_conversations_using_this_persons_idle_window(
+        self, hub: Hub
+    ) -> None:
+        created = await create(hub, key="idle-archive")
+        now = time.time()
+
+        def age(db: object) -> None:
+            db.execute(  # type: ignore[union-attr]
+                "UPDATE sessions SET updated_at=? WHERE id=?",
+                (now - 2 * 86_400, created["id"]),
+            )
+
+        await hub.store.transaction(age)
+        hub.container.preferences.seed("lucy", {"session_idle_archive_days": 1})
+
+        listed = await hub.http.get("/v1/sessions", headers=bearer())
+
+        assert listed.status_code == 200, listed.text
+        row = next(item for item in listed.json()["data"] if item["id"] == created["id"])
+        assert row["archived_at"] is not None
 
     async def test_a_listing_holds_only_this_accounts_sessions(self, hub: Hub) -> None:
         await create(hub)

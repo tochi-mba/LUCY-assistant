@@ -66,7 +66,7 @@ so the same idempotency key can finish the original session later.
 the reclamation filter, and does **not** write a compaction. Auto-compact happens once per
 live turn when the window crosses `compaction_trigger_percent`, keeping `history_turns_kept`
 recent turns verbatim. `POST /v1/sessions/{id}/compact` and `uncompact` are the explicit
-versions of the same projection.
+versions of the same projection and keep the same window.
 
 A process restart fails turns left `running` (a tool that already ran must not run again)
 and then drains what was still queued. Turns parked on a person (`input_required`,

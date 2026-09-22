@@ -186,7 +186,7 @@ class AgentStore:
 
         return await self._sessions.transaction(apply)
 
-    async def send_mail(
+    async def send_mail(  # noqa: PLR0913 - caps are the person's; hops and sender are routing
         self,
         account: str,
         agent_id: str,
@@ -194,9 +194,13 @@ class AgentStore:
         *,
         sender: str = "parent",
         hops: int = 0,
+        max_chars: int | None = None,
+        burst: int | None = None,
     ) -> str:
         mail = identifier("msg")
         text = body.strip()
+        limit = MAIL_MAX_CHARS if max_chars is None else max_chars
+        burst_limit = MAIL_BURST if burst is None else burst
 
         def apply(db: sqlite3.Connection) -> str:
             _owned_agent(db, account, agent_id)
@@ -205,8 +209,8 @@ class AgentStore:
             if hops > MAIL_MAX_HOPS:
                 too_far = f"a message may hop {MAIL_MAX_HOPS} times, not {hops}"
                 raise LucyError(MAIL_TOO_FAR, too_far, 409)
-            if len(text) > MAIL_MAX_CHARS:
-                too_long = f"a steer may be {MAIL_MAX_CHARS} characters, not {len(text)}"
+            if len(text) > limit:
+                too_long = f"a steer may be {limit} characters, not {len(text)}"
                 raise LucyError(MAIL_TOO_LONG, too_long, 409)
             waiting = db.execute(
                 "SELECT id, sender, body FROM agent_mail "
@@ -219,9 +223,9 @@ class AgentStore:
                 and str(waiting[-1]["body"]) == text
             ):
                 return str(waiting[-1]["id"])
-            if len(waiting) >= MAIL_BURST:
+            if len(waiting) >= burst_limit:
                 too_many = (
-                    f"that helper already has {MAIL_BURST} unread messages; wait for it to drain"
+                    f"that helper already has {burst_limit} unread messages; wait for it to drain"
                 )
                 raise LucyError(MAIL_TOO_MANY, too_many, 409)
             db.execute(

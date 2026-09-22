@@ -130,12 +130,34 @@ def _core() -> tuple[Knob, ...]:
                 "has credentials for."
             ),
         ),
+        Knob(
+            key="fallback_model",
+            summary="Which model to try when the chosen one is unavailable.",
+            value_type=ValueType.STR,
+            default="",
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "Empty means there is no second choice: the turn fails and says so. "
+                "Naming one makes an outage a reply in a different voice. Lucy says "
+                "which model answered whenever it is not the one you chose."
+            ),
+        ),
         _enum(
             "thinking",
             "medium",
             ("off", "minimal", "low", "medium", "high"),
             "How much working-out the model is asked to do.",
             "Off skips it. High spends tokens on hard plans. This is not a prompt override.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "max_thinking_tokens",
+            0,
+            "A hard ceiling on the working-out for one turn. Zero means the effort level decides.",
+            "thinking says how hard to work; this puts a number on it. Zero leaves the effort "
+            "level to choose.",
+            minimum=0,
+            maximum=200_000,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
         _enum(
@@ -176,12 +198,51 @@ def _core() -> tuple[Knob, ...]:
             "A floor under permission_mode. An outage refuses the turn rather than guessing.",
             unavailable=OnUnavailable.REFUSE,
         ),
+        _bool(
+            "confirm_outward_actions",
+            True,
+            "Whether anything other people will see is confirmed before it happens.",
+            "On asks first, whatever permission_mode says. auto cannot switch this off.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
         _enum(
             "input_policy",
             "enqueue",
             ("enqueue", "reject", "interrupt", "rollback"),
             "What happens if a second message arrives while a turn is running.",
             "Enqueue keeps the message. Reject tells the client to wait.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _bool(
+            "auto_title",
+            True,
+            "Whether a new conversation is named from the first message.",
+            "Off leaves the title as New conversation until you rename it.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "session_idle_archive_days",
+            30,
+            "How many idle days before an unused conversation is archived. Zero never archives.",
+            "Archive hides it from the ordinary list. It is not deleted.",
+            minimum=0,
+            maximum=3_650,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _bool(
+            "notify_on_long_turn",
+            True,
+            "Whether a turn that is taking too long says so.",
+            "The turn keeps running. This is a notice, not a stop.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "long_turn_seconds",
+            60,
+            "How long a turn may run before that notice fires.",
+            "Only used when notify_on_long_turn is on.",
+            minimum=5,
+            maximum=3_600,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
         _bool(
@@ -293,12 +354,67 @@ def _core() -> tuple[Knob, ...]:
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
         _int(
+            "retry_attempts",
+            2,
+            "How many extra tries a failed downstream call gets.",
+            "Zero means the first failure is the answer. 401 is never retried.",
+            minimum=0,
+            maximum=10,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "retry_max_seconds",
+            30,
+            "How long those extra tries may take in total.",
+            "The clock starts at the first try. A slow 500 that already used this budget "
+            "is not retried.",
+            minimum=1,
+            maximum=600,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "downstream_timeout_seconds",
+            10,
+            "How long Lucy waits for one sibling call.",
+            "This is per request, not the whole turn.",
+            minimum=1,
+            maximum=300,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
             "agent_result_token_cap",
             2_000,
             "How much a helper may hand back when it is finished.",
             "A helper returns a summary plus references, never a transcript.",
             minimum=200,
             maximum=20_000,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "agent_wall_clock_seconds",
+            600,
+            "How long a helper may run before Lucy stops it.",
+            "The helper is told it ran out of time. Its work is not discarded.",
+            minimum=10,
+            maximum=7_200,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "agent_message_max_chars",
+            4_000,
+            "How long one helper message may be.",
+            "A message over this is refused rather than truncated in place.",
+            minimum=100,
+            maximum=32_000,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "agent_message_burst",
+            5,
+            "How many helper messages may arrive in one burst.",
+            "A burst over this waits rather than flooding the inbox.",
+            minimum=1,
+            maximum=50,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
         _enum(
@@ -373,7 +489,11 @@ def _core() -> tuple[Knob, ...]:
             value_type=ValueType.STR_LIST,
             default=(),
             on_unavailable=OnUnavailable.USE_DEFAULT,
-            description="Empty means all deployed capabilities. Names are product words.",
+            description=(
+                "Empty means stay quiet about disconnected capabilities. Naming one "
+                "advertises setup for that capability in the prompt. The HTTP catalogue "
+                "still lists every deployed pack so a UI can offer a connect button."
+            ),
         ),
         _int(
             "max_output_tokens_per_turn",

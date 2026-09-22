@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from keyring_client import JwksClient, SystemClock
 from settings_client import HttpSettingsClient
-from settings_client.errors import SettingsUnavailable
+from settings_client.errors import SettingsRejected, SettingsUnavailable
 
 from lucy_api.agents.journal import JournalLive
 from lucy_api.agents.runtime import ChildRuntime
@@ -40,7 +40,13 @@ from lucy_api.blobs import Blobs
 from lucy_api.clients.environments import HttpEnvironmentsClient
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.keyring import DelegatedKeyringClient
-from lucy_api.clients.live_feeds import MusicFeeds, PersonaFeeds, UserFeeds, WorkspaceFeeds
+from lucy_api.clients.live_feeds import (
+    MusicFeeds,
+    PersonaFeeds,
+    ResearchFeeds,
+    UserFeeds,
+    WorkspaceFeeds,
+)
 from lucy_api.clients.memory import AUDIENCE as MEMORY_AUDIENCE
 from lucy_api.clients.memory import HttpMemoryClient
 from lucy_api.clients.spotify import HttpSpotifyClient
@@ -54,10 +60,11 @@ from lucy_api.core.errors import LucyError, settings_unavailable
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
 from lucy_api.memory.index import MemoryIndex
+from lucy_api.model.readiness import Readiness
 from lucy_api.model.registry import ModelRegistry, http_registry
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportDownstreamError
-from lucy_api.packs.http import PackHttp
+from lucy_api.packs.http import PackHttp, apply_downstream_policy
 from lucy_api.packs.mcp import McpPack
 from lucy_api.packs.probes import GuardedHttp
 from lucy_api.packs.service import Capabilities, installed_packs
@@ -124,6 +131,7 @@ class Container:
     store: SessionStore
     events: EventEmitter
     models: ModelRegistry
+    readiness: Readiness
     capabilities: Capabilities
     turns: TurnSupervisor
     exchange: KeyringExchange
@@ -391,10 +399,13 @@ class Container:
         pack_context = self.pack_context(request)
         pack_context.policy = policy
         pack_context.max_subagent_turns = policy.max_subagent_turns
+        pack_context.defaults = await self._pack_defaults(request.user_token, request.profile)
+        apply_downstream_policy(pack_context.http, policy)
         feeds: list[FeedSource] = [
             PersonaFeeds(pack_context.http, self.settings.persona_api_base_url),
             UserFeeds(HttpUserClient(pack_context.http, self.settings.user_api_base_url)),
             MusicFeeds(HttpSpotifyClient(pack_context.http, self.settings.spotify_api_base_url)),
+            ResearchFeeds(str(pack_context.defaults.get("research.backend") or "")),
         ]
         environment_id = str(session.get("workspace_environment_id") or "")
         workspace_live = None
@@ -402,13 +413,18 @@ class Container:
             workspace = WorkspaceScope(environment_id, request.session_id)
             pack_context.workspace_environment_id = environment_id
             pack_context.workspace_path = workspace.root
-            workspace_live = WorkspaceLive(self.environment_client(request), workspace)
+            workspace_live = WorkspaceLive(
+                self.environment_client(request),
+                workspace,
+                retention_hours=policy.workspace_retention_hours,
+            )
             feeds.append(
                 WorkspaceFeeds(
                     HttpEnvironmentsClient(
                         pack_context.http, self.settings.environments_api_base_url
                     ),
                     environment_id,
+                    workspace_rel=workspace.root,
                 )
             )
         pack_context.grants = await _load_grants(
@@ -432,20 +448,53 @@ class Container:
             max_subagent_turns=policy.max_subagent_turns,
         )
 
+    async def lucy_policy(self, user_token: str, profile: str | None = None) -> TurnPolicy:
+        """The lucy knobs for this person and profile, already clamped.
+
+        Routers that are not running a turn still owe the person their own numbers --
+        compact's keep-window is one. They must not call ``_turn_settings`` themselves.
+        """
+        return TurnPolicy.from_resolved(await self._turn_settings(user_token, profile))
+
+    async def _pack_defaults(self, user_token: str, profile: str | None) -> dict[str, object]:
+        """Sibling knobs the packs may use when the model omitted them. Never secrets."""
+        defaults: dict[str, object] = {}
+        search = await self._optional_namespace("search", user_token, profile)
+        if search is not None:
+            limit = search.get("default_result_count", 8)
+            if isinstance(limit, int) and not isinstance(limit, bool):
+                defaults["research.limit"] = min(20, max(1, limit))
+            backend = search.get("search_backend", "google")
+            if isinstance(backend, str) and backend:
+                defaults["research.backend"] = backend
+        music = await self._optional_namespace("spotify", user_token, profile)
+        if music is not None:
+            device = music.get("default_device", None)
+            if isinstance(device, str) and device:
+                defaults["music.device_id"] = device
+        return defaults
+
+    async def _optional_namespace(
+        self, namespace: str, user_token: str, profile: str | None
+    ) -> ResolvedSettings | None:
+        """A sibling namespace, or nothing. An outage here must not take the turn down."""
+        try:
+            return await self.preferences.resolve(namespace, user_token=user_token, profile=profile)
+        except (SettingsUnavailable, SettingsRejected):
+            return None
+
     async def _turn_settings(
         self, user_token: str, profile: str | None = None
     ) -> ResolvedSettings | None:
-        """Resolve the Lucy namespace once for everything this turn reads from it."""
+        """Resolve the Lucy namespace once for everything this turn reads from it.
+
+        The profile goes with every call. A client that could not take one used to be
+        tolerated with a fallback; it is not any more, because a resolve that silently
+        drops the profile answers with another profile's values, which is worse than
+        failing.
+        """
         try:
-            try:
-                return await self.preferences.resolve(  # type: ignore[call-arg]
-                    "lucy",
-                    user_token=user_token,
-                    profile=profile,
-                )
-            except TypeError:
-                # settings-client v0.1.0 has no profile argument; later tags do.
-                return await self.preferences.resolve("lucy", user_token=user_token)
+            return await self.preferences.resolve("lucy", user_token=user_token, profile=profile)
         except SettingsUnavailable:
             return None
 
@@ -567,14 +616,17 @@ def build_container(
         audience=settings.audience,
         clock=clock,
     )
-    worker = SqlWorker(settings.database_path)
-    store = SessionStore(worker)
-    events = EventEmitter(SqlEventLog(store), SessionSnapshotter(store))
+    # The model registry is validated before the database is opened: a typo in a model
+    # key is a startup error, and a startup error must not leave a worker thread behind.
     models = http_registry(
-        {"anthropic": settings.anthropic_api_key, "openai": settings.openai_api_key},
+        settings.api_keys(),
+        base_urls=settings.model_base_urls,
         transport=transport,
         timeout=settings.http_timeout_seconds,
     )
+    worker = SqlWorker(settings.database_path)
+    store = SessionStore(worker)
+    events = EventEmitter(SqlEventLog(store), SessionSnapshotter(store))
     work = WorkRegistry(now=lambda: datetime.now(UTC))
     outbound = httpx.AsyncClient(
         timeout=settings.http_timeout_seconds,
@@ -619,6 +671,7 @@ def build_container(
         store=store,
         events=events,
         models=models,
+        readiness=Readiness(settings.api_keys(), settings.model_base_urls, transport=transport),
         capabilities=capabilities,
         turns=TurnSupervisor(
             store, models, events, capabilities, agents=agents, on_status=webhooks.notify
@@ -631,7 +684,7 @@ def build_container(
         device_flow=DeviceFlow(worker),
         work=work,
         agents=agents,
-        mcp_servers=McpServers(store, httpx_listing(outbound)),
+        mcp_servers=mcp_servers,
         blobs=Blobs(store, root=_blobs_root(settings)),
         webhooks=webhooks,
     )

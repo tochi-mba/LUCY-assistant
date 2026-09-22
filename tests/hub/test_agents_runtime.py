@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -17,7 +18,7 @@ from lucy_api.core.errors import LucyError
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.model.types import Reply
-from lucy_api.packs.agents import MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
+from lucy_api.packs.agents import AGENTS_MARKDOWN, MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
 from lucy_api.packs.base import State as PackState
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
@@ -350,7 +351,7 @@ async def test_a_child_is_not_offered_spawn() -> None:
     assert "journal.claim" in names
     assert pack.operations(parent_context("ses_x", capabilities=Capabilities((pack,)))) == ()
     assert pack.setup() is None
-    assert pack.docs is None
+    assert pack.docs == AGENTS_MARKDOWN
     assert pack.permissions()[0].id == "agents.delegate"
 
 
@@ -549,6 +550,45 @@ async def test_mail_is_capped_deduped_and_hop_limited(store: SessionStore) -> No
     with pytest.raises(LucyError) as burst:
         await agents.send_mail(ACCOUNT, agent_id, "one more")
     assert burst.value.code == "mail-too-many"
+
+
+async def test_mail_caps_follow_the_turn_policy_when_they_are_narrower(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    agents = AgentStore(store)
+    agent_id = await agents.insert(ACCOUNT, session, role="helper", objective="go", depth=1)
+    with pytest.raises(LucyError) as long:
+        await agents.send_mail(ACCOUNT, agent_id, "too long", max_chars=3)
+    assert long.value.code == "mail-too-long"
+    await agents.send_mail(ACCOUNT, agent_id, "one", burst=1)
+    with pytest.raises(LucyError) as burst:
+        await agents.send_mail(ACCOUNT, agent_id, "two", burst=1)
+    assert burst.value.code == "mail-too-many"
+
+
+async def test_a_helper_that_runs_out_of_time_is_failed_rather_than_cancelled(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    child, capabilities, agents = runtime_for(store, ScriptedProvider([speaks("too late")]))
+    parent = parent_context(session, capabilities=capabilities)
+    agent_id, task_id = await child.prepare(parent, objective="Go", role="helper")
+
+    async def wait_and_timeout(coro: Any, **_: Any) -> Any:
+        task = asyncio.ensure_future(coro)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        raise TimeoutError
+
+    child._wait = wait_and_timeout  # type: ignore[assignment]
+    result = await child.run(
+        parent, objective="Go", role="helper", agent_id=agent_id, task_id=task_id
+    )
+    assert result["status"] == "failed"
+    assert "ran out of time" in result["summary"]
+    assert (await agents.get(ACCOUNT, agent_id))["status"] == "failed"
 
 
 async def test_a_journal_claim_is_exclusive_until_the_lease_expires(store: SessionStore) -> None:

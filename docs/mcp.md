@@ -49,8 +49,8 @@ is annotated.
 ## Skills
 
 `skills/list` and `skills/get` serve Lucy's own procedures: talking,
-capabilities, helpers, approvals, memory, and external tools. Each entry has a
-SHA-256 digest and a byte size. Approval of a skill is approval of those bytes;
+capabilities, music, research, workspace, notes, settings, helpers, approvals,
+memory, and external tools. Each entry has a SHA-256 digest and a byte size. Approval of a skill is approval of those bytes;
 a change is a new digest. `resources/read` on a `skill://lucy/<name>` URI is the
 same document. The list is `cacheScope: public` with a one-hour TTL. Capability
 names only — never a service, a port or an HTTP verb.

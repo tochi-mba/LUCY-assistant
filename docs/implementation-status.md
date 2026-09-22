@@ -9,12 +9,15 @@ machine is listed as in progress, however finished it looks.
 
 ## Verified complete
 
-- **The family runs on Python 3.12**, hub included, with ADR-0008 recording why 3.13 is
-  declared supported but not gated in CI.
+- **The family runs on Python 3.12 and 3.13**, hub included, and both are gated in CI.
+  ADR-0008 records what 3.13 found when it was first gated: a connection each sqlite
+  service opened and then dropped when its own startup check refused it. Fixed in all four.
 - **The hub is a conforming family service.** `python scripts/parity.py` scores all nine
   repositories, this one among them.
 - **The `lucy` command.** Global install through `uv tool install`, status, version, serve,
-  setup, connect, doctor and config. Documented in [docs/cli.md](cli.md). Verified working
+  setup, connect, doctor, config and talk. `lucy talk` is a client of
+  `POST /v1/sessions/{id}/inputs` plus the event stream; hanging up does not cancel the
+  turn. Documented in [docs/cli.md](cli.md). Verified working
   from a directory outside the checkout, against a live hub.
 - **The context engine.** Five zones ordered by volatility, five independently budgeted
   bands, the live state block, framing, the injection scrubber, the prompt sections, the
@@ -55,6 +58,15 @@ machine is listed as in progress, however finished it looks.
 - **Live memory index.** Each turn fetches Memory-api's topic list, ranks it, holds
   untrusted topics back, and puts the trusted prefix in the live state block.
   `notes.openTopic` expands one topic. Incognito sessions skip the fetch.
+- **Forty-three model providers, three adapters.** A catalogue row per provider -- the
+  two native dialects, every OpenAI-compatible host including the Chinese labs and their
+  mainland endpoints, the cloud tenants, and eight local runtimes -- with the deviations
+  each declares (no tools, JSON-object output only, no reasoning effort, needs a base URL).
+  `GET /v1/models` sorts them into `ready` (a listing call answered), `available`
+  (configured, unproven) and `unavailable` (with the command that fixes it); `lucy models`
+  renders that and `lucy models connect` supplies a key at a prompt, never as a flag.
+  Keys are deployment-level (`LUCY_MODEL_KEYS`); per-person keys in the vault are the one
+  piece not built. Documented in [docs/models.md](models.md).
 - **Work in flight.** Helpers, jobs and commands share one registry. The live block shows
   them together; a prompt preview does not consume the "just finished" flag a real turn
   still needs to see.
@@ -117,6 +129,20 @@ machine is listed as in progress, however finished it looks.
   `GET /v1/sessions/{id}/subagents` (process-memory in-flight list stays at `/agents`).
   Helper items are a separate collection from the parent transcript. Executed plan steps
   are persisted so a crash can name what already ran; replay is still refused.
+- **Idle archival.** Listing sessions archives conversations whose `updated_at` is older
+  than `lucy.session_idle_archive_days` and that have no live or parked turn. Zero days
+  means never. A running, queued, or `input_required` conversation is not idle.
+- **Approval floor.** `lucy.approval_policy` still asks about destructive writes in
+  `auto`, and about spend when it is `spend_and_destructive_ask`. Grants skip the floor;
+  the mode does not. `notes.erase` covers `notes.forget`; `workspace.destroy` covers
+  `workspace.delete`.
+- **Pack documentation.** Help, notes, workspace, music, research, settings, work and
+  helpers ship inline markdown the model can read through `help.docs`. MCP skills cover
+  the same product names.
+- **Sibling defaults.** Omitted `music.play` device ids and `research.search` limits come
+  from the person's music and research settings, never from a hard-coded service default
+  the model has to guess.
+
 - **Webhooks.** `POST/GET /v1/webhooks` and `DELETE /v1/webhooks/{id}` store HTTPS
   destinations, return the HMAC secret once, and fire `{session_id, turn_id, status}`
   when a turn completes, fails, cancels, or parks. Account erasure deletes them.
@@ -149,8 +175,11 @@ machine is listed as in progress, however finished it looks.
 - Settings unavailability **refuses the turn** (503 `settings-unavailable`) when
   `disabled_capabilities` or `approval_policy` cannot be confirmed. Guessing those would
   re-enable something the person turned off. Other lucy knobs are clamped onto
-  `TurnPolicy` at prepare time and held for the life of that turn.
-- **Hub tests pass on this machine:** 2,019 passed in `tests/hub` at 100% branch
+  `TurnPolicy` at prepare time and held for the life of that turn, including fallback
+  model, thinking token budget, outward-action confirmation, advertised disconnected
+  capabilities, auto-title, slow-turn notice, downstream retries, and helper mail/time
+  caps.
+- **Hub tests pass on this machine:** 2,278 passed and 18 skipped at 100% branch
   coverage. Format, lint, mypy, and import contracts are gated by `make check`.
   `python scripts/parity.py --repo lucy-api` is green.
 - Nothing has been validated under `make up` with the whole family running, and no real

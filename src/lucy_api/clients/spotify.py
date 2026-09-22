@@ -60,6 +60,8 @@ class NowPlaying:
     track: Track | None = None
     progress_ms: int = 0
     is_playing: bool = False
+    shuffled: bool | None = None
+    repeat: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,11 +261,22 @@ def _track(payload: Any) -> Track | None:
 
 def _now_playing(payload: Any) -> NowPlaying:
     """The player state, with the device, the context and the permitted actions dropped."""
+    repeat = text(payload, "repeat_state")
     return NowPlaying(
         track=_track(nested(payload, "item")),
         progress_ms=number(payload, "progress_ms"),
         is_playing=flag(payload, "is_playing"),
+        shuffled=_optional_flag(payload, "shuffle_state"),
+        repeat=repeat if repeat else None,
     )
+
+
+def _optional_flag(payload: Any, key: str) -> bool | None:
+    """A boolean that stays absent when the sibling omitted it."""
+    value = field(payload, key)
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _device(row: Any) -> Device:

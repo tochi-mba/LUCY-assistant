@@ -44,6 +44,18 @@ if TYPE_CHECKING:
     from lucy_api.clients.environments import EnvironmentsClient, Mutation
     from lucy_api.packs.context import PackContext
 
+
+WORKSPACE_MARKDOWN = """# Workspace
+
+This conversation has its own sandbox. Paths are relative to that subtree. Never invent a
+host path or another session's id.
+
+`workspace.list` and `workspace.read` are how you look. Reads are windowed and numbered.
+`workspace.edit` matches exact text once; if it matches twice, ask rather than guessing.
+`workspace.run` executes inside the subtree. `workspace.delete` removes a file and still
+asks in auto mode unless the person already allowed deletions.
+"""
+
 MAX_TOOL_OUTPUT_CHARS = 8_000
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
@@ -66,23 +78,32 @@ class WorkspacePack:
         self._override = client
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return WORKSPACE_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return (
             Permission(
                 id="workspace.change",
                 title="Change workspace files",
-                description="Write, edit, patch, move or delete files in this session.",
+                description="Write, edit, patch or move files in this session.",
                 risk="write",
                 covers=(
                     "workspace.write",
                     "workspace.edit",
                     "workspace.patch",
-                    "workspace.delete",
                     "workspace.move",
                 ),
+            ),
+            Permission(
+                id="workspace.destroy",
+                title="Delete workspace files",
+                description=(
+                    "Delete a file in this session. Auto mode still asks, unless you "
+                    "already allowed this."
+                ),
+                risk="destructive",
+                covers=("workspace.delete",),
             ),
             Permission(
                 id="workspace.run",
@@ -530,4 +551,4 @@ async def _refuse_stale(
     }
 
 
-__all__ = ["WorkspacePack"]
+__all__ = ["WORKSPACE_MARKDOWN", "WorkspacePack"]

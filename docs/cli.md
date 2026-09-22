@@ -54,8 +54,11 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 | `lucy config` | Show effective values and where they came from; redact the token. |
 | `lucy doctor` | Check the local installation, hub readiness and caller identity. |
 | `lucy connect [capability]` | List setup requirements, or show instructions for one capability. |
+| `lucy models [--check]` | Every model provider the hub knows: ready, configured but unproven, or what would make it usable. `--check` proves configured keys now. |
+| `lucy models connect <provider>` | Save a provider key into the family `.env`. The key is prompted, never a flag. See [models.md](models.md). |
 | `lucy status` | Is the hub alive, is it ready, which dependency is unusable, and who does it think you are. |
 | `lucy version` | This client's version, and the hub's when one answers. |
+| `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. |
 | `lucy serve` | Run the hub in the foreground. `--host` and `--port`. |
 
 `lucy` with no command prints help, and exits 0. Help leads with examples, because that is
