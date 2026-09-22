@@ -18,6 +18,13 @@ from lucy_api.work.registry import AtCapacityError, Registry
 from lucy_api.work.registry import _discard as discard_unstarted
 from lucy_api.work.types import Brief, Handle, Kind
 
+AGENTS_MARKDOWN = """# Helpers
+
+A helper is work: a handle, a notice, a result you fetch. `agents.spawn` starts one with a
+written brief and a clean transcript. It has no write permission. Prefer finishing your
+answer and saying what is still running over waiting. `work.check` is how you see it land.
+"""
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
@@ -38,8 +45,8 @@ class AgentsPack:
     summary = "Ask a helper to take a brief and come back with a short result."
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return AGENTS_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -486,4 +493,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["MAX_DEPTH", "AgentsPack"]
+__all__ = ["AGENTS_MARKDOWN", "MAX_DEPTH", "AgentsPack"]

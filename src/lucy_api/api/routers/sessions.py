@@ -23,6 +23,7 @@ here is everything a client needs to create a session, read it, branch it and st
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Header, Path, Response, status
@@ -148,18 +149,23 @@ async def create_session(
     response_model=Page[SessionResource],
     responses=_ADDRESSED,
     description=(
-        "Every session this token's account owns, oldest first by default. Archived sessions "
-        "are included and carry an `archived_at`; they are hidden by clients, not by the "
-        "API, because a person looking for something they archived is the main reason to "
-        "ask.\n\n" + CURSORS
+        "Every session this token's account owns, oldest first by default. Quiet conversations "
+        "older than `lucy.session_idle_archive_days` are archived as they are listed; a live "
+        "or parked turn is never treated as idle. Archived sessions are included and carry "
+        "an `archived_at`; they are hidden by clients, not by the API, because a person "
+        "looking for something they archived is the main reason to ask.\n\n" + CURSORS
     ),
 )
 async def list_sessions(
-    selection: SelectionDep, caller: CurrentCallerDep, store: StoreDep
+    selection: SelectionDep, acting: ActingAsDep, container: ContainerDep
 ) -> Page[SessionResource]:
-    """Page through the caller's own sessions."""
-    raw = await store.list_sessions(
-        caller.account_id, selection.limit, selection.after, selection.before, selection.order
+    """Page through the caller's own sessions, archiving the idle ones first."""
+    policy = await container.lucy_policy(acting.token)
+    await container.store.archive_idle(
+        acting.account_id, days=policy.session_idle_archive_days, now=time.time()
+    )
+    raw = await container.store.list_sessions(
+        acting.account_id, selection.limit, selection.after, selection.before, selection.order
     )
     return Page[SessionResource].model_validate(raw)
 

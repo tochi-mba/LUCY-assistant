@@ -67,11 +67,14 @@ compacted away, or waste a tool call discovering.
 - **pending** — approvals, elicitations and connections waiting on somebody else, so the
   model stops rather than spins.
 - **feeds** — standing claims (persona identity, pinned account facts, persona notes) in zone 1; live facts (now playing,
-  active playback and safe workspace state) in this block. Each line is a setting the
+  shuffle and repeat when the player reports them, active playback device, search backend as a
+  product word, working directory, git branch when it is a real branch, and safe workspace
+  state) in this block. Each line is a setting the
   person can turn off. Persona data comes from Persona-api; pinned account fields come
   from User-api as a **separate** feed from memory; playback and active-device
   state come from Spotify-api; attached-environment state comes from Environments-api.
-  Workspace host paths are never included.
+  Workspace host paths are never included. Next-track, last-command and search-backend
+  lines that leak easily stay off unless the person turns them on.
   Unknown keys from a sibling are dropped. A failed sibling is a trouble line, not a
   missing section the model is invited to invent.
 - **trouble** — repeated recent failures, so it stops retrying what cannot work.

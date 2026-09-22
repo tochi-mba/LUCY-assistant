@@ -368,6 +368,18 @@ def test_a_section_with_nothing_to_say_is_left_out_rather_than_rendered_empty() 
     rendered = render_all(PromptContext(capabilities=("music",)))
     assert [item.id for item in rendered if item.band is Band.pinned] == ["capabilities"]
     assert "Ready now: music." in section(rendered, "capabilities").body
+    assert "connect link" not in section(rendered, "capabilities").body
+
+
+def test_disconnected_capabilities_are_named_only_when_this_profile_asked() -> None:
+    offered = render_all(PromptContext(capabilities=("music",), advertised=("research",)))
+    body = section(offered, "capabilities").body
+    assert "Ready now: music." in body
+    assert "research" in body
+    assert "connect link" in body
+    advertised_only = render_all(PromptContext(advertised=("research",)))
+    assert "Ready now" not in section(advertised_only, "capabilities").body
+    assert "research" in section(advertised_only, "capabilities").body
 
 
 def test_the_goals_section_numbers_them_and_says_what_to_do_when_none_of_them_fits() -> None:

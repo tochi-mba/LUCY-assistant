@@ -32,6 +32,8 @@ which is a fact about the turn rather than about one sibling, so it travels as i
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
@@ -161,7 +163,7 @@ class PackHttp:
             Values never appear in :meth:`__repr__`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - clock and sleeper exist so retries are asserted, not waited
         self,
         *,
         tokens: Broker,
@@ -169,12 +171,21 @@ class PackHttp:
         transport: httpx.AsyncBaseTransport | None = None,
         client: httpx.AsyncClient | None = None,
         service_tokens: Mapping[str, str] | None = None,
+        retry_attempts: int = 0,
+        retry_max_seconds: float = 30.0,
+        clock: Callable[[], float] | None = None,
+        sleeper: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self._tokens = tokens
         # Redirects are off: this client sends a credential, and a redirect is somebody
         # else's server asking for it. A shared client belongs to the composition root
         # and is not closed here, so a per-request broker does not tear down the pool.
         self._owns_http = client is None
+        self._timeout_seconds = timeout_seconds
+        self.retry_attempts = retry_attempts
+        self.retry_max_seconds = retry_max_seconds
+        self._clock = clock or time.monotonic
+        self._sleeper = sleeper or asyncio.sleep
         self._http = client or httpx.AsyncClient(
             timeout=timeout_seconds, transport=transport, follow_redirects=False
         )
@@ -183,6 +194,22 @@ class PackHttp:
             for audience, secret in (service_tokens or {}).items()
             if secret.strip()
         }
+
+    def apply_policy(self, policy: object) -> None:
+        """Copy this turn's timeout and retry budget onto an already-built client.
+
+        Connection and environment clients keep the deployment timeout. Only
+        ``prepare_turn`` calls this, so a settings outage cannot silently widen retries.
+        """
+        timeout = getattr(policy, "downstream_timeout_seconds", None)
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool) and timeout > 0:
+            self._timeout_seconds = float(timeout)
+        attempts = getattr(policy, "retry_attempts", None)
+        if isinstance(attempts, int) and not isinstance(attempts, bool) and attempts >= 0:
+            self.retry_attempts = attempts
+        window = getattr(policy, "retry_max_seconds", None)
+        if isinstance(window, int | float) and not isinstance(window, bool) and window > 0:
+            self.retry_max_seconds = float(window)
 
     async def request(self, call: Call) -> Any:
         """Make one authorized call and return its decoded body, or ``None`` for no body.
@@ -205,16 +232,32 @@ class PackHttp:
 
     async def request_response(self, call: Call) -> httpx.Response:
         """Authenticate once and preserve status and headers for sibling adapters."""
-        try:
-            return await self._tokens.attempt(
-                call.audience,
-                lambda token: self._send(call, token),
-                refused=_CredentialRefusedError,
-            )
-        except _CredentialRefusedError as exc:
-            raise DownstreamRefusedError(
-                REFUSED, audience=call.audience, status=httpx.codes.UNAUTHORIZED
-            ) from exc
+        deadline = self._clock() + self.retry_max_seconds
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                response = await self._tokens.attempt(
+                    call.audience,
+                    lambda token: self._send(call, token),
+                    refused=_CredentialRefusedError,
+                )
+            except _CredentialRefusedError as exc:
+                raise DownstreamRefusedError(
+                    REFUSED, audience=call.audience, status=httpx.codes.UNAUTHORIZED
+                ) from exc
+            except DownstreamUnavailableError:
+                if not self._may_retry(attempt, deadline):
+                    raise
+                await self._sleeper(0.0)
+                continue
+            if _retryable_status(response.status_code) and self._may_retry(attempt, deadline):
+                await self._sleeper(_backoff(_retry_after(response), self.retry_max_seconds))
+                continue
+            return response
+
+    def _may_retry(self, attempt: int, deadline: float) -> bool:
+        return attempt <= self.retry_attempts and self._clock() < deadline
 
     async def aclose(self) -> None:
         """Release the connection pool, when this object created it."""
@@ -232,12 +275,31 @@ class PackHttp:
                 headers=_outbound(
                     call.headers, token, service_token=self._service_tokens.get(call.audience, "")
                 ),
+                timeout=self._timeout_seconds,
             )
         except httpx.HTTPError as exc:
             raise DownstreamUnavailableError(UNREACHABLE, audience=call.audience) from exc
         if response.status_code == httpx.codes.UNAUTHORIZED:
             raise _CredentialRefusedError
         return response
+
+
+def apply_downstream_policy(http: object, policy: object) -> None:
+    """Reach through GuardedHttp to the PackHttp a turn actually uses."""
+    target = getattr(http, "inner", http)
+    apply = getattr(target, "apply_policy", None)
+    if callable(apply):
+        apply(policy)
+
+
+def _retryable_status(status: int) -> bool:
+    return status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
+
+
+def _backoff(retry_after: float | None, ceiling: float) -> float:
+    if retry_after is None or retry_after < 0:
+        return 0.0
+    return min(retry_after, ceiling)
 
 
 def _outbound(
@@ -318,4 +380,5 @@ __all__ = [
     "DownstreamUnavailableError",
     "NullHttp",
     "PackHttp",
+    "apply_downstream_policy",
 ]

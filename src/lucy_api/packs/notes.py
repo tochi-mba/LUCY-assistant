@@ -25,7 +25,14 @@ from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.memory import AUDIENCE, DEFAULT_LIMIT, Draft, HttpMemoryClient, as_dict
+from lucy_api.clients.memory import (
+    AUDIENCE,
+    DEFAULT_LIMIT,
+    Draft,
+    HttpMemoryClient,
+    MemoryClient,
+    as_dict,
+)
 from lucy_api.clients.user import AUDIENCE as USER_AUDIENCE
 from lucy_api.clients.user import HttpUserClient
 from lucy_api.clients.user import as_dict as account_dict
@@ -72,30 +79,41 @@ class NotesPack:
         audience: str = AUDIENCE,
         user_base_url: str = "",
         user_audience: str = USER_AUDIENCE,
+        client: MemoryClient | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
         self.user_base_url = user_base_url.rstrip("/")
         self.user_audience = user_audience
+        self._override = client
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return NOTES_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return (
             Permission(
                 id="notes.write",
                 title="Remember and change notes about you",
-                description="Write, correct, confirm or forget a note.",
+                description="Write, correct or confirm a note.",
                 risk="write",
                 covers=(
                     "notes.setFact",
                     "notes.remember",
                     "notes.confirm",
                     "notes.correct",
-                    "notes.forget",
                 ),
+            ),
+            Permission(
+                id="notes.erase",
+                title="Forget a note",
+                description=(
+                    "Remove a remembered note. Auto mode still asks, unless you already "
+                    "allowed this."
+                ),
+                risk="destructive",
+                covers=("notes.forget",),
             ),
         )
 
@@ -280,8 +298,10 @@ class NotesPack:
             ),
         )
 
-    def _client(self, context: PackContext) -> HttpMemoryClient:
-        return HttpMemoryClient(context.http, self.base_url, audience=self.audience)
+    def _client(self, context: PackContext) -> MemoryClient:
+        return self._override or HttpMemoryClient(
+            context.http, self.base_url, audience=self.audience
+        )
 
     def _account(self, context: PackContext) -> HttpUserClient | None:
         if not self.user_base_url:

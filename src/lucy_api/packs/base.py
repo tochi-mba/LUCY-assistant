@@ -119,6 +119,8 @@ class Permission:
     description: str
     risk: str
     covers: tuple[str, ...]
+    outward: bool = False
+    """True when other people will see the effect. auto cannot skip asking about those."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,8 +153,13 @@ class CapabilityPack(Protocol):
     summary: str
 
     @property
-    def docs(self) -> Path | None:
-        """Markdown written for the model, loaded only when it asks."""
+    def docs(self) -> str | Path | None:
+        """Markdown written for the model, loaded only when it asks.
+
+        A string is the in-process manual. A path is a file the operator dropped beside
+        the pack. ``None`` falls back to the one-line summary, which is how a capability
+        that has not yet written its manual still answers ``help.docs``.
+        """
         ...
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]: ...

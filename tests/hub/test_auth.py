@@ -207,7 +207,9 @@ async def test_turn_limits_are_resolved_once_with_the_live_feed_policy(
         assert prepared.pack_context.policy.max_tool_calls == 44
         assert prepared.live.flags is not None
         assert prepared.live.flags.flag("feeds_music") is False
-        assert preferences.resolves == 1
+        # One resolve per namespace the turn reads: lucy, then the two sibling namespaces
+        # whose knobs the packs may use when the model omits them. Never one per knob.
+        assert preferences.resolves == 3
         assert prepared.live.sources is not None
         assert prepared.live.sources.topics is not None
         assert prepared.live.sources.in_flight is not None
@@ -228,6 +230,107 @@ async def test_a_profile_aware_settings_client_receives_the_session_profile(
         assert resolved is not None
         assert resolved.get("max_llm_turns") == 9
         assert preferences.profiles == ["work"]
+    finally:
+        await container.aclose()
+
+
+@pytest.mark.asyncio
+async def test_omitted_pack_arguments_take_the_person_s_sibling_defaults(
+    keyring: FakeKeyring,
+) -> None:
+    container = build_container(build_settings(), transport=keyring.transport())
+    preferences = FakeSettingsClient(
+        {
+            "search": {"default_result_count": 99, "search_backend": "searxng"},
+            "spotify": {"default_device": "kitchen"},
+        }
+    )
+    await container.preferences.aclose()
+    container.preferences = preferences
+    try:
+        defaults = await container._pack_defaults("a.verified.jwt", "personal")
+        assert defaults == {
+            "research.limit": 20,
+            "research.backend": "searxng",
+            "music.device_id": "kitchen",
+        }
+    finally:
+        await container.aclose()
+
+
+@pytest.mark.asyncio
+async def test_nonsensical_sibling_defaults_are_omitted_rather_than_guessed(
+    keyring: FakeKeyring,
+) -> None:
+    container = build_container(build_settings(), transport=keyring.transport())
+    preferences = FakeSettingsClient(
+        {
+            "search": {"default_result_count": True, "search_backend": ""},
+            "spotify": {"default_device": 3},
+        }
+    )
+    await container.preferences.aclose()
+    container.preferences = preferences
+    try:
+        assert await container._pack_defaults("a.verified.jwt", "personal") == {}
+    finally:
+        await container.aclose()
+
+
+class SiblingOutage(FakeSettingsClient):
+    """A settings seam that can confirm Lucy knobs but not a sibling namespace."""
+
+    def __init__(self, error: SettingsClientError) -> None:
+        super().__init__({"lucy": {"max_llm_turns": 12}})
+        self.error = error
+
+    async def resolve(
+        self, namespace: str, *, user_token: str, profile: str | None = None
+    ) -> ResolvedSettings:
+        if namespace != "lucy":
+            raise self.error
+        return await super().resolve(namespace, user_token=user_token, profile=profile)
+
+
+@pytest.mark.asyncio
+async def test_sibling_namespaces_supply_pack_defaults(keyring: FakeKeyring) -> None:
+    """What a pack falls back to when the model omits an argument comes from settings."""
+    container = build_container(build_settings(), transport=keyring.transport())
+    await container.preferences.aclose()
+    container.preferences = FakeSettingsClient(
+        {
+            "search": {"default_result_count": 2, "search_backend": "google"},
+            "spotify": {"default_device": "bedroom"},
+        }
+    )
+    try:
+        defaults = await container._pack_defaults("a.verified.jwt", "personal")
+        assert defaults == {
+            "research.limit": 2,
+            "research.backend": "google",
+            "music.device_id": "bedroom",
+        }
+    finally:
+        await container.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_sibling_settings_outage_does_not_take_the_turn_down(
+    keyring: FakeKeyring,
+) -> None:
+    container = build_container(build_settings(), transport=keyring.transport())
+    await container.preferences.aclose()
+    container.preferences = SiblingOutage(SettingsUnavailable("down"))
+    try:
+        assert await container._pack_defaults("a.verified.jwt", "personal") == {}
+    finally:
+        await container.aclose()
+
+    container = build_container(build_settings(), transport=keyring.transport())
+    await container.preferences.aclose()
+    container.preferences = SiblingOutage(SettingsRejected(403, "forbidden"))
+    try:
+        assert await container._pack_defaults("a.verified.jwt", "work") == {}
     finally:
         await container.aclose()
 
@@ -301,3 +404,22 @@ async def test_an_exploding_route_still_returns_a_request_id() -> None:
     assert response.status_code == 500
     assert response.headers[REQUEST_ID_HEADER] == "req-from-caller"
     assert "secret-path" not in response.text
+
+
+def test_a_misspelt_model_key_is_a_startup_error_that_opens_nothing(keyring: FakeKeyring) -> None:
+    """The registry is validated before the database is opened.
+
+    A typo in `LUCY_MODEL_KEYS` used to be found *after* the SQLite worker thread had
+    started, which left that thread alive in a process that was refusing to start. The
+    order is the fix, and this is the test that keeps it.
+    """
+    import threading
+
+    from lucy_api.model.registry import UnknownModelError
+
+    threads_before = threading.active_count()
+    with pytest.raises(UnknownModelError, match="no catalogue row"):
+        build_container(
+            build_settings(model_keys={"gemeni": "sk-x"}), transport=keyring.transport()
+        )
+    assert threading.active_count() == threads_before, "no worker thread was started"

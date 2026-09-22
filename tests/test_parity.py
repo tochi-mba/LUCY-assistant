@@ -102,6 +102,7 @@ DOCS = (
     "docs/api.md",
     "docs/operations.md",
     "docs/testing.md",
+    "docs/mcp.md",
     "docs/adr/README.md",
 )
 

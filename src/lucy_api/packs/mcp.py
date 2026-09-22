@@ -61,6 +61,7 @@ class McpPack:
                 ),
                 risk="write",
                 covers=("mcp.*",),
+                outward=True,
             ),
         )
 

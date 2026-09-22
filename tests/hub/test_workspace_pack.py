@@ -15,7 +15,13 @@ from lucy_api.clients.environments import (
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.service import Capabilities
-from lucy_api.packs.workspace import MAX_TOOL_OUTPUT_CHARS, WorkspacePack, _optional_int
+from lucy_api.packs.workspace import (
+    MAX_TOOL_OUTPUT_CHARS,
+    WORKSPACE_MARKDOWN,
+    WorkspacePack,
+    _optional_int,
+)
+from lucy_api.permissions.gate import Grant
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.work import Registry
 from lucy_api.workspace.text import digest
@@ -37,13 +43,18 @@ def setup() -> tuple[FakeEnvironmentsClient, Capabilities, object]:
             permission_mode="auto",
         )
     )
+    context.grants["workspace.destroy"] = Grant("workspace.destroy", "allow", "*")
     return fake, capabilities, context
 
 
 def test_workspace_needs_no_manual_setup() -> None:
     fake, _capabilities, _context = setup()
+    pack = WorkspacePack("https://workspace.test", client=fake)
 
-    assert WorkspacePack("https://workspace.test", client=fake).setup() is None
+    assert pack.setup() is None
+    assert pack.docs == WORKSPACE_MARKDOWN
+    assert pack.permissions()[1].id == "workspace.destroy"
+    assert pack.permissions()[1].covers == ("workspace.delete",)
 
 
 async def test_workspace_without_an_attachment_has_no_tools() -> None:
@@ -119,6 +130,25 @@ async def test_workspace_operations_are_prefixed_to_the_session_subtree() -> Non
     assert "sessions/sess-a/readme.md" not in str(result)
     assert "17 output characters or bytes omitted" in str(result)
     assert ("env-1", "sessions/sess-a/done.txt") not in fake.contents
+
+
+async def test_deleting_in_auto_still_asks_unless_destroy_is_granted() -> None:
+    _fake, capabilities, context = setup()
+    context.grants.pop("workspace.destroy", None)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "delete", "op": "workspace.delete", "input": {"path": "readme.md"}},
+            ]
+        },
+        context,
+    )
+
+    assert result["issues"][0]["code"] == "permission_required"
+    assert result["issues"][0]["permission"] == "workspace.destroy"
+    assert "destructive" in result["issues"][0]["message"]
 
 
 async def test_workspace_escape_is_refused_before_the_client_is_called() -> None:
@@ -269,7 +299,7 @@ async def test_workspace_probe_names_a_transport_outage() -> None:
 
 
 def test_workspace_has_no_docs_page() -> None:
-    assert WorkspacePack("https://workspace.test").docs is None
+    assert WorkspacePack("https://workspace.test").docs == WORKSPACE_MARKDOWN
     assert _optional_int(True) is None
     assert _optional_int(8) == 8
 

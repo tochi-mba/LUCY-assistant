@@ -53,7 +53,9 @@ from lucy_api.cli.base import (
 )
 from lucy_api.cli.config import CONFIG_VAR
 from lucy_api.cli.connect import cmd_connect
+from lucy_api.cli.models import cmd_models
 from lucy_api.cli.setup import cmd_config, cmd_doctor, cmd_setup
+from lucy_api.cli.talk import cmd_talk
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -66,6 +68,10 @@ examples:
   lucy status --json             the same, for a script
   lucy doctor                    why isn't this working
   lucy connect music             set up one capability, or change it later
+  lucy models                    every model provider: ready, configured, or how to set it up
+  lucy models connect groq       save a provider key; the key is prompted, never a flag
+  lucy talk Hello                one message; the reply is on stdout
+  lucy talk                      type interactively, or pipe a message
   lucy serve                     run the hub here, in the foreground
   LUCY_URL=http://box:8000 lucy status    ask a hub somewhere else
 
@@ -300,6 +306,21 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", metavar="HOST", help="default: $LUCY_HOST, else 127.0.0.1")
     serve.add_argument("--port", type=int, metavar="PORT", help="default: $LUCY_PORT, else 8000")
     serve.set_defaults(run=cmd_serve)
+
+    talk = sub.add_parser("talk", parents=[after], help="send a message and print the reply")
+    talk.add_argument("-s", "--session", metavar="ID", help="continue this conversation")
+    talk.add_argument("words", nargs="*", help="the message; omit to read stdin")
+    talk.set_defaults(run=cmd_talk)
+
+    models = sub.add_parser("models", parents=[after], help="which models you can use")
+    models.add_argument("--check", action="store_true", help="prove the configured keys now")
+    models.set_defaults(run=cmd_models)
+    models_sub = models.add_subparsers(dest="models_command", metavar="<action>")
+    connect_model = models_sub.add_parser(
+        "connect", parents=[after], help="give the hub a key for one provider"
+    )
+    connect_model.add_argument("provider", help="the provider id; `lucy models` lists them")
+    connect_model.set_defaults(run=cmd_models)
 
     return parser
 

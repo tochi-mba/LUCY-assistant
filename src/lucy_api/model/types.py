@@ -143,6 +143,7 @@ class Request:
     temperature: float | None = None
     thinking: str = "default"
     model: str = ""
+    max_thinking_tokens: int = 0
 
 
 class ModelUnavailableError(Exception):

@@ -1,11 +1,13 @@
 """Music is gated by connection state and projected before the model sees it."""
 
+from dataclasses import replace
+
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.spotify import Device, FakeSpotifyClient, Play, Track
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
-from lucy_api.packs.music import MusicPack, _optional_int
+from lucy_api.packs.music import MUSIC_MARKDOWN, MusicPack, _optional_int
 from lucy_api.packs.service import Capabilities
 from lucy_api.sessions.scope import SessionScope
 
@@ -17,6 +19,9 @@ def setup(fake: FakeSpotifyClient) -> tuple[Capabilities, object]:
             account_id="acct_a", profile="personal", session_id="ses_a", permission_mode="auto"
         )
     )
+    # Pack tests exercise the operations themselves; the outward-action floor is pinned
+    # in test_tools_invoke, not here.
+    context.policy = replace(context.policy, confirm_outward_actions=False)
     return capabilities, context
 
 
@@ -88,10 +93,29 @@ async def test_music_reads_and_writes_use_the_session_profile_and_small_projecti
     assert fake.played == [("personal", ("spotify:track:1",), "device-1")]
 
 
+async def test_omitted_device_id_uses_the_person_s_default_speaker() -> None:
+    fake = FakeSpotifyClient()
+    capabilities, context = setup(fake)
+    context.defaults["music.device_id"] = "kitchen"
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "play", "op": "music.play", "input": {"uri": "spotify:track:1"}},
+            ]
+        },
+        context,
+    )
+
+    assert not result["issues"]
+    assert fake.played == [("personal", ("spotify:track:1",), "kitchen")]
+
+
 def test_music_declares_setup_and_write_permission() -> None:
     pack = MusicPack("http://music.test", client=FakeSpotifyClient())
 
-    assert pack.docs is None
+    assert pack.docs == MUSIC_MARKDOWN
     assert pack.setup() is not None
     assert pack.setup().steps[0].kind == "oauth"
     assert pack.permissions()[0].covers == ("music.play", "music.queue", "music.pause")

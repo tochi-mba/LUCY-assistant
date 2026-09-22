@@ -287,7 +287,12 @@ class AnthropicProvider:
         output_config: dict[str, Any] = {}
         if request.plan_schema is not None:
             output_config["format"] = {"type": "json_schema", "schema": request.plan_schema}
-        if request.thinking in EFFORTS:
+        if request.max_thinking_tokens > 0:
+            body["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": request.max_thinking_tokens,
+            }
+        elif request.thinking in EFFORTS:
             body["thinking"] = {"type": "adaptive", "display": "summarized"}
             output_config["effort"] = request.thinking
         elif request.thinking in THINKING_OFF:

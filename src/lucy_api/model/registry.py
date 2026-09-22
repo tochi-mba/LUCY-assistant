@@ -12,7 +12,14 @@ answered by another after a config change.
 look identical from the outside and have opposite remedies. A name this hub has never
 heard of is a typo in a settings value. A name it knows perfectly well but has no
 credential for is an unconfigured deployment, and telling that person "unknown provider"
-would send them to fix the one thing that is not broken. The two get different sentences.
+would send them to fix the one thing that is not broken. The two get different sentences,
+and the second one carries the command that fixes it.
+
+## The catalogue decides the adapter
+
+Every provider is a row in `lucy_api.model.catalogue`, and the row's dialect picks the
+adapter: Messages, Responses, or the chat-completions format everybody else speaks. The
+registry never names a provider itself. Adding one is adding a row.
 
 ## Providers are resolved once and kept
 
@@ -28,6 +35,8 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from lucy_api.model.anthropic import AnthropicProvider
+from lucy_api.model.catalogue import CATALOGUE, KNOWN, Binding, Dialect, ProviderSpec, spec_for
+from lucy_api.model.chat import ChatProvider
 from lucy_api.model.openai import OpenAIProvider
 from lucy_api.model.wire import DEFAULT_TIMEOUT
 
@@ -38,11 +47,11 @@ if TYPE_CHECKING:
 
     from lucy_api.model.types import Provider
 
-KNOWN = ("anthropic", "openai")
-"""Every provider this hub has an adapter for, whether or not one is configured."""
-
 type ProviderFactory = Callable[[str], Provider]
 """Builds a provider bound to one model id -- the half after the colon."""
+
+SETUP_COMMAND = "lucy models connect {provider}"
+"""What a person runs to supply a credential. Named here so every sentence agrees."""
 
 
 class UnknownModelError(Exception):
@@ -67,7 +76,7 @@ def parse_spec(spec: str) -> ModelSpec:
     if not separator or not provider or not model:
         msg = (
             f"{spec!r} is not a model spec. Write 'provider:model' -- for example "
-            f"'anthropic:claude-opus-5'. Known providers: {', '.join(KNOWN)}."
+            f"'anthropic:claude-opus-5'. GET /v1/models lists every provider."
         )
         raise UnknownModelError(msg)
     return ModelSpec(provider=provider, model=model)
@@ -84,6 +93,9 @@ class ModelRegistry:
     def providers(self) -> tuple[str, ...]:
         """The providers this registry can actually build, in alphabetical order."""
         return tuple(sorted(self._factories))
+
+    def configured(self, provider: str) -> bool:
+        return provider in self._factories
 
     def resolve(self, spec: str) -> Provider:
         """The provider for `spec`, built once and kept."""
@@ -106,64 +118,121 @@ class ModelRegistry:
 
     def _unknown(self, provider: str) -> str:
         configured = ", ".join(self.providers) or "none"
-        if provider in KNOWN:
+        spec = spec_for(provider)
+        if spec is not None and spec.usable:
+            fix = SETUP_COMMAND.format(provider=provider)
             return (
-                f"this hub can talk to {provider!r}, but no credential is configured for "
-                f"it. Connect a model provider, or name one of: {configured}."
+                f"this hub can talk to {spec.title} ({provider!r}), but nothing is configured "
+                f"for it. Run `{fix}`, or name one of: {configured}."
+            )
+        if spec is not None:
+            return (
+                f"{spec.title} ({provider!r}) is catalogued but cannot be used yet: "
+                f"{spec.note} Name one of: {configured}."
             )
         return (
-            f"unknown model provider {provider!r}. This hub has adapters for "
-            f"{', '.join(KNOWN)}, and is configured for: {configured}."
+            f"unknown model provider {provider!r}. This hub knows {len(KNOWN)} providers; "
+            f"GET /v1/models lists them. It is configured for: {configured}."
         )
 
 
-def _anthropic(
-    api_key: str, transport: httpx.AsyncBaseTransport | None, timeout: float, model: str
+def _build(
+    binding: Binding,
+    transport: httpx.AsyncBaseTransport | None,
+    timeout: float,
+    model: str,
 ) -> Provider:
-    return AnthropicProvider(api_key=api_key, model=model, timeout=timeout, transport=transport)
+    """The adapter the row's dialect calls for, bound to one model."""
+    if binding.spec.dialect is Dialect.anthropic_messages:
+        return AnthropicProvider(
+            api_key=binding.api_key,
+            model=model,
+            base_url=binding.url,
+            timeout=timeout,
+            transport=transport,
+        )
+    if binding.spec.dialect is Dialect.openai_responses:
+        return OpenAIProvider(
+            api_key=binding.api_key,
+            model=model,
+            base_url=binding.url,
+            timeout=timeout,
+            transport=transport,
+        )
+    return ChatProvider(binding, model, timeout=timeout, transport=transport)
 
 
-def _openai(
-    api_key: str, transport: httpx.AsyncBaseTransport | None, timeout: float, model: str
-) -> Provider:
-    return OpenAIProvider(api_key=api_key, model=model, timeout=timeout, transport=transport)
+def bindings_for(
+    api_keys: Mapping[str, str], base_urls: Mapping[str, str] | None = None
+) -> dict[str, Binding]:
+    """What this deployment can build: one binding per provider it has enough for.
+
+    A key for a provider this hub has no row for is refused rather than ignored: it is a
+    typo in configuration, and the deployment that silently drops it fails later, at the
+    first turn, in a place that does not mention the setting. A row that needs a base URL
+    and was not given one is refused the same way, because the alternative is a request to
+    an empty host.
+
+    A local runtime needs no key; naming it with any value, or giving it a base URL, is
+    what switches it on. An empty key registers nothing, which is how `/ready` comes to say
+    the model is not connected yet.
+    """
+    urls = dict(base_urls or {})
+    unknown = sorted((set(api_keys) | set(urls)) - set(KNOWN))
+    if unknown:
+        msg = (
+            f"no catalogue row for model provider(s): {', '.join(unknown)}. "
+            "GET /v1/models lists the ones this hub knows."
+        )
+        raise UnknownModelError(msg)
+    bound: dict[str, Binding] = {}
+    for spec in CATALOGUE:
+        key = api_keys.get(spec.id, "")
+        url = urls.get(spec.id, "")
+        if not _enough(spec, key, url):
+            continue
+        if spec.needs_base_url and not url:
+            msg = (
+                f"{spec.title} ({spec.id!r}) needs LUCY_MODEL_BASE_URLS to name its "
+                f"endpoint: {spec.note}"
+            )
+            raise UnknownModelError(msg)
+        bound[spec.id] = Binding(spec, api_key=key, base_url=url)
+    return bound
+
+
+def _enough(spec: ProviderSpec, key: str, url: str) -> bool:
+    """Whether this deployment supplied what the row needs to be built at all."""
+    if not spec.usable:
+        return False
+    if spec.needs_key:
+        return bool(key)
+    return bool(key or url)
 
 
 def http_registry(
     api_keys: Mapping[str, str],
     *,
+    base_urls: Mapping[str, str] | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> ModelRegistry:
-    """A registry over the providers there is a credential for.
-
-    A key for a provider this hub has no adapter for is refused rather than ignored: it
-    is a typo in configuration, and the deployment that silently drops it fails later, at
-    the first turn, in a place that does not mention the setting. An empty key registers
-    nothing, which is how `/ready` comes to say the model is not connected yet.
-    """
-    unknown = sorted(set(api_keys) - set(KNOWN))
-    if unknown:
-        msg = (
-            f"no adapter for model provider(s): {', '.join(unknown)}. This hub has "
-            f"adapters for {', '.join(KNOWN)}."
-        )
-        raise UnknownModelError(msg)
-    factories: dict[str, ProviderFactory] = {}
-    for provider, api_key in api_keys.items():
-        if not api_key:
-            continue
-        builder = _anthropic if provider == "anthropic" else _openai
-        factories[provider] = partial(builder, api_key, transport, timeout)
+    """A registry over the providers there is enough configuration for."""
+    factories: dict[str, ProviderFactory] = {
+        provider: partial(_build, binding, transport, timeout)
+        for provider, binding in bindings_for(api_keys, base_urls).items()
+    }
     return ModelRegistry(factories)
 
 
 __all__ = [
     "KNOWN",
+    "SETUP_COMMAND",
     "ModelRegistry",
     "ModelSpec",
     "ProviderFactory",
     "UnknownModelError",
+    "bindings_for",
     "http_registry",
     "parse_spec",
 ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -9,7 +10,7 @@ import pytest
 from weftai.ids import is_valid_operation_name
 
 from lucy_api.core.errors import LucyError
-from lucy_api.mcp.outbound import CALL_FAILED, httpx_call, project_call
+from lucy_api.mcp.outbound import CALL_FAILED, MAX_RESULT_CHARS, httpx_call, project_call
 from lucy_api.mcp.servers import READY
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.mcp import McpPack, _camel, _operation_name
@@ -69,6 +70,7 @@ def _setup(
             account_id="acct_a", profile="personal", session_id="ses_a", permission_mode=mode
         )
     )
+    context.policy = replace(context.policy, confirm_outward_actions=False)
     return capabilities, context
 
 
@@ -104,6 +106,15 @@ def test_project_call_fences_text_and_swallows_rpc_errors() -> None:
     assert errored == {"ok": False, "text": "x"}
     empty = project_call({"result": {"isError": True, "content": "not-a-list"}})
     assert empty == {"ok": False, "text": CALL_FAILED}
+
+
+def test_project_call_names_how_much_of_a_long_result_was_kept() -> None:
+    body = "x" * (MAX_RESULT_CHARS + 40)
+    projected = project_call({"result": {"content": [{"type": "text", "text": body}]}})
+    text = str(projected["text"])
+    assert projected["ok"] is True
+    assert len(text) == MAX_RESULT_CHARS
+    assert projected["notice"] == f"showing {MAX_RESULT_CHARS} of {len(body)} characters"
 
 
 @pytest.mark.asyncio

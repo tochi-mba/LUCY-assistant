@@ -101,8 +101,8 @@ class WorkPack:
     summary = "See what is still running, read a finished result, or stop something."
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return WORK_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return (

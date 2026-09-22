@@ -29,10 +29,10 @@ from lucy_api.packs.context import SilentTokens
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import PackHttp
 from lucy_api.packs.music import MusicPack
-from lucy_api.packs.research import ResearchPack
+from lucy_api.packs.research import RESEARCH_MARKDOWN, ResearchPack, _search_limit
 from lucy_api.packs.research import _summary as research_summary
 from lucy_api.packs.service import Capabilities
-from lucy_api.packs.settings import SettingsPack
+from lucy_api.packs.settings import SETTINGS_MARKDOWN, SettingsPack
 from lucy_api.sessions.compact import _consecutive_failures, _covers_to, _summary
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
@@ -118,7 +118,7 @@ def test_a_compaction_summary_skips_items_newer_than_the_cover() -> None:
 
 def test_settings_without_a_usable_token_are_unavailable() -> None:
     pack = SettingsPack("https://settings.test")
-    assert pack.docs is None
+    assert pack.docs == SETTINGS_MARKDOWN
     assert pack.setup() is None
 
 
@@ -138,7 +138,7 @@ async def test_settings_probe_names_an_exchange_failure() -> None:
 async def test_research_probe_covers_each_provider_outcome() -> None:
     fake = FakeSearchClient()
     pack = ResearchPack("https://search.test", client=fake)
-    assert pack.docs is None
+    assert pack.docs == RESEARCH_MARKDOWN
     fake.offer([Provider("openai", "error")])
     assert (await pack.probe(_pack_context())).state is State.unavailable
 
@@ -532,3 +532,18 @@ def _pack_context() -> Any:
     return Capabilities(()).context_for(
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
     )
+
+
+def test_a_nonsensical_research_limit_falls_back_to_the_default() -> None:
+    from lucy_api.clients.search import DEFAULT_RESULTS
+
+    broken = SimpleNamespace(input={"limit": "nope"}, ctx=SimpleNamespace(defaults={}))
+    assert _search_limit(broken) == DEFAULT_RESULTS
+    missing = SimpleNamespace(input={}, ctx=SimpleNamespace(defaults={"research.limit": object()}))
+    assert _search_limit(missing) == DEFAULT_RESULTS
+    huge = SimpleNamespace(input={"limit": 99}, ctx=SimpleNamespace(defaults={}))
+    assert _search_limit(huge) == 20
+    preferred = SimpleNamespace(input={}, ctx=SimpleNamespace(defaults={"research.limit": 2}))
+    assert _search_limit(preferred) == 2
+    empty = SimpleNamespace(input={"limit": 0}, ctx=SimpleNamespace(defaults={}))
+    assert _search_limit(empty) == 1

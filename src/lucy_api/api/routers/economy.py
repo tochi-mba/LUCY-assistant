@@ -44,15 +44,22 @@ class UncompactBody(BaseModel):
     summary="Summarise older turns without rewriting them",
     responses=_ADDRESSED,
     description=(
-        "Writes an extractive summary covering everything older than the newest two turns. "
-        "The transcript stays; deactivating the row restores it. Three consecutive failures "
-        "disable compaction for the session."
+        "Writes an extractive summary covering everything older than the newest turns the "
+        "person asked to keep. The transcript stays; deactivating the row restores it. "
+        "Three consecutive failures disable compaction for the session."
     ),
 )
 async def compact(
-    caller: CurrentCallerDep, store: StoreDep, session_id: SessionId
+    acting: ActingAsDep, container: ContainerDep, session_id: SessionId
 ) -> dict[str, Any]:
-    return await compact_session(store, caller.account_id, session_id)
+    session = await container.store.get(acting.account_id, session_id)
+    policy = await container.lucy_policy(acting.token, str(session["profile"]))
+    return await compact_session(
+        container.store,
+        acting.account_id,
+        session_id,
+        keep_recent=policy.history_turns_kept,
+    )
 
 
 @router.post(

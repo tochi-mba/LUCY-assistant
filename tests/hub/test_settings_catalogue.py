@@ -83,6 +83,14 @@ def test_model_and_subagent_round_limits_are_bounded_settings() -> None:
         "agent_result_token_cap",
         "temperature",
         "vision_enabled",
+        "fallback_model",
+        "max_thinking_tokens",
+        "confirm_outward_actions",
+        "auto_title",
+        "notify_on_long_turn",
+        "retry_attempts",
+        "agent_wall_clock_seconds",
+        "enabled_capabilities",
     ):
         assert knob(key) is not None
 

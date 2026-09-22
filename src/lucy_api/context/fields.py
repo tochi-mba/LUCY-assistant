@@ -12,12 +12,19 @@ process that produced the line.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from lucy_api.context.feeds import Volatility
 
-SETTING_KEY = r"^[a-z][a-z0-9_]*$"
-"""The same shape settings-api accepts, so these keys can be registered without renaming."""
+SETTING_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+"""The shape settings-api accepts for a key, applied to every field at import.
+
+A capability's feed toggles become settings under this shape (`feeds_music_now_playing`),
+and a key that would not pass settings-api's own check is refused here, at startup, rather
+than at the first request that tries to register it -- which is where an extension author
+would otherwise learn that a hyphen is not a letter.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +37,15 @@ class FeedField:
     summary: str
     default: bool = True
     personal: bool = True
+
+    def __post_init__(self) -> None:
+        for part in (self.capability, self.key):
+            if not SETTING_KEY.match(part):
+                message = (
+                    f"feed field {self.capability!r}/{self.key!r} is not a settings key: "
+                    "lowercase letters, digits and underscores, starting with a letter"
+                )
+                raise ValueError(message)
 
     @property
     def setting_key(self) -> str:

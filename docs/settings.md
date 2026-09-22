@@ -91,6 +91,19 @@ setting never moves the ceilings of a turn that is already running.
 | `max_output_tokens_per_turn` | 8000 | How much the model may generate in one reply |
 | `max_tool_result_tokens` | 25000 | Per-result cap before the rest spills and stays reachable by reference |
 | `max_steps_per_plan` | 20 | Steps one plan may contain |
+| `fallback_model` | empty | Second `provider:model` tried once when the chosen model is unavailable |
+| `max_thinking_tokens` | 0 | Hard ceiling on working-out; zero leaves the effort level to choose |
+| `confirm_outward_actions` | true | Floor: anything other people will see asks first; auto cannot lower this |
+| `enabled_capabilities` | empty | Empty stays quiet about disconnected capabilities in the prompt; naming one advertises its connect link. The HTTP catalogue still lists every pack |
+| `auto_title` | true | Name a new conversation from the first user message |
+| `notify_on_long_turn` | true | Emit `lucy.turn.slow` after `long_turn_seconds` |
+| `long_turn_seconds` | 60 | Wait before that slow-turn event |
+| `retry_attempts` | 2 | Extra tries for a failed sibling call; 401 is never retried this way |
+| `retry_max_seconds` | 30 | Total window those extra tries may use |
+| `downstream_timeout_seconds` | 10 | Per-request wait for one sibling call |
+| `agent_wall_clock_seconds` | 600 | Helper is stopped and told it ran out of time |
+| `agent_message_max_chars` | 4000 | One helper message larger than this is refused |
+| `agent_message_burst` | 5 | Unread helper messages allowed before the next is refused |
 | `agent_max_depth` | 3 | How many levels of helper may nest |
 | `agent_max_concurrent` | 5 | How many helpers may run at once |
 | `memory_write_policy` | ask_first | `never` refuses new notes; `automatic` writes without asking |

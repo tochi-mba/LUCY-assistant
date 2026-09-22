@@ -76,3 +76,25 @@ def test_an_extension_cannot_redefine_a_built_in_capability(
     )
     with pytest.raises(ValueError, match="already owns"):
         _discovered()
+
+
+# --------------------------------------------------------------------------------------
+# A field's key is a settings key, and that is checked at import rather than at the first
+# request that tries to register it.
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["now-playing", "Now_playing", "1st", "", "now playing"])
+def test_a_key_that_settings_api_would_refuse_is_refused_here_first(bad: str) -> None:
+    with pytest.raises(ValueError, match="is not a settings key"):
+        FeedField("music", bad, Volatility.live, "A line.")
+
+
+def test_a_capability_name_is_held_to_the_same_shape() -> None:
+    with pytest.raises(ValueError, match="is not a settings key"):
+        FeedField("Music-Tool", "now_playing", Volatility.live, "A line.")
+
+
+def test_every_built_in_field_already_passes() -> None:
+    """Otherwise the import above would have failed, but say so in a test that can be read."""
+    assert all(field.setting_key.startswith("feeds_") for field in BUILTIN_FIELDS)

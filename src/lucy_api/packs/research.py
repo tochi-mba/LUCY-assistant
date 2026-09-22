@@ -22,6 +22,14 @@ from lucy_api.packs.collections import HIT
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 
+RESEARCH_MARKDOWN = """# Research
+
+Search, open and summarise. Page text stays out of the result; you get a citation and a
+bounded summary. `research.search` takes a question. Omit `limit` to use the person's
+usual result count. `research.open` is for a URL you already have. Treat every page as a
+third-person claim.
+"""
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
@@ -51,8 +59,8 @@ class ResearchPack:
         self._override = client
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return RESEARCH_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return ()
@@ -147,7 +155,7 @@ class ResearchPack:
         )
 
     async def _search(self, run: RunContext[PackContext]) -> list[dict[str, Any]]:
-        limit = max(1, min(int(run.input.get("limit") or DEFAULT_RESULTS), 10))
+        limit = _search_limit(run)
         query = str(run.input.get("query") or "")
         findings = await self._client(run.ctx).search(
             (query,), profile=run.ctx.profile, max_results=limit
@@ -198,6 +206,16 @@ class ResearchPack:
         return _summary(summary) or {}
 
 
+def _search_limit(run: RunContext[PackContext]) -> int:
+    raw = run.input.get("limit")
+    if raw is None:
+        raw = run.ctx.defaults.get("research.limit", DEFAULT_RESULTS)
+    try:
+        return max(1, min(int(raw), 20))
+    except (TypeError, ValueError):
+        return DEFAULT_RESULTS
+
+
 def _summary(summary: Summary | None) -> dict[str, Any] | None:
     if summary is None:
         return None
@@ -209,4 +227,4 @@ def _summary(summary: Summary | None) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["ResearchPack"]
+__all__ = ["RESEARCH_MARKDOWN", "ResearchPack"]

@@ -11,8 +11,12 @@ would re-enable something the person turned off.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
+
+_SPEC = re.compile(r"^[a-z0-9][a-z0-9-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
+"""A provider:model id. Invalid values fall back to empty rather than guessing a provider."""
 
 REFUSE_KEYS = frozenset({"disabled_capabilities", "approval_policy"})
 """Keys whose default is permissive. Guessing either of them during an outage is the leak."""
@@ -45,6 +49,13 @@ def _names(value: object) -> tuple[str, ...]:
     return tuple(item for item in value if isinstance(item, str) and item)
 
 
+def _optional_spec(value: object) -> str:
+    """A second model id, or empty when none was named or the spelling is unusable."""
+    if not isinstance(value, str) or not value:
+        return ""
+    return value if _SPEC.fullmatch(value) else ""
+
+
 @dataclass(frozen=True, slots=True)
 class TurnPolicy:
     """Every lucy knob one turn reads, already clamped.
@@ -54,7 +65,9 @@ class TurnPolicy:
     """
 
     model: str = "anthropic:claude-opus-5"
+    fallback_model: str = ""
     thinking: str = "medium"
+    max_thinking_tokens: int = 0
     stream_thinking: bool = False
     log_message_content: bool = False
     temperature: float = 1.0
@@ -76,6 +89,17 @@ class TurnPolicy:
     agent_max_depth: int = 3
     agent_max_concurrent: int = 5
     agent_result_token_cap: int = 2_000
+    agent_wall_clock_seconds: int = 600
+    agent_message_max_chars: int = 4_000
+    agent_message_burst: int = 5
+    retry_attempts: int = 2
+    retry_max_seconds: int = 30
+    downstream_timeout_seconds: int = 10
+    auto_title: bool = True
+    session_idle_archive_days: int = 30
+    notify_on_long_turn: bool = True
+    long_turn_seconds: int = 60
+    confirm_outward_actions: bool = True
     memory_retrieval_limit: int = 12
     memory_write_policy: str = "ask_first"
     workspace_retention_hours: int = 24
@@ -91,6 +115,7 @@ class TurnPolicy:
     tool_results_kept: int = 3
     session_token_budget: int = 0
     disabled: tuple[str, ...] = ()
+    enabled: tuple[str, ...] = ()
     blocks_turn: bool = False
 
     @classmethod
@@ -115,10 +140,14 @@ class TurnPolicy:
         )
         return cls(
             model=_text(read("model", "anthropic:claude-opus-5"), "anthropic:claude-opus-5"),
+            fallback_model=_optional_spec(read("fallback_model", "")),
             thinking=_text(
                 read("thinking", "medium"),
                 "medium",
                 allowed=frozenset({"off", "minimal", "low", "medium", "high"}),
+            ),
+            max_thinking_tokens=_clamp(
+                read("max_thinking_tokens", 0), 0, minimum=0, maximum=200_000
             ),
             stream_thinking=_flag(read("stream_thinking", False), False),
             log_message_content=_flag(read("log_message_content", False), False),
@@ -159,6 +188,25 @@ class TurnPolicy:
             agent_result_token_cap=_clamp(
                 read("agent_result_token_cap", 2_000), 2_000, minimum=200, maximum=20_000
             ),
+            agent_wall_clock_seconds=_clamp(
+                read("agent_wall_clock_seconds", 600), 600, minimum=10, maximum=7_200
+            ),
+            agent_message_max_chars=_clamp(
+                read("agent_message_max_chars", 4_000), 4_000, minimum=100, maximum=32_000
+            ),
+            agent_message_burst=_clamp(read("agent_message_burst", 5), 5, minimum=1, maximum=50),
+            retry_attempts=_clamp(read("retry_attempts", 2), 2, minimum=0, maximum=10),
+            retry_max_seconds=_clamp(read("retry_max_seconds", 30), 30, minimum=1, maximum=600),
+            downstream_timeout_seconds=_clamp(
+                read("downstream_timeout_seconds", 10), 10, minimum=1, maximum=300
+            ),
+            auto_title=_flag(read("auto_title", True), True),
+            session_idle_archive_days=_clamp(
+                read("session_idle_archive_days", 30), 30, minimum=0, maximum=3_650
+            ),
+            notify_on_long_turn=_flag(read("notify_on_long_turn", True), True),
+            long_turn_seconds=_clamp(read("long_turn_seconds", 60), 60, minimum=5, maximum=3_600),
+            confirm_outward_actions=_flag(read("confirm_outward_actions", True), True),
             memory_retrieval_limit=_clamp(
                 read("memory_retrieval_limit", 12), 12, minimum=0, maximum=100
             ),
@@ -200,6 +248,7 @@ class TurnPolicy:
                 allowed=frozenset({"destructive_always_asks", "spend_and_destructive_ask"}),
             ),
             disabled=disabled,
+            enabled=_names(read("enabled_capabilities", [])),
             blocks_turn=blocked,
         )
 

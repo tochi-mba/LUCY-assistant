@@ -59,7 +59,7 @@ async def test_player_calls_project_and_use_the_music_audience() -> None:
     http = FakeHttp(
         Answer(body=devices),
         Answer(body=devices),
-        Answer(body={"item": track, "progress_ms": 12, "is_playing": True}),
+        Answer(body={"item": track, "progress_ms": 12, "is_playing": True, "shuffle_state": True}),
         Answer(
             body={
                 "items": [

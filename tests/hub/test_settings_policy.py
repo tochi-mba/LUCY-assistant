@@ -56,6 +56,19 @@ def test_defaults_match_the_catalogue_when_nothing_is_set() -> None:
     policy = TurnPolicy.from_resolved(_Resolved({}))
     assert policy.blocks_turn is False
     assert policy.model == "anthropic:claude-opus-5"
+    assert policy.fallback_model == ""
+    assert policy.max_thinking_tokens == 0
+    assert policy.confirm_outward_actions is True
+    assert policy.auto_title is True
+    assert policy.notify_on_long_turn is True
+    assert policy.long_turn_seconds == 60
+    assert policy.retry_attempts == 2
+    assert policy.retry_max_seconds == 30
+    assert policy.downstream_timeout_seconds == 10
+    assert policy.agent_wall_clock_seconds == 600
+    assert policy.agent_message_max_chars == 4_000
+    assert policy.agent_message_burst == 5
+    assert policy.enabled == ()
     assert policy.thinking == "medium"
     assert policy.stream_thinking is False
     assert policy.log_message_content is False
@@ -109,6 +122,12 @@ def test_live_values_are_clamped_and_temperature_is_hundredths() -> None:
                 "max_context_tokens": 32_000,
                 "tool_results_kept": 1,
                 "session_token_budget": 50_000,
+                "fallback_model": "openai:gpt-4.1",
+                "max_thinking_tokens": 2_048,
+                "confirm_outward_actions": False,
+                "enabled_capabilities": ["music", "help"],
+                "retry_attempts": 0,
+                "agent_message_burst": 2,
             }
         )
     )
@@ -128,6 +147,12 @@ def test_live_values_are_clamped_and_temperature_is_hundredths() -> None:
     assert policy.max_context_tokens == 32_000
     assert policy.tool_results_kept == 1
     assert policy.session_token_budget == 50_000
+    assert policy.fallback_model == "openai:gpt-4.1"
+    assert policy.max_thinking_tokens == 2_048
+    assert policy.confirm_outward_actions is False
+    assert policy.enabled == ("music", "help")
+    assert policy.retry_attempts == 0
+    assert policy.agent_message_burst == 2
     assert policy.disabled == ("toy",)
     assert "help" not in policy.disabled
     assert {"help", "work", "agents"} == ALWAYS_ON
@@ -223,3 +248,11 @@ async def test_help_work_and_helpers_stay_bound_when_a_person_lists_them_as_disa
 def test_apply_disabled_returns_the_same_catalogue_when_only_always_on_names_were_listed() -> None:
     empty = Catalogue(bound=())
     assert apply_disabled(empty, ("help", "work", "agents")) is empty
+
+
+def test_a_fallback_model_must_look_like_a_provider_spec() -> None:
+    policy = TurnPolicy.from_resolved(
+        _Resolved({"fallback_model": "not a model", "max_thinking_tokens": True})
+    )
+    assert policy.fallback_model == ""
+    assert policy.max_thinking_tokens == 0

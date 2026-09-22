@@ -397,6 +397,12 @@ or the whole account — and re-queues the same turn. The client's `approved: tr
 input; the gate re-checks the ledger before the tool runs. A denial is a transcript item
 and a grant the model will see as "not allowed", never an exception.
 
+`auto` still asks for anything marked destructive or (when `approval_policy` is
+`spend_and_destructive_ask`) anything that spends money. A stored grant can skip that
+floor; the mode cannot. `notes.forget` is `notes.erase`. `workspace.delete` is
+`workspace.destroy`. Those are separate from `notes.write` and `workspace.files` so
+allowing ordinary writes does not also allow a delete.
+
 ## What a step is allowed to cost
 
 | | |

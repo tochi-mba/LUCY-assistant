@@ -92,6 +92,7 @@ TURN_SUPERSEDED = "lucy.turn.superseded"
 TURN_BUDGET_WARNING = "lucy.turn.budget_warning"
 TURN_BUDGET_EXHAUSTED = "lucy.turn.budget_exhausted"
 TURN_MAX_ITERATIONS = "lucy.turn.max_iterations"
+TURN_SLOW = "lucy.turn.slow"
 
 
 # --------------------------------------------------------------------------------------
@@ -389,6 +390,7 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
         TURN_BUDGET_WARNING,
         TURN_BUDGET_EXHAUSTED,
         TURN_MAX_ITERATIONS,
+        TURN_SLOW,
     ),
     "Model": (
         MODEL_REQUEST_STARTED,

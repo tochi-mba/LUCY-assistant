@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import inspect
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.framing import Origin, frame_result
@@ -155,6 +155,9 @@ class Turn:
     temperature: float | None = None
     thinking: str = "default"
     result_token_cap: int = RESULT_TOKEN_CAP
+    fallback_provider: Provider | None = None
+    fallback_model: str = ""
+    max_thinking_tokens: int = 0
 
 
 @dataclass(slots=True)
@@ -201,9 +204,10 @@ async def run_turn(turn: Turn) -> Outcome:
             max_output_tokens=turn.max_output_tokens,
             temperature=turn.temperature,
             thinking=turn.thinking,
+            max_thinking_tokens=turn.max_thinking_tokens,
         )
 
-        reply = await _ask(turn.provider, request, cycle.outcome, turn.on_chunk)
+        reply = await _ask(turn, request, cycle.outcome)
         if reply is None:
             return cycle.outcome
 
@@ -339,17 +343,44 @@ async def _record_denial(turn: Turn, outcome: Outcome, round_: Round, result: An
     return f"{detail} Choose a safe alternative."
 
 
-async def _ask(
-    provider: Provider,
-    request: Request,
-    outcome: Outcome,
-    on_chunk: Callable[[Chunk], Awaitable[None]] | None = None,
-) -> Reply | None:
-    """One model call. Returns the reply, or `None` having recorded why there was not one.
+FALLBACK_NOTE = "(Answered by {model} because the chosen model was unavailable.)"
+
+
+async def _ask(turn: Turn, request: Request, outcome: Outcome) -> Reply | None:
+    """One model call, with one retry on the fallback model when the chosen one is out.
 
     Every failure is recorded on the turn rather than raised, because a turn is a durable
     unit: an exception thrown from here becomes a 500 with no transcript behind it, and the
     person is left with a conversation that simply stopped.
+
+    The fallback is tried once and only for unavailability. A refusal, a malformed call or
+    an empty stream is a fact about the request, and the second model would only repeat it.
+    The person is told which voice answered.
+    """
+    reply = await _call(turn.provider, request, outcome, turn.on_chunk)
+    if reply is not None or outcome.termination is not Termination.failed:
+        return reply
+    if turn.fallback_provider is None or not outcome.detail.startswith(UNAVAILABLE):
+        return None
+    outcome.termination = Termination.success
+    outcome.detail = ""
+    fallback_request = replace(request, model=turn.fallback_model or request.model)
+    reply = await _call(turn.fallback_provider, fallback_request, outcome, turn.on_chunk)
+    if reply is None:
+        return None
+    return _mark_fallback(reply, turn.fallback_model)
+
+
+UNAVAILABLE = "the model was unavailable"
+
+
+async def _call(
+    provider: Provider,
+    request: Request,
+    outcome: Outcome,
+    on_chunk: Callable[[Chunk], Awaitable[None]] | None,
+) -> Reply | None:
+    """One call to one provider. Returns the reply, or `None` having recorded why not.
 
     When a callback is attached, the provider's stream is used so a subscriber can see
     reasoning as it arrives. Spoken text is still assembled from the `done` chunk: a plan
@@ -359,14 +390,8 @@ async def _ask(
     often puts the provider's response body in the message, and a response body has no
     business in a transcript or a log line.
     """
-    reply: Reply | None = None
     try:
-        if on_chunk is None:
-            return await provider.complete(request)
-        async for chunk in provider.stream(request):
-            await on_chunk(chunk)
-            if chunk.reply is not None:
-                reply = chunk.reply
+        reply = await _complete(provider, request, on_chunk)
     except ModelRefusedError as exc:
         outcome.termination = Termination.refused
         outcome.detail = str(exc)
@@ -374,7 +399,7 @@ async def _ask(
         return None
     except ModelUnavailableError as exc:
         outcome.termination = Termination.failed
-        outcome.detail = f"the model was unavailable: {exc}"
+        outcome.detail = f"{UNAVAILABLE}: {exc}"
         return None
     except Exception as exc:
         outcome.termination = Termination.failed
@@ -384,6 +409,30 @@ async def _ask(
         outcome.termination = Termination.failed
         outcome.detail = "the model stream ended without a reply"
         return None
+    return reply
+
+
+def _mark_fallback(reply: Reply, model: str) -> Reply:
+    named = model or reply.model
+    note = FALLBACK_NOTE.format(model=named)
+    if reply.text.startswith(note):
+        return reply
+    text = f"{note}\n\n{reply.text}" if reply.text else note
+    return replace(reply, text=text)
+
+
+async def _complete(
+    provider: Provider,
+    request: Request,
+    on_chunk: Callable[[Chunk], Awaitable[None]] | None,
+) -> Reply | None:
+    if on_chunk is None:
+        return await provider.complete(request)
+    reply: Reply | None = None
+    async for chunk in provider.stream(request):
+        await on_chunk(chunk)
+        if chunk.reply is not None:
+            reply = chunk.reply
     return reply
 
 

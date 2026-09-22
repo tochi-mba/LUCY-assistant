@@ -1345,16 +1345,15 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 3. **Environments-api**: the primitives in §10.2.
 4. **`Idempotency-Key`** on the non-idempotent writes every service's own docs flag
    (`write_note`, `create_profile`, `create_download_job`, `POST /v1/environments`).
-5. **`wait_seconds` long-poll** on Web-search and Spotify jobs — one service in the family
-   already has it and its docs call it "the shape an LLM tool actually wants".
+5. **`wait_seconds` long-poll** on jobs — Web-search and Spotify now hold `GET /jobs/{id}`
+   open for up to 60 seconds so a caller does not have to poll in a loop.
 6. **A `lucy` and a `memory` settings namespace**: one `SettingDef` module each plus a grant
    row. Every entry declares `on_unavailable`; `use_default` entries declare
    `conservative_values` containing their default. Only bool/int/str/enum/str_list, ≤4096
    bytes — which is why prompt overrides live in persona notes (D13).
-7. **Two new parity checks**: every service ships `docs/mcp.md` (five do, three do not), and
-   every service exposes a readiness signal a hub can gate on.
-8. Fix `user-api ?order=relevance` without `q` → 500; a plausible model mistake, since
-   `relevance` is a visible enum in the OpenAPI document.
+7. **Parity `docs/mcp.md`:** every family service now ships one; the check is in
+   `scripts/parity.py`. A hub-gated readiness probe per service is still outstanding.
+8. `user-api ?order=relevance` without `q` is a named 422 (`needs a q`), not a 500.
 
 **The `lucy` namespace (first cut):** `model` · `thinking` · `response_style` ·
 `max_context_tokens` · `compaction_trigger_percent` · `memory_write_policy` ·
@@ -1557,9 +1556,13 @@ LUCY_TEST_LIVE_MODEL=1 make evals                 # behind a marker, outside `ma
 
 ## 20. Open questions (not blocking)
 
-- Does Lucy reuse Web-search-api's ~55-provider registry as its model layer, or resolve the
-  model credential from keyring directly with weftai's own capability catalog? Duplicating
-  means two places that can disagree about what a person has connected.
+- ~~Does Lucy reuse Web-search-api's ~55-provider registry as its model layer, or resolve the
+  model credential from keyring directly with weftai's own capability catalog?~~ **Answered:**
+  neither. The hub carries its own catalogue (`model/catalogue.py`, 43 rows, three
+  adapters) because a model provider and a search provider are different things with
+  different auth shapes, and the hub's keys are deployment configuration
+  (`LUCY_MODEL_KEYS`) reported through `GET /v1/models`. Per-person keys in the vault
+  remain the open half; see [models.md](models.md).
 - Should the five client-less services eventually ship `clients/python` packages (ADR-0002's
   rule) once a second consumer exists, rather than Lucy holding those clients in its packs?
 - Does the architect/editor split (a cheap fast model applying a lazy edit) earn its keep, or

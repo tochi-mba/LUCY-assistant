@@ -48,20 +48,30 @@ Anybody with a 3.11 virtualenv re-creates it — `uv sync` does that on its own,
 one large diff per repository, once. Deployments that pinned a `python:3.11` base image pull
 a new one. Nothing about the wire, the storage, or the tokens changes.
 
-## 3.13 is supported but not yet gated
+## 3.13 is gated, and what it found
 
-`requires-python` is `>=3.12`, the classifiers claim 3.13, and 3.13 was in the matrix for
-exactly one afternoon. It came out again because it fails, reproducibly, in CI on the four
-services that use `hypothesis` and on none of the four that do not: a
-`PytestUnraisableExceptionWarning` naming `hypothesis/internal/conjecture/choice.py`, which
-the family's `filterwarnings = ["error"]` turns into a failure attributed to whichever test
-was running when the collector ran. It does not reproduce on Windows, and re-running the
-jobs does not clear it.
+`requires-python` is `>=3.12`, the classifiers claim 3.13, and both are in the CI matrix.
 
-Adding 3.13 to the matrix and then silencing the warning in those four services would trade
-a real safety net for a green tick. The gate is 3.12 until the cause is understood; the
-interpreter is still declared supported, and putting 3.13 back is a one-line change to
-`python-versions` in the reusable workflow.
+That was not always so. 3.13 came out of the matrix for a few days because four services
+failed under it and none of the other four did, and the first explanation offered was wrong:
+the failure was attributed to `hypothesis`, but two of the four failing services do not use
+it. The real cause was a bug in each of the four, and it is worth recording because 3.13 is
+the first interpreter that could see it.
+
+Each service opens its SQLite connection and then runs its startup checks on it: the
+pragmas, the foreign-key guard, the permission tightening. When one of those refused the
+connection, the exception propagated and the connection was dropped -- never closed. The file
+handle and the WAL sidecars stayed open in a process that was about to refuse to start, and
+the worker thread that opened them was leaked with them. Python 3.13 reports an unclosed
+`sqlite3.Connection` as a `ResourceWarning` at garbage collection; the family's
+`filterwarnings = ["error"]` turns that into a failure in whichever test happens to be running
+when the collector gets round to it, which is why the failures looked unrelated to their own
+tests and did not reproduce reliably.
+
+The fix is the same in every service: a refused connection is closed by the code that opened
+it, and a constructor that fails to open gives its worker thread back. Silencing the warning
+instead would have traded a real safety net for a green tick. Keeping 3.13 in the gate is
+what stops the next leak of this shape from landing.
 
 ## What would change our minds
 

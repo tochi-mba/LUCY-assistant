@@ -27,6 +27,16 @@ from lucy_api.packs.collections import TRACK
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 
+MUSIC_MARKDOWN = """# Music
+
+Find, queue and play. Names are names, never a host.
+
+`music.find` resolves a loosely specified track. `music.play` starts it on a connected
+device; omit `device_id` to use the person's default speaker. `music.queue` adds one.
+`music.pause` stops what is playing. Playback is something other people can hear, so it
+asks unless they already allowed `music.control`.
+"""
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
@@ -56,8 +66,8 @@ class MusicPack:
         self._override = client
 
     @property
-    def docs(self) -> Path | None:
-        return None
+    def docs(self) -> str | Path | None:
+        return MUSIC_MARKDOWN
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -67,6 +77,7 @@ class MusicPack:
                 description="Start, queue or pause music on a connected device.",
                 risk="write",
                 covers=("music.play", "music.queue", "music.pause"),
+                outward=True,
             ),
         )
 
@@ -241,7 +252,7 @@ class MusicPack:
         state = await self._client(run.ctx).play(
             run.ctx.profile,
             uris=(uri,) if uri else (),
-            device_id=str(run.input.get("device_id") or ""),
+            device_id=_device_id(run),
         )
         return _playing(state)
 
@@ -249,14 +260,12 @@ class MusicPack:
         state = await self._client(run.ctx).queue(
             run.ctx.profile,
             str(run.input.get("uri") or ""),
-            device_id=str(run.input.get("device_id") or ""),
+            device_id=_device_id(run),
         )
         return _playing(state)
 
     async def _pause(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        state = await self._client(run.ctx).pause(
-            run.ctx.profile, device_id=str(run.input.get("device_id") or "")
-        )
+        state = await self._client(run.ctx).pause(run.ctx.profile, device_id=_device_id(run))
         return _playing(state)
 
 
@@ -278,8 +287,16 @@ def _playing(state: NowPlaying) -> dict[str, Any]:
     }
 
 
+def _device_id(run: RunContext[PackContext]) -> str:
+    given = str(run.input.get("device_id") or "")
+    if given:
+        return given
+    default = run.ctx.defaults.get("music.device_id")
+    return str(default) if isinstance(default, str) else ""
+
+
 def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-__all__ = ["MusicPack"]
+__all__ = ["MUSIC_MARKDOWN", "MusicPack"]

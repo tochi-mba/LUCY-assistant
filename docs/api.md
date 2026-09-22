@@ -11,6 +11,8 @@ that names an account.
 | `GET` | `/ready` | none | Readiness. Reports each dependency and answers 503 when one is unusable. Point a load balancer here. |
 | `GET` | `/v1/me` | bearer | The account the presented token is for. The first call a client makes. |
 | `GET` | `/v1/setup` | bearer | Deployment readiness and setup guidance for each capability. |
+| `GET` | `/v1/models` | bearer | Every model provider in three sections: `ready` (checked), `available` (configured, unproven), `unavailable` (with the command that fixes it). `?check=true` proves configured keys now. See [models.md](models.md). |
+| `GET` | `/v1/models/{provider}` | bearer | One provider's standing. An id with no catalogue row is 404, never a guess. |
 | `POST` | `/v1/auth/device` | none | Start passwordless CLI sign-in. |
 | `POST` | `/v1/auth/device/token` | none | Poll a device code using RFC 8628 error words. |
 | `POST` | `/v1/auth/device/authorize` | bearer | Approve or deny a device code from an existing signed-in client. |

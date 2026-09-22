@@ -148,6 +148,8 @@ class PackContext:
     bound_ids: set[str] = field(default_factory=set)
     limits: dict[str, asyncio.Semaphore] = field(default_factory=dict)
     probes: ProbeCache | None = None
+    defaults: dict[str, object] = field(default_factory=dict)
+    """Sibling knobs this turn may use when the model omitted them. Never secrets."""
 
     def limit(self, service: str, *, concurrent: int = 2) -> asyncio.Semaphore:
         """The gate for one service, created the first time somebody asks for it."""

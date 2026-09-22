@@ -253,6 +253,95 @@ async def test_a_model_that_cannot_be_reached_fails_the_turn_rather_than_raising
     assert "unavailable" in outcome.detail
 
 
+async def test_an_unavailable_model_falls_back_once_and_says_which_voice_answered() -> None:
+    primary = ScriptedProvider([flakes("overloaded")])
+    backup = ScriptedProvider([speaks("Still here.")])
+    outcome = await run_turn(
+        turn(primary, fallback_provider=backup, fallback_model="scripted:backup")
+    )
+    assert outcome.termination is Termination.success
+    assert outcome.text.startswith(
+        "(Answered by scripted:backup because the chosen model was unavailable.)"
+    )
+    assert "Still here." in outcome.text
+    assert primary.remaining == 0
+    assert backup.remaining == 0
+
+
+async def test_when_the_fallback_is_unavailable_too_the_turn_fails() -> None:
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("primary")]),
+            fallback_provider=ScriptedProvider([flakes("backup")]),
+            fallback_model="scripted:backup",
+        )
+    )
+    assert outcome.termination is Termination.failed
+    assert "unavailable" in outcome.detail
+
+
+async def test_a_fallback_refusal_is_still_a_refusal() -> None:
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("primary")]),
+            fallback_provider=ScriptedProvider([refuses("I will not.")]),
+            fallback_model="scripted:backup",
+        )
+    )
+    assert outcome.termination is Termination.refused
+    assert outcome.stop_reason is Stop.refusal
+
+
+async def test_a_fallback_call_failure_is_named_by_type() -> None:
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("primary")]),
+            fallback_provider=ScriptedProvider([fails("bad key")]),
+            fallback_model="scripted:backup",
+        )
+    )
+    assert outcome.termination is Termination.failed
+    assert "ModelCallFailedError" in outcome.detail
+
+
+async def test_a_fallback_stream_without_a_reply_fails_the_turn() -> None:
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("primary")]),
+            fallback_provider=_EmptyStream(),
+            fallback_model="scripted:backup",
+            on_chunk=_ignore_chunk,
+        )
+    )
+    assert outcome.termination is Termination.failed
+    assert "without a reply" in outcome.detail
+
+
+async def test_fallback_streaming_still_names_the_model_that_answered() -> None:
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("primary")]),
+            fallback_provider=ScriptedProvider([speaks("Hi")]),
+            fallback_model="scripted:backup",
+            on_chunk=_ignore_chunk,
+        )
+    )
+    assert outcome.termination is Termination.success
+    assert "scripted:backup" in outcome.text
+    assert "Hi" in outcome.text
+
+
+def test_a_fallback_note_is_not_stacked_and_an_empty_reply_still_names_the_model() -> None:
+    from lucy_api.turn.loop import FALLBACK_NOTE, _mark_fallback
+
+    note = FALLBACK_NOTE.format(model="scripted:backup")
+    already = Reply(text=f"{note}\n\nHi")
+    assert _mark_fallback(already, "scripted:backup") is already
+    assert _mark_fallback(Reply(text=""), "scripted:backup").text == note
+    unnamed = _mark_fallback(Reply(text="Hi", model="scripted"), "")
+    assert unnamed.text.startswith("(Answered by scripted")
+
+
 async def test_running_out_of_room_is_an_ordinary_end_rather_than_an_error() -> None:
     outcome = await run_turn(turn(ScriptedProvider([runs_out_of_room("As far as I got")])))
 

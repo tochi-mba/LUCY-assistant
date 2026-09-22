@@ -101,7 +101,7 @@ def httpx_call(client: httpx.AsyncClient) -> CallTool:
 
 
 def project_call(payload: object) -> dict[str, object]:
-    """Text-only, fenced, length-capped. JSON-RPC errors become a fixed sentence."""
+    """Text-only, fenced, length-capped. A cut names how much was kept."""
     if not isinstance(payload, dict) or payload.get("error") is not None:
         return {"ok": False, "text": CALL_FAILED}
     result = payload.get("result")
@@ -115,7 +115,11 @@ def project_call(payload: object) -> dict[str, object]:
         if isinstance(item, dict) and item.get("type") == "text"
     ]
     failed = bool(result.get("isError"))
-    text = "\n".join(pieces)[:MAX_RESULT_CHARS]
+    joined = "\n".join(pieces)
+    text = joined[:MAX_RESULT_CHARS]
     if failed and not text:
         text = CALL_FAILED
-    return {"ok": not failed, "text": text}
+    projected: dict[str, object] = {"ok": not failed, "text": text}
+    if len(joined) > MAX_RESULT_CHARS:
+        projected["notice"] = f"showing {len(text)} of {len(joined)} characters"
+    return projected

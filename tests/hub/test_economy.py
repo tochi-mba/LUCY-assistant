@@ -69,8 +69,8 @@ async def a_session(store: SessionStore) -> str:
     return str(created["id"])
 
 
-async def three_turns(store: SessionStore, session: str) -> None:
-    for index in range(3):
+async def n_turns(store: SessionStore, session: str, count: int) -> None:
+    for index in range(count):
         turn = await open_turn(store, ACCOUNT, session, {"n": index})
         tid = str(turn["id"])
         await store.append(
@@ -89,6 +89,10 @@ async def three_turns(store: SessionStore, session: str) -> None:
             NewItem("tool_result", "tool", {"op": "workspace.grep", "path": "a.py"}, turn=tid),
         )
         await close_turn(store, ACCOUNT, tid, Outcome("completed"))
+
+
+async def three_turns(store: SessionStore, session: str) -> None:
+    await n_turns(store, session, 3)
 
 
 def test_extractive_helpers_keep_identifiers_and_confess_a_cut() -> None:
@@ -303,7 +307,11 @@ async def test_economy_routes_are_session_scoped(
     store = container.store
     empty = await http.post(f"/v1/sessions/{session}/compact", headers=bearer())
     assert empty.status_code == 409
-    await three_turns(store, session)
+    await n_turns(store, session, 3)
+    too_new = await http.post(f"/v1/sessions/{session}/compact", headers=bearer())
+    assert too_new.status_code == 409, too_new.text
+    assert "4" in too_new.text
+    await n_turns(store, session, 2)
     compacted = await http.post(f"/v1/sessions/{session}/compact", headers=bearer())
     assert compacted.status_code == 200, compacted.text
     undone = await http.post(
@@ -314,7 +322,7 @@ async def test_economy_routes_are_session_scoped(
     assert undone.status_code == 200
     usage = await http.get(f"/v1/sessions/{session}/usage", headers=bearer())
     assert usage.status_code == 200
-    assert usage.json()["turns"] == 3
+    assert usage.json()["turns"] == 5
     listed = await http.get(f"/v1/sessions/{session}/results", headers=bearer())
     assert listed.status_code == 200
     assert listed.json()["data"] == []

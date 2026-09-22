@@ -151,7 +151,10 @@ def error_message(body: str, *, fallback: str) -> str:
     error = payload.get("error") if payload else None
     message = error.get("message") if isinstance(error, dict) else None
     if isinstance(message, str) and message.strip():
-        return message.strip()
+        # Bounded like the fallback. A provider's sentence is usually short, and the one
+        # that is not is the one echoing the request back at us -- which is exactly what
+        # must not reach a transcript through an error's text.
+        return " ".join(message.split())[:MESSAGE_LIMIT]
     condensed = " ".join(body.split())[:MESSAGE_LIMIT]
     return condensed or fallback
 
@@ -190,8 +193,7 @@ async def send(
     try:
         response = await client.send(request)
     except httpx.HTTPError as exc:
-        msg = f"{provider} could not be reached: {exc}"
-        raise ModelUnavailableError(msg) from exc
+        raise ModelUnavailableError(_unreachable(provider, exc)) from exc
     check_status(
         provider=provider,
         status=response.status_code,
@@ -232,8 +234,18 @@ async def events(
         finally:
             await response.aclose()
     except httpx.HTTPError as exc:
-        msg = f"{provider} could not be reached: {exc}"
-        raise ModelUnavailableError(msg) from exc
+        raise ModelUnavailableError(_unreachable(provider, exc)) from exc
+
+
+def _unreachable(provider: str, exc: httpx.HTTPError) -> str:
+    """A transport failure, named by its type and never by its text.
+
+    `str(exc)` on an httpx error carries the request URL. For a provider that authenticates
+    in the query string, the URL *is* the credential, and this sentence ends up in an
+    outcome, a transcript and a log line. The type -- `ConnectTimeout`, `ReadTimeout`,
+    `ConnectError` -- says everything a person needs to act on.
+    """
+    return f"{provider} could not be reached ({type(exc).__name__})"
 
 
 __all__ = [
