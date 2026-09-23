@@ -106,6 +106,8 @@ class Outcome:
     termination: Termination = Termination.success
     detail: str = ""
     stop_reason: Stop = Stop.end_turn
+    unavailable: bool = False
+    """The provider could not be reached. The one failure a second model can answer."""
     rounds: list[Round] = field(default_factory=list)
     spent: Spent = field(default_factory=Spent)
     permission: str = ""
@@ -362,10 +364,11 @@ async def _ask(turn: Turn, request: Request, outcome: Outcome) -> Reply | None:
     reply = await _call(turn.provider, request, outcome, turn.on_chunk)
     if reply is not None or outcome.termination is not Termination.failed:
         return reply
-    if turn.fallback_provider is None or not outcome.detail.startswith(UNAVAILABLE):
+    if turn.fallback_provider is None or not outcome.unavailable:
         return None
     outcome.termination = Termination.success
     outcome.detail = ""
+    outcome.unavailable = False
     fallback_request = replace(request, model=turn.fallback_model or request.model)
     reply = await _call(turn.fallback_provider, fallback_request, outcome, turn.on_chunk)
     if reply is None:
@@ -374,6 +377,8 @@ async def _ask(turn: Turn, request: Request, outcome: Outcome) -> Reply | None:
 
 
 UNAVAILABLE = "the model was unavailable"
+"""How unavailability reads to a person. `Outcome.unavailable` is what the fallback
+reads: rewording this sentence must never be able to disable retrying."""
 
 
 async def _call(
@@ -402,6 +407,7 @@ async def _call(
     except ModelUnavailableError as exc:
         outcome.termination = Termination.failed
         outcome.detail = f"{UNAVAILABLE}: {exc}"
+        outcome.unavailable = True
         return None
     except Exception as exc:
         outcome.termination = Termination.failed

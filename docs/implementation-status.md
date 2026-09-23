@@ -200,11 +200,20 @@ machine is listed as in progress, however finished it looks.
   model, thinking token budget, outward-action confirmation, advertised disconnected
   capabilities, auto-title, slow-turn notice, downstream retries, and helper mail/time
   caps.
-- **Hub tests pass on this machine:** 2,278 passed and 18 skipped at 100% branch
-  coverage. Format, lint, mypy, and import contracts are gated by `make check`.
-  `python scripts/parity.py --repo lucy-api` is green.
-- Nothing has been validated under `make up` with the whole family running, and no real
-  model has been called.
+- **Hub tests pass on this machine:** 2,456 passed and 18 skipped at 100.00% coverage
+  over 14,183 statements and 2,802 branches. Format, lint, mypy, and import contracts
+  are gated by `make check`. `python scripts/parity.py --repo lucy-api` is green.
+- **The family now comes up together.** `make up` starts nine services and all nine are
+  healthy; eight answer `/ready` with 200. See [docs/baseline.md](baseline.md) for the
+  first composed run, the four defects it exposed -- none of which `make check` could
+  see -- and the readiness-shape divergence across the family.
+- **The Linux sandbox is validated under compose.** Environments-api reports
+  `sandbox_tier: namespace`, so the M4 caveat below applies only to running the hub
+  natively on Windows, not to the composed path.
+- **No real model has been called.** `LUCY_MODEL_KEYS` is unset on this machine, so
+  Lucy's `/ready` is `degraded` on the `model` check alone -- the designed first-run
+  behaviour. Every token, cost and latency number in baseline.md is therefore still
+  unmeasured, and those are the gates for the typed-decision work.
 
 ## Integration decisions
 
