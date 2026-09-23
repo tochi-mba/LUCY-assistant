@@ -72,6 +72,9 @@ SESSION_ARCHIVED = "lucy.session.archived"
 SESSION_DELETED = "lucy.session.deleted"
 SESSION_EXPIRED = "lucy.session.expired"
 SESSION_HARNESS_VERSION_CHANGED = "lucy.session.harness_version_changed"
+SESSION_CHANGE_HELD = "lucy.session.change_held"
+"""A change asked for while a turn was running, held until that turn ends. The `updated`
+event that follows it carries `held: true`, so a client can tell the two apart."""
 
 
 # --------------------------------------------------------------------------------------
@@ -228,6 +231,17 @@ AGENT_BUDGET_EXHAUSTED = "lucy.agent.budget_exhausted"
 
 
 # --------------------------------------------------------------------------------------
+# Work. Anything that outlives the step that started it -- a helper, a command, a watch --
+# ends as one of these, and `woke` is the moment a finished piece of work opened a turn of
+# its own because nobody was around to ask. A client that shows "watching…" needs the
+# first to take it down and the second to explain why the assistant started talking.
+# --------------------------------------------------------------------------------------
+
+WORK_FINISHED = "lucy.work.finished"
+WORK_WOKE = "lucy.work.woke"
+
+
+# --------------------------------------------------------------------------------------
 # Journal. The blackboard siblings coordinate through. `lease_expired` is how a dead
 # claimant's work comes back without anybody holding a lock, and `rejected` carries the
 # feedback a veto hook wrote rather than only the refusal.
@@ -376,6 +390,7 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
         SESSION_DELETED,
         SESSION_EXPIRED,
         SESSION_HARNESS_VERSION_CHANGED,
+        SESSION_CHANGE_HELD,
     ),
     "Turn": (
         TURN_CREATED,
@@ -482,6 +497,10 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
         AGENT_DEPTH_REFUSED,
         AGENT_CONCURRENCY_QUEUED,
         AGENT_BUDGET_EXHAUSTED,
+    ),
+    "Work": (
+        WORK_FINISHED,
+        WORK_WOKE,
     ),
     "Journal": (
         TASK_CREATED,

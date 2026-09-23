@@ -14,17 +14,7 @@ from lucy_api.clients.settings import AUDIENCE, HttpSettingsPackClient
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
-
-SETTINGS_MARKDOWN = """# Settings
-
-Read and change the person's explicit preferences, grouped by capability: music, research,
-workspace, notes, Lucy herself. Never a service name.
-
-`settings.describe` is the catalogue. `settings.get` reads one. `settings.set` writes one
-they asked to change. Do not raise your own limits, shorten an erasure window, or turn on
-unknown prompt-feed fields. If a setting is `never` for an assistant, explain it rather
-than trying.
-"""
+from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,7 +44,7 @@ class SettingsPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return SETTINGS_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -181,4 +171,4 @@ def _resource(setting: Setting, *, detailed: bool = False) -> dict[str, Any]:
     return result
 
 
-__all__ = ["SETTINGS_MARKDOWN", "SettingsPack"]
+__all__ = ["SettingsPack"]

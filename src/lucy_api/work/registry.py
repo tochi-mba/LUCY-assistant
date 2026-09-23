@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import secrets
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING
@@ -46,15 +47,21 @@ from lucy_api.work.types import (
     MAX_ROLE,
     Brief,
     Handle,
+    Kind,
     Notice,
     Record,
     Result,
     State,
+    WorkError,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from datetime import datetime
+
+    type Listener = Callable[[Record], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
 """How long a piece of work runs before it is stopped and told so.
@@ -104,7 +111,9 @@ class StillRunningError(Exception):
     """
 
 
-def _identifier() -> str:
+def new_id() -> str:
+    """A handle nobody can guess. Public so a caller that needs the id before the work
+    starts -- a watch that reports progress under its own name -- can mint it first."""
     return "wrk_" + secrets.token_urlsafe(12)
 
 
@@ -149,6 +158,18 @@ class Registry:
         self._measure = measure or rough_tokens
         self._records: dict[str, Record] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._listeners: list[Listener] = []
+        self._deliveries: set[asyncio.Task[None]] = set()
+
+    def on_finished(self, listener: Listener) -> None:
+        """Be told, once, about every ending -- after it has been recorded.
+
+        This is how the rest of the hub learns that work ended without the registry knowing
+        what the rest of the hub is: the stream gets an event, and a session that asked to be
+        woken gets a turn. Listeners run as their own tasks, after the record is final, so a
+        slow or failing listener cannot hold up or corrupt the ending it is being told about.
+        """
+        self._listeners.append(listener)
 
     # ---------------------------------------------------------------- starting
 
@@ -177,7 +198,7 @@ class Registry:
             )
             raise AtCapacityError(message)
 
-        identifier = work_id or _identifier()
+        identifier = work_id or new_id()
         if identifier in self._records:
             _discard(work)
             message = f"work {identifier} is already registered"
@@ -192,6 +213,8 @@ class Registry:
             depth=brief.depth,
             timeout_seconds=brief.timeout_seconds,
             tags=dict(brief.tags),
+            account_id=brief.account_id,
+            wake=brief.wake and bool(brief.account_id),
         )
         self._records[record.id] = record
         self._tasks[record.id] = asyncio.create_task(
@@ -216,16 +239,12 @@ class Registry:
         try:
             payload = await self._awaited(record, work)
         except TimeoutError:
-            self._finish(
-                record,
-                State.timed_out,
-                detail=(
-                    f"stopped waiting after {record.timeout_seconds:.0f}s; it may still be running"
-                ),
-            )
+            self._finish(record, State.timed_out, detail=_expired(record))
         except asyncio.CancelledError:
             self._finish(record, State.cancelled, detail="cancelled")
             raise
+        except WorkError as exc:
+            self._finish(record, State.failed, detail=str(exc))
         except Exception as exc:
             self._finish(record, State.failed, detail=type(exc).__name__)
         else:
@@ -255,8 +274,20 @@ class Registry:
         record.payload = payload
         record.detail = _clip(detail, MAX_PROGRESS)
         record.tokens = self._measure(payload) if payload is not None else 0
+        for listener in self._listeners:
+            task = asyncio.create_task(_told(listener, record), name=f"work-told:{record.id}")
+            self._deliveries.add(task)
+            task.add_done_callback(self._deliveries.discard)
 
     # ---------------------------------------------------------------- checking in
+
+    def state_of(self, work_id: str) -> State:
+        """Where one piece of work has got to, for something that only needs the state.
+
+        A watch on another piece of work asks this every few seconds. It is the one read
+        that does not mark anything delivered, because it is not a delivery.
+        """
+        return self._record(work_id).state
 
     def progress(self, work_id: str, note: str) -> None:
         """Record what a running piece of work last said about itself.
@@ -280,18 +311,7 @@ class Registry:
             if not record.state.finished or record.noticed:
                 continue
             record.noticed = True
-            notices.append(
-                Notice(
-                    id=record.id,
-                    kind=record.kind,
-                    role=record.role,
-                    objective=record.objective,
-                    state=record.state,
-                    elapsed_seconds=record.elapsed(self._now()),
-                    tokens=record.tokens,
-                    detail=record.detail,
-                )
-            )
+            notices.append(record.notice(self._now()))
         self._forget_old(session_id)
         return tuple(notices)
 
@@ -399,6 +419,11 @@ class Registry:
         for task in tasks:
             with contextlib.suppress(BaseException):
                 await task
+        # Every cancellation above was an ending, and every ending has listeners. Let them
+        # finish saying so; a process that exits mid-delivery loses the event.
+        for delivery in list(self._deliveries):
+            with contextlib.suppress(BaseException):
+                await delivery
 
     # ---------------------------------------------------------------- internals
 
@@ -429,6 +454,37 @@ class Registry:
         )
         for record in finished[: max(0, len(finished) - self._keep_finished)]:
             self._records.pop(record.id, None)
+
+
+def _expired(record: Record) -> str:
+    """The sentence for a timeout, which means two different things for two kinds of work.
+
+    A helper or a command that hit its ceiling may well still be running somewhere, and the
+    person is owed that doubt. A watch that hit its ceiling simply never saw what it was
+    waiting for, and what the person is owed is the offer to look again.
+    """
+    if record.kind is Kind.watch:
+        return (
+            f"expired after {record.timeout_seconds:.0f}s without firing; "
+            "start it again if you still need it"
+        )
+    return f"stopped waiting after {record.timeout_seconds:.0f}s; it may still be running"
+
+
+async def _told(listener: Listener, record: Record) -> None:
+    """One listener, one ending. A listener that raises is logged and does not stop the rest.
+
+    The log line carries the exception's type and the work's id, never the payload: a
+    listener fails on the way to a database or a stream, and the payload is the one thing
+    in reach that might be somebody's file.
+    """
+    try:
+        await listener(record)
+    except Exception as exc:
+        logger.warning(
+            "work listener failed",
+            extra={"work_id": record.id, "error": type(exc).__name__},
+        )
 
 
 def rough_tokens(payload: object) -> int:
@@ -465,6 +521,7 @@ __all__ = [
     "Registry",
     "StillRunningError",
     "UnknownWorkError",
+    "new_id",
     "notices_block",
     "rough_tokens",
 ]

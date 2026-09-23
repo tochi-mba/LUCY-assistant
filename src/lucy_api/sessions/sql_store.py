@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from lucy_api import __version__
 from lucy_api.core.errors import absent, conflict
 from lucy_api.sessions.models import TERMINAL, CreateSession
-from lucy_api.sessions.schema import SCHEMA
+from lucy_api.sessions.schema import ADDED_COLUMNS, SCHEMA
 
 if TYPE_CHECKING:
     import sqlite3
@@ -65,6 +65,38 @@ def encoded(value: object) -> str:
 
 def digest(value: object) -> str:
     return hashlib.sha256(encoded(value).encode()).hexdigest()
+
+
+def _names(value: list[str]) -> list[str]:
+    """Capability ids as stored: trimmed, de-duplicated, in the order they were given.
+
+    The request model already refused anything that is not a short string; what is left to
+    do is the whitespace, which a model validating length alone lets through as `" "`.
+    """
+    return list(dict.fromkeys(name.strip() for name in value if name.strip()))
+
+
+def _apply_changes(db: sqlite3.Connection, session: str, changes: dict[str, Any]) -> None:
+    """Write the session fields a change names. Unknown names are ignored, not written.
+
+    Every column name here comes from a literal in this function, never from the request:
+    the request decides *which* of them and the value, and nothing else.
+    """
+    now = time.time()
+    for name in ("title", "input_policy", "permission_mode"):
+        if changes.get(name) is not None:
+            query = f"UPDATE sessions SET {name}=?,updated_at=? WHERE id=?"  # noqa: S608
+            db.execute(query, (changes[name], now, session))
+    if changes.get("disabled_capabilities") is not None:
+        db.execute(
+            "UPDATE sessions SET disabled_capabilities_json=?,updated_at=? WHERE id=?",
+            (encoded(_names(changes["disabled_capabilities"])), now, session),
+        )
+    if changes.get("archived") is not None:
+        db.execute(
+            "UPDATE sessions SET archived_at=? WHERE id=?",
+            (now if changes["archived"] else None, session),
+        )
 
 
 def row_value(row: sqlite3.Row) -> dict[str, Any]:
@@ -216,7 +248,23 @@ class SessionStore:
         self.worker = worker
 
     async def initialize(self) -> None:
-        await self.worker.call(lambda db: db.executescript(SCHEMA))
+        def apply(db: sqlite3.Connection) -> None:
+            db.executescript(SCHEMA)
+            for table, column, definition in ADDED_COLUMNS:
+                present = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+                if column not in present:
+                    # Names come from the literal tuple in `schema.py`, never from a caller.
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+        await self.worker.call(apply)
+
+    async def live_turn(self, account: str, session: str) -> str | None:
+        """The id of the turn this session is working on, or `None` when it is idle.
+
+        Queued, running and parked all count: a change made now would reach any of them.
+        """
+        rows = await self.records(account, session, "turns")
+        return next((str(row["id"]) for row in rows if str(row["status"]) not in TERMINAL), None)
 
     async def healthy(self) -> tuple[bool, str | None]:
         """Whether the database still answers, and the kind of failure when it does not.
@@ -296,7 +344,8 @@ class SessionStore:
             db.execute(
                 """INSERT INTO sessions (id,account_id,profile,title,status,model,
                 thinking_config,persona,harness_version,input_policy,durability_mode,permission_mode,
-                incognito,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                incognito,created_at,updated_at,disabled_capabilities_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     session,
                     account,
@@ -313,6 +362,7 @@ class SessionStore:
                     int(request.incognito),
                     now,
                     now,
+                    encoded(_names(request.disabled_capabilities)),
                 ),
             )
             value = row_value(session_row(db, account, session))
@@ -550,16 +600,7 @@ class SessionStore:
     async def update(self, account: str, session: str, changes: dict[str, Any]) -> dict[str, Any]:
         def apply(db: sqlite3.Connection) -> dict[str, Any]:
             current = session_row(db, account, session)
-            for name in ("title", "input_policy", "permission_mode"):
-                if changes.get(name) is not None:
-                    # `name` comes from the literal tuple above, never from the request.
-                    query = f"UPDATE sessions SET {name}=?,updated_at=? WHERE id=?"  # noqa: S608
-                    db.execute(query, (changes[name], time.time(), session))
-            if changes.get("archived") is not None:
-                db.execute(
-                    "UPDATE sessions SET archived_at=? WHERE id=?",
-                    (time.time() if changes["archived"] else None, session),
-                )
+            _apply_changes(db, session, changes)
             if current["harness_version"] != __version__:
                 event_row(
                     db,
@@ -568,6 +609,49 @@ class SessionStore:
                     {"previous": current["harness_version"], "current": __version__},
                 )
             event_row(db, session, "lucy.session.updated", changes)
+            return row_value(session_row(db, account, session))
+
+        return await self.transaction(apply)
+
+    async def hold_changes(
+        self, account: str, session: str, changes: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Keep a change for the end of the running turn, merged with any already held.
+
+        Its own event, `lucy.session.change_held`, because a client watching the session
+        needs to show "will apply when this turn ends" and not "applied".
+        """
+
+        def apply(db: sqlite3.Connection) -> dict[str, Any]:
+            current = row_value(session_row(db, account, session))
+            held = {**(current.get("pending_changes") or {}), **changes}
+            db.execute(
+                "UPDATE sessions SET pending_changes_json=?,updated_at=? WHERE id=?",
+                (encoded(held), time.time(), session),
+            )
+            event_row(db, session, "lucy.session.change_held", held)
+            return row_value(session_row(db, account, session))
+
+        return await self.transaction(apply)
+
+    async def apply_pending(self, account: str, session: str) -> dict[str, Any] | None:
+        """Apply what was held, once the turn it was held for has ended. `None` if nothing was.
+
+        The `updated` event carries `held: true` so it reads as the promised change landing
+        rather than as somebody editing the session at that moment.
+        """
+
+        def apply(db: sqlite3.Connection) -> dict[str, Any] | None:
+            current = row_value(session_row(db, account, session))
+            held = current.get("pending_changes")
+            if not held:
+                return None
+            _apply_changes(db, session, held)
+            db.execute(
+                "UPDATE sessions SET pending_changes_json=NULL,updated_at=? WHERE id=?",
+                (time.time(), session),
+            )
+            event_row(db, session, "lucy.session.updated", {**held, "held": True})
             return row_value(session_row(db, account, session))
 
         return await self.transaction(apply)

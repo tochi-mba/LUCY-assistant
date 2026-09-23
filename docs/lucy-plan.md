@@ -463,6 +463,31 @@ result — closing a gap every service's docs admit. Downstream job stores are *
 per-process**, so Lucy keeps its own `{tool, job_id, submitted_at}` record and treats a 404
 on poll as *"the downstream restarted"*, not *"the work failed"*.
 
+### 6.7 Watching, and being woken
+
+"Tell me when CI is green" is a condition outside the conversation, and the wrong way to
+wait for one is a model calling `workspace.run` every thirty seconds. So a **watch** is
+work: `watch.start` names a workspace file (exists, or matches a pattern), a public address
+(answers a status, or matches) or another piece of work (ends); `watch.command` repeats a
+command until it exits 0 or matches, under one approval that names the interval and the
+lifetime. A watch has an interval (15 s by default, never under 5), a lifetime (5 min by
+default, an hour at most), fires once with a bounded excerpt of the evidence, and expires
+with one notice and the offer to start again — expiry is a state, not a failure. One failed
+check is a line in the live block; five in a row are a broken probe with its error named.
+
+A **wake** is what makes "I'll tell you" true once the person has walked away. Work whose
+brief asks for it — every watch by default, every helper the main thread starts, a command
+run with `wake: true` — opens a turn of its own when it ends and no turn is running. The
+input is one harness `notice` item whose text says nothing in it came from the person; the
+model reads it on the data channel, acts, and tells them. An ending during a turn is held
+and spent when that turn ends unless the turn already read the result. Every ending is
+`lucy.work.finished`; a wake is `lucy.work.woke`. A helper's helpers never wake anything.
+
+The same standard applies to settings. A session's `disabled_capabilities` (`["agents"]`
+is "no helpers here"), `permission_mode` and `input_policy` take effect **on the running
+turn** at its next round; changing one while a turn is live is answered with a 409 naming
+the turn, and the caller answers with `apply: "now"` or `apply: "after_turn"` (§9.1).
+
 ---
 
 ## 7. Context engineering
@@ -742,9 +767,10 @@ may be added; clients must ignore unknown ones"). Every event carries `sequence_
 `event_id`, `session_id`, and — where they apply — `turn_id`, `agent_id`, `trace_id`. The
 full catalogue, because a taxonomy invented one event at a time never becomes coherent:
 
-**Session** `created` · `updated` (title, model, mode, policy) · `in_progress` · `idle` ·
+**Session** `created` · `updated` (title, model, mode, policy; `during_turn` when applied
+to a live one, `held` when a held change lands) · `in_progress` · `idle` ·
 `requires_action` · `auth_required` · `forked` · `resumed` · `archived` · `deleted` ·
-`expired` · `harness_version_changed`
+`expired` · `harness_version_changed` · `change_held` (a change waiting for the turn to end)
 
 **Turn** `created` · `queued` (double-text policy) · `started` · `in_progress` ·
 `completed` · `failed` · `cancelled` · `retrying` · `superseded` (interrupt/rollback) ·
@@ -780,6 +806,9 @@ full catalogue, because a taxonomy invented one event at a time never becomes co
 `agent.result` · `agent.finished` · `agent.failed` · `agent.cancelled` ·
 `agent.interrupted` · `agent.resumed` · `agent.reaped` (roster reconciled on boot) ·
 `agent.depth_refused` · `agent.concurrency_queued` · `agent.budget_exhausted`
+
+**Work** `work.finished` (every ending in the registry: id, kind, state, elapsed, size —
+never the payload) · `work.woke` (a finished piece of work opened a turn of its own)
 
 **Journal / task ledger** `task.created` · `task.claimed` · `task.progress` ·
 `task.completed` · `task.blocked` · `task.unblocked` · `task.lease_expired` ·

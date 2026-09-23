@@ -16,7 +16,8 @@ from lucy_api.packs.base import State as PackState
 from lucy_api.packs.context import PackContext, SilentTokens
 from lucy_api.packs.http import NullHttp
 from lucy_api.packs.registry import build_registry, build_runtime
-from lucy_api.packs.work import WORK_MARKDOWN, WorkPack
+from lucy_api.packs.work import WorkPack
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import Brief, Kind, Registry
 
 SESSION = "ses_1"
@@ -410,4 +411,4 @@ def test_stopping_something_is_a_permission_a_person_can_reason_about() -> None:
 
 def test_it_has_no_setup_because_there_is_nothing_to_connect() -> None:
     assert WorkPack().setup() is None
-    assert WorkPack().docs == WORK_MARKDOWN
+    assert WorkPack().docs == capability_doc("work")

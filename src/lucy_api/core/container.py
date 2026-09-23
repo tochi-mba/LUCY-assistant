@@ -68,6 +68,8 @@ from lucy_api.packs.http import PackHttp, apply_downstream_policy
 from lucy_api.packs.mcp import McpPack
 from lucy_api.packs.probes import GuardedHttp
 from lucy_api.packs.service import Capabilities, installed_packs
+from lucy_api.packs.watch import WatchPack, httpx_fetch
+from lucy_api.sessions.models import TERMINAL
 from lucy_api.sessions.scope import (
     GIT_BASELINE,
     GIT_INIT,
@@ -77,6 +79,7 @@ from lucy_api.sessions.scope import (
     TASKS_STARTER,
     SessionScope,
     WorkspaceScope,
+    disabled_in,
 )
 from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
@@ -87,9 +90,12 @@ from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 from lucy_api.webhooks import Webhooks, httpx_deliver
 from lucy_api.work.live import WorkInFlight
 from lucy_api.work.registry import Registry as WorkRegistry
+from lucy_api.work.wake import Waker
 from lucy_api.workspace.orient import WorkspaceLive
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from settings_client import ResolvedSettings, SettingsClient
 
     from lucy_api.clients.environments import EnvironmentsClient
@@ -397,7 +403,7 @@ class Container:
         if policy.blocks_turn:
             raise settings_unavailable(SETTINGS_UNAVAILABLE)
         pack_context = self.pack_context(request)
-        pack_context.policy = policy
+        pack_context.policy = policy.for_session(disabled_in(session))
         pack_context.max_subagent_turns = policy.max_subagent_turns
         pack_context.defaults = await self._pack_defaults(request.user_token, request.profile)
         apply_downstream_policy(pack_context.http, policy)
@@ -645,12 +651,27 @@ def build_container(
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,
             ),
+            WatchPack(settings.environments_api_base_url, fetch=httpx_fetch(outbound)),
             McpPack(mcp_servers, httpx_call(outbound)),
         ),
         work=work,
     )
     agents = AgentStore(store)
     capabilities.child = ChildRuntime(store, agents, models, capabilities)
+    # Every ending in the registry becomes an event, and -- for work that asked -- a turn.
+    # The waker needs the supervisor to start that turn and the supervisor needs the waker
+    # to spend endings held while a turn ran, so the two are introduced after both exist.
+    waker = Waker(store, events)
+    work.on_finished(waker.on_finished)
+    turns = TurnSupervisor(
+        store,
+        models,
+        events,
+        capabilities,
+        agents=agents,
+        on_status=after_turn(webhooks.notify, waker, store),
+    )
+    waker.attach(turns.wake)
     exchange = KeyringExchange(
         base_url=settings.keyring_base_url,
         service_token=settings.keyring_service_token,
@@ -673,9 +694,7 @@ def build_container(
         models=models,
         readiness=Readiness(settings.api_keys(), settings.model_base_urls, transport=transport),
         capabilities=capabilities,
-        turns=TurnSupervisor(
-            store, models, events, capabilities, agents=agents, on_status=webhooks.notify
-        ),
+        turns=turns,
         exchange=exchange,
         token_cache=TokenCache(),
         outbound=outbound,
@@ -688,6 +707,30 @@ def build_container(
         blobs=Blobs(store, root=_blobs_root(settings)),
         webhooks=webhooks,
     )
+
+
+def after_turn(
+    notify: Callable[[str, str, str, str], Awaitable[None]],
+    waker: Waker,
+    store: SessionStore | None = None,
+) -> Callable[[str, str, str, str], Awaitable[None]]:
+    """What runs when a turn ends: the webhook fan-out, held changes, then held wakes.
+
+    In that order. The webhook says the turn ended; a change held for "after this turn"
+    lands next, so that a wake -- which may start the next turn -- runs under the settings
+    the person asked for. A parked turn (`input_required`) is not an ending, so nothing
+    held is spent for it.
+    """
+
+    async def ended(account_id: str, session_id: str, turn_id: str, status: str) -> None:
+        await notify(account_id, session_id, turn_id, status)
+        if status in TERMINAL:
+            if store is not None:
+                with contextlib.suppress(LucyError):
+                    await store.apply_pending(account_id, session_id)
+            await waker.flush(session_id)
+
+    return ended
 
 
 async def _bootstrap_session_workspace(

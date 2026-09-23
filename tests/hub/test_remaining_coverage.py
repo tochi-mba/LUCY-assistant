@@ -29,10 +29,11 @@ from lucy_api.packs.context import SilentTokens
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import PackHttp
 from lucy_api.packs.music import MusicPack
-from lucy_api.packs.research import RESEARCH_MARKDOWN, ResearchPack, _search_limit
+from lucy_api.packs.research import ResearchPack, _search_limit
 from lucy_api.packs.research import _summary as research_summary
 from lucy_api.packs.service import Capabilities
-from lucy_api.packs.settings import SETTINGS_MARKDOWN, SettingsPack
+from lucy_api.packs.settings import SettingsPack
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.compact import _consecutive_failures, _covers_to, _summary
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
@@ -118,7 +119,7 @@ def test_a_compaction_summary_skips_items_newer_than_the_cover() -> None:
 
 def test_settings_without_a_usable_token_are_unavailable() -> None:
     pack = SettingsPack("https://settings.test")
-    assert pack.docs == SETTINGS_MARKDOWN
+    assert pack.docs == capability_doc("settings")
     assert pack.setup() is None
 
 
@@ -138,7 +139,7 @@ async def test_settings_probe_names_an_exchange_failure() -> None:
 async def test_research_probe_covers_each_provider_outcome() -> None:
     fake = FakeSearchClient()
     pack = ResearchPack("https://search.test", client=fake)
-    assert pack.docs == RESEARCH_MARKDOWN
+    assert pack.docs == capability_doc("research")
     fake.offer([Provider("openai", "error")])
     assert (await pack.probe(_pack_context())).state is State.unavailable
 

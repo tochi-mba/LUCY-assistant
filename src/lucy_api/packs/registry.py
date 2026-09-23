@@ -134,7 +134,7 @@ async def probe_all(
         return Bound(pack=pack, availability=availability, operations=operations)
 
     catalogue = Catalogue(bound=tuple(await asyncio.gather(*(one(pack) for pack in packs))))
-    return apply_disabled(catalogue, context.policy.disabled)
+    return apply_disabled(catalogue, context.policy.all_disabled)
 
 
 def choose_bound(

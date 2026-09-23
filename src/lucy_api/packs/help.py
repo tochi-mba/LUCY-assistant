@@ -20,6 +20,7 @@ from weftai.schema.types import value
 
 from lucy_api.mcp.skills import CATALOGUE, listed, resolve
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State, connection_required
+from lucy_api.prompt.docs import capability_doc, read_capability_doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -37,25 +38,6 @@ capability's entire markdown into the context is how a help tool becomes the lar
 thing in the window.
 """
 
-HELP_MARKDOWN = """# Help
-
-You have capabilities, named the way a person would name them: music, research, notes,
-workspace. You never see a service, a port or an HTTP verb.
-
-`capabilities.list` is how you find out what is usable *right now*. An unconnected
-capability is absent from your tools; list it, then `capabilities.setup` if the person
-wants it.
-
-`help.operation` is how you read one operation in full. Names and one-liners are what you
-are bound with; the schema and the examples live here so the preamble stays small.
-
-When a capability was deferred, `capabilities.use` binds it for the rest of this session.
-
-`help.skills` lists the named docs you can load before using a capability. `help.skill`
-reads one, windowed. Prefer those over guessing how a long job, an approval or a memory
-write works.
-"""
-
 
 class HelpPack:
     """Always-present operations: list, setup, bind, and the two help reads."""
@@ -66,7 +48,7 @@ class HelpPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return HELP_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return ()
@@ -269,7 +251,7 @@ async def _docs(run: RunContext[PackContext]) -> dict[str, Any]:
     topic = str(run.input.get("topic", "help"))
     offset = int(run.input.get("offset") or 0)
     limit = int(run.input.get("limit") or DOCS_WINDOW)
-    text = HELP_MARKDOWN if topic == "help" else _pack_docs(run.ctx, topic)
+    text = read_capability_doc("help") if topic == "help" else _pack_docs(run.ctx, topic)
     window = text[max(offset, 0) : max(offset, 0) + max(limit, 0)]
     return {
         "topic": topic,
@@ -351,4 +333,4 @@ def _pack_docs(context: PackContext, topic: str) -> str:
     return text
 
 
-__all__ = ["DOCS_WINDOW", "HELP_MARKDOWN", "HelpPack"]
+__all__ = ["DOCS_WINDOW", "HelpPack"]

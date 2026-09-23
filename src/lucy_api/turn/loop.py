@@ -144,7 +144,9 @@ class Turn:
     provider: Provider
     assemble: Assemble
     execute: ExecutePlan | None = None
-    plan_schema: dict[str, Any] | None = None
+    plan_schema: dict[str, Any] | Callable[[], dict[str, Any]] | None = None
+    """What the model may plan against. A callable is asked again every round, so a
+    capability the person turned off mid-turn is not offered at the next one."""
     append: Append | None = None
     budget: Budget | None = None
     model: str = ""
@@ -199,7 +201,7 @@ async def run_turn(turn: Turn) -> Outcome:
         request = Request(
             messages=messages,
             system=system,
-            plan_schema=turn.plan_schema,
+            plan_schema=turn.plan_schema() if callable(turn.plan_schema) else turn.plan_schema,
             model=turn.model,
             max_output_tokens=turn.max_output_tokens,
             temperature=turn.temperature,

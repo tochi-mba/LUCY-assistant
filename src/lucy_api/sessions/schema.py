@@ -1,4 +1,16 @@
-"""Schema migrations for the hub's single SQLite database."""
+"""Schema migrations for the hub's single SQLite database.
+
+`SCHEMA` creates every table as it is today. `ADDED_COLUMNS` is the part `CREATE TABLE IF
+NOT EXISTS` cannot do: a column added after a database was first opened. Each is applied
+with `ALTER TABLE ... ADD COLUMN` when `PRAGMA table_info` says it is missing, which is
+idempotent and needs no version counter -- the table is the version.
+"""
+
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("sessions", "disabled_capabilities_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("sessions", "pending_changes_json", "TEXT"),
+)
+"""(table, column, definition) for every column that post-dates the table."""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -10,7 +22,8 @@ CREATE TABLE IF NOT EXISTS sessions (
  permission_mode TEXT NOT NULL, incognito INTEGER NOT NULL,
  created_at REAL NOT NULL, updated_at REAL NOT NULL, archived_at REAL,
  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
- cost_micros INTEGER NOT NULL DEFAULT 0
+ cost_micros INTEGER NOT NULL DEFAULT 0,
+ disabled_capabilities_json TEXT NOT NULL DEFAULT '[]', pending_changes_json TEXT
 ) STRICT;
 CREATE INDEX IF NOT EXISTS sessions_account ON sessions(account_id,created_at,id);
 CREATE TABLE IF NOT EXISTS turns (

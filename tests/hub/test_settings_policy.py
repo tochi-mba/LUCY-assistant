@@ -155,7 +155,7 @@ def test_live_values_are_clamped_and_temperature_is_hundredths() -> None:
     assert policy.agent_message_burst == 2
     assert policy.disabled == ("toy",)
     assert "help" not in policy.disabled
-    assert {"help", "work", "agents"} == ALWAYS_ON
+    assert {"help", "work"} == ALWAYS_ON, "helpers can be turned off; help and work cannot"
 
 
 def test_wrong_types_and_unknown_enums_fall_back_to_the_designed_value() -> None:
@@ -228,11 +228,11 @@ def test_a_resolved_object_without_a_callable_get_is_treated_as_an_outage() -> N
     assert TurnPolicy.from_resolved(SimpleNamespace(get="nope")).blocks_turn is True
 
 
-async def test_help_work_and_helpers_stay_bound_when_a_person_lists_them_as_disabled() -> None:
+async def test_help_and_work_stay_bound_when_a_person_lists_them_as_disabled() -> None:
     context = Capabilities((HelpPack(), _Toy())).context_for(
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
     )
-    context.policy = TurnPolicy(disabled=("help", "work", "agents", "toy"))
+    context.policy = TurnPolicy(disabled=("help", "work", "toy"))
     catalogue = await probe_all((HelpPack(), _Toy()), context)
     toy = catalogue.get("toy")
     help_bound = catalogue.get("help")
@@ -247,7 +247,19 @@ async def test_help_work_and_helpers_stay_bound_when_a_person_lists_them_as_disa
 
 def test_apply_disabled_returns_the_same_catalogue_when_only_always_on_names_were_listed() -> None:
     empty = Catalogue(bound=())
-    assert apply_disabled(empty, ("help", "work", "agents")) is empty
+    assert apply_disabled(empty, ("help", "work")) is empty
+
+
+def test_a_session_narrows_the_profile_and_never_widens_it() -> None:
+    profile = TurnPolicy(disabled=("music",))
+
+    narrowed = profile.for_session(("agents", "help", "music", "agents"))
+
+    assert narrowed.disabled == ("music",), "the profile's own list is untouched"
+    assert narrowed.session_disabled == ("agents", "music")
+    assert narrowed.all_disabled == ("music", "agents")
+    assert narrowed.for_session(()).all_disabled == ("music",), "a later list replaces it"
+    assert profile.all_disabled == ("music",)
 
 
 def test_a_fallback_model_must_look_like_a_provider_spec() -> None:

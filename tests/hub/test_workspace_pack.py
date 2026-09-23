@@ -17,11 +17,11 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.workspace import (
     MAX_TOOL_OUTPUT_CHARS,
-    WORKSPACE_MARKDOWN,
     WorkspacePack,
     _optional_int,
 )
 from lucy_api.permissions.gate import Grant
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.work import Registry
 from lucy_api.workspace.text import digest
@@ -52,7 +52,7 @@ def test_workspace_needs_no_manual_setup() -> None:
     pack = WorkspacePack("https://workspace.test", client=fake)
 
     assert pack.setup() is None
-    assert pack.docs == WORKSPACE_MARKDOWN
+    assert pack.docs == capability_doc("workspace")
     assert pack.permissions()[1].id == "workspace.destroy"
     assert pack.permissions()[1].covers == ("workspace.delete",)
 
@@ -299,7 +299,7 @@ async def test_workspace_probe_names_a_transport_outage() -> None:
 
 
 def test_workspace_has_no_docs_page() -> None:
-    assert WorkspacePack("https://workspace.test").docs == WORKSPACE_MARKDOWN
+    assert WorkspacePack("https://workspace.test").docs == capability_doc("workspace")
     assert _optional_int(True) is None
     assert _optional_int(8) == 8
 
