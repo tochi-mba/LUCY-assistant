@@ -233,6 +233,11 @@ class TurnSupervisor:
         pack_ctx.permission_mode = str(session.get("permission_mode") or pack_ctx.permission_mode)
         catalogue = await self._capabilities.probe(pack_ctx)
         ready = tuple(item.pack.id for item in catalogue.ready())
+        # What the prompt may name is what the schema was built from, which is not everything
+        # ready: a held-back capability has no operations this turn, and saying otherwise
+        # contradicts the one rule the identity section states plainly.
+        bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+        callable_now = tuple(item.pack.id for item in bound)
         policy = pack_ctx.policy
         advertised = _advertised(policy.enabled, ready, policy.all_disabled)
         oriented = False
@@ -251,6 +256,7 @@ class TurnSupervisor:
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
             nonlocal oriented, compacted, session, catalogue, ready, advertised
+            nonlocal callable_now, deferred
             fresh = await self._store.get(claimed.account_id, claimed.session_id)
             if _knobs(fresh) != _knobs(session):
                 # Changed under the running turn, on purpose (`apply: "now"`). The next
@@ -261,6 +267,8 @@ class TurnSupervisor:
                 pack_ctx.policy = pack_ctx.policy.for_session(disabled_in(fresh))
                 catalogue = await self._capabilities.probe(pack_ctx)
                 ready = tuple(item.pack.id for item in catalogue.ready())
+                bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+                callable_now = tuple(item.pack.id for item in bound)
                 advertised = _advertised(policy.enabled, ready, pack_ctx.policy.all_disabled)
             rows = await self._store.records(claimed.account_id, claimed.session_id, "items")
             turns = await self._store.records(claimed.account_id, claimed.session_id, "turns")
@@ -280,7 +288,8 @@ class TurnSupervisor:
             view = SessionView(
                 session_id=claimed.session_id,
                 items=ordered,
-                capabilities=ready,
+                capabilities=callable_now,
+                deferred=deferred,
                 advertised=advertised,
                 session=session,
                 compactions=compact,

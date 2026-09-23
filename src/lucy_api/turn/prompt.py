@@ -36,6 +36,7 @@ class SessionView:
     session_id: str
     items: list[dict[str, Any]]
     capabilities: tuple[str, ...] = ()
+    deferred: tuple[str, ...] = ()
     advertised: tuple[str, ...] = ()
     session: dict[str, Any] | None = None
     compactions: list[dict[str, Any]] | None = None
@@ -265,6 +266,7 @@ async def _build(view: SessionView) -> Built:
     row = view.session or {}
     prompt = PromptContext(
         capabilities=view.capabilities,
+        deferred=view.deferred,
         advertised=view.advertised,
         response_style=view.response_style,
     )
