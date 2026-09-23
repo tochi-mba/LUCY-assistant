@@ -244,3 +244,44 @@ async def test_a_stream_that_could_not_be_opened_is_worth_retrying() -> None:
     with pytest.raises(ModelUnavailableError, match="could not be reached"):
         [event async for event in events(http, request, provider="openai")]
     await http.aclose()
+
+
+# --- a plan in a code fence is still a plan -------------------------------------------------
+#
+# The first real model ever pointed at this hub replied with its plan wrapped in ```json. With
+# a bare `json.loads` that read as prose, so the steps never ran and the turn ended as a
+# success with the wire format shown to the person as the answer.
+
+FENCED_PLAN = '```json\n{"steps":[{"id":"caps","op":"capabilities.list","input":{}}]}\n```'
+
+
+def test_a_fenced_plan_is_read_as_a_plan() -> None:
+    assert json_object(FENCED_PLAN) == {
+        "steps": [{"id": "caps", "op": "capabilities.list", "input": {}}]
+    }
+
+
+def test_a_fence_with_no_language_still_counts() -> None:
+    assert json_object('```\n{"a": 1}\n```') == {"a": 1}
+
+
+def test_a_fence_inside_a_sentence_is_quoting_not_planning() -> None:
+    """Pulling the first fenced block out of a message with prose around it would read
+    "here is what that config looks like: ..." as a plan and run it."""
+    assert json_object('Here you go:\n```json\n{"a": 1}\n```\nHope that helps.') is None
+
+
+def test_a_fenced_array_is_no_more_an_object_than_a_bare_one() -> None:
+    assert json_object("```json\n[1, 2]\n```") is None
+
+
+def test_a_fenced_mess_still_reaches_the_repair_path() -> None:
+    assert json_object("```json\n{not json\n```") is None
+
+
+def test_carriage_returns_do_not_defeat_the_fence() -> None:
+    assert json_object('```json\r\n{"a": 1}\r\n```') == {"a": 1}
+
+
+def test_surrounding_whitespace_is_tolerated() -> None:
+    assert json_object('\n\n```json\n{"a": 1}\n```\n\n') == {"a": 1}

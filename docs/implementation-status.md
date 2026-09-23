@@ -210,10 +210,25 @@ machine is listed as in progress, however finished it looks.
 - **The Linux sandbox is validated under compose.** Environments-api reports
   `sandbox_tier: namespace`, so the M4 caveat below applies only to running the hub
   natively on Windows, not to the composed path.
-- **No real model has been called.** `LUCY_MODEL_KEYS` is unset on this machine, so
-  Lucy's `/ready` is `degraded` on the `model` check alone -- the designed first-run
-  behaviour. Every token, cost and latency number in baseline.md is therefore still
-  unmeasured, and those are the gates for the typed-decision work.
+- **A real model has been called, and ten conversations were held with it.** No API key
+  was needed: [clyde](https://github.com/tochi-mba/clyde) serves chat-completions from the
+  Claude Code CLI under a desktop subscription, and Lucy reaches it with one entry in
+  `LUCY_MODEL_BASE_URLS`. All ten scenarios pass. `docs/baseline.md` records what happened,
+  including the six metrics that were the gates for the typed-decision work -- all six are
+  now measured.
+- **Running it found six defects that 2,522 passing tests did not.** A model spec sent
+  where a model id belonged; a plan in a code fence read as prose, so a turn was recorded a
+  success while showing the person wire format; a ten-second timeout meant for sibling
+  services applied to the model; a failed turn that recorded no reason anywhere; per-turn
+  token counts computed every round and never written down; and an approved write that
+  never ran. Each is fixed, with a test that fails without the fix. The pattern is one
+  thing: a scripted provider serves a reply and never reads the request, so nothing about
+  what Lucy actually *sends* was under test.
+- **The plan schema is 61% of every prompt** -- 11,495 tokens against 4,462 for the system
+  prompt -- and `GET /v1/sessions/{id}/context` reports it as `"tools": 0`, because it
+  travels as `response_format` rather than as a message. The hub's own accounting therefore
+  sees about a third of what it sends. Anything that reasons about prompt composition,
+  including the typed-decision work, should start here.
 
 ## Integration decisions
 

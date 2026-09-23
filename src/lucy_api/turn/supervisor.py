@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -17,13 +18,18 @@ from lucy_api.context.build import Live
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content
-from lucy_api.model.registry import UnknownModelError
-from lucy_api.permissions.approvals import Ask, open_approval
+from lucy_api.model.registry import UnknownModelError, parse_spec
+from lucy_api.permissions.approvals import (
+    Ask,
+    granted_operations,
+    open_approval,
+    resumed_notice,
+)
 from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
-from lucy_api.sessions.sql_store import NewItem
+from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
 from lucy_api.turn.loop import Turn, run_turn
@@ -83,6 +89,26 @@ class PreparedTurn:
     live: Live
     budget: Budget = field(default_factory=Budget)
     max_subagent_turns: int = 8
+
+
+logger = logging.getLogger(__name__)
+
+
+def _spend(result: Any) -> TurnSpend:
+    """What a finished turn used, summed over its rounds.
+
+    Every round already carries its own `Usage`; nothing ever added them up, so the columns
+    that have held a turn's cost since the first migration held zero, and `GET /usage`
+    answered zero for every session ever recorded.
+    """
+    rounds = getattr(result, "rounds", ())
+    used = [round_.usage for round_ in rounds if round_.usage is not None]
+    return TurnSpend(
+        input_tokens=sum(usage.input_tokens for usage in used),
+        output_tokens=sum(usage.output_tokens for usage in used),
+        cache_read_tokens=sum(usage.cache_read_tokens for usage in used),
+        iterations=len(rounds),
+    )
 
 
 class TurnSupervisor:
@@ -194,6 +220,11 @@ class TurnSupervisor:
             session_id=claimed.session_id,
             turn_id=claimed.id,
         )
+        # A turn that a person has just unblocked is claimed by the same query as a new one,
+        # and nothing about the row says it was ever parked. The approvals it collected are
+        # the only durable record that the model already asked, so they are what the first
+        # round is told about.
+        opening = resumed_notice(await granted_operations(self._store, claimed.id))
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         # The profile's policy, narrowed by this conversation's own list. Re-read at every
         # round below, because a person may change it while the turn runs and asked for
@@ -315,7 +346,13 @@ class TurnSupervisor:
                             catalogue, claimed.session_id, pack_ctx
                         ),
                         append=append,
-                        model=claimed.model,
+                        opening_notice=opening,
+                        # The id the provider understands, not the spec. A session stores
+                        # `lmstudio:sonnet`; the provider was already built for `sonnet` and
+                        # sends whatever this says straight up the wire, so passing the spec
+                        # asks every provider for a model named after itself. Nothing caught
+                        # it until a real one answered `unrecognized_model`.
+                        model=parse_spec(claimed.model).model,
                         budget=prepared.budget if prepared is not None else None,
                         max_output_tokens=pack_ctx.policy.max_output_tokens,
                         temperature=pack_ctx.policy.temperature,
@@ -386,12 +423,25 @@ class TurnSupervisor:
             await self._signal(claimed, "input_required")
             return
         status = _status_for(result.termination)
+        if status == "failed":
+            # The only place a turn's reason for failing is written down. `Outcome.detail`
+            # reaches the transcript for a refusal and for a parked turn, and for nothing
+            # else -- so a turn that failed said `error_during_execution` in the API and gave
+            # an operator no second sentence anywhere. It is already written for a person to
+            # read and carries no prompt text, which is what makes it safe to log.
+            logger.warning(
+                "turn_failed turn_id=%s termination=%s detail=%s",
+                claimed.id,
+                result.termination.value,
+                result.detail or "(none given)",
+            )
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
             status,
             result.termination.value,
             result.stop_reason.value,
+            spent=_spend(result),
         )
         if status == "completed":
             await _maybe_title(self._store, claimed, pack_ctx, session)

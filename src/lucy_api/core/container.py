@@ -628,7 +628,7 @@ def build_container(
         settings.api_keys(),
         base_urls=settings.model_base_urls,
         transport=transport,
-        timeout=settings.http_timeout_seconds,
+        timeout=settings.model_timeout_seconds,
     )
     worker = SqlWorker(settings.database_path)
     store = SessionStore(worker)

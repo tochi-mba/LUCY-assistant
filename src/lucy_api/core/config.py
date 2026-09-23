@@ -153,6 +153,22 @@ class Settings(BaseSettings):
     jwks_cache_seconds: PositiveFloat = 3_600.0
     jwks_min_refetch_seconds: PositiveFloat = 30.0
     http_timeout_seconds: PositiveFloat = 10.0
+    """How long to wait on a sibling service. Ten seconds is right for a service that is
+    either up or down; it is not right for a model, which has its own setting below."""
+
+    model_timeout_seconds: PositiveFloat = 120.0
+    """How long to wait on one model call.
+
+    Separate from `http_timeout_seconds` because the two answer different questions. A
+    sibling that has not replied in ten seconds is broken. A model that has not replied in
+    ten seconds is thinking, and a long reply at high effort genuinely takes minutes --
+    which is what `lucy_api.model.wire.DEFAULT_TIMEOUT` has said since it was written, and
+    what the wiring quietly overrode with the sibling figure.
+
+    It matters most where a provider has nothing to send until it is finished. The first
+    real turn ever served here died as `the model was unavailable (ReadTimeout)` after ten
+    seconds of a reply that arrived, whole and correct, at twenty-six.
+    """
 
     @model_validator(mode="after")
     def _audience_is_usable(self) -> Self:

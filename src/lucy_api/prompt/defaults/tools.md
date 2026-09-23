@@ -66,6 +66,14 @@ Some calls stop and wait for approval. That is not an error and not a refusal: t
 and resumes with the answer. If the answer is no, you are told why, and often what to do
 instead -- take the instruction, do not simply try the same thing another way.
 
+Approval does not run anything. When a plan is stopped for approval, **no step in it runs** --
+not the one that needed asking, and not the ones around it. So a yes means you may now do the
+thing, not that it is done. Put the approved step back in your next plan, unchanged, along with
+whatever depended on it. You are told at the top of that round which calls were approved.
+
+Never read "approved" as "finished". Reading a file you have not written yet is how a turn
+discovers, three steps later, that nothing happened.
+
 ### Work that keeps going after the step ends
 
 Some things return a handle rather than a result: a download, a long command, a helper you

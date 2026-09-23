@@ -160,9 +160,9 @@ sandbox runtime validation remains because Environments-api cannot import `fcntl
 Windows host"* -- and it can now be closed for the composed path. Running the hub natively
 on Windows is still affected.
 
-## What is still missing
+## What was still missing, at the time of the run above
 
-**No model has been called.** `LUCY_MODEL_KEYS` is not set on this machine, and Lucy's
+**No model had been called.** `LUCY_MODEL_KEYS` is not set on this machine, and Lucy's
 `/ready` says so correctly:
 
 ```json
@@ -176,17 +176,8 @@ That is the designed first-run behaviour, not a defect: keyring and the database
 reachable, and the only missing piece is a credential a person supplies. Supply one with
 `lucy models connect <provider>` and the 503 becomes a 200.
 
-Everything below therefore remains **unmeasured**, and every one of these is a gate for the
-typed-decision work, which is why they are listed rather than estimated:
-
-| Metric | Why it is needed |
-| --- | --- |
-| Stable vs volatile prompt tokens per turn | The central hypothesis of the decision layer is that it shrinks the volatile half. Unfalsifiable until measured. |
-| Cache-read ratio | A later gate is "tokens down with the cache-read ratio flat". There is no flat yet. |
-| Tool-result share of context | Quoted as 96.3% from someone else's baseline. Ours is unknown. |
-| Turn wall-clock p50/p90 | A 1 s decision budget is either 3% or 30% of a turn. |
-| Model cost per turn | The 2% decision-cost target has no denominator. |
-| Bound-capability count and deferral rate | `DEFER_ABOVE = 6` with eight packs: it is not known whether deferral fires at all. |
+Those numbers were unmeasured when this section was written. They are measured now; see
+**The first real conversations** below.
 
 ## Reproducing this
 
@@ -201,3 +192,109 @@ done
 `make check` remains green throughout and caught none of the four defects above. That is
 the finding behind the finding: the gates verify the hub against itself, and nothing
 verified it against the family until it was run.
+
+## The first real conversations
+
+**Recorded 2026-09-23, on the same machine, later the same day.** The section above ends by
+saying no model had been called. One has now, through
+[clyde](https://github.com/tochi-mba/clyde) -- a harness that serves
+`POST /v1/chat/completions` from the Claude Code CLI under a desktop subscription, so a turn
+needs no API key. Lucy reaches it with one environment variable:
+
+```bash
+LUCY_MODEL_BASE_URLS='{"lmstudio":"http://host.docker.internal:8127/v1"}'
+```
+
+Ten conversations were held, chosen so each answers a different question rather than proving
+the same thing ten times. All ten now pass. Six defects in this repo had to be fixed first,
+and every one of them is listed below, because the pattern matters more than any single fix:
+**2,522 tests passed throughout**, and none of the six was visible to any of them.
+
+### What was measured
+
+Three components of one trivial turn, measured by sending the same request to clyde three
+times and diffing `prompt_tokens`:
+
+| Component | Tokens | Share |
+| --- | ---: | ---: |
+| Claude Code's own prompt, with every tool disallowed | 2,905 | 15% |
+| Lucy's system prompt | 4,462 | 24% |
+| **Lucy's plan schema** | **11,495** | **61%** |
+| One trivial turn, total | 18,862 | |
+
+The third row is the finding. The plan schema is the largest single thing Lucy sends, by a
+wide margin -- and `GET /v1/sessions/{id}/context` reports `"tools": 0`. It is not counted
+because it travels as `response_format`, not as a message, so the hub's own accounting sees
+roughly a third of what it actually sends:
+
+| | Hub reports | Provider charged |
+| --- | ---: | ---: |
+| Shortest turn ("say the single word: ready") | 5,940 | 19,491 |
+
+That gap is not a rounding error and it is not clyde's floor. It is the schema.
+
+### Per-turn numbers
+
+One session per prompt, so history does not confound the bands. Tokens are what the provider
+reported; bands are what the hub reports.
+
+| Turn | s | Rounds | Input | Output | Cache read | System | Pinned | History |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| "what can you do right now?" | 34.4 | 2 | 26,351 | 594 | 13,694 | 5,688 | 240 | 905 |
+| "say the single word: ready" | 12.1 | 1 | 12,644 | 4 | 6,847 | 5,688 | 240 | 12 |
+| "what do you know about me?" | 24.3 | 2 | 25,633 | 228 | 13,694 | 5,688 | 239 | 257 |
+| a request to be declined | 16.2 | 1 | 12,662 | 121 | 6,847 | 5,688 | 244 | 112 |
+| 37,072 characters of meeting notes | 16.3 | 1 | -- | -- | -- | 5,688 | 251 | 9,335 |
+
+### The six metrics that were blocking
+
+| Metric | Measured |
+| --- | --- |
+| Stable vs volatile prompt tokens | Stable is 18,862 and volatile is the history band: 12 tokens on the shortest turn, 9,335 on a 37 KB input. The stable half dominates by one to three orders of magnitude, and 61% of it is the schema. |
+| Cache-read ratio | **34–35%** of prompt tokens, consistently: 6,847 / 19,491 on a one-round turn, 13,694 / 40,045 on a two-round turn. Stable enough to be a usable gate. |
+| Tool-result share of context | Not 96.3%. On these turns the whole history band -- messages *and* tool results -- is 0.2% to 13% of what the hub counts, and under 2% of what is actually sent. The 96.3% figure came from somebody else's system and should not be carried forward. |
+| Turn wall-clock | p50 ≈ 16 s, range 12.1–34.4 s. Rounds, not input size, drive it: a 37 KB input took 16.3 s in one round, while a two-round turn on a nine-word question took 34.4 s. A 1 s decision budget is therefore ~6% of a median turn. |
+| Cost per turn | Now recorded per turn in `input_tokens`, `output_tokens` and `cache_read_tokens` -- the columns existed from the first migration and nothing ever wrote them, so `GET /usage` answered zero for every session ever. Cash cost stays unmeasured on a subscription, where the provider's own figure is notional. |
+| Bound capabilities and deferral rate | Deferral fires. With eight packs and `DEFER_ABOVE = 6`, a workspace request produced `capabilities.use` returning *"workspace will be available next turn"*, then the write on the round after. Two rounds is the floor for any turn touching a deferred pack. |
+
+### What the conversations showed
+
+| # | Asked | Result |
+| --- | --- | --- |
+| 1 | "what can you do right now?" | Answers in prose about itself, separating connected from not, and names what timed out |
+| 2 | "of those, which would you set up first?" | Resolves the reference against the previous turn and hedges on what it cannot know |
+| 3 | "remember I prefer tea over coffee" | Plan, approval gate, `notes.setFact`, confirmation |
+| 4 | "what do you know about me?" | Reads the fact back **in a new session**, and flags it as unconfirmed rather than asserting it |
+| 5 | write a file, then read it back | `capabilities.use`, approval, `workspace.write`, `workspace.read`; reported its own failed first attempt |
+| 6 | "play me some jazz" | Declines, says what connecting would allow, gives a next step |
+| 7 | 37 KB of meeting notes | Found the three themes, and caught a bug in the generated fixture the author had missed |
+| 8 | a privilege-escalation request | Declines with a reason, and notes it is sandboxed regardless |
+| 9 | hang up mid-turn, reconnect | Turn completed with nobody listening; `starting_after` replayed all nine missed events, each exactly once |
+| 10 | two clients, one session | Second input queued behind the first; both answered, in order |
+
+Scenario 9's cursor is a `sequence_number`, not an `event_id`. Passing an `event_id` returns
+an empty stream rather than an error, which is worth knowing before debugging a client.
+
+### The six defects, and why no test saw them
+
+| Defect | Why the suite could not see it |
+| --- | --- |
+| The provider was asked for a model named `lmstudio:sonnet` -- the session's whole spec rather than the model id | `ScriptedProvider` serves a pre-built reply and never reads `Request.model` |
+| A plan wrapped in a ```json fence parsed as nothing, so the steps never ran, the turn was recorded a **success**, and the person was shown wire format | No test sends a fenced reply, because nothing scripted ever fences |
+| The model registry got `http_timeout_seconds` (10 s), the figure for a sibling that is up or down. `wire.DEFAULT_TIMEOUT` had said 120 s since it was written | Nothing in the suite makes a call that takes longer than instant |
+| A failed turn recorded no reason anywhere -- API, events or log. `error_during_execution` was the whole report | Tests assert on `Termination`, which is present; the sentence explaining it is what was missing |
+| **An approved write never ran.** The whole plan is gated, so nothing executes; the plan is held in memory and dropped; resuming re-asks the model, which sees only its own request and `{"approved": true}` in the person's voice and concludes the write happened | `test_a_gated_write_parks_until_the_person_answers_then_resumes` scripted plain speech as the reply after approval and asserted only that the turn completed |
+| Per-turn token counts were computed every round and never written down | `GET /usage` was never asserted against a turn that had actually spent anything |
+
+The fifth is the one that matters. An approval gate that authorises a write which then does
+not happen is the worst failure this system can have: the person is told they approved it, the
+model is told the read failed, and nothing anywhere says the write was dropped. It reproduced
+on two separate sessions before it was understood.
+
+### What is still unexercised
+
+* `Stop.refusal` never fired. Scenario 8 was declined by the model in prose, which is a
+  different path from a provider-level refusal, and clyde has no way to produce one.
+* Cash cost per turn, for the reason given above.
+* The typed-decision layer, which remains off. These conversations are the start of the
+  golden set it needs, not a test of it.

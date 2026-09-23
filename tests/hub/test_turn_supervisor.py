@@ -407,6 +407,16 @@ async def test_a_gated_write_parks_until_the_person_answers_then_resumes(
     finished = await store.turn(ACCOUNT, str(queued["id"]))
     assert finished["status"] == "completed"
     assert provider.remaining == 0
+
+    # The round after the answer is told the approved call still has not run. Without this the
+    # transcript reads exactly like a turn where the work was done: no step of a gated plan
+    # runs, the plan itself is never written down, and all the model sees is its own request
+    # and `{"approved": true}` in the person's voice. Against a real model it read that way --
+    # it skipped the approved write and went straight to reading the file back, which 404'd.
+    resumed = provider.requests[-1]
+    said = resumed.system + " ".join(message.content for message in resumed.messages)
+    assert "notes.remember was approved just now" in said
+    assert "nothing has happened yet" in said
     await running.aclose()
 
 
@@ -883,3 +893,65 @@ class _HoldsUntilFlag:
     async def stream(self, request: Any) -> Any:
         reply = await self.complete(request)
         yield Chunk(kind=CHUNK_DONE, reply=reply)
+
+
+async def test_the_provider_is_asked_for_a_model_id_not_a_session_spec(
+    store: SessionStore,
+) -> None:
+    """A session stores `provider:model`; a provider sends `Request.model` straight up the
+    wire. Passing the spec through asked a real provider for a model named after itself --
+    `[claude-code:unrecognized_model] {"model":"lmstudio:sonnet"}` -- on the first turn ever
+    served by one. Every scripted test passed throughout, because a scripted model does not
+    care what it is called.
+    """
+    conversation = await session(store, model="scripted:sonnet")
+    await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Hello."}],
+        "input-key",
+    )
+    provider = ScriptedProvider([speaks("Hello back.")])
+    running = supervisor(store, provider)
+
+    running.wake()
+    await running.join()
+
+    assert provider.requests[0].model == "sonnet"
+    await running.aclose()
+
+
+# --- a resumed turn is told the approved call has not run --------------------------------------
+#
+# A parked plan is held in memory and dropped: `Capabilities.execute` gates the whole plan, so
+# when one step needs asking, NO step runs. Resuming is a status flip and the model is asked
+# again from scratch. What it sees of the park is the request and `{"approved": true}`, both in
+# the person's voice -- and its own proposed plan was never written down, because a plan-only
+# reply appends no assistant item. So the transcript reads exactly like a turn where the work
+# was done. Against a real model it read that way: it skipped the approved `workspace.write`
+# and went straight to reading the file back, which 404'd.
+
+
+async def test_nothing_is_said_about_approvals_on_a_turn_that_never_parked(
+    store: SessionStore,
+) -> None:
+    """A sentence about approval on every turn would be noise, and noise in the notice channel
+    is what makes a real notice easy to miss."""
+    conversation = await session(store)
+    await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "just talk to me"}],
+        "input-key",
+    )
+    provider = ScriptedProvider([speaks("Talking.")])
+    running = supervisor(store, provider)
+    running.wake()
+    await running.join()
+
+    first = provider.requests[0]
+    assert "has not run" not in first.system
+    assert all("has not run" not in message.content for message in first.messages)
+    await running.aclose()
