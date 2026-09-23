@@ -310,3 +310,37 @@ async def test_a_full_window_drops_old_tool_results_and_confesses() -> None:
     document = await context_for_session(view)
     assert any("cleared" in notice for notice in document["notices"])
     assert "itm_old" not in document["prompt"] or document["notices"]
+
+
+async def test_the_model_is_told_how_full_its_window_actually_is() -> None:
+    """`BudgetSnapshot(used=0, ...)` was hardcoded here, so every prompt ever built said
+    `context 0 of 200,000 tokens (0% used)` — including one whose history band was 9,415
+    tokens. `context/types.py` says why the line exists at all: "Telling a model its own
+    context position changes what it does: it writes a note before an eviction rather than
+    after one." A constant zero tells it nothing and is worse than saying nothing.
+    """
+    body = "a sentence that is long enough to count for something. " * 200
+    view = SessionView(
+        session_id="ses_full",
+        items=[
+            {
+                "id": f"itm_{seq}",
+                "seq": seq,
+                "role": "user",
+                "content": body,
+                "turn_id": f"trn_{seq}",
+                "type": "message",
+            }
+            for seq in range(1, 6)
+        ],
+        capabilities=("help",),
+        session={"profile": "personal", "title": "Long", "permission_mode": "ask", "incognito": 0},
+        turn_number=6,
+    )
+    system, messages = await system_and_messages(view, notice="")
+
+    # The live block rides as a message, not in the system half.
+    whole = system + "\n" + "\n".join(message.content for message in messages)
+    line = next(row for row in whole.splitlines() if row.startswith("context") and " of " in row)
+    used = int(line.split(" of ", maxsplit=1)[0].split()[-1].replace(",", ""))
+    assert used > 0, line

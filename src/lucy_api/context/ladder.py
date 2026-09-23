@@ -49,6 +49,17 @@ class Reclaimed:
     tools_cleared: int = 0
     thinking_cleared: int = 0
 
+    used: int = 0
+    """The tokens the caller measured, carried back out so the model can be told.
+
+    Carried rather than recomputed because the ladder is handed this figure and reasons
+    about it; a second estimate somewhere else would disagree with the one that actually
+    decides when to compact, and the model would be told a number the system does not act on.
+    """
+
+    reclaimable: int = 0
+    """Tool results still in the window that could be dropped without protection."""
+
 
 def reclaim(
     items: Sequence[Item],
@@ -67,7 +78,12 @@ def reclaim(
     if percent >= limits.warn_at_percent and window:
         notices.append(f"context is {percent}% of {window:,} tokens")
     if percent < limits.compact_at_percent:
-        return Reclaimed(items=tuple(items), notices=tuple(notices))
+        return Reclaimed(
+            items=tuple(items),
+            notices=tuple(notices),
+            used=used,
+            reclaimable=_kept_unprotected(tuple(items), 0),
+        )
 
     kept, tools_cleared = _drop_old_tools(tuple(items), limits.tool_results_kept)
     if tools_cleared:
@@ -85,6 +101,8 @@ def reclaim(
         should_compact=True,
         tools_cleared=tools_cleared,
         thinking_cleared=thinking_cleared,
+        used=used,
+        reclaimable=_kept_unprotected(kept, 0),
     )
 
 

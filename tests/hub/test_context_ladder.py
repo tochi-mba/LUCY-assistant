@@ -161,3 +161,45 @@ def test_a_reserve_outside_the_bounds_is_clamped_to_the_designed_range() -> None
     assert wider[Band.reserve] == 0.20
     assert wider[Band.tools] < designed[Band.tools]
     assert abs(sum(wider.values()) - 1.0) < 1e-9
+
+
+# --- the number the model is actually told ----------------------------------------------------
+#
+# `BudgetSnapshot(used=0, ...)` was hardcoded in `turn/prompt.py`, so every prompt ever built
+# told the model `context 0 of 200,000 tokens (0% used)` — including one whose own history band
+# was 9,415 tokens. Lucy noticed before anybody else did: "the 120 weeks of notes you pasted
+# seem like they should have moved it." The figure has to come back out of the ladder, because
+# the ladder is the thing that acts on it.
+
+
+def test_the_measured_fill_comes_back_out() -> None:
+    result = reclaim((_item(1),), used=1_000, limits=Limits(window=10_000, warn_at_percent=60))
+    assert result.used == 1_000
+
+
+def test_the_measured_fill_survives_a_reclamation() -> None:
+    """Still the figure the ladder was handed. Re-measuring the survivors here would report a
+    smaller window than the one the compaction decision was made against."""
+    items = tuple(
+        _item(seq, kind="tool_result", role="tool", body='{"operation": "workspace.read"}')
+        for seq in range(1, 7)
+    )
+    result = reclaim(items, used=9_000, limits=Limits(window=10_000, tool_results_kept=2))
+    assert result.should_compact is True
+    assert result.used == 9_000
+
+
+def test_reclaimable_counts_the_tool_results_that_could_still_go() -> None:
+    items = (
+        _item(1),
+        _item(2, kind="tool_result", role="tool", body='{"operation": "workspace.read"}'),
+        _item(3, kind="tool_result", role="tool", body='{"operation": "notes.search"}'),
+        _item(4, kind="tool_result", role="tool", body='{"operation": "workspace.list"}'),
+    )
+    result = reclaim(items, used=1_000, limits=Limits(window=10_000, warn_at_percent=60))
+    assert result.reclaimable == 2, "the notes result is protected and never counts"
+
+
+def test_nothing_is_reclaimable_when_there_are_no_tool_results() -> None:
+    result = reclaim((_item(1), _item(2)), used=10, limits=Limits(window=10_000))
+    assert result.reclaimable == 0
