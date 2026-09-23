@@ -158,9 +158,20 @@ def choose_bound(
     ranked = sorted(ready, key=lambda item: (order.get(item.pack.id, len(order)), item.pack.id))
     kept: list[Bound] = []
     deferred: list[str] = []
+    spent = 0
     for item in ranked:
-        if item.pack.id in ALWAYS or len(kept) < keep_recent:
+        if item.pack.id in ALWAYS:
+            # Free, not first in the queue. `ALWAYS` is documented as "never deferred" and
+            # `KEEP_RECENT` as "how many of them stay bound, most recently used first" -- but
+            # appending these to `kept` charged them against that budget, so three always-on
+            # capabilities ate three of the four slots. On a stock family that deferred
+            # `workspace` and `watch` on every fresh session, which cost a `capabilities.use`
+            # round before any file could be touched, and told the model its workspace was
+            # ready and unusable in the same prompt.
             kept.append(item)
+        elif spent < keep_recent:
+            kept.append(item)
+            spent += 1
         else:
             deferred.append(item.pack.id)
     # Back into catalogue order: a registry whose operation order changes between turns

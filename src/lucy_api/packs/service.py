@@ -147,8 +147,15 @@ class Capabilities:
         return catalogue
 
     def bound_for(self, catalogue: Catalogue, session_id: str) -> tuple[Any, tuple[str, ...]]:
-        recent = (*self.recent(session_id), *sorted(context_ids(catalogue)))
-        return choose_bound(catalogue, recent=recent)
+        """What this turn can call, and what it is holding back.
+
+        The single answer. It used to be one of two: this method seeded recency with every
+        ready pack while `tools`, `registry_for` and `runtime_for` each called `choose_bound`
+        themselves, so the list the prompt could have shown and the list the schema was built
+        from were computed by different code with nothing keeping them equal. Nothing called
+        this one, which is the only reason they never visibly disagreed.
+        """
+        return choose_bound(catalogue, recent=self.recent(session_id))
 
     def listings(self, catalogue: Catalogue) -> list[dict[str, Any]]:
         return [
@@ -165,7 +172,7 @@ class Capabilities:
         ]
 
     def tools(self, catalogue: Catalogue, session_id: str) -> dict[str, Any]:
-        bound, deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, deferred = self.bound_for(catalogue, session_id)
         tools = [
             {
                 "name": operation.name,
@@ -178,12 +185,12 @@ class Capabilities:
         return {"tools": tools, "deferred": list(deferred)}
 
     def registry_for(self, catalogue: Catalogue, session_id: str) -> Registry[Any]:
-        bound, _deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, _deferred = self.bound_for(catalogue, session_id)
         operations = tuple(operation for item in bound for operation in item.operations)
         return build_registry(operations)
 
     def runtime_for(self, catalogue: Catalogue, session_id: str, context: PackContext) -> Any:
-        bound, _deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, _deferred = self.bound_for(catalogue, session_id)
         return build_runtime(
             self.registry_for(catalogue, session_id),
             limits=limits_for(bound, context.policy),
@@ -264,10 +271,6 @@ class Capabilities:
             message = str(first.get("message") or TOOL_FAILED)
             raise conflict(message)
         return result
-
-
-def context_ids(catalogue: Catalogue) -> tuple[str, ...]:
-    return tuple(item.pack.id for item in catalogue.ready())
 
 
 def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:

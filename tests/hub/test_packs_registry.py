@@ -15,6 +15,7 @@ from lucy_api.packs.help import HelpPack
 from lucy_api.packs.registry import (
     ALWAYS,
     DEFER_ABOVE,
+    KEEP_RECENT,
     build_registry,
     build_runtime,
     choose_bound,
@@ -141,3 +142,22 @@ def test_a_runtime_keeps_a_store_when_one_is_handed_over() -> None:
     stored = build_runtime(registry, create_memory_store(), limits={"maxSteps": 4})
     assert defaulted is not None
     assert stored is not None
+
+
+async def test_an_always_on_capability_does_not_spend_the_recency_budget() -> None:
+    """`ALWAYS` is documented as "never deferred" and `KEEP_RECENT` as "how many of them stay
+    bound, most recently used first". Appending the always-on ones to `kept` charged them
+    against that budget, so three of them ate three of the four slots — and on a stock family
+    that deferred `workspace` and `watch` on every fresh session. A real model read the result
+    and said its workspace was "listed as deferred, but the live state shows it attached this
+    turn. I'm going with the live state" — which would have failed on the next step.
+    """
+    packs = [HelpPack(), *[Gadget(f"g{index}") for index in range(DEFER_ABOVE)]]
+    catalogue = await probe_all(packs, _context())
+    bound, deferred = choose_bound(catalogue, recent=())
+
+    names = {item.pack.id for item in bound}
+    assert "help" in names, "always-on, and not at the cost of a slot"
+    gadgets = sorted(name for name in names if name.startswith("g"))
+    assert len(gadgets) == KEEP_RECENT, gadgets
+    assert len(deferred) == DEFER_ABOVE - KEEP_RECENT

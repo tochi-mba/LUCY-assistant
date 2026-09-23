@@ -24,6 +24,7 @@ from lucy_api.prompt.sections import (
     PROMPT_VERSION,
     PromptContext,
     PromptSection,
+    _capabilities,
     prompt_version,
     render_all,
 )
@@ -523,3 +524,23 @@ def test_the_defaults_are_read_from_package_data_so_an_installed_wheel_works() -
     for section_id, text in authored.items():
         assert files(PACKAGE).joinpath("defaults", f"{section_id}.md").is_file()
         assert rendered[section_id] == f"## {builtin(section_id).title}\n\n{text}"
+
+
+def test_a_held_back_capability_is_named_as_held_back_not_as_ready() -> None:
+    """The prompt used to be handed every *ready* capability while the schema was built from
+    the *bound* ones, so the model was told it had abilities it could not call — against the
+    one rule the identity section states plainly: "Your abilities are exactly the capabilities
+    you have been given this turn, and no more." Asked about it, a real model said it could
+    see the mismatch and "haven't confirmed which ones are actually deferred"."""
+    body = _capabilities(
+        PromptContext(capabilities=("help", "notes"), deferred=("watch", "workspace"))
+    )
+    assert "Ready now: help, notes." in body
+    assert "watch, workspace" in body
+    assert "capabilities.use" in body
+    assert "Ready now: help, notes, watch, workspace" not in body
+
+
+def test_nothing_is_said_when_nothing_was_held_back() -> None:
+    body = _capabilities(PromptContext(capabilities=("help",)))
+    assert "not loaded this turn" not in body
