@@ -9,6 +9,7 @@ is a warning unless the caller says which way; "now" lands on the running turn a
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -97,7 +98,8 @@ async def test_a_database_opened_before_the_columns_existed_gains_them_on_initia
     tmp_path: Any,
 ) -> None:
     path = str(tmp_path / "old.sqlite3")
-    with sqlite3.connect(path) as db:
+    # `with sqlite3.connect(...)` commits on exit and never closes; 3.13 reports the leak.
+    with closing(sqlite3.connect(path)) as db:
         db.executescript(OLD_SESSIONS_TABLE)
     worker = SqlWorker(path)
     try:
