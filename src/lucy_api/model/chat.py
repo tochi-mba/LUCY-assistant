@@ -57,8 +57,8 @@ from lucy_api.model.wire import (
     as_text,
     count,
     events,
-    json_object,
     model_for,
+    plan_object,
     send,
 )
 
@@ -152,7 +152,7 @@ def reply_from(payload: dict[str, Any], *, provider: str, want_plan: bool) -> Re
         raise ModelRefusedError(msg)
     text = _content_text(message.get("content"))
     reasoning = as_text(message.get("reasoning_content")) or as_text(message.get("reasoning"))
-    plan = json_object(text) if want_plan else None
+    plan = plan_object(text) if want_plan else None
     if reason == MAX_TOKENS_REASON:
         stop = Stop.max_tokens
     elif plan is not None:

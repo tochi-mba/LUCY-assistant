@@ -308,6 +308,13 @@ services:
     ports:
       - "8008:8008"
     privileged: true
+    # The only service here that forks. A sandbox command's children outlive the shell that
+    # started them, reparent to PID 1, and stay `<defunct>` until something waits on them --
+    # and PID 1 is uvicorn, which never does. Measured after an afternoon of real turns: 254
+    # zombie `bash` processes, at which point the sandbox answered every command with
+    # `fork: Resource temporarily unavailable`. `init: true` puts tini at PID 1, whose whole
+    # job is reaping what it did not start.
+    init: true
     env_file:
       - .env.family
     environment:

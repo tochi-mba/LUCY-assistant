@@ -124,6 +124,59 @@ def json_object(text: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def plan_object(text: str) -> dict[str, Any] | None:
+    """The plan in `text`, including one the model put a sentence in front of.
+
+    :func:`json_object` is strict on purpose: a message is JSON or it is prose, and reading
+    JSON out of prose would let a sentence that merely *contains* an object be executed. But
+    models narrate. This one repeatedly did:
+
+        The step timed out, but the command kept running and finished. I'm fetching its
+        output now.
+
+        {"steps":[{"id":"pyresult","op":"work.result","input":{...}}]}
+
+    Every word of that is a progress note and every character of the object is a plan, and
+    reading the pair as prose ends the turn -- showing the person the wire format and never
+    running the step the model had already decided on.
+
+    Narrower than it looks. The object has to be the *last* thing in the message, it has to
+    parse on its own, and it has to carry a `steps` array, which is what makes a plan a plan.
+    A final answer that ends by quoting a configuration is not mistaken for one.
+    """
+    whole = json_object(text)
+    if whole is not None:
+        return whole
+    trailing = _trailing_object(text)
+    return trailing if trailing is not None and isinstance(trailing.get("steps"), list) else None
+
+
+def _trailing_object(text: str) -> dict[str, Any] | None:
+    """The JSON object a message ends with, or nothing.
+
+    Scanned backwards from the last `}` to the `{` that balances it, so a message with more
+    than one object yields the one the model finished on -- which is the one it meant.
+    """
+    end = text.rstrip().rfind("}")
+    if end < 0:
+        return None
+    body = text.rstrip()[: end + 1]
+    depth = 0
+    for index in range(len(body) - 1, -1, -1):
+        character = body[index]
+        if character == "}":
+            depth += 1
+        elif character == "{":
+            depth -= 1
+            if depth == 0:
+                try:
+                    value = json.loads(body[index:])
+                except ValueError:
+                    return None
+                return value if isinstance(value, dict) else None
+    return None
+
+
 def model_for(request: Request, fallback: str) -> str:
     """The model to call: the request's own, or the one this provider was built for."""
     name = request.model or fallback

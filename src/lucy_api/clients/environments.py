@@ -51,6 +51,16 @@ AUDIENCE = "environments-api"
 
 READY = "ready"
 DEFAULT_TIMEOUT_MS = 60_000
+"""How long the sandbox may spend on one command."""
+
+EXEC_MARGIN_SECONDS = 15.0
+"""Waited on top of whatever the command was given, for the round trip around it.
+
+The sandbox opens a shell, runs, and closes it, and charges for all three: a `git rev-parse`
+asked for with a sixty-second ceiling took 15.1 seconds of wall clock, every time. So the
+margin is generous on purpose -- the alternative is a caller that gives up while the thing it
+asked for is still running, which is what happened to every workspace command ever run.
+"""
 DEFAULT_OUTPUT_BYTES = 64 * 1024
 """How much command output comes back by default. The ceiling is generous; a window is not."""
 
@@ -386,7 +396,14 @@ class HttpEnvironmentsClient:
             "timeout_ms": timeout_ms,
             "max_output_bytes": max_output_bytes,
         }
-        payload = await self._api.send("POST", "/v1/exec", body=body)
+        # Longer than the command's own ceiling, necessarily: waiting less than the work you
+        # asked for is a failure you have arranged yourself.
+        payload = await self._api.send(
+            "POST",
+            "/v1/exec",
+            body=body,
+            timeout_seconds=timeout_ms / 1000 + EXEC_MARGIN_SECONDS,
+        )
         return Ran(
             command=text(payload, "command", command),
             exit_code=_exit_code(payload),
