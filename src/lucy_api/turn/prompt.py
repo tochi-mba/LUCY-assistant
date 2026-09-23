@@ -280,7 +280,11 @@ async def _build(view: SessionView) -> Built:
                 permission_mode=str(row.get("permission_mode", "ask")),
                 incognito=bool(row.get("incognito", 0)),
             ),
-            budget=BudgetSnapshot(used=0, window=view.window),
+            budget=BudgetSnapshot(
+                used=reclaimed.used,
+                window=view.window,
+                reclaimable=reclaimed.reclaimable,
+            ),
         ),
         ContextTurn(
             items=items_from_rows(rows),
