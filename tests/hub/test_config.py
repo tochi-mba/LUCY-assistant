@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from lucy_api.model.wire import DEFAULT_TIMEOUT
+
 from lucy_api.core.config import (
     CLIENT_VARIABLES,
     ENV_PREFIX,
@@ -89,3 +91,19 @@ def test_an_extra_sibling_is_ignored_until_it_has_a_base_url() -> None:
     assert archive.audience == "archive"
     assert lookup("blank") is None
     assert lookup("missing") is None
+
+
+def test_a_model_is_given_longer_than_a_sibling_service() -> None:
+    """A sibling that has not replied in ten seconds is broken; a model is thinking. The two
+    shared one setting, and the first real turn ever served here died as `the model was
+    unavailable (ReadTimeout)` after ten seconds of a reply that arrived, whole and correct,
+    at twenty-six."""
+    settings = _settings()
+    assert settings.model_timeout_seconds > settings.http_timeout_seconds
+    assert settings.model_timeout_seconds == DEFAULT_TIMEOUT
+
+
+def test_the_model_timeout_is_its_own_knob() -> None:
+    settings = _settings(model_timeout_seconds=300.0)
+    assert settings.model_timeout_seconds == 300.0
+    assert settings.http_timeout_seconds == 10.0

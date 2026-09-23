@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -83,6 +84,9 @@ class PreparedTurn:
     live: Live
     budget: Budget = field(default_factory=Budget)
     max_subagent_turns: int = 8
+
+
+logger = logging.getLogger(__name__)
 
 
 class TurnSupervisor:
@@ -391,6 +395,18 @@ class TurnSupervisor:
             await self._signal(claimed, "input_required")
             return
         status = _status_for(result.termination)
+        if status == "failed":
+            # The only place a turn's reason for failing is written down. `Outcome.detail`
+            # reaches the transcript for a refusal and for a parked turn, and for nothing
+            # else -- so a turn that failed said `error_during_execution` in the API and gave
+            # an operator no second sentence anywhere. It is already written for a person to
+            # read and carries no prompt text, which is what makes it safe to log.
+            logger.warning(
+                "turn_failed turn_id=%s termination=%s detail=%s",
+                claimed.id,
+                result.termination.value,
+                result.detail or "(none given)",
+            )
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
