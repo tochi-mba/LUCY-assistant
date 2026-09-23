@@ -50,7 +50,10 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
 LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
     "environments-api",
     "memory-api",
-    "persona-api",
+    # `persona`, not `persona-api`: the audience persona pins against is not its service name.
+    # Keyring mints whatever is asked for, so a wrong entry here is only discovered by the
+    # service refusing every token it is sent -- which it did, on every turn, in its own log.
+    "persona",
     "settings",
     "spotify-api",
     "user",

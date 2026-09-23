@@ -74,7 +74,10 @@ async def test_persona_feed_keeps_each_pin_and_its_provenance() -> None:
     assert feeds[0].entries[2].trust is Trust.inferred
     assert feeds[0].entries[3].trust is Trust.untrusted
     assert feeds[0].entries[2].recorded_at == datetime(2026, 9, 16, 12, tzinfo=UTC)
-    assert http.last.audience == "persona-api"
+    # The audience persona pins, which is not its service name. Asking for `persona-api` put
+    # `token_rejected reason=audience` in persona's log on every turn ever served, and left
+    # the persona out of every prompt.
+    assert http.last.audience == "persona"
     assert http.last.headers == {"X-Keyring-Profile": "personal"}
 
 

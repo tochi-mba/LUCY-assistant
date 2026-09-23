@@ -43,7 +43,9 @@ def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
 
     assert allowlists == {"lucy-api": list(genenv.LUCY_EXCHANGE_AUDIENCES)}
     assert {
-        "persona-api",
+        # `persona`, not `persona-api`. The service's name is not the audience it pins, and
+        # this test asserted the name for as long as the generator wrote it.
+        "persona",
         "memory-api",
         "environments-api",
         "web-search-api",

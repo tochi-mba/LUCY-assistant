@@ -24,7 +24,15 @@ if TYPE_CHECKING:
     from lucy_api.clients.user import UserClient
     from lucy_api.packs.context import Http
 
-PERSONA_AUDIENCE = "persona-api"
+PERSONA_AUDIENCE = "persona"
+"""What persona-api pins its tokens against, exactly.
+
+Not `persona-api`, which is the service's name rather than its audience. That was the value
+here, and every turn ever served carried `token_rejected reason=audience` in persona's log and
+no persona in its prompt. Persona's own config says which it wants: *"Ask keyring for one with
+`{"audience": "persona"}`"* -- `Persona-api/src/persona_api/core/config.py`.
+"""
+
 PERSONA_SERVICE = "persona"
 MAX_LINE_CHARS = 240
 
