@@ -241,6 +241,22 @@ def item_row(
     return value
 
 
+@dataclass(frozen=True, slots=True)
+class TurnSpend:
+    """What one turn used, summed over its rounds.
+
+    `cache_read_tokens` is kept apart from `input_tokens` rather than folded in, for the
+    reason `model.types.Usage` gives: the case for ordering a prompt by volatility is that
+    this number stays large, and a system that cannot see it cannot tell when a change
+    quietly ended the cached prefix.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    iterations: int = 0
+
+
 class SessionStore:
     """One account predicate at every externally addressable lookup."""
 
@@ -765,28 +781,44 @@ class SessionStore:
 
         return await self.worker.call(read)
 
-    async def finish_turn(
+    async def finish_turn(  # noqa: PLR0913 - how a turn ended and what it cost are one write
         self,
         account: str,
         turn: str,
         status: str,
         termination: str | None = None,
         stop_reason: str | None = None,
+        *,
+        spent: TurnSpend | None = None,
     ) -> None:
+        """End a turn, and write down what it cost.
+
+        `spent` is optional so the callers that end a turn without ever reaching a model --
+        a cancel before the first round, an abandoned turn swept up at startup -- do not have
+        to invent a zero. Every caller that did reach one passes it: the columns have been
+        here since the first migration and nothing wrote them, so `GET /usage` answered zero
+        for every session ever, and the cost of a turn had no denominator.
+        """
         current = await self.turn(account, turn)
         kept_reason = current.get("stop_reason") or stop_reason
+        cost = spent if spent is not None else TurnSpend()
 
         def apply(db: sqlite3.Connection) -> None:
             row = db.execute("SELECT status FROM turns WHERE id=?", (turn,)).fetchone()
             if row is None or row["status"] in TERMINAL:
                 return
             db.execute(
-                "UPDATE turns SET status=?,termination=?,stop_reason=?,finished_at=? WHERE id=?",
+                "UPDATE turns SET status=?,termination=?,stop_reason=?,finished_at=?,"
+                "input_tokens=?,output_tokens=?,cache_read_tokens=?,iterations=? WHERE id=?",
                 (
                     status,
                     termination,
                     kept_reason,
                     time.time() if status in TERMINAL else None,
+                    cost.input_tokens,
+                    cost.output_tokens,
+                    cost.cache_read_tokens,
+                    cost.iterations,
                     turn,
                 ),
             )

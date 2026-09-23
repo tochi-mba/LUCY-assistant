@@ -33,7 +33,6 @@ from lucy_api.stream.events import APPROVAL_DENIED, APPROVAL_GRANTED, APPROVAL_R
 
 if TYPE_CHECKING:
     import sqlite3
-
     from collections.abc import Sequence
 
     from lucy_api.sessions.sql_store import SessionStore

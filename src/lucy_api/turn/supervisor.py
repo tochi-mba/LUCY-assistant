@@ -29,7 +29,7 @@ from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
-from lucy_api.sessions.sql_store import NewItem
+from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
 from lucy_api.turn.loop import Turn, run_turn
@@ -92,6 +92,23 @@ class PreparedTurn:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _spend(result: Any) -> TurnSpend:
+    """What a finished turn used, summed over its rounds.
+
+    Every round already carries its own `Usage`; nothing ever added them up, so the columns
+    that have held a turn's cost since the first migration held zero, and `GET /usage`
+    answered zero for every session ever recorded.
+    """
+    rounds = getattr(result, "rounds", ())
+    used = [round_.usage for round_ in rounds if round_.usage is not None]
+    return TurnSpend(
+        input_tokens=sum(usage.input_tokens for usage in used),
+        output_tokens=sum(usage.output_tokens for usage in used),
+        cache_read_tokens=sum(usage.cache_read_tokens for usage in used),
+        iterations=len(rounds),
+    )
 
 
 class TurnSupervisor:
@@ -424,6 +441,7 @@ class TurnSupervisor:
             status,
             result.termination.value,
             result.stop_reason.value,
+            spent=_spend(result),
         )
         if status == "completed":
             await _maybe_title(self._store, claimed, pack_ctx, session)

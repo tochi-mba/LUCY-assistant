@@ -23,6 +23,8 @@ async def session_usage(store: SessionStore, account: str, session_id: str) -> d
         turns = db.execute(
             "SELECT COUNT(*) AS n, COALESCE(SUM(input_tokens),0) AS input_tokens, "
             "COALESCE(SUM(output_tokens),0) AS output_tokens, "
+            "COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "
+            "COALESCE(SUM(iterations),0) AS iterations, "
             "COALESCE(SUM(cost_micros),0) AS cost_micros FROM turns WHERE session_id=?",
             (session_id,),
         ).fetchone()
@@ -34,6 +36,8 @@ async def session_usage(store: SessionStore, account: str, session_id: str) -> d
             "turn_input_tokens": int(turns["input_tokens"]),
             "turn_output_tokens": int(turns["output_tokens"]),
             "turn_cost_micros": int(turns["cost_micros"]),
+            "turn_cache_read_tokens": int(turns["cache_read_tokens"]),
+            "turn_iterations": int(turns["iterations"]),
         }
 
     return await store.worker.call(read)

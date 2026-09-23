@@ -7,8 +7,6 @@ from typing import Any
 
 import pytest
 
-from lucy_api.model.wire import DEFAULT_TIMEOUT
-
 from lucy_api.core.config import (
     CLIENT_VARIABLES,
     ENV_PREFIX,
@@ -17,6 +15,7 @@ from lucy_api.core.config import (
     check_for_unknown_env_vars,
     load_settings,
 )
+from lucy_api.model.wire import DEFAULT_TIMEOUT
 
 
 def _settings(**overrides: Any) -> Settings:

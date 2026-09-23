@@ -12,7 +12,7 @@ from lucy_api.context.build import Live
 from lucy_api.context.feeds import Feed, FeedEntry, StaticFeeds
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
-from lucy_api.model.types import Chunk, Reply
+from lucy_api.model.types import Chunk, Reply, Usage
 from lucy_api.model.wire import CHUNK_DONE
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.notes import NotesPack
@@ -22,6 +22,7 @@ from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.sessions.turns import cancel_turn, submit_messages
+from lucy_api.sessions.usage import session_usage
 from lucy_api.settings.policy import TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
@@ -955,3 +956,69 @@ async def test_nothing_is_said_about_approvals_on_a_turn_that_never_parked(
     assert "has not run" not in first.system
     assert all("has not run" not in message.content for message in first.messages)
     await running.aclose()
+
+
+async def test_a_finished_turn_records_what_it_spent(store: SessionStore) -> None:
+    """The columns have existed since the first migration and nothing wrote them, so
+    `GET /usage` answered zero for every session ever recorded and the cost of a turn had no
+    denominator. Found by running real turns and reading zeros back off all of them."""
+    conversation = await session(store)
+    await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Hello."}],
+        "input-key",
+    )
+    spent = Usage(input_tokens=1200, output_tokens=64, cache_read_tokens=800)
+    provider = ScriptedProvider([speaks("Hello back.", usage=spent)])
+    running = supervisor(store, provider)
+    running.wake()
+    await running.join()
+
+    usage = await session_usage(store, ACCOUNT, conversation)
+    assert usage["turns"] == 1
+    assert usage["turn_input_tokens"] == 1200
+    assert usage["turn_output_tokens"] == 64
+    assert usage["turn_cache_read_tokens"] == 800
+    assert usage["turn_iterations"] == 1
+    await running.aclose()
+
+
+async def test_the_cache_read_is_kept_apart_from_the_input(store: SessionStore) -> None:
+    """Folding it into `input_tokens` would hide the one number that says whether the cached
+    prefix survived a change -- which is the whole argument for ordering a prompt by
+    volatility."""
+    conversation = await session(store)
+    await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Hello."}],
+        "input-key",
+    )
+    spent = Usage(input_tokens=100, output_tokens=10, cache_read_tokens=9_000)
+    running = supervisor(store, ScriptedProvider([speaks("Hi.", usage=spent)]))
+    running.wake()
+    await running.join()
+
+    usage = await session_usage(store, ACCOUNT, conversation)
+    assert usage["turn_cache_read_tokens"] == 9_000
+    assert usage["turn_input_tokens"] == 100, "the cache read is not folded in"
+    await running.aclose()
+
+
+async def test_a_turn_that_never_reached_a_model_records_zero(store: SessionStore) -> None:
+    """`spent` is optional so a cancel before the first round does not have to invent one."""
+    conversation = await session(store)
+    turn = await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Hello."}],
+        "input-key",
+    )
+    await store.finish_turn(ACCOUNT, str(turn["id"]), "cancelled")
+    usage = await session_usage(store, ACCOUNT, conversation)
+    assert usage["turn_input_tokens"] == 0
+    assert usage["turn_output_tokens"] == 0

@@ -104,10 +104,19 @@ async def test_a_database_opened_before_the_columns_existed_gains_them_on_initia
     worker = SqlWorker(path)
     try:
         await SessionStore(worker).initialize()
-        columns = await worker.call(
-            lambda db: {row[1] for row in db.execute("PRAGMA table_info(sessions)")}
-        )
-        assert {column for _, column, _ in ADDED_COLUMNS} <= columns
+
+        # Every added column, against the table it was added to -- `ADDED_COLUMNS` names more
+        # than one table, and reading them all off `sessions` passed only for as long as they
+        # all happened to live there.
+        def present(db: Any) -> set[tuple[str, str]]:
+            found = set()
+            for table, column, _ in ADDED_COLUMNS:
+                names = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+                if column in names:
+                    found.add((table, column))
+            return found
+
+        assert await worker.call(present) == {(table, column) for table, column, _ in ADDED_COLUMNS}
         await SessionStore(worker).initialize()
     finally:
         await worker.aclose()

@@ -9,6 +9,7 @@ idempotent and needs no version counter -- the table is the version.
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "disabled_capabilities_json", "TEXT NOT NULL DEFAULT '[]'"),
     ("sessions", "pending_changes_json", "TEXT"),
+    ("turns", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
 )
 """(table, column, definition) for every column that post-dates the table."""
 
@@ -31,7 +32,8 @@ CREATE TABLE IF NOT EXISTS turns (
  status TEXT NOT NULL, termination TEXT, stop_reason TEXT, started_at REAL,
  finished_at REAL, error_code TEXT, input_tokens INTEGER NOT NULL DEFAULT 0,
  output_tokens INTEGER NOT NULL DEFAULT 0, cost_micros INTEGER NOT NULL DEFAULT 0,
- iterations INTEGER NOT NULL DEFAULT 0, cancel_requested INTEGER NOT NULL DEFAULT 0,
+ iterations INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+ cancel_requested INTEGER NOT NULL DEFAULT 0,
  input_json TEXT NOT NULL, created_at REAL NOT NULL
 ) STRICT;
 CREATE TABLE IF NOT EXISTS items (
