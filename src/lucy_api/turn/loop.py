@@ -369,7 +369,10 @@ async def _ask(turn: Turn, request: Request, outcome: Outcome) -> Reply | None:
     outcome.termination = Termination.success
     outcome.detail = ""
     outcome.unavailable = False
-    fallback_request = replace(request, model=turn.fallback_model or request.model)
+    # Emptied rather than set: the fallback provider was built for its own model and
+    # falls back to it. Carrying the first model's id across would ask the second
+    # provider for a model only the first has.
+    fallback_request = replace(request, model="")
     reply = await _call(turn.fallback_provider, fallback_request, outcome, turn.on_chunk)
     if reply is None:
         return None

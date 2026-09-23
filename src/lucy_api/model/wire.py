@@ -28,6 +28,7 @@ left alone. Backing off with no header to go on is the caller's decision to make
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -88,14 +89,36 @@ def count(value: Any) -> int:
     return value if isinstance(value, int) else 0
 
 
+FENCED = re.compile(r"\A\s*```[a-zA-Z]*[ \t]*\r?\n(?P<body>.*?)\r?\n?[ \t]*```\s*\Z", re.DOTALL)
+"""A whole message that is one Markdown code fence and nothing else.
+
+Anchored at both ends on purpose. Pulling the first fenced block out of a message that also
+has prose around it would read "here is what that config looks like: ```{...}```" as a plan
+and run it. One fence, alone, is the model formatting its answer; a fence inside a sentence
+is the model quoting something.
+"""
+
+
 def json_object(text: str) -> dict[str, Any] | None:
     """The JSON object in `text`, or nothing.
 
     Nothing is a real answer here rather than an error: it is how a plan the model wrote
-    badly reaches the repair path with its text still intact.
+    badly reaches the repair path with its text still intact. But "the model wrapped it in a
+    code fence" is not writing it badly, and it used to land here all the same -- this was a
+    bare `json.loads`, so the first real model ever pointed at this hub replied
+
+        ```json
+        {"steps":[{"id":"caps","op":"capabilities.list","input":{}}]}
+        ```
+
+    and the turn ended as a success with that text shown to the person as the answer. A plan
+    read as prose is the worst of both: the steps never run, and the person is handed wire
+    format. Fences are how models emit JSON when nothing is forcing them not to, so reading
+    one is part of reading JSON.
     """
+    candidate = FENCED.match(text)
     try:
-        value = json.loads(text)
+        value = json.loads(candidate.group("body") if candidate else text)
     except ValueError:
         return None
     return value if isinstance(value, dict) else None

@@ -791,3 +791,29 @@ def test_a_plan_that_is_not_a_mapping_has_no_first_step() -> None:
     assert _first_step({"steps": [{"id": "hits"}]}) == {"id": "hits"}
     assert _steps_by_operation(None) == {}
     assert _steps_by_operation({"steps": "hits"}) == {}
+
+
+async def test_the_fallback_is_asked_for_its_own_model_not_the_first_ones() -> None:
+    """Carrying the primary's model id across would ask the second provider for a model only
+    the first one has -- and the fallback exists precisely because the first is unreachable,
+    so the retry would fail for a new reason and report the wrong one."""
+    primary = ScriptedProvider([flakes("overloaded")], model="sonnet")
+    backup = ScriptedProvider([speaks("Still here.")], model="opus")
+    outcome = await run_turn(
+        turn(primary, fallback_provider=backup, fallback_model="scripted:backup", model="sonnet")
+    )
+    assert outcome.termination is Termination.success
+    assert backup.requests[0].model == ""
+
+
+async def test_the_fallback_note_still_names_the_spec() -> None:
+    """The request carries an id and the sentence carries a spec. They are different things
+    and the person reading it wants the one that says which provider answered."""
+    outcome = await run_turn(
+        turn(
+            ScriptedProvider([flakes("overloaded")]),
+            fallback_provider=ScriptedProvider([speaks("Hello.")]),
+            fallback_model="scripted:backup",
+        )
+    )
+    assert "scripted:backup" in outcome.text

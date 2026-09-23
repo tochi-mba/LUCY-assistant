@@ -17,7 +17,7 @@ from lucy_api.context.build import Live
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content
-from lucy_api.model.registry import UnknownModelError
+from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import Ask, open_approval
 from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
@@ -315,7 +315,12 @@ class TurnSupervisor:
                             catalogue, claimed.session_id, pack_ctx
                         ),
                         append=append,
-                        model=claimed.model,
+                        # The id the provider understands, not the spec. A session stores
+                        # `lmstudio:sonnet`; the provider was already built for `sonnet` and
+                        # sends whatever this says straight up the wire, so passing the spec
+                        # asks every provider for a model named after itself. Nothing caught
+                        # it until a real one answered `unrecognized_model`.
+                        model=parse_spec(claimed.model).model,
                         budget=prepared.budget if prepared is not None else None,
                         max_output_tokens=pack_ctx.policy.max_output_tokens,
                         temperature=pack_ctx.policy.temperature,

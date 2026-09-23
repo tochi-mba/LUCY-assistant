@@ -883,3 +883,30 @@ class _HoldsUntilFlag:
     async def stream(self, request: Any) -> Any:
         reply = await self.complete(request)
         yield Chunk(kind=CHUNK_DONE, reply=reply)
+
+
+async def test_the_provider_is_asked_for_a_model_id_not_a_session_spec(
+    store: SessionStore,
+) -> None:
+    """A session stores `provider:model`; a provider sends `Request.model` straight up the
+    wire. Passing the spec through asked a real provider for a model named after itself --
+    `[claude-code:unrecognized_model] {"model":"lmstudio:sonnet"}` -- on the first turn ever
+    served by one. Every scripted test passed throughout, because a scripted model does not
+    care what it is called.
+    """
+    conversation = await session(store, model="scripted:sonnet")
+    await submit_messages(
+        store,
+        ACCOUNT,
+        conversation,
+        [{"type": "input.message", "content": "Hello."}],
+        "input-key",
+    )
+    provider = ScriptedProvider([speaks("Hello back.")])
+    running = supervisor(store, provider)
+
+    running.wake()
+    await running.join()
+
+    assert provider.requests[0].model == "sonnet"
+    await running.aclose()
