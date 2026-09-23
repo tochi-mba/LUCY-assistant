@@ -20,6 +20,8 @@ help: ## Show available targets
 	@echo "  clean      Remove caches and build output"
 	@echo "The family desk"
 	@echo "  parity     Check every service repository against the family standard"
+	@echo "  lock       Record the commit each sibling is at, after a green family run"
+	@echo "  lock-check Check the sibling checkouts against repos.lock"
 	@echo "  github-ci  Install lucy-assistant family CI on the family repositories"
 	@echo "  images     Build every image with your gh sign-in (browser or token)"
 	@echo "  up         Build and start the default compose services"
@@ -68,6 +70,15 @@ clean: ## Remove caches and build output
 
 parity: ## Check every service repository against the family standard
 	$(UV) run python scripts/parity.py
+
+# repos.txt names a folder and a URL and says nothing about which commit, so "the family" is
+# whatever each checkout happens to be at. `lock` records the set you have just verified
+# together; `lock-check` says whether the checkouts still match it.
+lock: ## Record the commit each sibling is at, after a green family run
+	$(UV) run python scripts/lockrepos.py --write
+
+lock-check: ## Check the sibling checkouts against repos.lock
+	$(UV) run python scripts/lockrepos.py
 
 github-ci: ## Install lucy-assistant family CI on the family repositories
 	$(UV) run python scripts/connect_github.py

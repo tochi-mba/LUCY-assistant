@@ -800,7 +800,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.5" },
     { name = "settings-client", git = "https://github.com/tochi-mba/Settings-api?subdirectory=clients%2Fpython&tag=settings-client-v0.2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-    { name = "weftai", extras = ["all"], specifier = "==0.2.4" },
+    { name = "weftai", extras = ["all"], specifier = "==0.3.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1745,13 +1745,13 @@ wheels = [
 
 [[package]]
 name = "weftai"
-version = "0.2.4"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/7d/37e38711f8977d88e48505f9aa8b2807cba4ddba5335b31dc66c7d231c7c/weftai-0.2.4-py3-none-any.whl", hash = "sha256:3a8499dc2241bd5569417342dd6fca5b74fec38c4cce729a99eecf833e26d340", size = 66265, upload-time = "2026-09-16T23:58:15.445Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/36/bff8967db94c76352e10631ee8a3aa2d827e634df2b68ec1612697452de6/weftai-0.3.0-py3-none-any.whl", hash = "sha256:5552381c9898d3064aca1320110d58096aabca0550ddc3100448026dc1d440db", size = 75894, upload-time = "2026-09-23T15:34:52.15Z" },
 ]
 
 [package.optional-dependencies]
@@ -1763,35 +1763,35 @@ all = [
 
 [[package]]
 name = "weftai-cli"
-version = "0.2.4"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "weftai" },
     { name = "weftai-mcp" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/dd/3fb5b5903505956e4b12f6359aa56cabdc9446975a3a56cb17a6f9e929d4/weftai_cli-0.2.4-py3-none-any.whl", hash = "sha256:395c7dd6e88d5d4c3061ad6b3609e4590218554a8c5ba401337c1b84be67eff9", size = 8387, upload-time = "2026-09-16T23:58:16.647Z" },
+    { url = "https://files.pythonhosted.org/packages/96/5d/f3d4efa28316d6cc49e515dbff6908d20df3a58ddb498b22c6f6d12abf91/weftai_cli-0.3.0-py3-none-any.whl", hash = "sha256:6d89816817eda0de34fcfc6c148faca525bf5eae2c8f008218e7b29701c1cd1e", size = 8387, upload-time = "2026-09-23T15:34:53.707Z" },
 ]
 
 [[package]]
 name = "weftai-mcp"
-version = "0.2.4"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp" },
     { name = "weftai" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/61/a2d695064daa91f20ed48d2e84b998b9a74e30843b6b0176f9bd8e980182/weftai_mcp-0.2.4-py3-none-any.whl", hash = "sha256:019ac08190fe1e088b9213f9c8e7a83a02ee9d2014d3797e0d47553968f41b1c", size = 3558, upload-time = "2026-09-16T23:58:17.727Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/5d/79fa784c760b56add513f2a5f0c5eb0164e3540d6c46cae24c8bedacb7e0/weftai_mcp-0.3.0-py3-none-any.whl", hash = "sha256:314529cbce487dd49e55f4248e3d3d7b7c2c421033a06886b1cf18c661fc0853", size = 3560, upload-time = "2026-09-23T15:34:54.97Z" },
 ]
 
 [[package]]
 name = "weftai-providers"
-version = "0.2.4"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "weftai" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/b4/36d9ba8f469b574e0314b7da39b98c05b456c47a9ffe6848fc5f2a4e2c89/weftai_providers-0.2.4-py3-none-any.whl", hash = "sha256:743067a19ea69c9e1cdc90b0a5e7afcb1e56a4258c56b318b1d6233bc67b6776", size = 26217, upload-time = "2026-09-16T23:58:18.874Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/90/2283a044183b10b6e53e1dafadcc028852923353bd8d9ecc5bb9f958a616/weftai_providers-0.3.0-py3-none-any.whl", hash = "sha256:a32635ba499f149bd68fe4d3439b4e8233cd8320e93c0eb081dc315a6911fb5f", size = 26219, upload-time = "2026-09-23T15:34:56.303Z" },
 ]
