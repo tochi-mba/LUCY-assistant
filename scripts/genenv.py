@@ -36,8 +36,13 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
     ("spotify-api", "SPOTIFY_API_KEYRING_SERVICE_TOKEN"),
     ("web-search-api", "WSA_KEYRING_SERVICE_TOKEN"),
     ("environments-api", "ENVAPI_KEYRING_SERVICE_TOKEN"),
-    ("memory-api", "MEMORY_KEYRING_SERVICE_TOKEN"),
 )
+# Memory-api is deliberately not here. It verifies keyring's JWTs (`check_service_token`,
+# `MEMORY_KEYRING_JWKS_URL`) but never calls keyring's /v1/internal, so it declares no
+# `keyring_service_token` field -- and its config refuses unknown MEMORY_* variables, so
+# writing one crashes it at startup rather than being ignored. Lucy reaches it with
+# `MEMORY_SERVICE_TOKENS` plus a minted person token; `memory-api` is an exchange audience
+# below, which is a different thing from being a keyring consumer.
 
 # Exact downstream audiences Lucy may request from Keyring's token exchange. This is an
 # allowlist, never inferred from URLs or the service-token map. Adding a sibling does not
