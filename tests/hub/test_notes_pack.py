@@ -6,9 +6,10 @@ from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamUnavailableError
-from lucy_api.packs.notes import INCOGNITO, NOTES_MARKDOWN, NotesPack
+from lucy_api.packs.notes import INCOGNITO, NotesPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.permissions.gate import Grant
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 from lucy_api.settings.policy import TurnPolicy
 
@@ -147,7 +148,7 @@ async def test_schema_and_writes_go_through_memory_api() -> None:
     await capabilities.probe(context)
     pack = NotesPack("http://memory.test")
     assert pack.setup() is None
-    assert pack.docs == NOTES_MARKDOWN
+    assert pack.docs == capability_doc("notes")
     assert pack.permissions()[0].id == "notes.write"
     assert pack.permissions()[1].id == "notes.erase"
     assert pack.permissions()[1].covers == ("notes.forget",)

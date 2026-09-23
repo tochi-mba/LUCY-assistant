@@ -12,8 +12,11 @@ would re-enable something the person turned off.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _SPEC = re.compile(r"^[a-z0-9][a-z0-9-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
 """A provider:model id. Invalid values fall back to empty rather than guessing a provider."""
@@ -21,8 +24,10 @@ _SPEC = re.compile(r"^[a-z0-9][a-z0-9-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
 REFUSE_KEYS = frozenset({"disabled_capabilities", "approval_policy"})
 """Keys whose default is permissive. Guessing either of them during an outage is the leak."""
 
-ALWAYS_ON = frozenset({"help", "work", "agents"})
-"""Capabilities a person cannot turn off. Without help the model cannot ask for the rest."""
+ALWAYS_ON = frozenset({"help", "work"})
+"""Capabilities a person cannot turn off. Without help the model cannot ask for the rest,
+and without work it cannot see what it already started. Helpers are not here: "no helpers
+in this conversation" is a thing a person may reasonably want."""
 
 
 def _clamp(value: object, default: int, *, minimum: int, maximum: int) -> int:
@@ -115,8 +120,26 @@ class TurnPolicy:
     tool_results_kept: int = 3
     session_token_budget: int = 0
     disabled: tuple[str, ...] = ()
+    """What the profile turned off, from settings. The session's own list is kept apart so
+    a change to one never has to be un-mixed from the other."""
+    session_disabled: tuple[str, ...] = ()
     enabled: tuple[str, ...] = ()
     blocks_turn: bool = False
+
+    @property
+    def all_disabled(self) -> tuple[str, ...]:
+        """The profile's list and the session's, as one, in that order."""
+        return tuple(dict.fromkeys((*self.disabled, *self.session_disabled)))
+
+    def for_session(self, disabled: Sequence[str]) -> TurnPolicy:
+        """The same policy, with this one conversation's list in place of any earlier one.
+
+        A session can only add to the profile's list, never remove from it: a person who
+        turned music off for every conversation does not get it back in one of them by
+        accident. The always-on pair stays on here for the same reason it does in settings.
+        """
+        names = tuple(dict.fromkeys(name for name in disabled if name not in ALWAYS_ON))
+        return replace(self, session_disabled=names)
 
     @classmethod
     def from_resolved(cls, resolved: object | None) -> TurnPolicy:

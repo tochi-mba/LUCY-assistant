@@ -31,6 +31,7 @@ from weftai.schema.spec import number_schema, object_schema, string_schema
 from weftai.schema.types import value
 
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import State as WorkState
 from lucy_api.work import StillRunningError, UnknownWorkError
 
@@ -42,21 +43,6 @@ if TYPE_CHECKING:
 
     from lucy_api.packs.context import PackContext
     from lucy_api.work import Record, Registry
-
-WORK_MARKDOWN = """# Work in flight
-
-Anything that outlives the step that started it lands here: a helper you asked to research
-something, a download, a long command. They are one list because the question is one
-question.
-
-`work.list` is what is running now. `work.check` is what finished since you last looked --
-it names the result's size, never the result. `work.result` reads one. `work.wait` blocks
-for a bounded time and does not stop the work when it gives up. `work.cancel` stops
-something, and is safe to call twice.
-
-Prefer finishing your answer and saying what is still running over waiting. "The download is
-going, I'll tell you when it lands" is a complete reply.
-"""
 
 DEFAULT_WAIT_SECONDS = 30.0
 """How long `work.wait` waits when the model does not say.
@@ -102,7 +88,7 @@ class WorkPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return WORK_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -344,6 +330,5 @@ def _refusal(reason: str, message: str) -> dict[str, Any]:
 __all__ = [
     "DEFAULT_WAIT_SECONDS",
     "MAX_WAIT_SECONDS",
-    "WORK_MARKDOWN",
     "WorkPack",
 ]

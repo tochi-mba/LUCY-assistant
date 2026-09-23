@@ -7,8 +7,9 @@ from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.spotify import Device, FakeSpotifyClient, Play, Track
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
-from lucy_api.packs.music import MUSIC_MARKDOWN, MusicPack, _optional_int
+from lucy_api.packs.music import MusicPack, _optional_int
 from lucy_api.packs.service import Capabilities
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
@@ -115,7 +116,7 @@ async def test_omitted_device_id_uses_the_person_s_default_speaker() -> None:
 def test_music_declares_setup_and_write_permission() -> None:
     pack = MusicPack("http://music.test", client=FakeSpotifyClient())
 
-    assert pack.docs == MUSIC_MARKDOWN
+    assert pack.docs == capability_doc("music")
     assert pack.setup() is not None
     assert pack.setup().steps[0].kind == "oauth"
     assert pack.permissions()[0].covers == ("music.play", "music.queue", "music.pause")

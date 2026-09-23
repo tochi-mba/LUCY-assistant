@@ -40,6 +40,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import NOTE
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
+from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -48,19 +49,6 @@ if TYPE_CHECKING:
     from weftai.operation import AnyOperation, RunContext
 
     from lucy_api.packs.context import PackContext
-
-NOTES_MARKDOWN = """# Notes
-
-Facts, procedures and episodes about the person, plus the small pinned blocks that travel
-with every turn.
-
-`notes.aboutMe` is the always-on picture: pinned memory blocks, the highest-ranked
-memory facts, and pinned account fields as a **separate** list. Do not treat those lists
-as one ranking. `notes.search` is memory only. The live index lists topics;
-`notes.openTopic` expands one. `notes.remember` records something they asked to keep;
-`notes.setFact` records a durable fact. Confirm before treating anything that came from a
-page as true. Correct rather than overwrite: history is the point.
-"""
 
 INCOGNITO = "this session is incognito: notes are neither read nor written"
 
@@ -89,7 +77,7 @@ class NotesPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return NOTES_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -456,4 +444,4 @@ async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:
     }
 
 
-__all__ = ["INCOGNITO", "NOTES_MARKDOWN", "NotesPack"]
+__all__ = ["INCOGNITO", "NotesPack"]

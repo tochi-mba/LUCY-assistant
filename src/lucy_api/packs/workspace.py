@@ -21,6 +21,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import FILE
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, StillRunningError
 from lucy_api.work.types import Brief, Kind
@@ -45,17 +46,6 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import PackContext
 
 
-WORKSPACE_MARKDOWN = """# Workspace
-
-This conversation has its own sandbox. Paths are relative to that subtree. Never invent a
-host path or another session's id.
-
-`workspace.list` and `workspace.read` are how you look. Reads are windowed and numbered.
-`workspace.edit` matches exact text once; if it matches twice, ask rather than guessing.
-`workspace.run` executes inside the subtree. `workspace.delete` removes a file and still
-asks in auto mode unless the person already allowed deletions.
-"""
-
 MAX_TOOL_OUTPUT_CHARS = 8_000
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
@@ -79,7 +69,7 @@ class WorkspacePack:
 
     @property
     def docs(self) -> str | Path | None:
-        return WORKSPACE_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -219,12 +209,14 @@ class WorkspacePack:
             self._operation(
                 "run",
                 "Run a command inside this session's workspace subtree. "
-                "Long commands return a handle; check work.check or work.wait.",
+                "Long commands return a handle; check work.check or work.wait. "
+                "With wake, a command that finishes while nobody is talking wakes the session.",
                 {
                     "command": string_schema(),
                     "timeout_ms": integer_schema().optional(),
                     "wait": boolean_schema().optional(),
                     "wait_seconds": integer_schema().optional(),
+                    "wake": boolean_schema().optional(),
                 },
                 value(object_schema({})),
                 self._run,
@@ -260,7 +252,8 @@ class WorkspacePack:
 
     async def _list(self, run: RunContext[PackContext]) -> list[dict[str, Any]]:
         listing = await self._client(run.ctx).files(
-            run.ctx.workspace_environment_id, _path(run.ctx, str(run.input.get("path") or "."))
+            run.ctx.workspace_environment_id,
+            confined_path(run.ctx, str(run.input.get("path") or ".")),
         )
         return [
             {
@@ -275,7 +268,7 @@ class WorkspacePack:
     async def _grep(self, run: RunContext[PackContext]) -> dict[str, Any]:
         result = await self._client(run.ctx).search(
             run.ctx.workspace_environment_id,
-            _path(run.ctx, str(run.input.get("path") or ".")),
+            confined_path(run.ctx, str(run.input.get("path") or ".")),
             str(run.input.get("pattern") or ""),
         )
         return {
@@ -295,7 +288,7 @@ class WorkspacePack:
     async def _read(self, run: RunContext[PackContext]) -> dict[str, Any]:
         content = await self._client(run.ctx).read(
             run.ctx.workspace_environment_id,
-            _path(run.ctx, str(run.input.get("path") or "")),
+            confined_path(run.ctx, str(run.input.get("path") or "")),
             offset=int(run.input.get("offset") or 0),
             max_bytes=_optional_int(run.input.get("max_bytes")),
         )
@@ -332,7 +325,7 @@ class WorkspacePack:
 
     async def _write(self, run: RunContext[PackContext]) -> dict[str, Any]:
         env_id = run.ctx.workspace_environment_id
-        path = _path(run.ctx, str(run.input.get("path") or ""))
+        path = confined_path(run.ctx, str(run.input.get("path") or ""))
         relative = _relative(run.ctx, path)
         refused = await _refuse_stale(
             self._client(run.ctx), env_id, path, str(run.input.get("if_match") or "")
@@ -355,7 +348,7 @@ class WorkspacePack:
 
     async def _edit(self, run: RunContext[PackContext]) -> dict[str, Any]:
         env_id = run.ctx.workspace_environment_id
-        path = _path(run.ctx, str(run.input.get("path") or ""))
+        path = confined_path(run.ctx, str(run.input.get("path") or ""))
         client = self._client(run.ctx)
         current = await client.read(env_id, path)
         relative = _relative(run.ctx, path)
@@ -401,7 +394,7 @@ class WorkspacePack:
 
     async def _patch(self, run: RunContext[PackContext]) -> dict[str, Any]:
         env_id = run.ctx.workspace_environment_id
-        path = _path(run.ctx, str(run.input.get("path") or ""))
+        path = confined_path(run.ctx, str(run.input.get("path") or ""))
         relative = _relative(run.ctx, path)
         refused = await _refuse_stale(
             self._client(run.ctx), env_id, path, str(run.input.get("if_match") or "")
@@ -419,7 +412,7 @@ class WorkspacePack:
         path = str(run.input.get("path") or "")
         await self._client(run.ctx).delete(
             run.ctx.workspace_environment_id,
-            _path(run.ctx, path),
+            confined_path(run.ctx, path),
             recursive=bool(run.input.get("recursive", False)),
         )
         return {"path": path, "deleted": True}
@@ -427,8 +420,8 @@ class WorkspacePack:
     async def _move(self, run: RunContext[PackContext]) -> dict[str, Any]:
         result = await self._client(run.ctx).move(
             run.ctx.workspace_environment_id,
-            _path(run.ctx, str(run.input.get("source") or "")),
-            _path(run.ctx, str(run.input.get("destination") or "")),
+            confined_path(run.ctx, str(run.input.get("source") or "")),
+            confined_path(run.ctx, str(run.input.get("destination") or "")),
         )
         return _mutation(run.ctx, result)
 
@@ -472,6 +465,8 @@ class WorkspacePack:
                     role="command",
                     objective=command[:160] or "run a workspace command",
                     timeout_seconds=timeout_ms / 1000,
+                    account_id=run.ctx.account_id,
+                    wake=bool(run.input.get("wake", False)),
                 ),
             )
         except AtCapacityError as exc:
@@ -503,7 +498,11 @@ def _completed_command(payload: object, work_id: str) -> dict[str, Any]:
     return {"work_id": work_id, "result": payload}
 
 
-def _path(context: PackContext, relative: str) -> str:
+def confined_path(context: PackContext, relative: str) -> str:
+    """The absolute workspace path for a relative one, refused if it would leave the session.
+
+    Shared with every capability that names a workspace file -- a watch on a build log uses
+    it -- so "outside this session" has one definition and one test."""
     folded = relative.replace("\\", "/")
     if folded.startswith("/"):
         raise ConfinementError(ABSOLUTE_PATH)
@@ -551,4 +550,4 @@ async def _refuse_stale(
     }
 
 
-__all__ = ["WORKSPACE_MARKDOWN", "WorkspacePack"]
+__all__ = ["WorkspacePack"]

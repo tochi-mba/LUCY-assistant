@@ -186,6 +186,9 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
             lambda: store.record_steps(STRANGER, session, turn, {"steps": []}, {"steps": []}),
         ),
         ("steps", lambda: store.steps(STRANGER, session, turn)),
+        ("live_turn", lambda: store.live_turn(STRANGER, session)),
+        ("hold_changes", lambda: store.hold_changes(STRANGER, session, {"title": "held"})),
+        ("apply_pending", lambda: store.apply_pending(STRANGER, session)),
     ]
 
     # The list above is hand-written, so on its own it would not notice a method that

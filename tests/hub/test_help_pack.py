@@ -15,7 +15,6 @@ from lucy_api.mcp.skills import CATALOGUE
 from lucy_api.packs.base import Availability, Bound, Catalogue, SetupPlan, SetupStep, State
 from lucy_api.packs.context import Call, NoBrokerError, PackContext, SilentTokens
 from lucy_api.packs.help import (
-    HELP_MARKDOWN,
     HelpPack,
     _docs,
     _list,
@@ -28,6 +27,7 @@ from lucy_api.packs.help import (
 )
 from lucy_api.packs.http import DownstreamUnavailableError, NullHttp
 from lucy_api.packs.service import Capabilities, as_loop_result
+from lucy_api.prompt.docs import capability_doc, read_capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
@@ -97,7 +97,7 @@ def _context(capabilities: Capabilities) -> PackContext:
 
 async def test_help_always_has_docs_and_never_needs_setup() -> None:
     pack = HelpPack()
-    assert pack.docs == HELP_MARKDOWN
+    assert pack.docs == capability_doc("help")
     assert pack.permissions() == ()
     assert pack.setup() is None
     assert (await pack.probe(_context(Capabilities((pack,))))).state is State.ready
@@ -210,7 +210,7 @@ async def test_docs_without_a_file_fall_back_to_the_pack_summary() -> None:
     context = _context(capabilities)
     await capabilities.probe(context)
     assert _pack_docs(context, "gadget") == "The gadget capability."
-    assert _pack_docs(context, "help") == HELP_MARKDOWN
+    assert _pack_docs(context, "help") == read_capability_doc("help")
 
 
 async def test_inline_docs_are_returned_as_written() -> None:

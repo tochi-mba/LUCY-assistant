@@ -12,8 +12,9 @@ from lucy_api.clients.search import (
     Summary,
 )
 from lucy_api.packs.base import State
-from lucy_api.packs.research import RESEARCH_MARKDOWN, ResearchPack
+from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.service import Capabilities
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
@@ -30,7 +31,7 @@ async def test_research_is_gated_by_provider_state() -> None:
 
     unavailable = await pack.probe(_context())
 
-    assert pack.docs == RESEARCH_MARKDOWN
+    assert pack.docs == capability_doc("research")
 
     assert unavailable.state is State.not_connected
     assert pack.setup() is not None

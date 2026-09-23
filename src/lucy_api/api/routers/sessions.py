@@ -52,6 +52,7 @@ from lucy_api.core.errors import LucyError, conflict
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportDownstreamError
 from lucy_api.permissions.approvals import answer_approval
+from lucy_api.sessions.changes import change_session
 from lucy_api.sessions.fork import fork_session as fork_the_session
 from lucy_api.sessions.items import list_items
 from lucy_api.sessions.models import CreateSession, ForkSession, InputBatch, UpdateSession
@@ -193,12 +194,20 @@ async def get_session(
     operation_id="update_session",
     summary="Rename a conversation, or change how it behaves",
     response_model=SessionResource,
-    responses=_ADDRESSED,
+    responses={**_ADDRESSED, status.HTTP_409_CONFLICT: _PROBLEM},
     description=(
-        "Only the four settings a person can reasonably change mid-conversation: the title, "
-        "the double-text policy, the permission mode, and whether it is archived. The model "
-        "and the thinking configuration are fixed for the life of a session -- changing them "
-        "halfway would make the transcript a record of two different assistants.\n\n"
+        "The settings a person can reasonably change mid-conversation: the title, the "
+        "double-text policy, the permission mode, the capabilities this one conversation "
+        'must not use (`disabled_capabilities`, for example `["agents"]` for no helpers), '
+        "and whether it is archived. The model and the thinking configuration are fixed for "
+        "the life of a session -- changing them halfway would make the transcript a record "
+        "of two different assistants.\n\n"
+        "A change to the policy, the mode or the disabled list **takes effect on the "
+        "running turn** at its next model round. While a turn is live, such a change is "
+        "answered with a 409 that names the turn and the fields, and the caller answers by "
+        'sending it again with `apply: "now"` (apply to the running turn) or '
+        '`apply: "after_turn"` (hold it; it lands when the turn ends and `pending_changes` '
+        "shows it until then). With no turn live, `apply` is unnecessary and ignored.\n\n"
         "Omitted fields are left alone. Archiving is reversible: `archived: false` brings it "
         "back with everything intact."
     ),
@@ -209,9 +218,8 @@ async def update_session(
     caller: CurrentCallerDep,
     store: StoreDep,
 ) -> SessionResource:
-    """Apply only the fields the caller actually supplied."""
-    changes = request.model_dump(exclude_unset=True)
-    row = await store.update(caller.account_id, session_id, changes)
+    """Apply only the fields the caller actually supplied, or warn while a turn is live."""
+    row = await change_session(store, caller.account_id, session_id, request)
     return SessionResource.model_validate(row)
 
 

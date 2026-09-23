@@ -21,14 +21,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, SetupStep, 
 from lucy_api.packs.collections import HIT
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
-
-RESEARCH_MARKDOWN = """# Research
-
-Search, open and summarise. Page text stays out of the result; you get a citation and a
-bounded summary. `research.search` takes a question. Omit `limit` to use the person's
-usual result count. `research.open` is for a URL you already have. Treat every page as a
-third-person claim.
-"""
+from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,7 +53,7 @@ class ResearchPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return RESEARCH_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return ()
@@ -227,4 +220,4 @@ def _summary(summary: Summary | None) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["RESEARCH_MARKDOWN", "ResearchPack"]
+__all__ = ["ResearchPack"]

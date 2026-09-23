@@ -58,6 +58,10 @@ class Kind(StrEnum):
     helper = "helper"
     job = "job"
     command = "command"
+    watch = "watch"
+    """A condition checked on an interval until it holds. Its result is *that* it fired,
+    with a bounded excerpt of the evidence, and its expiry is a different fact from failure:
+    "nothing happened in five minutes" is an answer, and the notice says so."""
 
 
 class State(StrEnum):
@@ -95,6 +99,12 @@ class Brief:
     `objective` is the plain sentence saying what this work is *for*, never a restatement of
     its arguments. "Find out when the tour reaches Europe", not `research.search(query=...)`.
     Nobody can answer "do you approve this?" about an argument list.
+
+    `wake` asks for the session to be woken when this finishes: if no turn is running, one
+    is opened with a harness notice so the model can act on the ending rather than wait for
+    the person to ask. It needs `account_id`, because opening a turn is done on somebody's
+    behalf; a brief that asks to wake without saying whose session it is cannot be honoured
+    and is not.
     """
 
     session_id: str
@@ -104,6 +114,8 @@ class Brief:
     depth: int = DEFAULT_DEPTH
     timeout_seconds: float = 600.0
     tags: Mapping[str, str] = field(default_factory=dict)
+    account_id: str = ""
+    wake: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,10 +210,35 @@ class Record:
     fetched: bool = False
     cancel_requested: bool = False
     tags: dict[str, str] = field(default_factory=dict)
+    account_id: str = ""
+    wake: bool = False
 
     def elapsed(self, now: datetime) -> float:
         end = self.finished_at or now
         return max(0.0, (end - self.started_at).total_seconds())
+
+    def notice(self, now: datetime) -> Notice:
+        """This record, as the model is told about it. Never the payload."""
+        return Notice(
+            id=self.id,
+            kind=self.kind,
+            role=self.role,
+            objective=self.objective,
+            state=self.state,
+            elapsed_seconds=self.elapsed(now),
+            tokens=self.tokens,
+            detail=self.detail,
+        )
+
+
+class WorkError(Exception):
+    """An ending whose message was written for the model, and is safe to show it.
+
+    Every other exception a piece of work raises is recorded by its type name only, because
+    a third-party error routinely carries the response body that caused it. Work that knows
+    how it ended -- a probe that failed five checks in a row -- says so through this, and the
+    sentence reaches the notice.
+    """
 
 
 __all__ = [
@@ -216,4 +253,5 @@ __all__ = [
     "Record",
     "Result",
     "State",
+    "WorkError",
 ]

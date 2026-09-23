@@ -49,6 +49,29 @@ a speaking reply would otherwise finish successfully while a person had already 
 stop. `finish_turn` keeps an interrupt or rollback `stop_reason` even when the loop reports
 `cancelled`.
 
+## Changing a session while it is working
+
+A session carries the settings a person can reasonably change mid-conversation: `title`,
+`input_policy`, `permission_mode`, `archived`, and `disabled_capabilities` -- this one
+conversation's own list, kept beside the profile's `lucy.disabled_capabilities` and only
+ever adding to it. `["agents"]` is how "no helpers in this conversation" is said.
+
+The policy, the mode and the disabled list change what a running turn may do, and they take
+effect **on the running turn** at its next model round: the mode the gate reads, the
+capability list the live block shows, and the plan schema the model is offered are all
+rebuilt. That is a thing a person should have to mean, so `PATCH /v1/sessions/{id}` with one
+of those fields while a turn is live is answered with a **409** whose detail names the turn,
+the fields and the two answers. The caller sends the same change again with:
+
+| `apply` | What happens |
+| --- | --- |
+| `"now"` | Applied. The `lucy.session.updated` event carries `during_turn` with the turn id. |
+| `"after_turn"` | Held. `lucy.session.change_held` is emitted, `pending_changes` shows it on the session, and it lands when the turn ends with an `updated` event marked `held`. |
+
+A title or an archive flag changes at once whatever is running. With no turn live, `apply`
+is unnecessary and ignored. A parked turn (`input_required`) counts as live, and nothing
+held is spent for it: the change lands when the turn actually ends.
+
 ## Workspace
 
 Every successful create and every fork gets its own confined `sessions/<id>` subtree inside

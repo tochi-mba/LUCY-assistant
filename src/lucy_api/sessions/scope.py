@@ -67,6 +67,16 @@ MODE_WIDTH = ("plan", "ask", "accept_edits", "auto")
 """Permission modes from narrowest to widest. A child may move left, never right."""
 
 
+def disabled_in(row: Mapping[str, Any]) -> tuple[str, ...]:
+    """The capabilities one conversation turned off, as its stored row says.
+
+    Read here, beside the rest of what a row says about a session, so the turn that starts
+    from the row and the request that prepares it agree on the list.
+    """
+    listed = row.get("disabled_capabilities")
+    return tuple(str(name) for name in listed) if isinstance(listed, list) else ()
+
+
 class ConfinementError(Exception):
     """A path that tried to leave the session it belongs to."""
 

@@ -27,7 +27,7 @@ nothing there" are different answers and only one of them means reload.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Query
 from pydantic import BaseModel, ConfigDict, JsonValue
@@ -77,6 +77,8 @@ class SessionResource(BaseModel):
     durability_mode: str
     permission_mode: str
     incognito: bool
+    disabled_capabilities: list[str] = []
+    pending_changes: dict[str, Any] | None = None
     created_at: float
     updated_at: float
     archived_at: float | None = None

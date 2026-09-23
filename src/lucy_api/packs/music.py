@@ -26,16 +26,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, SetupStep, 
 from lucy_api.packs.collections import TRACK
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
-
-MUSIC_MARKDOWN = """# Music
-
-Find, queue and play. Names are names, never a host.
-
-`music.find` resolves a loosely specified track. `music.play` starts it on a connected
-device; omit `device_id` to use the person's default speaker. `music.queue` adds one.
-`music.pause` stops what is playing. Playback is something other people can hear, so it
-asks unless they already allowed `music.control`.
-"""
+from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -67,7 +58,7 @@ class MusicPack:
 
     @property
     def docs(self) -> str | Path | None:
-        return MUSIC_MARKDOWN
+        return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
         return (
@@ -299,4 +290,4 @@ def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-__all__ = ["MUSIC_MARKDOWN", "MusicPack"]
+__all__ = ["MusicPack"]

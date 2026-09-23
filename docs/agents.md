@@ -215,13 +215,39 @@ The only difference between a child agent and a long job is what produced the re
 summarises; a job returns what it produced. Everything around them — the handle, the notice,
 the fetch, the timeout, the cancel, the state-block line — is shared.
 
+### Watching, and being woken
+
+Two more things fit the shape. A **watch** is work whose body is "look, and if it is not
+there yet, look again in a while": a workspace file that exists or matches, a public address
+that answers or matches, another piece of work ending, or a command that exits 0 or whose
+output matches. It has an interval, a lifetime (five minutes by default, an hour at most),
+and it fires once with a bounded excerpt of the evidence, or expires with one notice that
+says so and the offer to start again. A watch on a command runs it every interval under one
+approval that says as much. A failed check is a line in the live block, not a failed watch;
+five failed checks in a row are a broken probe, and the watch says which error.
+
+A **wake** is what makes "I'll tell you when it lands" true after the person walks away.
+Work that asked for it in its brief — every watch by default, every helper the main thread
+starts, a command run with `wake: true` — opens a turn of its own when it ends and no turn
+is running. The turn's input is one harness notice, rendered as a `notice` item with the
+role `harness`, and its text says out loud that nothing in it came from the person. An
+ending that arrives while a turn is running is held: the running turn sees it in its live
+block, and if it did not read the result by the time it finished, the held wake is spent
+then. A result the turn already fetched is never announced twice. A helper's own helpers do
+not wake anything; their parent is still running and is the one that will read them.
+
+Every ending is a `lucy.work.finished` event. A wake is `lucy.work.woke`.
+
 ### Where that lives
 
 | | |
 | --- | --- |
 | `work/types.py` | the nouns: `Brief`, `Handle`, `Notice`, `Result`, `Record`, and the states |
-| `work/registry.py` | the verbs: start, check in, fetch, wait, cancel, reap |
+| `work/registry.py` | the verbs: start, check in, fetch, wait, cancel, reap; listeners per ending |
+| `work/watch.py` | the loop behind a watch: interval, tolerance, bounded excerpt |
+| `work/wake.py` | the waker: an event per ending, a turn per wake, a hold while a turn runs |
 | `packs/work.py` | the same five verbs as operations the model can call |
+| `packs/watch.py` | `watch.start` and `watch.command`, and the four kinds of check |
 
 A `Brief` is the typed struct §11.2 asks for, and it is a value rather than an argument list
 because the same description is read in six unrelated places: the live-state line, the

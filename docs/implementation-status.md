@@ -70,6 +70,27 @@ machine is listed as in progress, however finished it looks.
 - **Work in flight.** Helpers, jobs and commands share one registry. The live block shows
   them together; a prompt preview does not consume the "just finished" flag a real turn
   still needs to see.
+- **Watches, and being woken.** `watch.start` says when a workspace file exists or matches,
+  a public address answers or matches, or another piece of work ends; `watch.command`
+  repeats a command until it exits 0 or matches, under one approval. A watch is work: an
+  interval, a lifetime (five minutes by default, an hour at most), a bounded excerpt as its
+  result, and expiry as a notice rather than a failure. Work that asked to `wake` -- every
+  watch by default, every helper the main thread starts, a command run with `wake: true` --
+  opens a turn of its own when it ends and no turn is running, with one harness notice as
+  the input; an ending during a turn is held and spent when the turn ends unless the turn
+  already read the result. Every ending is a `lucy.work.finished` event; a wake is
+  `lucy.work.woke`. Documented in [docs/agents.md](agents.md) and [docs/tools.md](tools.md).
+- **Session settings that reach the running turn.** A session carries its own
+  `disabled_capabilities` (`["agents"]` is "no helpers in this conversation") beside the
+  profile's list. A change to it, to `permission_mode` or to `input_policy` while a turn is
+  live is answered with a 409 naming the turn and the two answers: `apply: "now"` lands on
+  the running turn at its next round (mode, capability list and the offered plan schema
+  are rebuilt), `apply: "after_turn"` holds it and it lands when the turn ends. Documented
+  in [docs/sessions.md](sessions.md).
+- **Prompt pages.** Every capability's authored markdown lives in
+  `src/lucy_api/prompt/capabilities/<id>.md`, beside the stable sections in `defaults/`,
+  and is held to the same tests: one page per pack, no orphans, a length ceiling, none of
+  the words that describe the wire. No pack carries a prompt as a string constant.
 - **Memory-api is published** at https://github.com/tochi-mba/Memory-api, public, its own
   repository like every other service. It has a seat in compose, a keyring service token, a
   settings grant on the `memory` namespace, and a row in the compose contract test.

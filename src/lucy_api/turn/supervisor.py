@@ -22,7 +22,7 @@ from lucy_api.permissions.approvals import Ask, open_approval
 from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
-from lucy_api.sessions.scope import scope_from_row
+from lucy_api.sessions.scope import disabled_in, scope_from_row
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
@@ -195,10 +195,15 @@ class TurnSupervisor:
             turn_id=claimed.id,
         )
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
+        # The profile's policy, narrowed by this conversation's own list. Re-read at every
+        # round below, because a person may change it while the turn runs and asked for
+        # the change to apply to the running turn.
+        pack_ctx.policy = pack_ctx.policy.for_session(disabled_in(session))
+        pack_ctx.permission_mode = str(session.get("permission_mode") or pack_ctx.permission_mode)
         catalogue = await self._capabilities.probe(pack_ctx)
         ready = tuple(item.pack.id for item in catalogue.ready())
         policy = pack_ctx.policy
-        advertised = _advertised(policy.enabled, ready, policy.disabled)
+        advertised = _advertised(policy.enabled, ready, policy.all_disabled)
         oriented = False
         compacted = False
 
@@ -214,7 +219,18 @@ class TurnSupervisor:
             return bool(row.get("cancel_requested"))
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
-            nonlocal oriented, compacted
+            nonlocal oriented, compacted, session, catalogue, ready, advertised
+            fresh = await self._store.get(claimed.account_id, claimed.session_id)
+            if _knobs(fresh) != _knobs(session):
+                # Changed under the running turn, on purpose (`apply: "now"`). The next
+                # model round sees the new mode and the new capability list; a step planned
+                # against a capability that is now off is refused rather than run.
+                session = fresh
+                pack_ctx.permission_mode = str(fresh.get("permission_mode") or "ask")
+                pack_ctx.policy = pack_ctx.policy.for_session(disabled_in(fresh))
+                catalogue = await self._capabilities.probe(pack_ctx)
+                ready = tuple(item.pack.id for item in catalogue.ready())
+                advertised = _advertised(policy.enabled, ready, pack_ctx.policy.all_disabled)
             rows = await self._store.records(claimed.account_id, claimed.session_id, "items")
             turns = await self._store.records(claimed.account_id, claimed.session_id, "turns")
             compact = await self._store.records(
@@ -292,7 +308,10 @@ class TurnSupervisor:
                         provider=provider,
                         assemble=assemble,
                         execute=execute,
-                        plan_schema=self._capabilities.plan_schema(
+                        # Asked again every round: `assemble` may have re-probed after a
+                        # change the person applied to this turn, and the model must not be
+                        # offered a capability that is no longer there.
+                        plan_schema=lambda: self._capabilities.plan_schema(
                             catalogue, claimed.session_id, pack_ctx
                         ),
                         append=append,
@@ -401,6 +420,11 @@ class TurnSupervisor:
         if self._on_status is None:
             return
         await self._on_status(claimed.account_id, claimed.session_id, claimed.id, status)
+
+
+def _knobs(session: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+    """The two session fields a running turn re-reads each round."""
+    return str(session.get("permission_mode") or "ask"), disabled_in(session)
 
 
 def _advertised(

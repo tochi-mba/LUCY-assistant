@@ -31,6 +31,20 @@ Order is reading order. Trim order is `priority` (lower is kept longer).
 replaced or dropped. A section that names a port, an HTTP verb, or a repository is a bug;
 `tests/hub/test_prompt_sections.py` greps the defaults.
 
+## Capability pages
+
+The other prompt the model reads is a capability's own page: the markdown `help.docs`
+windows on demand, and the thing `capabilities.use` points at. Those live in one place too,
+`src/lucy_api/prompt/capabilities/<id>.md`, one page per pack, read through
+`importlib.resources` so the wheel and the checkout agree. A pack asks for its page by its
+own id (`capability_doc("music")`) and carries no prompt text of its own: a prompt that
+lives in code beside its handlers is edited like code, in a diff nobody reads for tone.
+
+`tests/hub/test_prompt_docs.py` holds the pages to the same bar as the sections: exactly one
+page per installed capability and no orphans, a heading, a length ceiling, and none of the
+words that describe the wire. External tools (`mcp`) deliberately have no page; their docs
+come from servers the person registered and are untrusted.
+
 ## Two HTTP views of the same assembly
 
 `GET /v1/prompt/preview` renders the stable prefix with no transcript. Use it when a

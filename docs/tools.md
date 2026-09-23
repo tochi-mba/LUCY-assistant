@@ -201,7 +201,29 @@ not crashes. `lucy.agent_max_concurrent` caps how many may run at once.
 **not** stop the command. `wait: true` (the default) still waits up to `wait_seconds`
 and then returns the same handle if the command is still going. `wait_seconds: 0` is a
 real deadline (return immediately with the handle), not "omit this and use the command
-timeout".
+timeout". Add `wake: true` and a command that finishes while nobody is talking opens a
+turn of its own to say so.
+
+### Tell me when it lands, without polling
+
+*"Let me know when CI is green."*
+
+```json
+{"steps": [
+  {"id": "ci", "op": "watch.command",
+   "input": {"command": "gh run view --exit-status 123", "every_seconds": 30,
+             "for_seconds": 1800, "objective": "Say when CI run 123 is green"},
+   "note": "Watch the run; I will tell them when it passes"}
+]}
+```
+
+→ A handle, immediately, and one approval that names the command, the interval and the
+lifetime. The command runs every thirty seconds until it exits 0 or the half hour is up.
+When it fires -- or expires -- and no turn is running, a turn opens with a harness notice
+as its input, and Lucy tells the person. `watch.start` does the same for a workspace file
+(`path`, with an optional `pattern`), a public address (`url`, `expect_status`, `pattern`)
+or another piece of work (`work_id`). The result is that it fired plus a short excerpt,
+never the log; `work.result` reads it when the excerpt matters.
 
 ### Named docs, loaded on purpose
 

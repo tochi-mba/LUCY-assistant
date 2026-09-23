@@ -27,6 +27,7 @@ PLAN_GROUPS = (
     "Capabilities and connections",
     "Approvals",
     "Agents",
+    "Work",
     "Journal",
     "Memory",
     "Context",

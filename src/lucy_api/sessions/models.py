@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -13,6 +13,17 @@ TurnStatus = Literal[
     "queued", "running", "input_required", "auth_required", "completed", "failed", "cancelled"
 ]
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
+
+
+CapabilityNames = list[Annotated[str, Field(min_length=1, max_length=64)]]
+"""Capability ids, as a person names them: `agents`, `music`. Never a service."""
+
+Apply = Literal["now", "after_turn"]
+"""The answer to the warning a change gets while a turn is running: apply it to the
+running turn, or hold it until that turn ends. Absent, the warning is the answer."""
+
+BEHAVIOUR = frozenset({"input_policy", "permission_mode", "disabled_capabilities"})
+"""The session fields that change what a running turn may do. A title does not."""
 
 
 class CreateSession(BaseModel):
@@ -25,6 +36,7 @@ class CreateSession(BaseModel):
     input_policy: InputPolicy = "enqueue"
     permission_mode: PermissionMode = "ask"
     incognito: bool = False
+    disabled_capabilities: CapabilityNames = Field(default_factory=list, max_length=32)
 
 
 class UpdateSession(BaseModel):
@@ -32,7 +44,9 @@ class UpdateSession(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     input_policy: InputPolicy | None = None
     permission_mode: PermissionMode | None = None
+    disabled_capabilities: CapabilityNames | None = Field(default=None, max_length=32)
     archived: bool | None = None
+    apply: Apply | None = None
 
 
 class InputEvent(BaseModel):

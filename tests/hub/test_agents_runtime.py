@@ -18,10 +18,11 @@ from lucy_api.core.errors import LucyError
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.model.types import Reply
-from lucy_api.packs.agents import AGENTS_MARKDOWN, MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
+from lucy_api.packs.agents import MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
 from lucy_api.packs.base import State as PackState
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
+from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
 from lucy_api.sessions.sql_store import NewItem, SessionStore
@@ -351,7 +352,7 @@ async def test_a_child_is_not_offered_spawn() -> None:
     assert "journal.claim" in names
     assert pack.operations(parent_context("ses_x", capabilities=Capabilities((pack,)))) == ()
     assert pack.setup() is None
-    assert pack.docs == AGENTS_MARKDOWN
+    assert pack.docs == capability_doc("agents")
     assert pack.permissions()[0].id == "agents.delegate"
 
 
