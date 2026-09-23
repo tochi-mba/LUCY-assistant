@@ -338,3 +338,14 @@ def test_json_object_itself_stays_strict() -> None:
     """`plan_object` is the forgiving one. `json_object` reads error bodies and anything else
     that must be JSON or nothing, and loosening it would let a sentence become a payload."""
     assert json_object(NARRATED) is None
+
+
+def test_a_trailing_object_that_is_not_valid_json_is_not_a_plan() -> None:
+    """Balanced braces are not JSON. The scan finds a candidate and `json.loads` rejects it,
+    which is a miss rather than an error."""
+    assert plan_object("see {not json}") is None
+
+
+def test_an_unbalanced_brace_is_not_a_plan() -> None:
+    """The scan runs off the front without ever closing. Nothing to parse."""
+    assert plan_object("unbalanced }") is None
