@@ -155,6 +155,17 @@ class Turn:
     cancelled: Callable[[], bool | Awaitable[bool]] | None = None
     clock: Callable[[], float] = time.monotonic
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
+    opening_notice: str = ""
+    """A sentence for the first round only, decided before the turn starts.
+
+    This exists because a resumed turn looks, from the transcript, exactly like a turn where
+    the work was already done. A parked plan is held in memory and dropped, the model's own
+    proposed plan is never written down when the reply was plan-only, and what survives is
+    the request and `{"approved": true}` in the person's voice. Something has to say that the
+    approved call still has not run, and the notice channel is where this turn already puts
+    facts about itself.
+    """
+
     max_output_tokens: int = 4096
     temperature: float | None = None
     thinking: str = "default"
@@ -176,6 +187,9 @@ class _Cycle:
     repetition: Repetition
     repairs: int = 0
     repair_notice: str = ""
+    opening: str = ""
+    """Spent on the first round and then empty. A fact about how this turn started, which
+    stops being true the moment the model has read it."""
 
 
 async def run_turn(turn: Turn) -> Outcome:
@@ -187,6 +201,7 @@ async def run_turn(turn: Turn) -> Outcome:
         is_cancelled=turn.cancelled if turn.cancelled is not None else _never,
         started=turn.clock(),
         repetition=Repetition(),
+        opening=turn.opening_notice,
     )
 
     while True:
@@ -197,8 +212,16 @@ async def run_turn(turn: Turn) -> Outcome:
             return ended
 
         notice = "\n".join(
-            filter(None, (warning_for(cycle.limits, cycle.outcome.spent), cycle.repair_notice))
+            filter(
+                None,
+                (
+                    cycle.opening,
+                    warning_for(cycle.limits, cycle.outcome.spent),
+                    cycle.repair_notice,
+                ),
+            )
         )
+        cycle.opening = ""
         system, messages = await turn.assemble(notice)
         request = Request(
             messages=messages,

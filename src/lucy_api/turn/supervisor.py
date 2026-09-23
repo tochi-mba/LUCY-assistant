@@ -19,7 +19,12 @@ from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content
 from lucy_api.model.registry import UnknownModelError, parse_spec
-from lucy_api.permissions.approvals import Ask, open_approval
+from lucy_api.permissions.approvals import (
+    Ask,
+    granted_operations,
+    open_approval,
+    resumed_notice,
+)
 from lucy_api.permissions.gate import PermissionGate
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
@@ -198,6 +203,11 @@ class TurnSupervisor:
             session_id=claimed.session_id,
             turn_id=claimed.id,
         )
+        # A turn that a person has just unblocked is claimed by the same query as a new one,
+        # and nothing about the row says it was ever parked. The approvals it collected are
+        # the only durable record that the model already asked, so they are what the first
+        # round is told about.
+        opening = resumed_notice(await granted_operations(self._store, claimed.id))
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         # The profile's policy, narrowed by this conversation's own list. Re-read at every
         # round below, because a person may change it while the turn runs and asked for
@@ -319,6 +329,7 @@ class TurnSupervisor:
                             catalogue, claimed.session_id, pack_ctx
                         ),
                         append=append,
+                        opening_notice=opening,
                         # The id the provider understands, not the spec. A session stores
                         # `lmstudio:sonnet`; the provider was already built for `sonnet` and
                         # sends whatever this says straight up the wire, so passing the spec

@@ -9,6 +9,7 @@ here, and the next claim of the turn re-runs the gate against it.
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -33,9 +34,12 @@ from lucy_api.stream.events import APPROVAL_DENIED, APPROVAL_GRANTED, APPROVAL_R
 if TYPE_CHECKING:
     import sqlite3
 
+    from collections.abc import Sequence
+
     from lucy_api.sessions.sql_store import SessionStore
 
 PENDING = "pending"
+GRANTED = "granted"
 TURN_MOVED = "This turn is no longer running."
 NEED_APPROVAL_ID = "This input needs an `approval_id`."
 NEED_APPROVED = "This input needs `approved` to be true or false."
@@ -174,7 +178,7 @@ async def answer_approval(
             raise conflict(NOT_WAITING)
         permission = str(_payload(row["input_json"]).get("permission") or row["operation"])
         now = time.time()
-        status = "granted" if approved else "denied"
+        status = GRANTED if approved else "denied"
         db.execute(
             "UPDATE approvals SET status=?, lifetime=?, instruction=?, decided_at=?, "
             "decided_by=? WHERE id=?",
@@ -280,4 +284,64 @@ def _storage_profile(lifetime: str, profile: str, session_id: str) -> str:
     return profile
 
 
-__all__ = ["Ask", "Decision", "answer_approval", "open_approval"]
+RESUMED_NOTICE = (
+    "{operations} {was} approved just now. Approval does not run anything: the plan that "
+    "asked for {pronoun} was stopped before any of its steps ran, so nothing has happened "
+    "yet. Ask for {pronoun} again in this round's plan, with the same arguments, along with "
+    "whatever depended on {pronoun}."
+)
+"""What a model is told at the top of a round that a person has just unblocked.
+
+Without it the transcript reads as though the work was done. The model's own proposed plan is
+never written to the transcript when the reply was plan-only, so all that survives a park is
+two JSON blobs in the *person's* voice -- the request and `{"approved": true}` -- and a model
+reading those concludes the write happened and moves on to reading the file back. It does not
+exist, and the 404 is the first anybody hears of it.
+
+Phrased as a fact about this turn rather than as an instruction, because it sits in the notice
+channel beside the budget warnings, and those are facts too.
+"""
+
+
+def resumed_notice(operations: Sequence[str]) -> str:
+    """One sentence naming what was approved, or nothing when nothing was."""
+    if not operations:
+        return ""
+    names = tuple(dict.fromkeys(operations))
+    listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    single = len(names) == 1
+    return RESUMED_NOTICE.format(
+        operations=listed,
+        was="was" if single else "were",
+        pronoun="it" if single else "them",
+    )
+
+
+async def granted_operations(store: SessionStore, turn_id: str) -> tuple[str, ...]:
+    """The operations a person approved on this turn, oldest first.
+
+    Read back rather than carried forward because nothing carries it: a parked plan is held
+    only in memory and is gone by the time the answer arrives. The `approvals` row is the one
+    durable record that the model ever asked.
+    """
+
+    def read(db: sqlite3.Connection) -> tuple[str, ...]:
+        rows = db.execute(
+            "SELECT operation FROM approvals WHERE turn_id=? AND status=? "
+            "ORDER BY requested_at, rowid",
+            (turn_id, GRANTED),
+        ).fetchall()
+        return tuple(str(row["operation"]) for row in rows if row["operation"])
+
+    return await store.worker.call(read)
+
+
+__all__ = [
+    "RESUMED_NOTICE",
+    "Ask",
+    "Decision",
+    "answer_approval",
+    "granted_operations",
+    "open_approval",
+    "resumed_notice",
+]
