@@ -800,3 +800,24 @@ def test_the_brief_names_a_declared_schema_and_a_reopened_predecessor() -> None:
     )
     assert "JSON" in text
     assert "agt_old" in text
+
+
+async def test_a_helper_asks_its_provider_for_a_model_id_not_a_session_spec(
+    store: SessionStore,
+) -> None:
+    """The same slip the supervisor had, in the other place that builds a `Turn`. A provider
+    built for `sonnet` sends `Request.model` straight up the wire, so passing the session's
+    whole spec asks for a model named after its own provider -- and every helper ever started
+    against a real model came back
+    `[claude-code:unrecognized_model] {"model":"lmstudio:sonnet"}`.
+    """
+    session = await a_session(store, model="scripted:sonnet")
+    provider = ScriptedProvider([speaks("Done.")])
+    child, capabilities, _ = runtime_for(store, provider)
+    await child.run(
+        parent_context(session, capabilities=capabilities, workspace="env_1"),
+        objective="anything",
+        role="reader",
+    )
+
+    assert provider.requests[0].model == "sonnet"

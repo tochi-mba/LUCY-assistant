@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from lucy_api.agents.types import Delegation, capped_summary, declared_return
 from lucy_api.core.errors import LucyError
+from lucy_api.model.registry import parse_spec
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
@@ -374,7 +375,11 @@ class ChildRuntime:
                 execute=execute,
                 plan_schema=self.capabilities.plan_schema(catalogue, parent.session_id, child),
                 append=append,
-                model=str(session["model"]),
+                # The id the provider understands, not the session's spec. The same slip the
+                # supervisor had: a provider built for `sonnet` sends `Request.model` straight
+                # up the wire, so passing `lmstudio:sonnet` asks for a model named after its
+                # own provider. Every helper ever started failed on it.
+                model=parse_spec(str(session["model"])).model,
                 budget=Budget(max_iterations=delegation.max_iterations),
                 max_output_tokens=parent.policy.max_output_tokens,
                 temperature=parent.policy.temperature,
