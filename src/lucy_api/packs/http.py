@@ -275,7 +275,7 @@ class PackHttp:
                 headers=_outbound(
                     call.headers, token, service_token=self._service_tokens.get(call.audience, "")
                 ),
-                timeout=self._timeout_seconds,
+                timeout=call.timeout_seconds or self._timeout_seconds,
             )
         except httpx.HTTPError as exc:
             raise DownstreamUnavailableError(UNREACHABLE, audience=call.audience) from exc

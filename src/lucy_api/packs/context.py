@@ -50,6 +50,17 @@ class Call:
     params: Mapping[str, Any] | None = None
     headers: Mapping[str, str] | None = None
 
+    timeout_seconds: float | None = None
+    """How long to wait on this one call, when the default is the wrong question.
+
+    The default is right for a sibling that is either up or down, and wrong for a sibling
+    that was asked to do work: a caller that asks the sandbox to spend up to sixty seconds on
+    a command and then waits ten for the answer has guaranteed its own failure, whatever the
+    sandbox does. Every workspace command ever run did exactly that.
+
+    `None` means the client's own figure, which is what almost every call wants.
+    """
+
 
 class Http(Protocol):
     """The one way a capability reaches a sibling service."""

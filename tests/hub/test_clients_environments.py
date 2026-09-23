@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lucy_api.clients.environments import (
+    EXEC_MARGIN_SECONDS,
     FakeEnvironmentsClient,
     HttpEnvironmentsClient,
     Ran,
@@ -154,3 +155,29 @@ async def test_the_in_memory_workspace_keeps_two_environments_apart() -> None:
     with pytest.raises(KeyError):
         await fake.mkdir("missing", "x")
     assert (await fake.ready()).ready is True
+
+
+# --- waiting longer than the work you asked for ------------------------------------------------
+#
+# The sandbox opens a shell, runs the command and closes it, and charges for all three: a
+# `git rev-parse` asked for with a sixty-second ceiling took 15.1 seconds of wall clock, every
+# time. The client allowed itself the default ten, so every workspace command ever run timed
+# out on this side while the sandbox was still working on the other.
+
+
+async def test_exec_waits_longer_than_the_command_it_asked_for() -> None:
+    """You cannot ask for thirty seconds of work and wait ten."""
+    http = FakeHttp(Answer(body={"command": "echo hi", "exit_code": 0, "output": "hi"}))
+    await HttpEnvironmentsClient(http, "http://environments.test").run(
+        "env_1", "echo hi", timeout_ms=30_000
+    )
+    assert http.last.timeout_seconds == 30 + EXEC_MARGIN_SECONDS
+    assert http.last.timeout_seconds > 30
+
+
+async def test_an_ordinary_call_leaves_the_timeout_to_the_client() -> None:
+    """`None` means the client's own figure, which is what almost every call wants: a sibling
+    that is either up or down does not need longer."""
+    http = FakeHttp(Answer(body={"data": []}))
+    await HttpEnvironmentsClient(http, "http://environments.test").environments()
+    assert http.last.timeout_seconds is None
