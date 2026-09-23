@@ -21,7 +21,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "settings-client",
     "uvicorn[standard]>=0.30",
-    "weftai[all]==0.2.4",
+    "weftai[all]==0.2.5",
 ]
 
 [project.scripts]
