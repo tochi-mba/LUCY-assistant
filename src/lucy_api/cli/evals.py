@@ -34,7 +34,7 @@ from lucy_api.evals.loader import DEFAULT_SUITE, ScenarioError, load_suite, ship
 from lucy_api.evals.markdown import LABELS, render
 from lucy_api.evals.report import JSON_NAME, build_report, write_report
 from lucy_api.evals.results import ERROR, FAILED
-from lucy_api.evals.runner import DEFAULT_PROFILE, DEFAULT_TIMEOUT, Plan, Runner, unmet
+from lucy_api.evals.runner import DEFAULT_TIMEOUT, Plan, Runner, unmet
 
 if TYPE_CHECKING:
     from lucy_api.cli.base import Context
@@ -120,9 +120,8 @@ def add_parser(sub: Any, after: argparse.ArgumentParser) -> None:
     run.add_argument("--tag", action="append", metavar="TAG", help="only scenarios with this tag")
     run.add_argument(
         "--profile",
-        default=DEFAULT_PROFILE,
         metavar="P",
-        help=f"the profile each session runs as (default: {DEFAULT_PROFILE})",
+        help="the profile each session runs as (default: a new one for this run, eval-<time>)",
     )
     run.add_argument(
         "--repeat", type=_count, default=1, metavar="N", help="hold each conversation N times"
@@ -234,7 +233,7 @@ def _run(ctx: Context) -> int:
         scenarios=_select(suites, args.scenario or [], args.tag or []),
         models=_models(args.model),
         repeat=args.repeat,
-        profile=args.profile,
+        profile=_run_profile(args.profile),
         timeout=args.timeout,
         keep_sessions=args.keep_sessions,
     )
@@ -462,6 +461,17 @@ def _plan_line(plan: Plan, hub_info: dict[str, Any]) -> str:
         f"{', '.join(plan.models)} on {hub_info['url']} (hub {hub_info['version'] or 'unknown'}) "
         f"as profile {plan.profile}"
     )
+
+
+def _run_profile(chosen: str | None) -> str:
+    """The profile a run holds its conversations in: one of its own, unless one was named.
+
+    Runs used to share the person's own profile, and so their memories. A scenario that asks
+    Lucy to remember something found it "already" remembered -- from the run before, or from
+    the person -- and failed for the wrong reason; and the person found "I prefer tea over
+    coffee" among their own notes. A profile per run reads nothing it did not write.
+    """
+    return chosen or f"eval-{utc_now().strftime(STAMP).lower()}"
 
 
 def _report_dir(chosen: Path | None) -> Path:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -339,7 +340,7 @@ def test_a_dry_run_prints_the_plan_and_creates_nothing(fake: FakeLucy) -> None:
     fake.capabilities = [
         {"id": "research", "usable": False, "state": "not_connected", "detail": "sign in"}
     ]
-    code, out, err = run("--dry-run", "--repeat", "2")
+    code, out, err = run("--dry-run", "--repeat", "2", "--profile", "personal")
     assert code == OK
     assert err == ""
     assert out.startswith(
@@ -353,6 +354,16 @@ def test_a_dry_run_prints_the_plan_and_creates_nothing(fake: FakeLucy) -> None:
     assert out.rstrip().endswith("Nothing was created: this was a dry run.")
     assert fake.sessions == {}
     assert all(request.method == "GET" for request in fake.requests)
+
+
+def test_a_run_holds_its_conversations_in_a_profile_of_its_own(fake: FakeLucy) -> None:
+    """The bug, named: runs shared the person's profile, and a scenario asked to remember
+    something found it already remembered from the run before."""
+    code, out, _err = run("--dry-run")
+    assert code == OK
+    named = re.search(r"as profile (\S+)\.", out)
+    assert named is not None
+    assert re.fullmatch(r"eval-\d{8}t\d{6}z", named.group(1))
 
 
 def test_a_dry_run_speaks_json(fake: FakeLucy) -> None:
