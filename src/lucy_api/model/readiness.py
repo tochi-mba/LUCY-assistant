@@ -21,6 +21,20 @@ it: a turn resolves the provider it was told to use and finds out the ordinary w
 
 A local runtime is probed at its own health endpoint instead, unauthenticated, because
 "is it running" is the whole question for something on this machine.
+
+## A local runtime's listing is read; a remote provider's is not
+
+What a local runtime can run is whatever somebody installed on it, and its listing is the
+only place that is written down. clyde offers four Claude models, an Ollama box offers
+whatever was pulled, and the catalogue can know neither -- so before this, a working clyde
+was reported as `models: []` and a person choosing a model for a session was shown nothing
+to choose. So for a local runtime the model ids are read out of the answer, in the two
+shapes local runtimes use: the chat-completions listing (`data[].id`) and Ollama's own
+(`models[].name`). Ids only, bounded in number and length; nothing else in the body is kept.
+
+A remote provider's listing stays unread. It is somebody else's catalogue -- hundreds of
+models, most irrelevant, some a person cannot use on their plan -- and the catalogue row
+already names the ones worth offering.
 """
 
 from __future__ import annotations
@@ -40,6 +54,12 @@ if TYPE_CHECKING:
 
 PROBE_SECONDS = 4.0
 """How long a provider has to answer a listing call before it counts as not answering."""
+
+MAX_DISCOVERED = 50
+"""How many model ids a local runtime's listing may contribute. More than a person picks from."""
+
+MODEL_ID_CHARS = 128
+"""The longest id kept. A listing is another program's output; a line that long is not an id."""
 
 CACHE_SECONDS = 60.0
 """How long a proven answer is trusted before it is asked again.
@@ -127,6 +147,7 @@ class _Proof:
     ok: bool
     detail: str
     checked_at: float
+    models: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -156,7 +177,7 @@ class Readiness:
                 continue
             proof = self._proofs.get(spec.id)
             if proof is not None and proof.ok:
-                ready.append(_standing(spec, "ready", proof.detail))
+                ready.append(_standing(spec, "ready", proof.detail, models=proof.models))
             elif proof is not None:
                 unavailable.append(_standing(spec, "unavailable", proof.detail, setup=_setup(spec)))
             else:
@@ -171,24 +192,60 @@ class Readiness:
         cached = self._proofs.get(spec.id)
         if cached is not None and self.clock() - cached.checked_at < self.cache_seconds:
             return
-        self._proofs[spec.id] = _Proof(*(await self._fetch(binding, url)), self.clock())
+        ok, detail, models = await self._fetch(binding, url)
+        self._proofs[spec.id] = _Proof(ok, detail, self.clock(), models)
 
-    async def _fetch(self, binding: Binding, url: str) -> tuple[bool, str]:
-        """One GET, described as a sentence. Never the body: that is the provider's."""
+    async def _fetch(self, binding: Binding, url: str) -> tuple[bool, str, tuple[str, ...]]:
+        """One GET, described as a sentence, and a local runtime's model ids.
+
+        A remote provider's body is never read: that is the provider's. See the module
+        docstring for why a local runtime's is.
+        """
         async with httpx.AsyncClient(
             timeout=self.probe_seconds, transport=self.transport, headers=_headers(binding)
         ) as http:
             try:
                 response = await http.get(url)
             except httpx.HTTPError as exc:
-                return False, f"could not be reached ({type(exc).__name__})"
+                return False, f"could not be reached ({type(exc).__name__})", ()
         if response.status_code == httpx.codes.UNAUTHORIZED:
-            return False, "the key was refused"
+            return False, "the key was refused", ()
         if response.status_code == httpx.codes.FORBIDDEN:
-            return False, "the key is not allowed to list models"
+            return False, "the key is not allowed to list models", ()
         if response.status_code >= httpx.codes.BAD_REQUEST:
-            return False, f"answered {response.status_code}"
-        return True, "answered" if not binding.spec.local else "running"
+            return False, f"answered {response.status_code}", ()
+        if not binding.spec.local:
+            return True, "answered", ()
+        return True, "running", _listed(response)
+
+
+def _listed(response: httpx.Response) -> tuple[str, ...]:
+    """The model ids a local runtime says it has, or none if its answer is not a listing.
+
+    A health endpoint that answers `OK` or `{"status": "ok"}` is a runtime that is up and
+    has said nothing about its models, which is not an error -- the catalogue row's own list
+    stands in for it.
+    """
+    try:
+        payload: Any = response.json()
+    except ValueError:
+        return ()
+    if not isinstance(payload, dict):
+        return ()
+    rows, key = payload.get("data"), "id"
+    if not isinstance(rows, list):
+        rows, key = payload.get("models"), "name"
+    if not isinstance(rows, list):
+        return ()
+    found: list[str] = []
+    for row in rows:
+        value = row.get(key) if isinstance(row, dict) else None
+        name = value.strip() if isinstance(value, str) else ""
+        if name and len(name) <= MODEL_ID_CHARS and name not in found:
+            found.append(name)
+        if len(found) == MAX_DISCOVERED:
+            break
+    return tuple(found)
 
 
 def _probe_url(binding: Binding) -> str | None:
@@ -212,14 +269,19 @@ def _headers(binding: Binding) -> dict[str, str]:
 
 
 def _standing(
-    spec: ProviderSpec, section: str, detail: str, *, setup: Setup | None = None
+    spec: ProviderSpec,
+    section: str,
+    detail: str,
+    *,
+    setup: Setup | None = None,
+    models: tuple[str, ...] = (),
 ) -> Standing:
     return Standing(
         provider=spec.id,
         title=spec.title,
         section=section,
         dialect=spec.dialect.value,
-        models=spec.models,
+        models=models or spec.models,
         detail=detail,
         setup=setup,
         local=spec.local,

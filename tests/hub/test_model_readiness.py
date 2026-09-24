@@ -16,6 +16,8 @@ import pytest
 from lucy_api.model.catalogue import CATALOGUE, spec_for
 from lucy_api.model.readiness import (
     KEY_SETTING,
+    MAX_DISCOVERED,
+    MODEL_ID_CHARS,
     URL_SETTING,
     Readiness,
     Report,
@@ -247,3 +249,113 @@ async def test_one_provider_can_be_looked_up_whichever_section_it_landed_in() ->
     assert report.standing("ollama")["section"] == "unavailable"
     with pytest.raises(KeyError):
         report.standing("gemeni")
+
+
+# --------------------------------------------------------------------------------------
+# What a local runtime can run is read from its own listing
+# --------------------------------------------------------------------------------------
+
+CLYDE_LISTING = {
+    "object": "list",
+    "data": [
+        {"id": "sonnet", "object": "model", "created": 0, "owned_by": "anthropic"},
+        {"id": "opus", "object": "model", "created": 0, "owned_by": "anthropic"},
+        {"id": "haiku", "object": "model", "created": 0, "owned_by": "anthropic"},
+        {"id": "fable", "object": "model", "created": 0, "owned_by": "anthropic"},
+    ],
+}
+"""`GET /v1/models` from a running clyde, recorded 2026-09-24. Re-record, do not edit."""
+
+
+async def test_clydes_models_are_read_from_its_own_listing() -> None:
+    """The bug, named: a working clyde was reported with `models: []`, so a person choosing a
+    model for a session was shown nothing to choose from."""
+    transport, _ = answering(
+        {"http://host.docker.internal:8127/v1/models": httpx.Response(200, json=CLYDE_LISTING)}
+    )
+    report = await Readiness(
+        {}, base_urls={"clyde": "http://host.docker.internal:8127/v1"}, transport=transport
+    ).report()
+    clyde = by_provider(report, "clyde")
+    assert clyde.section == "ready"
+    assert clyde.models == ("sonnet", "opus", "haiku", "fable")
+
+
+async def test_an_ollama_box_names_what_was_pulled_onto_it() -> None:
+    transport, _ = answering(
+        {
+            "http://localhost:11434/api/tags": httpx.Response(
+                200, json={"models": [{"name": "llama3.3:70b"}, {"name": "qwen3:8b"}]}
+            )
+        }
+    )
+    report = await Readiness({"ollama": "local"}, transport=transport).report()
+    assert by_provider(report, "ollama").models == ("llama3.3:70b", "qwen3:8b")
+
+
+async def test_a_remote_providers_listing_is_never_read() -> None:
+    """Somebody else's catalogue, hundreds long. The row names the ones worth offering."""
+    transport, _ = answering(
+        {
+            "https://api.anthropic.com/v1/models": httpx.Response(
+                200, json={"data": [{"id": "claude-something-obscure"}]}
+            )
+        }
+    )
+    report = await Readiness({"anthropic": "sk-ant-test"}, transport=transport).report()
+    anthropic = by_provider(report, "anthropic")
+    assert anthropic.section == "ready"
+    assert anthropic.models == spec_for("anthropic").models
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(200, text="OK"),
+        httpx.Response(200, json=["not", "a", "listing"]),
+        httpx.Response(200, json={"status": "ok"}),
+        httpx.Response(200, json={"data": "not a list"}),
+    ],
+)
+async def test_a_health_answer_that_is_not_a_listing_leaves_the_rows_own_models(
+    answer: httpx.Response,
+) -> None:
+    """Up, and silent about its models, is not an error."""
+    transport, _ = answering({"http://localhost:8127/v1/models": answer})
+    report = await Readiness({"clyde": "local"}, transport=transport).report()
+    clyde = by_provider(report, "clyde")
+    assert clyde.section == "ready"
+    assert clyde.models == spec_for("clyde").models
+
+
+async def test_a_listing_keeps_only_plausible_ids_and_only_so_many() -> None:
+    """Another program's output: ids only, each once, bounded in length and number."""
+    rows: list[object] = [
+        {"id": "  haiku  "},
+        {"id": "haiku"},
+        {"id": ""},
+        {"id": 42},
+        {"id": "x" * (MODEL_ID_CHARS + 1)},
+        "not-an-object",
+        *({"id": f"model-{index}"} for index in range(MAX_DISCOVERED + 10)),
+    ]
+    transport, _ = answering(
+        {"http://localhost:8127/v1/models": httpx.Response(200, json={"data": rows})}
+    )
+    report = await Readiness({"clyde": "local"}, transport=transport).report()
+    models = by_provider(report, "clyde").models
+    assert models[0] == "haiku"
+    assert models.count("haiku") == 1
+    assert len(models) == MAX_DISCOVERED
+    assert all(model and len(model) <= MODEL_ID_CHARS for model in models)
+
+
+def test_clyde_is_catalogued_as_a_local_runtime_that_answers_in_schemas() -> None:
+    """clyde honours `--json-schema` behind the chat dialect and ignores `tools` and
+    `reasoning_effort`: the model it runs has had every one of its own tools removed."""
+    clyde = spec_for("clyde")
+    assert clyde.local is True
+    assert clyde.needs_key is False
+    assert clyde.traits.json_schema is True
+    assert clyde.traits.tools is False
+    assert clyde.traits.reasoning_effort is False
