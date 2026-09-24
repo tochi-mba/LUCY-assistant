@@ -238,7 +238,14 @@ class WorkError(Exception):
     a third-party error routinely carries the response body that caused it. Work that knows
     how it ended -- a probe that failed five checks in a row -- says so through this, and the
     sentence reaches the notice.
+
+    `payload` is what the work has to show for itself anyway, readable through `work.result`
+    like a success's: a helper that stopped partway still wrote a report of how far it got.
     """
+
+    def __init__(self, message: str, *, payload: object = None) -> None:
+        super().__init__(message)
+        self.payload = payload
 
 
 __all__ = [

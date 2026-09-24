@@ -244,7 +244,7 @@ class Registry:
             self._finish(record, State.cancelled, detail="cancelled")
             raise
         except WorkError as exc:
-            self._finish(record, State.failed, detail=str(exc))
+            self._finish(record, State.failed, detail=str(exc), payload=exc.payload)
         except Exception as exc:
             self._finish(record, State.failed, detail=type(exc).__name__)
         else:

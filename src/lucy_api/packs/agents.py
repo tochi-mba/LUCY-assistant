@@ -17,7 +17,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work.registry import AtCapacityError, Registry
 from lucy_api.work.registry import _discard as discard_unstarted
-from lucy_api.work.types import Brief, Handle, Kind
+from lucy_api.work.types import Brief, Handle, Kind, WorkError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -29,6 +29,16 @@ if TYPE_CHECKING:
 
 MAX_DEPTH = 3
 """How deep helpers may nest. Four levels is a system nobody can follow, including Lucy."""
+
+CONTINUABLE = "stopped before it finished; agents.reopen continues it"
+"""The front of the notice for a helper that can be picked up where it stopped.
+
+First, because the notice is clipped from the end: a long reason loses its tail, not the
+one thing the model can do about it.
+"""
+
+STOPPED = "stopped before it finished"
+"""The front of the notice for a helper that cannot usefully be continued as it is."""
 
 
 class AgentsPack:
@@ -334,12 +344,14 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
     )
 
     async def work() -> dict[str, Any]:
-        return await runtime.run(
-            context,
-            objective=brief,
-            role=name,
-            agent_id=agent_id,
-            task_id=task_id,
+        return _ended(
+            await runtime.run(
+                context,
+                objective=brief,
+                role=name,
+                agent_id=agent_id,
+                task_id=task_id,
+            )
         )
 
     try:
@@ -405,12 +417,14 @@ async def _reopen(
     role = str(prepared.get("role") or "helper")
 
     async def work() -> dict[str, Any]:
-        return await runtime.run(
-            context,
-            objective=objective,
-            role=role,
-            agent_id=new_id,
-            task_id=task_id,
+        return _ended(
+            await runtime.run(
+                context,
+                objective=objective,
+                role=role,
+                agent_id=new_id,
+                task_id=task_id,
+            )
         )
 
     started = await _begin_helper(
@@ -440,6 +454,22 @@ async def _reopen(
         "resume_from": handle,
         "advice": "It is running from the previous transcript. Read work.result when it finishes.",
     }
+
+
+def _ended(result: dict[str, Any]) -> dict[str, Any]:
+    """A helper's return when it finished, and a failed ending that says why when it did not.
+
+    The runtime answers a helper that stopped partway -- its model unavailable, out of
+    rounds, out of time -- with a result rather than an exception, so its report of how far
+    it got survives. Handed to the registry as it was, that result was recorded as a
+    success: the notice said `succeeded`, and a model had to read the payload to learn the
+    helper had died, which on the strength of that notice it had no reason to do.
+    """
+    if result.get("status") == "ok":
+        return result
+    lead = CONTINUABLE if result.get("resumable") else STOPPED
+    why = str(result.get("summary") or "").strip()
+    raise WorkError(f"{lead}: {why}" if why else lead, payload=result)
 
 
 async def _message(context: PackContext, *, agent_id: str, body: str) -> dict[str, Any]:
@@ -494,4 +524,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["MAX_DEPTH", "AgentsPack"]
+__all__ = ["CONTINUABLE", "MAX_DEPTH", "STOPPED", "AgentsPack"]
