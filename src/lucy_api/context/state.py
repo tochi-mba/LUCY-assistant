@@ -721,12 +721,15 @@ def _topic_line(topic: TopicSnapshot, now: datetime) -> str:
     if topic.unconfirmed:
         counts += f", {topic.unconfirmed} unconfirmed"
     trust = "" if topic.trust == Trust.stated else f"trust: {_clean(topic.trust, STATUS_CHARS)}"
+    # Named as `notes.openTopic` names its input. Left out, the index offered a topic to
+    # expand and no way to ask for it: the model guessed an id and was told "not found".
     return INDENT + _joined(
         _clean(topic.title, TITLE_CHARS),
         _clean(topic.summary, SUMMARY_CHARS),
         counts,
         _seen(topic.last_seen, now),
         trust,
+        f"topic_id {_clean(topic.id, NAME_CHARS)}",
     )
 
 
