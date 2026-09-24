@@ -40,7 +40,7 @@ provider.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 
@@ -120,6 +120,15 @@ def _local(
 NO_TOOLS = Traits(tools=False)
 JSON_OBJECT_ONLY = Traits(json_schema=False)
 NO_EFFORT = Traits(reasoning_effort=False)
+
+CLYDE_TRAITS = Traits(tools=False, reasoning_effort=False)
+"""What clyde accepts: a JSON-schema answer, and neither function calling nor effort.
+
+clyde puts Claude Code's own `--json-schema` behind the chat-completions dialect and ignores
+`tools` and `reasoning_effort` -- the model it runs has every one of its own tools removed,
+so there is nothing for a function call to reach. Lucy's plans travel as schema output, which
+is the one structured shape clyde does honour.
+"""
 
 CATALOGUE: tuple[ProviderSpec, ...] = (
     # ------------------------------------------------------------- the two native dialects
@@ -426,6 +435,20 @@ CATALOGUE: tuple[ProviderSpec, ...] = (
         note="Tool calling yes, tool choice no; structured output is JSON, not a schema.",
     ),
     _local("lmstudio", "LM Studio", "http://localhost:1234/v1", "http://localhost:1234/v1/models"),
+    replace(
+        _local(
+            "clyde",
+            "clyde (Claude Code)",
+            "http://localhost:8127/v1",
+            "http://localhost:8127/v1/models",
+            note=(
+                "Claude, through a Claude Code subscription signed in on the machine clyde "
+                "runs on. Its models are whatever clyde lists. Claude Code's own tools are "
+                "removed."
+            ),
+        ),
+        traits=CLYDE_TRAITS,
+    ),
     _local(
         "llamacpp", "llama.cpp server", "http://127.0.0.1:8080/v1", "http://127.0.0.1:8080/health"
     ),
