@@ -99,9 +99,17 @@ class Capabilities:
         self.probes.drop(account_id, profile, pack_id)
 
     def remember_use(self, session_id: str, pack_id: str) -> None:
+        """Put a capability at the front of this session's recency: most recently used first.
+
+        It used to append and never move, so recency meant "first used first" and
+        `KEEP_RECENT` kept whichever capabilities a session happened to touch first. Once
+        four had been used, `capabilities.use` on a fifth answered `bound: true` and the
+        capability was never bound -- the one-way door `ALWAYS` exists to prevent.
+        """
         used = self._uses.setdefault(session_id, [])
-        if pack_id not in used:
-            used.append(pack_id)
+        if pack_id in used:
+            used.remove(pack_id)
+        used.insert(0, pack_id)
 
     def recent(self, session_id: str) -> tuple[str, ...]:
         return tuple(self._uses.get(session_id, ()))
@@ -135,7 +143,6 @@ class Capabilities:
                 scope.workspace.environment_id if scope.workspace is not None else ""
             ),
             workspace_path=scope.workspace_root,
-            bound_ids=set(self.recent(scope.session_id)),
             work=self.work,
             child=self.child,
             probes=self.probes,
@@ -246,8 +253,14 @@ class Capabilities:
                 "allowWrites": True,
             },
         )
+        # What ran is recent; what was explicitly asked for is more recent still, because
+        # asking is the model saying it needs that capability next. Marking every bound
+        # capability on every plan, as this once did, made recency mean nothing.
+        for pack_id in _packs_run(plan, catalogue):
+            self.remember_use(context.session_id, pack_id)
         for pack_id in context.bound_ids:
             self.remember_use(context.session_id, pack_id)
+        context.bound_ids.clear()
         return as_loop_result(result)
 
     async def invoke(
@@ -280,6 +293,25 @@ def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:
         held = ", ".join(sorted(deferred))
         return f"{message}. Deferred: {held}. Bind one with capabilities.use."
     return f"{message}."
+
+
+def _packs_run(plan: dict[str, Any], catalogue: Catalogue) -> tuple[str, ...]:
+    """The capabilities a plan's steps belong to, in the order the plan first named them.
+
+    Read from the catalogue rather than from the operation's prefix, because the prefix is
+    not always the pack: `capabilities.use` belongs to `help`.
+    """
+    owner = {
+        operation.name: item.pack.id for item in catalogue.bound for operation in item.operations
+    }
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    found: list[str] = []
+    for step in steps if isinstance(steps, list) else ():
+        name = step.get("op") if isinstance(step, dict) else None
+        pack_id = owner.get(name) if isinstance(name, str) else None
+        if pack_id is not None and pack_id not in found:
+            found.append(pack_id)
+    return tuple(found)
 
 
 def as_loop_result(result: Any) -> dict[str, Any]:

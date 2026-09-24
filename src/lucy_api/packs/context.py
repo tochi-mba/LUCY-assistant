@@ -156,7 +156,13 @@ class PackContext:
     work: Registry | None = None
     child: ChildRuntime | None = None
     grants: dict[str, Grant] = field(default_factory=dict)
-    bound_ids: set[str] = field(default_factory=set)
+    bound_ids: list[str] = field(default_factory=list)
+    """Capabilities `capabilities.use` asked for since the last plan ran, in the order asked.
+
+    Drained by `Capabilities.execute` into the session's recency, where a bind takes effect:
+    the plan schema and the executor are rebuilt from recency every round, so a capability
+    bound in one plan is callable in the very next one, in the same turn.
+    """
     limits: dict[str, asyncio.Semaphore] = field(default_factory=dict)
     probes: ProbeCache | None = None
     defaults: dict[str, object] = field(default_factory=dict)
