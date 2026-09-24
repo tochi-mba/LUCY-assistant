@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lucy_api.api.dependencies import ActingAsDep, ContainerDep, StoreDep
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.core.container import PackRequest
+from lucy_api.core.logging import bind
 from lucy_api.packs.context import PackContext
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.scope import WorkspaceScope
@@ -102,7 +103,8 @@ async def list_model_tools(
         )
     )
     _attach_workspace(pack_ctx, row)
-    catalogue = await container.capabilities.probe(pack_ctx)
+    with bind(session_id=session or None):
+        catalogue = await container.capabilities.probe(pack_ctx)
     return container.capabilities.tools(catalogue, session)
 
 
@@ -144,7 +146,9 @@ async def invoke_tool(
     )
     _attach_workspace(pack_ctx, row)
     pack_ctx.grants = await grants_for(store, acting.account_id, profile, session_id=session)
-    result = await container.capabilities.invoke(name, body.input, pack_ctx)
+    # A direct call's lines say which conversation it was about, as a turn's do.
+    with bind(session_id=session or None):
+        result = await container.capabilities.invoke(name, body.input, pack_ctx)
     return {"tool": name, "steps": result.get("steps") or [], "text": result.get("text") or ""}
 
 
