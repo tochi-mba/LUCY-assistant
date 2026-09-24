@@ -9,6 +9,7 @@ continue it.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -21,7 +22,7 @@ from lucy_api.agents.store import AgentStore, Interrupted
 from lucy_api.agents.types import CONTINUABLE, RESTARTED
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, speaks
-from lucy_api.packs.agents import AgentsPack, _reopen
+from lucy_api.packs.agents import AgentsPack, _reopen, _spawn
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.work import _check
@@ -221,3 +222,62 @@ def test_nothing_is_announced_without_a_registry() -> None:
     )
     assert announce_interrupted(None, (stopped,)) == ()
     assert announce_interrupted(_registry(), (stopped,)) == ("agt_1",)
+
+
+async def _hanging_helper(store: SessionStore) -> tuple[Registry, str, str]:
+    """A helper that is mid-task and stays that way until something stops it."""
+    created = await store.create(ACCOUNT, CreateSession(model="scripted:demo"), "hang-key")
+    work = _registry()
+    capabilities = Capabilities((HelpPack(), AgentsPack()), work=work)
+    child = ChildRuntime(
+        store,
+        AgentStore(store),
+        ModelRegistry({"scripted": lambda _m: ScriptedProvider()}),
+        capabilities,
+    )
+    capabilities.child = child
+    started = asyncio.Event()
+
+    async def hang(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        started.set()
+        await asyncio.Event().wait()
+        return {}
+
+    child._loop = hang
+    scope = SessionScope(account_id=ACCOUNT, profile="personal", session_id=str(created["id"]))
+    spawned = await _spawn(
+        work, capabilities.context_for(scope), depth=0, objective="Read it all", role="reader"
+    )
+    await started.wait()
+    return work, str(created["id"]), str(spawned["id"])
+
+
+async def test_a_helper_running_when_the_hub_shuts_down_is_announced_when_it_is_back(
+    store: SessionStore,
+) -> None:
+    """The bug, named: a graceful restart cancels every task, and the helper was recorded
+    as cancelled -- as though the person had stopped it -- so the next process found
+    nothing running, announced nothing, and never offered to continue it."""
+    work, session, agent_id = await _hanging_helper(store)
+
+    await work.shutdown()
+    assert (await AgentStore(store).get(ACCOUNT, agent_id))["status"] == "running"
+
+    after = _registry()
+    await _restart(store, after)
+    [shown] = after.snapshot(session, announce=True)
+    assert (shown.id, shown.progress) == (agent_id, f"{CONTINUABLE}: {RESTARTED}")
+
+
+async def test_a_helper_somebody_cancels_is_still_recorded_as_cancelled(
+    store: SessionStore,
+) -> None:
+    work, _session, agent_id = await _hanging_helper(store)
+
+    work.cancel(agent_id)
+    ended = await work.wait(agent_id, 30)
+
+    assert ended.state is State.cancelled
+    row = await AgentStore(store).get(ACCOUNT, agent_id)
+    assert (row["status"], row["interrupted_reason"]) == ("interrupted", "cancelled")
+    await work.shutdown()

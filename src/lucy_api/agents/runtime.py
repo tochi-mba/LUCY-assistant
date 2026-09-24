@@ -208,6 +208,13 @@ class ChildRuntime:
                 timeout=parent.policy.agent_wall_clock_seconds,
             )
         except asyncio.CancelledError:
+            if parent.work is not None and parent.work.closing:
+                # The process is going down; nobody stopped this helper. Its row stays
+                # `running`, so the next process finds it, marks it interrupted by the
+                # restart and tells its conversation, as after a crash. Written here as
+                # cancelled, a restart read as the person's own choice: it was never
+                # announced, and never offered for continuing.
+                raise
             await self.agents.finish(
                 parent.account_id,
                 agent_id,
