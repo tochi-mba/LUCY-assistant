@@ -83,6 +83,43 @@ async def test_search_scrape_and_summarize_use_the_search_audience() -> None:
     assert "fetch_pages" not in http.calls[1].json
 
 
+async def test_a_page_the_service_could_not_fetch_says_so_instead_of_reading_as_empty() -> None:
+    """The bug, named: a robots-blocked URL came back as a page with no title and no words.
+
+    The row is the sibling's own `ScrapeResult` (Web-search-api/app/schemas/scrape.py) with its
+    `ErrorPayload` (app/schemas/common.py), as `run_scrape` builds it for a `DomainError`
+    (app/services/pipelines.py) -- here `ForbiddenUrlError` from app/services/fetch/page.py.
+    """
+    blocked = "https://tea.example/private"
+    http = FakeHttp(
+        Answer(
+            body={
+                "results": [
+                    {
+                        "url": blocked,
+                        "status": "error",
+                        "page": None,
+                        "summary": None,
+                        "error": {
+                            "code": "forbidden_url_error",
+                            "title": "Blocked by robots.txt",
+                            "detail": f"{blocked} disallows automated fetching.",
+                        },
+                    }
+                ],
+                "summary": None,
+            }
+        )
+    )
+
+    reading = await HttpSearchClient(http, "http://search.test").scrape([blocked])
+
+    (page,) = reading.pages()
+    assert page.fetched is False
+    assert page.status == "error"
+    assert page.detail == f"{blocked} disallows automated fetching."
+
+
 async def test_the_in_memory_web_records_what_was_asked() -> None:
     fake = FakeSearchClient()
     fake.offer((Provider(name="fake", status="available"),))
@@ -96,7 +133,12 @@ async def test_the_in_memory_web_records_what_was_asked() -> None:
 
     assert found[0].hits[0].title == "Tea"
     assert found[1].hits == ()
-    assert [article.page.url for article in reading.articles] == ["https://tea.example"]
+    assert [article.page.url for article in reading.articles] == [
+        "https://tea.example",
+        "https://missing.example",
+    ]
+    assert [article.page.fetched for article in reading.articles] == [True, False]
+    assert reading.articles[1].page.detail == "https://missing.example responded 404."
     assert summary.executive_summary == "a summary"
     assert fake.asked == ["tea", "coffee", "tea"]
     assert fake.profiles == ["work", "work", "work"]
