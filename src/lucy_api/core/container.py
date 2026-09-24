@@ -70,6 +70,7 @@ from lucy_api.packs.mcp import McpPack
 from lucy_api.packs.probes import GuardedHttp
 from lucy_api.packs.service import Capabilities, installed_packs
 from lucy_api.packs.watch import WatchPack, httpx_fetch
+from lucy_api.permissions.live import PendingLive
 from lucy_api.sessions.models import TERMINAL
 from lucy_api.sessions.scope import (
     GIT_BASELINE,
@@ -472,6 +473,12 @@ class Container:
                 profile=request.profile,
                 limit=policy.memory_retrieval_limit,
                 incognito=request.incognito,
+            ),
+            pending=PendingLive(
+                store=self.store,
+                tickets=self.connection_tickets,
+                account_id=request.caller.account_id,
+                profile=request.profile,
             ),
         )
         return PreparedTurn(

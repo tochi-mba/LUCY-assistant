@@ -80,6 +80,20 @@ class ConnectionTickets:
         self._tickets[ticket.id] = ticket
         return ticket
 
+    def outstanding(self, account_id: str, profile: str) -> tuple[ConnectionTicket, ...]:
+        """Live tickets this person has been handed and not opened yet.
+
+        A ticket that has been opened is no longer waiting on the person -- they are away
+        at the provider, and the answer comes back through keyring rather than through
+        here. An expired one is pruned first, so nothing stale is reported as pending.
+        """
+        self._prune()
+        return tuple(
+            ticket
+            for ticket in self._tickets.values()
+            if ticket.account_id == account_id and ticket.profile == profile and not ticket.opened
+        )
+
     def read(self, ticket_id: str, account_id: str) -> ConnectionTicket:
         ticket = self._tickets.get(ticket_id)
         if ticket is None or ticket.account_id != account_id:
