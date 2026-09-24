@@ -4,10 +4,12 @@ from dataclasses import replace
 
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.spotify import Device, FakeSpotifyClient, Play, Track
+from lucy_api.clients.spotify import CONFIRM_WAIT_SECONDS, Device, FakeSpotifyClient, Play, Track
+from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.music import MusicPack, _optional_int
+from lucy_api.packs.registry import limits_for
 from lucy_api.packs.service import Capabilities
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
@@ -196,6 +198,14 @@ async def test_pause_and_queue_project_playback_the_same_way_play_does() -> None
         context,
     )
     assert result["issues"] is None
+
+
+def test_a_music_step_outlasts_the_wait_for_a_confirmed_command() -> None:
+    """The bug, named: the client can wait as long as it likes, but the step around it gave up
+    at ten seconds, so a play still being confirmed was reported to the model as a failure."""
+    pack = MusicPack("http://music.test", client=FakeSpotifyClient())
+    limits = limits_for((Bound(pack=pack, availability=Availability(state=State.ready)),))
+    assert limits["stepTimeoutMs"] > CONFIRM_WAIT_SECONDS * 1_000
 
 
 def test_a_boolean_year_is_not_treated_as_a_year() -> None:
