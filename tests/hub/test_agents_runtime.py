@@ -822,3 +822,23 @@ async def test_a_helper_asks_its_provider_for_a_model_id_not_a_session_spec(
     )
 
     assert provider.requests[0].model == "sonnet"
+
+
+async def test_a_helper_is_told_the_permission_mode_it_actually_has(store: SessionStore) -> None:
+    """The bug, named: in an `auto` conversation a helper's live block said "permission mode
+    auto", while its brief said it was read-only and the gate refused every write it tried."""
+    created = await store.create(
+        ACCOUNT, CreateSession(model="scripted:demo", permission_mode="auto"), "auto-key"
+    )
+    provider = ScriptedProvider([speaks("Done.")])
+    child, capabilities, _ = runtime_for(store, provider)
+
+    await child.run(
+        parent_context(str(created["id"]), capabilities=capabilities),
+        objective="anything",
+        role="reader",
+    )
+
+    told = " ".join(str(message.content) for message in provider.requests[0].messages)
+    assert "permission mode plan" in told
+    assert "permission mode auto" not in told
