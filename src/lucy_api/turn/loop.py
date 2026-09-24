@@ -70,6 +70,19 @@ Two, because the first repair usually works and the third never does. A model th
 answer the schema after two tries has misunderstood the task, not the format, and spending
 the rest of the turn on it helps nobody."""
 
+EMPTY_REPLY = (
+    "Your previous reply was empty: nothing reached the person, and no plan was sent. "
+    "Answer the person in prose, or send a plan."
+)
+"""What the model is told after a round in which it said nothing at all.
+
+An empty reply used to end the turn as a success. The person saw nothing, the turn said
+`completed`, and on the weakest model it happened on ordinary requests -- "Show me what's in
+the calculator folder" came back as a finished turn with no words and no steps. So it is
+handed back like a malformed plan, from the same repair budget, and a model that still says
+nothing after that fails the turn rather than succeeding at silence.
+"""
+
 # RESULT_TOKEN_CAP lives on the window so spill, focus and the loop share one number.
 
 
@@ -261,8 +274,32 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
         return ended
     executor = turn.execute
     if reply.plan is None or executor is None:
+        if _said_nothing(reply):
+            return await _nothing_said(cycle, round_)
         return _finished(outcome, round_, reply)
     return await _run_plan(cycle, reply, round_, executor)
+
+
+def _said_nothing(reply: Reply) -> bool:
+    """No words and no plan. A refusal is a fact about the request, not an empty reply."""
+    return reply.plan is None and not reply.text.strip() and reply.stop is not Stop.refusal
+
+
+async def _nothing_said(cycle: _Cycle, round_: Round) -> Outcome | None:
+    """Hand an empty reply back once or twice; after that, fail rather than succeed silently."""
+    outcome = cycle.outcome
+    # Kept for its accounting -- the round was paid for -- but whitespace is not something
+    # the model said, and it must not reach the answer the turn reports.
+    outcome.rounds.append(replace(round_, text=""))
+    if cycle.turn.append is not None:
+        await cycle.turn.append("error", "tool", {"code": "empty_reply", "detail": EMPTY_REPLY})
+    if cycle.repairs < MAX_PLAN_REPAIRS:
+        cycle.repairs += 1
+        cycle.repair_notice = EMPTY_REPLY
+        return None
+    outcome.termination = Termination.failed
+    outcome.detail = "the model replied with nothing, each time it was asked"
+    return outcome
 
 
 async def _run_plan(
@@ -664,6 +701,7 @@ def _never() -> bool:
 
 
 __all__ = [
+    "EMPTY_REPLY",
     "MAX_PLAN_REPAIRS",
     "RESULT_TOKEN_CAP",
     "Outcome",

@@ -22,7 +22,7 @@ from lucy_api.model.scripted import (
 )
 from lucy_api.model.types import Chunk, Message, Reply, Role, Stop, Usage
 from lucy_api.model.wire import CHUNK_DONE, CHUNK_TEXT
-from lucy_api.turn.loop import Outcome, Turn, run_turn
+from lucy_api.turn.loop import EMPTY_REPLY, MAX_PLAN_REPAIRS, Outcome, Turn, run_turn
 from lucy_api.turn.stop import Budget, Termination
 
 PLAN = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
@@ -817,3 +817,50 @@ async def test_the_fallback_note_still_names_the_spec() -> None:
         )
     )
     assert "scripted:backup" in outcome.text
+
+
+# --------------------------------------------------------------------------------------
+# A reply that says nothing is not an answer
+# --------------------------------------------------------------------------------------
+
+
+async def test_an_empty_reply_is_handed_back_rather_than_ending_the_turn() -> None:
+    """The bug, named: "Show me what's in the calculator folder" came back from the weakest
+    model as a turn marked completed, with no words and no steps. The person saw nothing."""
+    provider = ScriptedProvider([speaks(""), speaks("It has three files.")])
+    transcript = Transcript()
+    outcome = await run_turn(turn(provider, append=transcript.append))
+
+    assert outcome.termination is Termination.success
+    assert outcome.text == "It has three files."
+    assert ("error", "tool", {"code": "empty_reply", "detail": EMPTY_REPLY}) in transcript.items
+    assert provider.remaining == 0
+
+
+async def test_whitespace_is_as_empty_as_nothing() -> None:
+    provider = ScriptedProvider([speaks("  \n\t "), speaks("Here it is.")])
+    outcome = await run_turn(turn(provider))
+    assert outcome.text == "Here it is."
+
+
+async def test_the_model_is_told_its_last_reply_was_empty() -> None:
+    prompts = Prompts()
+    provider = ScriptedProvider([speaks(""), speaks("Answered.")])
+    await run_turn(turn(provider, assemble=prompts.assemble))
+    assert EMPTY_REPLY in prompts.notices[-1]
+
+
+async def test_a_model_that_keeps_saying_nothing_fails_the_turn_instead_of_succeeding() -> None:
+    """Silence three times is a failure the person is told about, never a finished turn."""
+    provider = ScriptedProvider([speaks("") for _ in range(MAX_PLAN_REPAIRS + 1)])
+    outcome = await run_turn(turn(provider))
+
+    assert outcome.termination is Termination.failed
+    assert "nothing" in outcome.detail
+    assert provider.remaining == 0
+
+
+async def test_an_empty_refusal_is_still_a_refusal_not_an_empty_reply() -> None:
+    provider = ScriptedProvider([speaks("", stop=Stop.refusal)])
+    outcome = await run_turn(turn(provider))
+    assert outcome.termination is Termination.refused
