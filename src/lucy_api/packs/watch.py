@@ -42,10 +42,10 @@ from weftai.schema.types import value
 from lucy_api.clients.environments import (
     AUDIENCE,
     DEFAULT_OUTPUT_BYTES,
-    MID_CHARACTER,
     HttpEnvironmentsClient,
+    read_from,
 )
-from lucy_api.clients.errors import AbsentError, RejectedError
+from lucy_api.clients.errors import AbsentError
 from lucy_api.core.errors import LucyError
 from lucy_api.net.ssrf import REFUSED as ADDRESS_REFUSED
 from lucy_api.net.ssrf import assert_public_https
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     import httpx
     from weftai.operation import AnyOperation, RunContext
 
-    from lucy_api.clients.environments import EnvironmentsClient, FileText
+    from lucy_api.clients.environments import EnvironmentsClient
     from lucy_api.packs.context import PackContext
     from lucy_api.work import Registry
     from lucy_api.work.watch import Probe, Sleep
@@ -82,16 +82,6 @@ if TYPE_CHECKING:
 MAX_BODY = 200_000
 """How much of a file or a page one check reads. Enough for a log's verdict, not the log."""
 
-UTF8_STEP_BYTES = 3
-"""How far past a byte offset the next character can start.
-
-The tail of a long log is read from its size less `MAX_BODY`, a byte offset that lands
-wherever it lands, and the sandbox refuses one inside a character rather than return it
-half-decoded. A character is at most four bytes, so the next boundary is at most three
-further on. Without the step, a watch waiting for the verdict at the end of a build log
-with a `✓` or a progress bar in it failed its check, and after five of those was reported
-as a broken probe instead of firing.
-"""
 
 BINARY_FILE = "binary file; a pattern only matches text"
 """What a file watch with a pattern says while it waits on a binary file.
@@ -396,25 +386,13 @@ async def _file_check(
     body = head.content
     if found is None and head.truncated:
         # The verdict of a long log is at the end, and the head window did not reach it.
-        tail = await _read_from(client, environment, path, max(0, head.size - MAX_BODY))
+        offset = max(0, head.size - MAX_BODY)
+        tail = await read_from(client, environment, path, offset, max_bytes=MAX_BODY)
         body = tail.content
         found = pattern.search(body)
     if found is None:
         return Check(fired=False, detail=f"no match in {head.size:,} bytes", facts=facts)
     return Check(fired=True, detail="matched", excerpt=excerpt_around(body, found), facts=facts)
-
-
-async def _read_from(
-    client: EnvironmentsClient, environment: str, path: str, offset: int
-) -> FileText:
-    """The window at `offset`, or at the next character boundary when it is inside one."""
-    for step in range(UTF8_STEP_BYTES):
-        try:
-            return await client.read(environment, path, offset=offset + step, max_bytes=MAX_BODY)
-        except RejectedError as refused:
-            if refused.code != MID_CHARACTER:
-                raise
-    return await client.read(environment, path, offset=offset + UTF8_STEP_BYTES, max_bytes=MAX_BODY)
 
 
 async def _url_check(
