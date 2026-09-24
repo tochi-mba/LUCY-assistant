@@ -1,0 +1,31 @@
+# A fact given once, read back, then corrected: the life of a memory in three turns.
+
+summary = """\
+Remember a fact, read it back, then correct it. Guards two defects: the memory index \
+read "0 memories" for every topic (the hub read field names Memory-api never sends), and \
+every notes.correct failed with a 409 because the correction dropped the note's scope.\
+"""
+tags = ["memory", "approvals"]
+
+[[turns]]
+say = "I'm a backend engineer and I review my week on Friday afternoons. Please remember that."
+approve = "yes"
+
+[turns.expect]
+ran = ["notes.setFact|notes.remember"]
+
+[[turns]]
+say = "What do you know about me?"
+
+[turns.expect]
+reply_matches = ['backend|friday']
+reply_avoids = ['\b0 memories']
+
+[[turns]]
+say = "Actually I review on Thursdays now. Correct that note rather than deleting it."
+approve = "yes"
+
+[turns.expect]
+ran = ["notes.correct"]
+not_ran = ["notes.forget"]
+reply_avoids = ['\b409\b']

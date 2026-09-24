@@ -1,0 +1,26 @@
+# The person ignores an ask and talks about something else. The ask is still there, and
+# Lucy has to know it -- and know what it would record.
+
+summary = """\
+An ask left unanswered is still mentioned, with what it would record. Guards two defects: \
+the pending-approvals band never had a source, so Lucy said "That is everything" with its \
+own asks unanswered; and once it did, it could name only the permission, not the fact.\
+"""
+tags = ["approvals", "memory", "pending"]
+
+[[turns]]
+say = "Remember that I prefer tea over coffee."
+approve = "ignore"
+
+[turns.expect]
+approvals = ["notes.setFact|notes.remember"]
+
+[[turns]]
+say = "Is anything still waiting on me?"
+
+[turns.expect]
+reply_matches = ['\btea\b']
+reply_avoids = [
+  '\A\W*(no|nothing)\b',
+  '\bnothing (is )?(still )?(waiting|pending)\b',
+]

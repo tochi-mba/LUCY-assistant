@@ -1,0 +1,19 @@
+# Research on a cold family: the first page fetch is slow, and it has to be waited for.
+
+summary = """\
+Answer a current question with a cited source. Guards the defect where a page fetch was \
+abandoned at the ten-second timeout meant for health checks, so research looked down \
+while it was working.\
+"""
+tags = ["research"]
+requires = ["research"]
+
+[[turns]]
+say = "What changed in Python 3.13? Give me one source."
+
+[turns.expect]
+ran = ["research.search|research.open|research.summarize"]
+reply_matches = [
+  '3\.13',
+  'https?://\S+|\b[\w-]+\.(org|com|io|dev)\b',
+]

@@ -8,6 +8,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **`lucy eval`: conversation regressions, on demand.** Every defect found by talking to
+  Lucy through a real model was invisible to the unit suite, because the scripted
+  provider never reads the request. `lucy eval run --model clyde:haiku` (or `make evals
+  MODEL=clyde:haiku`) holds a constant list of real conversations against a running hub,
+  with any `provider:model` it can use, and checks what the hub *recorded* after each turn:
+  which operations ran and which must not have, what the reply says, whether wire format
+  leaked, and -- through the invoke route -- whether a file the model claims to have
+  written exists. It answers approvals as each turn says, skips a scenario whose
+  capability is not ready, archives every session, grants only for the session a step is
+  for, and writes `report.json` and `report.md` with failures first; `--compare` lists
+  regressions and fixes against an earlier run, and `--repeat` shows flaky checks as pass
+  rates. The shipped suite is ten prompts, each naming the defect it guards. It never runs
+  in CI or `make check`. See [docs/evals.md](docs/evals.md).
 - **The context engine.** What Lucy knows when it answers is now something the codebase
   states rather than something that emerges. The prompt is five zones ordered by how often
   they change, and the block that carries the state of the world is rewritten every turn

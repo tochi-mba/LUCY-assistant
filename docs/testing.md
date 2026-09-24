@@ -8,7 +8,10 @@ make cov        # an HTML report in htmlcov/
 
 `make check` has four gates and does not grow a fifth. Anything else — an eval suite, a
 live-model smoke test — is its own verb behind a pytest marker, so the default run stays
-deterministic and offline.
+deterministic and offline. The conversation regressions are not pytest at all: they are
+`lucy eval run` (or `make evals MODEL=...`), held on demand against a running hub, and
+only the harness's own logic is tested here, against a fake hub. See
+[evals.md](evals.md).
 
 CI gates Python 3.12. Python 3.13 remains declared supported, with the reason it is not
 currently gated recorded in [ADR-0008](adr/0008-python-3-12-floor.md). `make matrix` runs
