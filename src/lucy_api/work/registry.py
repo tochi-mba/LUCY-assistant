@@ -160,6 +160,12 @@ class Registry:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._listeners: list[Listener] = []
         self._deliveries: set[asyncio.Task[None]] = set()
+        self._closing = False
+
+    @property
+    def closing(self) -> bool:
+        """Whether the process is going down. Work cancelled now was stopped by nobody."""
+        return self._closing
 
     def on_finished(self, listener: Listener) -> None:
         """Be told, once, about every ending -- after it has been recorded.
@@ -452,6 +458,7 @@ class Registry:
         destroyed but it is pending" warnings and, worse, work whose final state is never
         recorded. Everything here ends as a state.
         """
+        self._closing = True
         tasks = list(self._tasks.values())
         for task in tasks:
             task.cancel()
