@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.agents.types import Delegation, capped_summary, declared_return
+from lucy_api.agents.types import RESTARTED, Delegation, capped_summary, declared_return
 from lucy_api.core.errors import LucyError
 from lucy_api.model.registry import parse_spec
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
@@ -26,6 +26,54 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import PackContext
     from lucy_api.packs.service import Capabilities
     from lucy_api.sessions.sql_store import SessionStore
+
+
+RESTART_REASON = "process_restarted"
+"""What `AgentStore.interrupt_running` writes for a helper a previous process was running."""
+
+STOPPED_STATUSES = frozenset({"failed", "interrupted"})
+"""Roster states of a helper that ended without finishing."""
+
+
+def _resumes(row: dict[str, Any]) -> str:
+    """The run this roster row continues, or nothing."""
+    stored = row.get("delegation")
+    return str(stored.get("resume_from") or "") if isinstance(stored, dict) else ""
+
+
+def _earlier_runs(rows: list[dict[str, Any]], latest: str) -> frozenset[str]:
+    """Every run a continuation follows on from, however many times it was continued.
+
+    `resume_from` names only the run just before, which may itself have been a continuation.
+    Reading that one link lost everything before it: a helper stopped twice came back knowing
+    only its second attempt, and was told its earlier items were in its transcript.
+    """
+    links = {str(row["id"]): _resumes(row) for row in rows}
+    found: set[str] = set()
+    current = latest
+    while current in links and current not in found:
+        found.add(current)
+        current = links[current]
+    return frozenset(found)
+
+
+def _stopped_line(row: dict[str, Any]) -> dict[str, Any]:
+    """A stopped helper as `agents.list` shows it: enough to decide whether to continue it."""
+    result = row.get("result")
+    restarted = row.get("interrupted_reason") == RESTART_REASON
+    if isinstance(result, dict):
+        why = str(result.get("summary") or row["status"])
+        resumable = bool(result.get("resumable"))
+    else:
+        why = RESTARTED if restarted else str(row["status"])
+        resumable = restarted
+    return {
+        "id": str(row["id"]),
+        "role": str(row["role"]),
+        "objective": str(row["objective"]),
+        "why": why,
+        "resumable": resumable,
+    }
 
 
 def _brief_text(delegation: Delegation) -> str:
@@ -48,7 +96,7 @@ def _brief_text(delegation: Delegation) -> str:
         )
     if delegation.resume_from:
         lines.append(
-            f"You are continuing helper {delegation.resume_from}. Its earlier items "
+            f"You are continuing helper {delegation.resume_from}. Its earlier runs "
             "are in this transcript; do not repeat finished work."
         )
     lines.append("Messages from the parent arrive as notices before a round, never mid-tool.")
@@ -244,6 +292,15 @@ class ChildRuntime:
                 "status": "running",
                 "message": "that helper is still running; steer it with agents.message",
             }
+        roster = await self.agents.for_session(parent.account_id, parent.session_id)
+        newer = next((str(item["id"]) for item in roster if _resumes(item) == agent_id), "")
+        if newer:
+            # Two continuations of one helper would each carry on from the same place, and
+            # the person would get the same work done twice, differently.
+            return {
+                "status": "continued",
+                "message": f"that helper was already continued as {newer}; continue that one",
+            }
         result = row.get("result")
         summary = ""
         if isinstance(result, dict):
@@ -270,6 +327,25 @@ class ChildRuntime:
             "objective": str(row["objective"]),
             "role": str(row["role"]),
         }
+
+    async def stopped(self, parent: PackContext) -> list[dict[str, Any]]:
+        """This caller's helpers that ended without finishing and have not been continued.
+
+        Durable, unlike a notice: a model that let the notice go by, or a person who asks
+        about it an hour later, can still find the helper and continue it. A helper somebody
+        cancelled is not here -- stopping it was the point.
+        """
+        rows = await self.agents.for_session(parent.account_id, parent.session_id)
+        continued = {_resumes(row) for row in rows}
+        mine = parent.agent_id or None
+        return [
+            _stopped_line(row)
+            for row in rows
+            if row["status"] in STOPPED_STATUSES
+            and row.get("interrupted_reason") != "cancelled"
+            and row.get("parent_agent_id") == mine
+            and str(row["id"]) not in continued
+        ]
 
     async def read_journal(self, parent: PackContext) -> dict[str, Any]:
         tasks = await self.agents.tasks(parent.account_id, parent.session_id)
@@ -334,6 +410,8 @@ class ChildRuntime:
         child.work = parent.work
         catalogue = await self.capabilities.probe(child)
         provider = self.models.resolve(str(session["model"]))
+        roster = await self.agents.for_session(parent.account_id, parent.session_id)
+        family = {agent_id, *_earlier_runs(roster, delegation.resume_from)}
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
             mail = await self.agents.drain_mail(parent.account_id, agent_id)
@@ -342,12 +420,7 @@ class ChildRuntime:
                 extra = "Messages from the parent:\n" + "\n".join(f"- {line}" for line in mail)
             combined = "\n".join(part for part in (notice, extra) if part)
             rows = await self.store.records(parent.account_id, parent.session_id, "items")
-            mine = [row for row in rows if str(row.get("agent_id") or "") == agent_id]
-            if delegation.resume_from:
-                prior = [
-                    row for row in rows if str(row.get("agent_id") or "") == delegation.resume_from
-                ]
-                mine = [*prior, *mine]
+            mine = [row for row in rows if str(row.get("agent_id") or "") in family]
             return await system_and_messages(
                 SessionView(
                     session_id=parent.session_id,

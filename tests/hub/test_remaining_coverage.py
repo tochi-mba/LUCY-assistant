@@ -248,7 +248,7 @@ async def test_agents_list_and_an_empty_brief_run_through_the_pack() -> None:
     messenger = next(op for op in pack.operations(child) if op.name == "agents.message")
     steered = await messenger.run(SimpleNamespace(input={"id": "", "message": "stop"}, ctx=child))
     assert steered["status"] in {"invalid", "not_configured"}
-    assert _list(work, "ses_a")["count"] == 0
+    assert (await _list(work, context))["count"] == 0
     assert (await _spawn(work, context, depth=0, objective="", role="x"))["status"] == "invalid"
     await work.shutdown()
 
