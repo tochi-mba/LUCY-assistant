@@ -48,6 +48,10 @@ lint: ## Lint (no fixes)
 # the same host, so this is about which shims a policy trusts, not about the tools. The
 # `python -m` spelling runs the same code everywhere, so it is used everywhere rather than
 # branched on one platform. import-linter has no `__main__`, hence the script.
+#
+# pytest runs with `-P`. `python -m` otherwise puts the working directory on `sys.path` and
+# CI's plain `pytest` does not, so a test importing `tests.hub...` or `scripts...` as a package
+# passed here and failed in CI. `-P` makes this box import the way CI does.
 type: ## Strict type check
 	$(UV) run python -m mypy
 
@@ -55,16 +59,16 @@ imports: ## Enforce the architectural layering contracts
 	$(UV) run python scripts/lint_imports.py
 
 test: ## Run the suite with 100% branch coverage enforced
-	$(UV) run python -m pytest --cov --cov-report=term-missing
+	$(UV) run python -P -m pytest --cov --cov-report=term-missing
 
 cov: ## Write an HTML coverage report to htmlcov/
-	$(UV) run python -m pytest --cov --cov-report=html
+	$(UV) run python -P -m pytest --cov --cov-report=html
 
 check: lint type imports test ## Everything CI runs, on one interpreter
 
 matrix: ## Optional tests on both supported interpreters (CI gates 3.12)
-	$(UV) run --python 3.12 python -m pytest -q
-	$(UV) run --python 3.13 python -m pytest -q
+	$(UV) run --python 3.12 python -P -m pytest -q
+	$(UV) run --python 3.13 python -P -m pytest -q
 
 # Never part of `check`, and never run by CI: it holds real conversations with a real model
 # against a hub that is already running, which costs minutes and somebody's model budget.
