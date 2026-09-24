@@ -286,7 +286,8 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     """Consume one model reply: cancel, speak, or run the plan.
 
     A speaking reply is recorded before the cancel check, because the person asked to stop
-    a turn that had already produced words, not to un-say them.
+    a turn that had already produced words, not to un-say them. Words beside a plan are not:
+    they wait for the plan to run (see `_run_plan`), and a turn stopped first never ran it.
     """
     turn = cycle.turn
     outcome = cycle.outcome
@@ -304,12 +305,14 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
         outcome.rounds.append(replace(round_, text=""))
         cycle.repair_notice = UNBACKED
         return None
-    await _assistant_item(turn, reply.text)
+    executor = turn.execute
+    acting = reply.plan is not None and executor is not None
+    if not acting:
+        await _assistant_item(turn, reply.text)
     ended = await _early_stop(outcome, cycle.limits, outcome.spent, cycle.is_cancelled)
     if ended is not None:
-        outcome.rounds.append(round_)
+        outcome.rounds.append(replace(round_, text="") if acting else round_)
         return ended
-    executor = turn.execute
     if reply.plan is None or executor is None:
         if _said_nothing(reply):
             return await _nothing_said(cycle, round_)
@@ -342,27 +345,35 @@ async def _nothing_said(cycle: _Cycle, round_: Round) -> Outcome | None:
 async def _run_plan(
     cycle: _Cycle, reply: Reply, round_: Round, executor: ExecutePlan
 ) -> Outcome | None:
-    """Execute the plan on a reply that already survived the cancel check."""
+    """Execute the plan on a reply that already survived the cancel check.
+
+    What the model wrote beside the plan is shown only once the plan has run, just before its
+    results. Parked for approval, refused, or invalid, none of it ran: read in a sent turn,
+    "Got it. I've noted that..." reached the person beside a write still waiting for their
+    yes, and would have stood had the answer been no. The approval says what is pending.
+    """
     turn = cycle.turn
     outcome = cycle.outcome
     result = await executor(executable(reply.plan))
     attach_needles(reply.plan, result)
+    unsaid = replace(round_, text="")
     waiting = _permission_issues(result)
     if waiting:
-        return _parked(outcome, round_, reply.plan, waiting)
-    denied_notice = await _record_denial(turn, outcome, round_, result)
+        return _parked(outcome, unsaid, reply.plan, waiting)
+    denied_notice = await _record_denial(turn, outcome, unsaid, result)
     if denied_notice:
         cycle.repair_notice = denied_notice
         return None
     executed: tuple[Step, ...]
     repair_notice = ""
+    said = ""
     if not _is_valid(result):
         repair_notice = "The previous plan was invalid: " + _issue_text(result)
         await _invalid_item(turn, repair_notice)
         if cycle.repairs < MAX_PLAN_REPAIRS:
             cycle.repairs += 1
             cycle.repair_notice = repair_notice
-            outcome.rounds.append(round_)
+            outcome.rounds.append(unsaid)
             return None
         executed = (
             Step(
@@ -373,6 +384,8 @@ async def _run_plan(
             ),
         )
     else:
+        said = reply.text
+        await _assistant_item(turn, said)
         executed = _record(
             result,
             repetition=cycle.repetition,
@@ -384,7 +397,7 @@ async def _run_plan(
             await turn.append("tool_result", "tool", _item_for(step))
     outcome.rounds.append(
         Round(
-            text=reply.text,
+            text=said,
             reasoning=reply.reasoning,
             plan=reply.plan,
             steps=executed,

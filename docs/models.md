@@ -54,10 +54,11 @@ then, which is cheaper than losing the provider.
 Every round offers the model the plan schema as structured output, and a provider that can
 enforce a schema does. So the schema itself has to leave room to answer without acting: it
 has an optional `say` beside an optional `steps`. `say` alone is the answer and ends the
-turn. `say` beside `steps` is shown before the steps run, so it says what is about to happen,
-never that it has: a step can fail or wait for approval. `steps` alone is a plan. A provider
-that is not enforcing anything may still answer in plain prose, and that is read as the
-answer too. `model/wire.py` `said_and_planned` is the one place all three adapters read this.
+turn. `say` beside `steps` is shown only once the steps have run, just before their results,
+and not at all when they stop for approval, are refused or cannot run; it says what is about to
+happen, never that it has, because it is written before anyone knows. `steps` alone is a plan.
+A provider that is not enforcing anything may still answer in plain prose, and that is read as
+the answer too. `model/wire.py` `said_and_planned` is the one place all three adapters read this.
 
 ## What is configured
 
