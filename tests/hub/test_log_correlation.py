@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from conftest import bearer
 from weftai.operation import define_operation
 from weftai.schema.spec import object_schema
 from weftai.schema.types import value
@@ -40,6 +41,8 @@ from lucy_api.turn.supervisor import TurnSupervisor
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator, Mapping
     from pathlib import Path
+
+    from httpx import AsyncClient
 
 ACCOUNT = "acct_logs"
 READ_DOCS = {"steps": [{"id": "docs", "op": "help.docs", "input": {"topic": "notes"}}]}
@@ -206,3 +209,22 @@ def test_a_hook_given_odd_arguments_writes_nothing_and_raises_nothing(
     hooks["afterStep"]({})
     hooks["onStepError"]({"step": object(), "error": ValueError("x")})
     assert lines() == []
+
+
+async def test_a_direct_tool_call_s_step_says_which_conversation_it_was_for(
+    client: AsyncClient, lines: Callable[[], list[dict[str, Any]]]
+) -> None:
+    created = await client.post(
+        "/v1/sessions", json={}, headers={**bearer(), "Idempotency-Key": "direct"}
+    )
+    session = str(created.json()["id"])
+
+    invoked = await client.post(
+        "/v1/tools/help.docs/invoke",
+        json={"input": {"topic": "notes"}, "session_id": session},
+        headers=bearer(),
+    )
+
+    assert invoked.status_code == 200, invoked.text
+    [step] = [line for line in lines() if line["message"] == "step"]
+    assert step["session_id"] == session
