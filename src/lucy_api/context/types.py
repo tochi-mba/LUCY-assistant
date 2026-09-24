@@ -272,6 +272,7 @@ class TopicSnapshot:
     last_seen: datetime | None = None
     trust: str = "stated"
     unread: int = 0
+    unconfirmed: int = 0
 
 
 @dataclass(frozen=True, slots=True)

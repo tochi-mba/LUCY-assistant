@@ -544,12 +544,17 @@ def _memory_group(topics: Sequence[TopicSnapshot], now: datetime) -> _Group:
     """
     ordered = sorted(topics, key=lambda topic: _topic_order(topic, now))
     unread = sum(topic.unread for topic in ordered)
+    unconfirmed = sum(topic.unconfirmed for topic in ordered)
     headline = (
         f"{_plural(len(ordered), 'topic', 'topics')}, "
         f"{_plural(sum(topic.count for topic in ordered), 'memory', 'memories')}"
     )
     if unread:
         headline += f", {unread} unread"
+    if unconfirmed:
+        # Said, not dropped: these exist and cannot be used until the person confirms them,
+        # and a model that does not know they exist will tell the person it knows nothing.
+        headline += f", {unconfirmed} unconfirmed"
     return _Group(
         name="memory",
         quota=QUOTAS["memory"],
@@ -704,6 +709,8 @@ def _topic_line(topic: TopicSnapshot, now: datetime) -> str:
     counts = _plural(topic.count, "memory", "memories")
     if topic.unread:
         counts += f", {topic.unread} unread"
+    if topic.unconfirmed:
+        counts += f", {topic.unconfirmed} unconfirmed"
     trust = "" if topic.trust == Trust.stated else f"trust: {_clean(topic.trust, STATUS_CHARS)}"
     return INDENT + _joined(
         _clean(topic.title, TITLE_CHARS),
