@@ -434,7 +434,22 @@ python scripts/genenv.py          # writes .env.family; never prints the values
 make images && make up            # host ports 8000–8009; up reuses the build cache
 ```
 
-Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.
+Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`. A
+refresh with `--force` keeps `KEYRING_MASTER_KEY`, because it decrypts every credential
+already stored in keyring; `--rotate-master-key` replaces it too, and makes those credentials
+unreadable. Variables this machine needs that the family does not publish -- pointing the hub
+at [clyde](https://github.com/tochi-mba/clyde) on the host, say -- belong in
+`scripts/genenv.local.json` so a refresh keeps them:
+
+```json
+{
+  "env": {
+    "LUCY_MODEL_BASE_URLS": "{\"clyde\":\"http://host.docker.internal:8127/v1\"}"
+  }
+}
+```
+
+A refresh names any variable from the old file that it did not carry over.
 
 ## The `lucy` command
 
