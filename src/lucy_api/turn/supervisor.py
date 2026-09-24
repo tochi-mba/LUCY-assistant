@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +20,7 @@ from lucy_api.context.build import Live
 from lucy_api.context.scrub import scrub
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
-from lucy_api.core.logging import allow_message_content
+from lucy_api.core.logging import allow_message_content, bind
 from lucy_api.decide.uses import Recovery, suggest_capabilities
 from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
@@ -205,10 +206,18 @@ class TurnSupervisor:
             if row is None:
                 return
             claimed = ClaimedTurn.from_row(row)
-            try:
-                await self._run(claimed)
-            finally:
-                await self._events.publish_persisted(claimed.session_id)
+            began = time.perf_counter()
+            # Every line this turn writes -- its model calls, its steps, the helpers it starts,
+            # which inherit this context -- says which conversation and turn it belongs to.
+            with bind(session_id=claimed.session_id, turn_id=claimed.id):
+                try:
+                    await self._run(claimed)
+                finally:
+                    logger.info(
+                        "turn_ended",
+                        extra={"duration_ms": round((time.perf_counter() - began) * 1000, 3)},
+                    )
+                    await self._events.publish_persisted(claimed.session_id)
 
     async def _run(self, claimed: ClaimedTurn) -> None:  # noqa: PLR0915 - one turn is one function
         prepared = self._prepared.pop(claimed.id, None)
