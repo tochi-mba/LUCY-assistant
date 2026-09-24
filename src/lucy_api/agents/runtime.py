@@ -17,7 +17,7 @@ from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.prompt import SessionView, system_and_messages, view_limits
-from lucy_api.turn.stop import Budget, Termination
+from lucy_api.turn.stop import RESUMABLE, Budget, Termination
 
 if TYPE_CHECKING:
     from lucy_api.agents.store import AgentStore
@@ -177,6 +177,7 @@ class ChildRuntime:
                 "role": delegation.role,
                 "summary": "the helper was stopped because it ran out of time",
                 "tokens": 0,
+                "resumable": True,
             }
         except Exception as exc:
             result = {
@@ -185,6 +186,7 @@ class ChildRuntime:
                 "role": delegation.role,
                 "summary": f"the helper stopped ({type(exc).__name__})",
                 "tokens": 0,
+                "resumable": True,
             }
         finished = "completed" if result["status"] == "ok" else "failed"
         await self.agents.finish(
@@ -404,6 +406,7 @@ class ChildRuntime:
             "tokens": tokens,
             "notice": notice,
             "termination": outcome.termination.value,
+            "resumable": status == "failed" and outcome.termination in RESUMABLE,
             "permission_mode": child.permission_mode,
         }
 
