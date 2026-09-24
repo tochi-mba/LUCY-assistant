@@ -112,12 +112,25 @@ class Findings:
 
 @dataclass(frozen=True, slots=True)
 class Page:
-    """Where a page came from and how much of it there was. The part a model may see."""
+    """Where a page came from and how much of it there was. The part a model may see.
+
+    A URL the service could not fetch -- robots.txt, a blocked address, a 404, a timeout --
+    is still a row in a 200, with no page and the reason in its `error`. Read without its
+    `status` it became a page with no title and no words, which is also exactly what an
+    empty page looks like, so a model could cite a source nobody had read and the service's
+    "https://example.com/private disallows automated fetching." went nowhere.
+    """
 
     url: str
     final_url: str = ""
     title: str = ""
     word_count: int = 0
+    status: str = "ok"
+    detail: str = ""
+
+    @property
+    def fetched(self) -> bool:
+        return self.status == "ok"
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +284,8 @@ def _article(row: Any) -> Article:
             final_url=text(page, "final_url"),
             title=text(page, "title"),
             word_count=number(page, "word_count"),
+            status=text(row, "status", "ok"),
+            detail=text(nested(row, "error"), "detail"),
         ),
         text=text(page, "text"),
     )
@@ -330,10 +345,14 @@ class FakeSearchClient:
         return tuple(found)
 
     async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
-        """The seeded articles for the URLs that were stocked, and nothing for the rest."""
+        """The seeded article for each stocked URL, and a failed row for each of the rest.
+
+        A failed row rather than no row, because that is what the service answers: one result
+        per URL asked for, whether or not it could be fetched.
+        """
         self.profiles.append(profile)
         self.opened.extend(urls)
-        articles = tuple(self.library[url] for url in urls if url in self.library)
+        articles = tuple(self.library.get(url) or _unfetched(url) for url in urls)
         return Reading(articles=articles, summary=self.summary)
 
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
@@ -341,6 +360,11 @@ class FakeSearchClient:
         self.profiles.append(profile)
         self.asked.append(topic or body[:40])
         return self.summary
+
+
+def _unfetched(url: str) -> Article:
+    """What the service answers for a URL whose origin said 404."""
+    return Article(page=Page(url=url, status="error", detail=f"{url} responded 404."))
 
 
 if TYPE_CHECKING:

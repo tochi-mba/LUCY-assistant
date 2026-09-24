@@ -7,10 +7,12 @@ from lucy_api.clients.search import (
     FakeSearchClient,
     Findings,
     Hit,
+    HttpSearchClient,
     Page,
     Provider,
     Summary,
 )
+from lucy_api.clients.testing import FakeHttp, problem
 from lucy_api.packs.base import State
 from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.service import Capabilities
@@ -94,8 +96,56 @@ async def test_research_operations_project_hits_pages_and_summaries() -> None:
     assert fake.profiles == ["personal", "personal", "personal"]
 
 
+async def test_a_search_service_that_answers_with_an_outage_leaves_research_unavailable() -> None:
+    client = HttpSearchClient(FakeHttp(problem(503, detail="warming up")), "https://search.test")
+    pack = ResearchPack("https://search.test", client=client)
+
+    availability = await pack.probe(_context())
+
+    assert availability.state is State.unavailable
+    assert availability.detail == "research could not be reached"
+
+
 async def test_empty_provider_catalogue_means_operator_not_configured() -> None:
     fake = FakeSearchClient()
     fake.offer([])
     availability = await ResearchPack("https://search.test", client=fake).probe(_context())
     assert availability.state is State.not_configured
+
+
+async def test_opening_a_page_that_could_not_be_fetched_names_the_reason() -> None:
+    """The bug, named: a blocked page reached the model as one with no title and no words.
+
+    Nothing said it had not been read, so "this source is empty" was a fair reading of it.
+    """
+    fake = FakeSearchClient()
+    fake.stock(
+        Article(
+            Page(
+                url="https://example.test/private",
+                status="error",
+                detail="https://example.test/private disallows automated fetching.",
+            )
+        )
+    )
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {
+                    "id": "open",
+                    "op": "research.open",
+                    "input": {"url": "https://example.test/private"},
+                },
+            ]
+        },
+        context,
+    )
+
+    rendered = str(result)
+    assert "'status': 'error'" in rendered
+    assert "'error': 'https://example.test/private disallows automated fetching.'" in rendered
+    assert "could not open https://example.test/private" in rendered
