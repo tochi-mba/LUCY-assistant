@@ -28,6 +28,7 @@ from lucy_api.context.types import (
     BudgetSnapshot,
     CapabilitySnapshot,
     FailureSnapshot,
+    FeedSnapshot,
     LiveState,
     PendingSnapshot,
     Section,
@@ -602,35 +603,72 @@ def a_workspace(**overrides: Any) -> WorkspaceSnapshot:
     return WorkspaceSnapshot(**{**fields, **overrides})
 
 
+WORKSPACE_FEED = FeedSnapshot(
+    id="workspace",
+    title="attached workspace right now",
+    lines=("2 shells running", "sandbox isolation: container", "git branch: main"),
+)
+
+
 def test_the_workspace_line_names_the_path_its_readiness_and_what_moved() -> None:
+    state = a_state(workspace=a_workspace(changed_files=("src/ingest/api.py", "docs/migration.md")))
+    rendered = body_of(state)
+
+    assert headline(rendered, "workspace") == (
+        "/work/ingest - ready - 2 files changed since your last turn"
+    )
+    assert entries_of(rendered, "workspace") == ["src/ingest/api.py", "docs/migration.md"]
+
+
+def test_the_workspace_feed_joins_the_workspace_group_rather_than_opening_a_second() -> None:
+    """Read in a sent request: `workspace sessions/ses_... - ready` and, under it, `workspace
+    attached workspace right now` with the same path again as its working directory."""
+    research = FeedSnapshot(id="research", title="search in force", lines=("backend: Google",))
+    rendered = body_of(a_state(workspace=a_workspace(), feeds=(WORKSPACE_FEED, research)))
+
+    assert headline(rendered, "workspace") == (
+        "/work/ingest - ready - 2 shells running - sandbox isolation: container - git branch: main"
+    )
+    assert sum(line.startswith("workspace") for line in rendered.splitlines()) == 1
+    assert "attached workspace right now" not in rendered
+    assert headline(rendered, "research") == "search in force"
+
+
+def test_without_a_workspace_group_the_workspace_feed_still_says_its_piece() -> None:
+    rendered = body_of(a_state(feeds=(WORKSPACE_FEED,)))
+    assert headline(rendered, "workspace") == "attached workspace right now"
+    assert entries_of(rendered, "workspace")[0] == "2 shells running"
+
+
+def test_a_resume_says_each_thing_once_and_names_the_files_it_read() -> None:
+    """Read in a sent request: the first commit as the last checkpoint and again in the log,
+    `smoke git is available`, the journal's seeded header, and `tasks {"tasks":[]}`."""
     state = a_state(
         workspace=a_workspace(
-            changed_files=("src/ingest/api.py", "docs/migration.md"), last_checkpoint="ckpt_9"
+            commits=("abc123 first", "def456 second"),
+            journal="Did the dates.",
+            tasks="1 task: dates",
+            changed_files=("dates.txt",),
         )
     )
     rendered = body_of(state)
 
     assert headline(rendered, "workspace") == (
-        "/work/ingest - ready - 2 files changed since your last turn - last checkpoint ckpt_9"
+        "/work/ingest - ready - 1 file changed since your last turn"
     )
-    assert entries_of(rendered, "workspace") == ["src/ingest/api.py", "docs/migration.md"]
+    assert entries_of(rendered, "workspace") == [
+        "recent commits: abc123 first; def456 second",
+        "progress.md, latest: Did the dates.",
+        "tasks.json: 1 task: dates",
+        "dates.txt",
+    ]
 
 
-def test_a_resume_orientation_lists_cwd_journal_tasks_git_and_smoke_first() -> None:
-    state = a_state(
-        workspace=a_workspace(
-            cwd="sessions/ses_1",
-            journal="Did the dates.",
-            tasks='{"tasks":[]}',
-            git_log="abc123 session-start",
-            smoke="git is available",
-            changed_files=("dates.txt",),
-        )
-    )
-    rendered = body_of(state)
-    assert entries_of(rendered, "workspace")[0].startswith("cwd ")
-    assert any(line.startswith("journal ") for line in entries_of(rendered, "workspace"))
-    assert "dates.txt" in entries_of(rendered, "workspace")
+def test_a_sandbox_without_git_says_so_instead_of_its_commits() -> None:
+    missing = a_workspace(git_missing=True, commits=("abc123 first",))
+    assert entries_of(body_of(a_state(workspace=missing)), "workspace") == [
+        "git is not available in this sandbox"
+    ]
 
 
 def test_a_workspace_that_is_not_ready_says_so_before_anything_is_attempted_in_it() -> None:

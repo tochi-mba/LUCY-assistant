@@ -59,17 +59,19 @@ compacted away, or waste a tool call discovering.
 - **tasks** — the shared journal: what is open, who claimed it, what is blocked on what.
   This is how one agent sees another's work with no context transferred between them.
 - **memory** — the topic index, described below.
-- **workspace** — path, readiness, what changed since last turn, the last checkpoint, and a
-  sandbox expiry. On resume the group also carries cwd, the `progress.md` journal, `tasks.json`,
-  a short git log, and a smoke line, so a long-horizon helper re-orients before it writes.
-  warning before the sandbox expires.
+- **workspace** — path, readiness (an archived or unlisted workspace is not ready), the
+  workspace feed's lines (shells running, isolation, git branch), what changed since last
+  turn, and a warning before the sandbox expires. On resume the group also carries the last
+  three commits, the latest entries of the `progress.md` journal and a one-line summary of
+  `tasks.json` -- each left out when it has nothing to say -- so a long-horizon helper
+  re-orients before it writes. Each thing is said once.
 - **capabilities** — what is ready, and especially what changed.
 - **pending** — approvals, elicitations and connections waiting on somebody else, so the
   model stops rather than spins.
 - **feeds** — standing claims (persona identity, pinned account facts, persona notes) in zone 1; live facts (now playing,
   shuffle and repeat when the player reports them, active playback device, search backend as a
-  product word, working directory, git branch when it is a real branch, and safe workspace
-  state) in this block. Each line is a setting the
+  product word, git branch when it is a real branch, and safe workspace state, which joins
+  the workspace group) in this block. Each line is a setting the
   person can turn off. Persona data comes from Persona-api; pinned account fields come
   from User-api as a **separate** feed from memory; playback and active-device
   state come from Spotify-api; attached-environment state comes from Environments-api.

@@ -279,18 +279,23 @@ class TopicSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceSnapshot:
-    """The filesystem the model is working in, and what moved in it."""
+    """The filesystem the model is working in, and what moved in it.
+
+    The first fields are read on every assemble. `commits` through `git_missing` are read only
+    on the first assemble of a turn that is coming back, when the model has to re-orient
+    before it writes; `journal` and `tasks` are already the lines worth showing. What runs in
+    the environment -- shells, isolation, branch -- is the workspace feed's, where each line
+    is a switch the person can turn off.
+    """
 
     path: str
     ready: bool
     changed_files: tuple[str, ...] = ()
-    last_checkpoint: str = ""
     expires_in_seconds: float | None = None
-    cwd: str = ""
+    commits: tuple[str, ...] = ()
     journal: str = ""
-    git_log: str = ""
     tasks: str = ""
-    smoke: str = ""
+    git_missing: bool = False
 
 
 @dataclass(frozen=True, slots=True)

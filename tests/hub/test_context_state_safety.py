@@ -38,7 +38,12 @@ def poisoned_state() -> LiveState:
         in_flight=(running_agent(objective=POISON, progress=POISON),),
         tasks=(TaskSnapshot(id="t1", title=POISON, status="open", claimed_by=POISON),),
         topics=(a_topic(title=POISON, summary=POISON),),
-        workspace=a_workspace(changed_files=(POISON,), last_checkpoint=POISON),
+        workspace=a_workspace(
+            changed_files=(POISON,),
+            commits=(POISON,),
+            journal=POISON,
+            tasks=POISON,
+        ),
         capabilities=(CapabilitySnapshot(id="c1", title=POISON, state="ready", detail=POISON),),
         pending=PendingSnapshot(approvals=(POISON,)),
         failures=(FailureSnapshot(operation=POISON, count=2, detail=POISON),),

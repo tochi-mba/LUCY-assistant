@@ -212,13 +212,12 @@ class WorkspaceFeeds:
         )
         if current is None:
             return ()
+        # Not the working directory, and not whether the environment is up: the workspace
+        # group already says both, and said here they reached the model twice.
         entries: list[FeedEntry] = [
             FeedEntry(
                 key="shells_running",
-                line=(
-                    f"{current.shells_running} shells running; "
-                    f"environment {current.state or 'unknown'}"
-                ),
+                line=f"{current.shells_running} shells running",
                 trust=Trust.observed,
                 source="workspace",
             ),
@@ -229,15 +228,6 @@ class WorkspaceFeeds:
                 source="workspace",
             ),
         ]
-        if self.workspace_rel:
-            entries.append(
-                FeedEntry(
-                    key="cwd",
-                    line=f"working directory: {self.workspace_rel}",
-                    trust=Trust.observed,
-                    source="workspace",
-                )
-            )
         branch = await _git_branch(self.client, self.environment_id, self.workspace_rel)
         if branch:
             entries.append(
