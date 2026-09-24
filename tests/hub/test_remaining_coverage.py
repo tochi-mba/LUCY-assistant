@@ -144,7 +144,7 @@ async def test_research_probe_covers_each_provider_outcome() -> None:
     assert (await pack.probe(_pack_context())).state is State.unavailable
 
     class Boom:
-        async def providers(self) -> list[Provider]:
+        async def providers(self, *, profile: str = "") -> list[Provider]:
             raise ExchangeError("no grant")
 
     broken = ResearchPack("https://search.test", client=Boom())  # type: ignore[arg-type]

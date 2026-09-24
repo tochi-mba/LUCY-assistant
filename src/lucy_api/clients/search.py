@@ -162,8 +162,8 @@ class Reading:
 class SearchClient(Protocol):
     """Search, open, summarise. Three operations, because a model needs no more."""
 
-    async def providers(self) -> tuple[Provider, ...]:
-        """Which model providers this person can currently use."""
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
+        """Which model providers this person can currently use, under this profile."""
         ...
 
     async def search(
@@ -187,9 +187,15 @@ class HttpSearchClient:
     def __init__(self, http: Http, base_url: str, *, audience: str = AUDIENCE) -> None:
         self._api = Sibling(http=http, base_url=base_url, service=SERVICE, audience=audience)
 
-    async def providers(self) -> tuple[Provider, ...]:
-        """The probe. Answers per caller, so the statuses are about this person."""
-        payload = await self._api.send("GET", "/v1/models")
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
+        """The probe. Answers per caller and per profile, so the statuses are about this turn.
+
+        Without the profile the service checks the person's default one
+        (Web-search-api/app/api/deps.py `get_caller`), while every search, open and summarise
+        runs under the turn's. A session under `work` could be told "a research model is
+        connected" because `personal` had one, and then fail on its first search.
+        """
+        payload = await self._api.send("GET", "/v1/models", profile=profile)
         return tuple(
             Provider(
                 name=text(row, "name"),
@@ -320,8 +326,9 @@ class FakeSearchClient:
         """Say which providers this person can use."""
         self.known = tuple(providers)
 
-    async def providers(self) -> tuple[Provider, ...]:
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
         """Whatever the test said about this person's providers."""
+        self.profiles.append(profile)
         return self.known
 
     async def search(
