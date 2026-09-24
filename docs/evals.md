@@ -58,7 +58,7 @@ not list is a warning, not a refusal.
 | `--suite NAME\|PATH` | A shipped suite (`default`) or a folder of `.toml` files, or one file. Repeatable. Default: `default`. |
 | `--scenario NAME` | Only this scenario, by `name` or `suite/name`. Repeatable. |
 | `--tag TAG` | Only scenarios carrying any of these tags. Repeatable. |
-| `--profile P` | The profile every session runs as. Default: `personal`. |
+| `--profile P` | The profile every session runs as. Default: a new one for this run, `eval-<time>`, so a run shares no memory with you or with any other run. |
 | `--repeat N` | Hold each conversation N times. The report shows pass rates per check. |
 | `--timeout SECONDS` | Cancel a turn that has not come to rest by then. Default 300. A scenario's `timeout_seconds` wins. |
 | `--report-dir DIR` | Default `var/evals/<UTC time>/` (gitignored). A folder already holding a report is refused. |
@@ -133,9 +133,10 @@ or starts refusing the token, stops the whole run: every remaining scenario is r
 - **Deferred capabilities are bound the way the model binds them.** If a seed or verify
   operation is not callable yet and its capability is deferred, the harness calls
   `capabilities.use` first. That counts as a use of the capability in that session.
-- **Memory is real.** A scenario that asks Lucy to remember something writes a real note to
-  the run's profile, and it stays there. Run with `--profile` set to a profile kept for
-  testing if you do not want eval notes among your own.
+- **Memory is real, and each run's is its own.** A scenario that asks Lucy to remember
+  something writes a real note, to the run's profile. By default every run gets a new profile,
+  so nothing it writes reaches your notes and nothing you or an earlier run wrote is read back
+  as though it were remembered. `--profile` names one to reuse, knowing that it will.
 - **Sessions are archived, not deleted**, so every conversation can be read afterwards.
 
 ## The default suite
