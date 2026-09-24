@@ -109,6 +109,39 @@ DATE_UNKNOWN = "date not recorded"
 KNOWN_TRUST = frozenset(member.value for member in Trust)
 """The trust words that may be rendered. Anything else is rendered as untrusted; see `_known`."""
 
+OWN_OPERATIONS = frozenset(
+    {
+        "capabilities.list",
+        "capabilities.setup",
+        "capabilities.use",
+        "help.docs",
+        "help.operation",
+        "help.skill",
+        "help.skills",
+        "settings.describe",
+        "settings.get",
+        "settings.set",
+        "work.list",
+        "work.check",
+        "work.wait",
+        "work.cancel",
+        "agents.list",
+        "agents.spawn",
+        "agents.reopen",
+        "agents.message",
+        "journal.read",
+        "journal.claim",
+        "journal.complete",
+    }
+)
+"""Operations whose results Lucy's own machinery wrote, so no outsider chose a word of them.
+
+`work.result` is not here: it hands back what a finished piece of work produced -- a helper's
+report, a command's output -- which is downstream of whatever that work read.
+"""
+
+LEAST_TRUSTED_LAST = (Trust.stated, Trust.observed, Trust.inferred, Trust.untrusted)
+
 
 @dataclass(frozen=True, slots=True)
 class Origin:
@@ -186,6 +219,38 @@ def frame_result(body: str, origin: Origin, *, trust: Trust = Trust.untrusted) -
         lines.append(_line(UNTRUSTED_RESULT_CLOSING))
     lines.append("</result>")
     return "\n".join(lines)
+
+
+def result_trust(operation: str, data: object) -> Trust:
+    """How much a step's result deserves, from where it came rather than from what it says.
+
+    Every result used to be framed as coming "from somewhere an attacker can write" -- a fact the
+    person stated to Lucy a minute earlier included, which invites the model to doubt the
+    person's own words. Lucy's own machinery is `observed`. A notes result is as trusted as the
+    least trusted memory in it, read from each memory's own `trust` field. Anything else -- a
+    page, a file, a command's output, a helper's report -- stays `untrusted`.
+    """
+    if operation in OWN_OPERATIONS:
+        return Trust.observed
+    if operation.startswith("notes."):
+        found = [_as_trust(value) for value in _trust_values(data)]
+        return max(found, key=LEAST_TRUSTED_LAST.index, default=Trust.observed)
+    return Trust.untrusted
+
+
+def _as_trust(value: object) -> Trust:
+    """A trust word as the enum, or `untrusted` for any word it does not know."""
+    return Trust(str(value)) if str(value) in KNOWN_TRUST else Trust.untrusted
+
+
+def _trust_values(data: object) -> list[object]:
+    """Every `trust` a result's memories carry, however deeply they are nested."""
+    if isinstance(data, dict):
+        own = [data["trust"]] if "trust" in data else []
+        return [*own, *(found for value in data.values() for found in _trust_values(value))]
+    if isinstance(data, list):
+        return [found for item in data for found in _trust_values(item)]
+    return []
 
 
 def _claim_lines(claim: Claim) -> list[str]:
@@ -295,4 +360,5 @@ __all__ = [
     "Origin",
     "frame_claims",
     "frame_result",
+    "result_trust",
 ]
