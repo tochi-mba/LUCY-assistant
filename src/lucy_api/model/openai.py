@@ -73,8 +73,8 @@ from lucy_api.model.wire import (
     as_text,
     count,
     events,
-    json_object,
     model_for,
+    said_and_planned,
     send,
 )
 
@@ -175,7 +175,7 @@ def reply_from(payload: dict[str, Any], *, want_plan: bool) -> Reply:
     if reason == CONTENT_FILTER_REASON:
         msg = "openai declined this request: the content filter stopped the response"
         raise ModelRefusedError(msg)
-    plan = json_object(spoken.text) if want_plan else None
+    said, plan = said_and_planned(spoken.text) if want_plan else (spoken.text, None)
     if reason == MAX_TOKENS_REASON:
         stop = Stop.max_tokens
     elif plan is not None:
@@ -183,7 +183,7 @@ def reply_from(payload: dict[str, Any], *, want_plan: bool) -> Reply:
     else:
         stop = Stop.end_turn
     return Reply(
-        text="" if plan is not None else spoken.text,
+        text=said,
         plan=plan,
         reasoning=spoken.reasoning,
         stop=stop,

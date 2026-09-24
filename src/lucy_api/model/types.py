@@ -128,6 +128,23 @@ class Chunk:
     reply: Reply | None = None
 
 
+SAY = "say"
+"""The plan's one field for words: what the person is told, with steps or instead of them.
+
+The plan schema is sent as structured output, which a provider that can enforce it does
+enforce, and it used to require `steps`. A model asked "hi" through such a provider had no
+way to answer: it was made to invent a step -- through clyde, `capabilities.list` in reply to
+a greeting, twice in two -- and a turn could end only on its iteration cap. Anthropic's and
+OpenAI's own adapters send the same schema the same way.
+"""
+
+SAY_DESCRIPTION = (
+    "What to tell the person. On its own, with no steps, it is your answer and ends the turn. "
+    "Beside steps, it is said while they run."
+)
+"""How `say` describes itself inside the schema, which is all some models ever read of it."""
+
+
 @dataclass(frozen=True, slots=True)
 class Request:
     """One call. The prompt is already assembled; this layer does not build context.
@@ -169,6 +186,8 @@ class Provider(Protocol):
 
 
 __all__ = [
+    "SAY",
+    "SAY_DESCRIPTION",
     "Chunk",
     "Message",
     "ModelRefusedError",

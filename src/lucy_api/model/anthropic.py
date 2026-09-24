@@ -67,8 +67,8 @@ from lucy_api.model.wire import (
     as_text,
     count,
     events,
-    json_object,
     model_for,
+    said_and_planned,
     send,
 )
 
@@ -150,12 +150,12 @@ def reply_from(payload: dict[str, Any], *, want_plan: bool) -> Reply:
         elif kind == "thinking":
             thought.append(as_text(block.get("thinking")))
     text = "".join(spoken)
-    plan = json_object(text) if want_plan else None
+    said, plan = said_and_planned(text) if want_plan else (text, None)
     stop = STOPS.get(stop_reason, Stop.end_turn)
     if plan is not None and stop is not Stop.max_tokens:
         stop = Stop.tool_use
     return Reply(
-        text="" if plan is not None else text,
+        text=said,
         plan=plan,
         reasoning="".join(thought),
         stop=stop,

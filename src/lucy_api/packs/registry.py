@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from weftai import create_formatter, create_registry, create_runtime, standard_operations
 
+from lucy_api.model.types import SAY, SAY_DESCRIPTION
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
 from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
@@ -341,7 +342,21 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
-    return allow_show_from(schema)
+    return _with_words(allow_show_from(schema))
+
+
+def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
+    """The plan, with a way to answer that is not a step. See `lucy_api.model.types.SAY`.
+
+    `steps` stops being required, so a reply of words alone matches; when steps are sent there
+    is still at least one, because the array keeps its own `minItems`.
+    """
+    properties = {
+        **schema.get("properties", {}),
+        SAY: {"type": "string", "description": SAY_DESCRIPTION},
+    }
+    required = [name for name in schema.get("required", []) if name != "steps"]
+    return {**schema, "properties": properties, "required": required}
 
 
 __all__ = [
