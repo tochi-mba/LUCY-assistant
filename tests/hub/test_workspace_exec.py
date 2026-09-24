@@ -9,25 +9,31 @@ here are built from the sandbox's own serialisers rather than from what the hub 
 
 from __future__ import annotations
 
+import asyncio
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.clients.environments import (
+    AUDIENCE,
     DEFAULT_OUTPUT_BYTES,
+    DEFAULT_TIMEOUT_MS,
+    EXEC_MARGIN_SECONDS,
     Environment,
     FakeEnvironmentsClient,
     HttpEnvironmentsClient,
     Ran,
 )
 from lucy_api.clients.testing import Answer, FakeHttp, ReadRecorder
+from lucy_api.packs.http import UNREACHABLE, DownstreamUnavailableError
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.watch import _command_check
 from lucy_api.packs.workspace import MAX_TOOL_OUTPUT_CHARS, WorkspacePack
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
+from lucy_api.work import Registry
 
 if TYPE_CHECKING:
     from lucy_api.packs.context import PackContext
-    from lucy_api.work import Registry
 
 COMMAND = "pytest -q"
 MIB = 1024 * 1024
@@ -121,6 +127,51 @@ def a_workspace(
         )
     )
     return capabilities, context
+
+
+class Unhurried(FakeEnvironmentsClient):
+    """A sandbox that answers when the test says so, as one closing a shell after a kill does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.answer = asyncio.Event()
+
+    async def run(
+        self,
+        environment_id: str,
+        command: str,
+        *,
+        cwd: str = ".",
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
+        max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+    ) -> Ran:
+        await self.answer.wait()
+        return await super().run(
+            environment_id,
+            command,
+            cwd=cwd,
+            timeout_ms=timeout_ms,
+            max_output_bytes=max_output_bytes,
+        )
+
+
+class Unreachable(FakeEnvironmentsClient):
+    """A sandbox whose answer never came: what the exec call raises when its timeout fires."""
+
+    async def run(
+        self,
+        environment_id: str,
+        command: str,
+        *,
+        cwd: str = ".",
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
+        max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+    ) -> Ran:
+        raise DownstreamUnavailableError(UNREACHABLE, audience=AUDIENCE)
+
+
+def a_registry() -> Registry:
+    return Registry(now=lambda: datetime.now(UTC))
 
 
 async def run_step(
@@ -254,3 +305,59 @@ async def test_a_command_watch_says_its_pattern_was_only_looked_for_in_the_head(
 
     assert check.fired is False
     assert check.detail == "exit 1, no match; 983,040 later bytes unread"
+
+
+# --- a deadline that outlasts the call it wraps -----------------------------------------------
+
+
+async def test_a_command_answered_after_its_own_ceiling_still_reaches_the_model() -> None:
+    """The bug, named: the work deadline was the command's own ceiling, shorter than the exec
+    call around it, so a command the sandbox killed at its ceiling was cancelled here while
+    the sandbox was still closing its shell, and the model got `result: null`."""
+    fake = Unhurried()
+    fake.script(COMMAND, Ran(command=COMMAND, exit_code=137, output="....", state="timed_out"))
+    work = a_registry()
+    capabilities, context = a_workspace(fake, work=work)
+    try:
+        step = asyncio.create_task(run_step(capabilities, context, timeout_ms=1))
+        await asyncio.sleep(0.05)
+        fake.answer.set()
+        answered = await step
+    finally:
+        await work.shutdown()
+
+    assert answered["state"] == "timed_out"
+    assert answered["timed_out"] is True
+    assert answered["output"] == "...."
+
+
+async def test_the_work_deadline_outlasts_the_exec_call_it_wraps() -> None:
+    fake = Unhurried()
+    work = a_registry()
+    capabilities, context = a_workspace(fake, work=work)
+    try:
+        started = await run_step(capabilities, context, timeout_ms=30_000, wait=False)
+        running = work.running("sess-a")
+    finally:
+        fake.answer.set()
+        await work.shutdown()
+
+    assert started["status"] == "running"
+    assert running[0].timeout_seconds > 30 + EXEC_MARGIN_SECONDS
+
+
+async def test_a_command_with_no_answer_says_how_it_ended_instead_of_result_null() -> None:
+    """When the exec call's own timeout fires, the work fails with the error's name, and that
+    is what the model is told. It used to see only `{"work_id": ..., "result": null}`."""
+    work = a_registry()
+    capabilities, context = a_workspace(Unreachable(), work=work)
+    try:
+        step = await run_step(capabilities, context)
+    finally:
+        await work.shutdown()
+
+    assert step == {
+        "status": "failed",
+        "work_id": step["work_id"],
+        "notice": "DownstreamUnavailableError",
+    }

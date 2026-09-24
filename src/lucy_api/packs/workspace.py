@@ -14,6 +14,7 @@ from lucy_api.clients.environments import (
     AUDIENCE,
     DEFAULT_OUTPUT_BYTES,
     DEFAULT_TIMEOUT_MS,
+    EXEC_MARGIN_SECONDS,
     HttpEnvironmentsClient,
 )
 from lucy_api.clients.errors import DownstreamError
@@ -47,6 +48,16 @@ if TYPE_CHECKING:
 
 
 MAX_TOOL_OUTPUT_CHARS = 8_000
+OUTLAST_EXEC_SECONDS = 1.0
+"""How much longer a command's work deadline is than the exec call it wraps.
+
+The work registry ends work at its deadline by cancelling it, which leaves nothing behind
+but "stopped waiting after 60s; it may still be running". The exec call ends by answering,
+or by raising when its own timeout fires. A deadline equal to the command's ceiling cut the
+call off while the sandbox was still closing the shell, so a command the sandbox had
+already killed, or had finished within its margin, was reported as perhaps still running
+and its output thrown away. Outlasting the call means it always gets to end on its own.
+"""
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
 
@@ -431,7 +442,8 @@ class WorkspacePack:
         wait = run.input.get("wait", True)
         wait_flag = wait if isinstance(wait, bool) else True
         raw_wait = run.input.get("wait_seconds")
-        wait_seconds = timeout_ms / 1000 if raw_wait is None else max(0.0, float(raw_wait))
+        deadline = timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
+        wait_seconds = deadline if raw_wait is None else max(0.0, float(raw_wait))
 
         async def work() -> dict[str, Any]:
             result = await self._client(run.ctx).run(
@@ -465,7 +477,7 @@ class WorkspacePack:
                     kind=Kind.command,
                     role="command",
                     objective=command[:160] or "run a workspace command",
-                    timeout_seconds=timeout_ms / 1000,
+                    timeout_seconds=deadline,
                     account_id=run.ctx.account_id,
                     wake=bool(run.input.get("wake", False)),
                 ),
@@ -489,8 +501,10 @@ class WorkspacePack:
                     "it has not been stopped. Use work.check or work.wait."
                 ),
             }
-        payload = finished.payload
-        return _completed_command(payload, handle.id)
+        if finished.payload is None:
+            # It ended without an answer; how it ended is the only thing there is to say.
+            return {"status": finished.state.value, "work_id": handle.id, "notice": finished.detail}
+        return _completed_command(finished.payload, handle.id)
 
 
 def _output_notice(omitted: int, later: int) -> str:
