@@ -5,13 +5,17 @@ from __future__ import annotations
 import pytest
 
 from lucy_api.clients.environments import (
+    ARCHIVED,
+    ARCHIVED_CODE,
     EXEC_MARGIN_SECONDS,
+    Environment,
     FakeEnvironmentsClient,
     HttpEnvironmentsClient,
     Ran,
     _environment,
     _exit_code,
 )
+from lucy_api.clients.errors import ConflictError
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 
 
@@ -182,3 +186,101 @@ async def test_an_ordinary_call_leaves_the_timeout_to_the_client() -> None:
     http = FakeHttp(Answer(body={"data": []}))
     await HttpEnvironmentsClient(http, "http://environments.test").environments()
     assert http.last.timeout_seconds is None
+
+
+# --- the only way back from archived ---------------------------------------------------------
+#
+# Environments-api archives an environment that sat idle past its time to live, wipes it, and
+# keeps listing it. Every file and shell call is then a 409 until it is reset.
+
+
+def _environment_view() -> dict[str, object]:
+    """One environment as `POST /v1/environments/{id}/reset` answers, field for field.
+
+    `Environments-api/app/environments/service.py` `environment_view` dumps the whole
+    `EnvironmentRecord` (`app/environments/models.py`) and adds `shells_running` and
+    `disk_bytes`. `state` is `EnvironmentState` from `app/constants.py`.
+    """
+    return {
+        "id": "env-1",
+        "account_id": "acct_example",
+        "profile": "personal",
+        "name": "lucy-3f2a",
+        "labels": {},
+        "credentials": [],
+        "network": True,
+        "limits": {
+            "max_memory_bytes": None,
+            "max_cpu_seconds": None,
+            "max_file_size_bytes": None,
+            "max_processes_per_shell": None,
+        },
+        "state": "active",
+        "sandbox_tier": "container",
+        "created_at": 1_789_000_000.0,
+        "updated_at": 1_789_090_000.0,
+        "last_activity_at": 1_789_090_000.0,
+        "archived_at": None,
+        "shells": [],
+        "environment_idle_ttl_seconds": 86_400.0,
+        "shell_idle_ttl_seconds": 1_800.0,
+        "shells_running": 0,
+        "disk_bytes": 0,
+    }
+
+
+async def test_a_reset_posts_to_the_environment_and_reads_back_its_new_state() -> None:
+    """`Environments-api/app/api/routes/environments.py` `reset_environment`:
+    `POST /v1/environments/{environment_id}/reset`, answering the environment view."""
+    http = FakeHttp(Answer(body=_environment_view()))
+
+    environment = await HttpEnvironmentsClient(http, "http://env.test").reset("env/1")
+
+    assert http.last.method == "POST"
+    assert http.last.url == "http://env.test/v1/environments/env%2F1/reset"
+    assert http.last.audience == "environments-api"
+    assert environment.environment_id == "env-1"
+    assert environment.state == "active"
+
+
+async def test_the_in_memory_workspace_refuses_an_archived_environment_until_it_is_reset() -> None:
+    """The fake archives as the reaper does and refuses as the sandbox does, so a hub test
+    that forgets to reset fails the way production did."""
+    fake = FakeEnvironmentsClient()
+    fake.seed(Environment("env-1", "lucy-3f2a"), files=(("sessions/s1/notes.md", "kept"),))
+    fake.archive("env-1")
+
+    assert fake.workspaces["env-1"].state == ARCHIVED
+    assert fake.contents == {}
+    with pytest.raises(ConflictError) as refused:
+        await fake.mkdir("env-1", "sessions/s1")
+    assert refused.value.status == 409
+    assert refused.value.code == ARCHIVED_CODE
+
+    revived = await fake.reset("env-1")
+
+    assert revived.state == "active"
+    assert fake.resets == ["env-1"]
+    assert await fake.mkdir("env-1", "sessions/s1") == "sessions/s1"
+
+
+async def test_the_sandbox_refusal_of_an_archived_environment_reads_as_the_archived_code() -> None:
+    """The body `EnvironmentArchivedError.to_problem` sends (`Environments-api/app/errors.py`),
+    as it arrives: the hub resets on this code and on no other 409."""
+    http = FakeHttp(
+        Answer(
+            status_code=409,
+            body={
+                "type": "urn:environments-api:error:environment_archived",
+                "title": "Environment is archived",
+                "status": 409,
+                "detail": "environment env-1 is archived; reset it first",
+                "code": "environment_archived",
+            },
+        )
+    )
+
+    with pytest.raises(ConflictError) as refused:
+        await HttpEnvironmentsClient(http, "http://env.test").mkdir("env-1", "sessions/s1")
+
+    assert refused.value.code == ARCHIVED_CODE

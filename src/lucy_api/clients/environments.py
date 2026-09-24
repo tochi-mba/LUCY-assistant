@@ -28,7 +28,7 @@ import codecs
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.clients.errors import RejectedError, UnavailableError
+from lucy_api.clients.errors import ConflictError, RejectedError, UnavailableError
 from lucy_api.clients.transport import (
     Sibling,
     field,
@@ -88,6 +88,21 @@ Environments-api calls a file binary when it holds a NUL or is not valid UTF-8, 
 it base64 with `is_binary` set (app/file_safety.py:82-102, app/files.py:129-130). Base64
 never contains a NUL, so a hub that looked for one in the content never saw a binary file,
 and handed the model a `.pyc` as line-numbered base64.
+"""
+
+ARCHIVED = "archived"
+"""The state the sandbox's reaper leaves a workspace in once it has sat idle past its TTL.
+
+Its files are wiped, but it is still listed under the same name, so a hub that picks a
+workspace by name picks this one. Every file and shell call on it is then refused until it
+is reset, which is the only way back.
+"""
+ARCHIVED_CODE = "environment-archived"
+"""The problem code of that refusal, folded the way `problem_code` folds every code.
+
+The sandbox sends `environment_archived` with a 409, and a 409 alone does not say which
+state the call ran into: a full quota is a 409 as well, and resetting on that one would
+wipe a workspace that was working.
 """
 
 
@@ -237,6 +252,10 @@ class EnvironmentsClient(Protocol):
         """Permanently remove one workspace and everything inside it."""
         ...
 
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe one workspace and make it usable again, which brings an archived one back."""
+        ...
+
     async def mkdir(self, environment_id: str, path: str) -> str:
         """Create a directory and any missing parents."""
         ...
@@ -315,6 +334,11 @@ class HttpEnvironmentsClient:
     async def destroy(self, environment_id: str) -> None:
         """Delete a workspace after a failed provisioning attempt or session cleanup."""
         await self._api.send("DELETE", f"/v1/environments/{segment(environment_id)}")
+
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe a workspace and leave it active. The service answers with its new view."""
+        payload = await self._api.send("POST", f"/v1/environments/{segment(environment_id)}/reset")
+        return _environment(payload)
 
     async def mkdir(self, environment_id: str, path: str) -> str:
         """Create a directory tree and return its normalized relative path."""
@@ -553,12 +577,23 @@ class FakeEnvironmentsClient:
         self.scripted: dict[str, Ran] = {}
         self.ran: list[tuple[str, str, int, int]] = []
         self.wrote: list[tuple[str, str]] = []
+        self.resets: list[str] = []
 
     def seed(self, environment: Environment, *, files: Iterable[tuple[str, str]] = ()) -> None:
         """Put one workspace in place, with whatever files a test needs in it."""
         self.workspaces[environment.environment_id] = environment
         for path, body in files:
             self.contents[(environment.environment_id, path)] = body
+
+    def archive(self, environment_id: str) -> None:
+        """Do what the sandbox's reaper does to an idle workspace: wipe it and keep listing it."""
+        self.workspaces[environment_id] = replace(self.workspaces[environment_id], state=ARCHIVED)
+        self._wipe(environment_id)
+
+    def _wipe(self, environment_id: str) -> None:
+        self.contents = {
+            key: body for key, body in self.contents.items() if key[0] != environment_id
+        }
 
     def script(self, command: str, result: Ran) -> None:
         """Say what one command will do, because this fake cannot actually run it."""
@@ -585,14 +620,29 @@ class FakeEnvironmentsClient:
     async def destroy(self, environment_id: str) -> None:
         """Remove a fake workspace and all of its files."""
         self.workspaces.pop(environment_id, None)
-        self.contents = {
-            key: body for key, body in self.contents.items() if key[0] != environment_id
-        }
+        self._wipe(environment_id)
+
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe the workspace and make it active, whatever state it was in, as the service does."""
+        self.resets.append(environment_id)
+        environment = replace(self.workspaces[environment_id], state="active")
+        self.workspaces[environment_id] = environment
+        self._wipe(environment_id)
+        return environment
 
     async def mkdir(self, environment_id: str, path: str) -> str:
-        """Directories are implicit in the fake, but the workspace must exist."""
-        if environment_id not in self.workspaces:
+        """Directories are implicit in the fake, but the workspace must exist and be usable.
+
+        An archived one is refused here with the sandbox's own 409 and code. The sandbox
+        refuses every file and shell call the same way; this is the one the hub makes first
+        when it provisions or resets a session, so it is where the refusal is met.
+        """
+        environment = self.workspaces.get(environment_id)
+        if environment is None:
             raise KeyError(environment_id)
+        if environment.state == ARCHIVED:
+            detail = f"environment {environment_id} is archived; reset it first"
+            raise ConflictError(SERVICE, 409, detail, ARCHIVED_CODE)
         return path
 
     async def files(self, environment_id: str, path: str = ".") -> Listing:
@@ -743,6 +793,8 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "ARCHIVED",
+    "ARCHIVED_CODE",
     "AUDIENCE",
     "BASE64",
     "DEFAULT_OUTPUT_BYTES",

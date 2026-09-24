@@ -40,8 +40,8 @@ from lucy_api.auth.device import DeviceFlow
 from lucy_api.auth.exchange import KeyringExchange
 from lucy_api.auth.verifier import TokenVerifier, VerifiedCaller
 from lucy_api.blobs import Blobs
-from lucy_api.clients.environments import HttpEnvironmentsClient
-from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.environments import ARCHIVED, ARCHIVED_CODE, HttpEnvironmentsClient
+from lucy_api.clients.errors import ConflictError, DownstreamError
 from lucy_api.clients.keyring import DelegatedKeyringClient
 from lucy_api.clients.live_feeds import (
     MusicFeeds,
@@ -267,6 +267,12 @@ class Container:
         One environment belongs to the account/profile and each session receives its own
         confined directory inside it. Listing before create makes a retry after a process
         interruption recover that environment rather than consume another quota slot.
+
+        The one found by name may have been archived by the sandbox for sitting idle. It is
+        still listed, and every call into it is refused until it is reset, so it is reset
+        here first: otherwise every new session on the profile answered 503 "retry", and
+        every retry found the same archived environment again. The archive already wiped
+        it, so the reset loses nothing.
         """
         if session.get("workspace_environment_id"):
             return session
@@ -280,6 +286,8 @@ class Container:
             client = self.environment_client(request)
             available = await client.environments(profile=request.profile)
             existing = next((item for item in available if item.name == name), None)
+            if existing is not None and existing.state == ARCHIVED:
+                existing = await client.reset(existing.environment_id)
             environment = existing or await client.create(name, profile=request.profile)
             workspace = WorkspaceScope(environment.environment_id, session_id)
             await client.mkdir(environment.environment_id, workspace.root)
@@ -302,7 +310,12 @@ class Container:
         }
 
     async def reset_workspace(self, request: PackRequest, session_id: str) -> dict[str, object]:
-        """Wipe the session subtree and seed it again. The environment itself stays."""
+        """Wipe the session subtree and seed it again. The environment itself stays.
+
+        Unless the sandbox has archived it, in which case this session's folder is already
+        gone along with everything else, and the environment refuses the new one until it
+        is reset. That refusal is the one thing that resets the environment from here.
+        """
         row = await self.store.get(request.caller.account_id, session_id)
         if not row.get("workspace_environment_id"):
             row = await self.ensure_workspace(request, row)
@@ -322,9 +335,34 @@ class Container:
         client = self.environment_client(request)
         with contextlib.suppress(DownstreamError, KeyError, LucyError):
             await client.delete(env_id, rel, recursive=True)
-        await client.mkdir(env_id, rel)
+        try:
+            await client.mkdir(env_id, rel)
+        except ConflictError as refused:
+            if refused.code != ARCHIVED_CODE:
+                raise
+            await self._revive(request, client, env_id)
+            await client.mkdir(env_id, rel)
         await _bootstrap_session_workspace(client, WorkspaceScope(env_id, session_id))
         return self.workspace_view(row)
+
+    async def _revive(
+        self, request: PackRequest, client: EnvironmentsClient, environment_id: str
+    ) -> None:
+        """Reset an archived environment, unless another session already has.
+
+        A reset wipes the whole environment, not one folder. Between the refusal and here,
+        a new session on the same profile may have reset it and been given a folder in it,
+        and resetting again would wipe that. So the state is read again under the lock
+        `ensure_workspace` provisions under.
+        """
+        name = _workspace_name(request.caller.account_id, request.profile)
+        async with self._workspace_locks.setdefault(name, asyncio.Lock()):
+            available = await client.environments(profile=request.profile)
+            if any(
+                item.environment_id == environment_id and item.state == ARCHIVED
+                for item in available
+            ):
+                await client.reset(environment_id)
 
     async def session_memory(
         self, request: PackRequest, session: dict[str, object]
