@@ -43,7 +43,8 @@ def exec_answer(**overrides: Any) -> dict[str, Any]:
     """What `POST /v1/exec` sends back for one command, with every key it really sends.
 
     `CommandRecord.to_dict` (app/shells/shell.py) supplies the record, `command_result`
-    (app/api/routes/shells.py) adds the output and its cursor, and `exec_once`
+    (app/api/routes/shells.py) adds the output, its cursor and the bytes its cap left out
+    (`output_truncated_bytes`, since the sandbox learned to return either end), and `exec_once`
     (app/api/routes/exec.py) adds the shell's state after closing it and the credential
     lists. `command` is the wrapped string the sandbox actually ran, not the one it was sent.
     """
@@ -63,6 +64,7 @@ def exec_answer(**overrides: Any) -> dict[str, Any]:
         "timeout_ms": 60_000,
         "output": "3 passed",
         "output_dropped_bytes": 0,
+        "output_truncated_bytes": 0,
         "output_cursor": 128,
         "shell_state": "closed",
         "credentials_injected": [],
@@ -89,11 +91,12 @@ def killed_at_its_ceiling() -> dict[str, Any]:
 
 
 def a_megabyte_log(**overrides: Any) -> dict[str, Any]:
-    """A build that printed a megabyte, of which the sandbox returned the first 64 KiB.
+    """A build that printed a megabyte, of which a sandbox returned the first 64 KiB.
 
-    `command_result` reads from `output_start` for at most `max_output_bytes`, so
-    `output_cursor` stops 64 KiB in while `output_end` is a megabyte on. The ring buffer lost
-    nothing, so `output_dropped_bytes` is zero: it never counted this cut.
+    A sandbox from before `output_window`: its `command_result` read from `output_start` for
+    at most `max_output_bytes` and did not count the cut, so `output_cursor` stops 64 KiB in
+    while `output_end` is a megabyte on, and the offsets are the only sign of it. The ring
+    buffer lost nothing, so `output_dropped_bytes` is zero: it never counted this cut.
     """
     start = 120
     answer = exec_answer(
@@ -104,6 +107,7 @@ def a_megabyte_log(**overrides: Any) -> dict[str, Any]:
         log_bytes=MIB,
         output_cursor=start + DEFAULT_OUTPUT_BYTES,
     )
+    del answer["output_truncated_bytes"]
     return {**answer, **overrides}
 
 
@@ -144,6 +148,7 @@ class Unhurried(FakeEnvironmentsClient):
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         await self.answer.wait()
         return await super().run(
@@ -152,6 +157,7 @@ class Unhurried(FakeEnvironmentsClient):
             cwd=cwd,
             timeout_ms=timeout_ms,
             max_output_bytes=max_output_bytes,
+            tail=tail,
         )
 
 
@@ -166,6 +172,7 @@ class Unreachable(FakeEnvironmentsClient):
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         raise DownstreamUnavailableError(UNREACHABLE, audience=AUDIENCE)
 
@@ -271,7 +278,7 @@ async def test_the_model_is_told_it_has_the_beginning_and_how_much_came_after_it
     fake.script(COMMAND, Ran(command=COMMAND, exit_code=1, output="." * MIB, state="exited"))
     capabilities, context = a_workspace(fake)
 
-    step = await run_step(capabilities, context)
+    step = await run_step(capabilities, context, show="start")
 
     later = MIB - MAX_TOOL_OUTPUT_CHARS
     assert len(step["output"]) == MAX_TOOL_OUTPUT_CHARS

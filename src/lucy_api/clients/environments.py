@@ -221,10 +221,13 @@ class Ran:
     between the start of the command and the read, and it is carried for the same reason as
     every other notice: a gap nobody mentions is a gap nobody can account for.
 
-    `output_truncated_bytes` is the other gap, at the far end: `output` is the *head* of what
-    the command printed, cut at `max_output_bytes`, and this is how much came after it. The
-    ring buffer count never included it, so a megabyte build log was reported as a few
-    thousand characters omitted, with the failure summary at its end never mentioned.
+    `output_truncated_bytes` is the other gap: `output` is one end of what the command
+    printed, cut at `max_output_bytes`, and this is how much of the rest there was. The ring
+    buffer count never included it, so a megabyte build log was reported as a few thousand
+    characters omitted, with the failure summary at its end never mentioned.
+
+    `tail` says which end `output` is: the end when the sandbox honoured a request for it,
+    and otherwise the beginning, which is all a sandbox that predates the request returns.
     """
 
     command: str
@@ -234,6 +237,7 @@ class Ran:
     output_truncated_bytes: int = 0
     timed_out: bool = False
     state: str = ""
+    tail: bool = False
 
 
 class EnvironmentsClient(Protocol):
@@ -291,7 +295,7 @@ class EnvironmentsClient(Protocol):
 
     async def move(self, environment_id: str, source: str, destination: str) -> Mutation: ...
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -299,6 +303,7 @@ class EnvironmentsClient(Protocol):
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         """Run one command in a fresh shell and close it afterwards, whatever happened."""
         ...
@@ -446,7 +451,7 @@ class HttpEnvironmentsClient:
         )
         return _mutation(payload)
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -454,6 +459,7 @@ class HttpEnvironmentsClient:
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         """Run one command through the one-call shape: open, run, return, close.
 
@@ -468,6 +474,7 @@ class HttpEnvironmentsClient:
             "cwd": cwd,
             "timeout_ms": timeout_ms,
             "max_output_bytes": max_output_bytes,
+            "output_window": "tail" if tail else "head",
         }
         # Longer than the command's own ceiling, necessarily: waiting less than the work you
         # asked for is a failure you have arranged yourself.
@@ -486,18 +493,24 @@ class HttpEnvironmentsClient:
             output_truncated_bytes=_truncated_bytes(payload),
             timed_out=flag(payload, "timed_out") or state == TIMED_OUT,
             state=state,
+            # Only a sandbox that counts its own cut knows the window it was asked for; one
+            # that predates `output_window` ignores it and returns the head.
+            tail=tail and field(payload, "output_truncated_bytes") is not None,
         )
 
 
 def _truncated_bytes(payload: Any) -> int:
-    """How much output the command printed after the part that came back.
+    """How much of the command's output the byte cap left out.
 
-    The sandbox reads from the start of the command and stops at `max_output_bytes`
-    (Environments-api app/api/routes/shells.py `command_result`), and says so only in two
-    byte offsets: `output_cursor`, where the read stopped, and `output_end`, where the
-    command's output did. A command still running has no end yet, and then nothing here can
-    say how much there is, so it counts as nothing rather than as a guess.
+    The sandbox says so itself, as `output_truncated_bytes`, since it learned to return
+    either end (Environments-api app/api/routes/shells.py `command_result`). Before that it
+    read from the start and said so only in two byte offsets: `output_cursor`, where the read
+    stopped, and `output_end`, where the command's output did. A command still running has no
+    end yet, and then nothing here can say how much there is, so it counts as nothing rather
+    than as a guess.
     """
+    if field(payload, "output_truncated_bytes") is not None:
+        return number(payload, "output_truncated_bytes")
     end, cursor = field(payload, "output_end"), field(payload, "output_cursor")
     if end is None or cursor is None:
         return 0
@@ -765,7 +778,7 @@ class FakeEnvironmentsClient:
         self.contents[(environment_id, destination)] = body
         return Mutation(destination, len(body))
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -773,14 +786,16 @@ class FakeEnvironmentsClient:
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         """Whatever the test scripted, or a command that did nothing and said nothing.
 
         A scripted `timed_out` state reads as a timeout whether or not the script also set
         the flag, because that is what the real client makes of the same answer. Scripted
         output longer than `max_output_bytes` comes back as its head and a count of the
-        rest, because that is what the sandbox does with it. And the command is the one
-        asked for, whatever the script called it, as the real client reports it.
+        rest, because that is what the sandbox does with it -- or as its end and a count of
+        what came before, when the end was asked for. And the command is the one asked for,
+        whatever the script called it, as the real client reports it.
         """
         del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
@@ -788,13 +803,17 @@ class FakeEnvironmentsClient:
         printed = result.output.encode()
         if len(printed) > max_output_bytes:
             cut = len(printed) - max_output_bytes
+            kept = printed[cut:] if tail else printed[:max_output_bytes]
             result = replace(
                 result,
-                output=printed[:max_output_bytes].decode("utf-8", "replace"),
+                output=kept.decode("utf-8", "replace"),
                 output_truncated_bytes=result.output_truncated_bytes + cut,
             )
         return replace(
-            result, command=command, timed_out=result.timed_out or result.state == TIMED_OUT
+            result,
+            command=command,
+            timed_out=result.timed_out or result.state == TIMED_OUT,
+            tail=tail,
         )
 
 

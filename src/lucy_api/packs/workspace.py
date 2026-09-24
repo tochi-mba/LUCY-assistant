@@ -6,7 +6,13 @@ import posixpath
 from typing import TYPE_CHECKING, Any, Literal
 
 from weftai.operation import define_operation
-from weftai.schema.spec import boolean_schema, integer_schema, object_schema, string_schema
+from weftai.schema.spec import (
+    boolean_schema,
+    enum_schema,
+    integer_schema,
+    object_schema,
+    string_schema,
+)
 from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
@@ -47,6 +53,10 @@ if TYPE_CHECKING:
 
 
 MAX_TOOL_OUTPUT_CHARS = 8_000
+SHOW = ("end", "start")
+"""Which end of a long command output `workspace.run` shows. The end is the default: a test
+run or a build prints its verdict last, and the beginning of a megabyte log is not where
+anybody looks first."""
 OUTLAST_EXEC_SECONDS = 1.0
 """How much longer a command's work deadline is than the exec call it wraps.
 
@@ -220,9 +230,12 @@ class WorkspacePack:
                 "run",
                 "Run a command inside this session's workspace subtree. "
                 "Long commands return a handle; check work.check or work.wait. "
-                "With wake, a command that finishes while nobody is talking wakes the session.",
+                "With wake, a command that finishes while nobody is talking wakes the session. "
+                "Long output shows its end, where a test run or a build prints its verdict; "
+                "ask for show=start for the beginning.",
                 {
                     "command": string_schema(),
+                    "show": enum_schema(*SHOW).optional(),
                     "timeout_ms": integer_schema().optional(),
                     "wait": boolean_schema().optional(),
                     "wait_seconds": integer_schema().optional(),
@@ -445,6 +458,8 @@ class WorkspacePack:
         deadline = timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
         wait_seconds = deadline if raw_wait is None else max(0.0, float(raw_wait))
 
+        tail = run.input.get("show") != "start"
+
         async def work() -> dict[str, Any]:
             result = await self._client(run.ctx).run(
                 run.ctx.workspace_environment_id,
@@ -452,18 +467,19 @@ class WorkspacePack:
                 cwd=run.ctx.workspace_path,
                 timeout_ms=timeout_ms,
                 max_output_bytes=DEFAULT_OUTPUT_BYTES,
+                tail=tail,
             )
-            output = result.output[:MAX_TOOL_OUTPUT_CHARS]
-            later = max(0, len(result.output) - len(output)) + result.output_truncated_bytes
-            omitted = later + result.output_dropped_bytes
+            shown = _shown(result.output, tail=result.tail)
+            cut = len(result.output) - len(shown) + result.output_truncated_bytes
+            omitted = cut + result.output_dropped_bytes
             return {
                 "command": result.command,
                 "exit_code": result.exit_code,
-                "output": output,
+                "output": shown,
                 "state": result.state,
                 "timed_out": result.timed_out,
                 "output_dropped_bytes": omitted,
-                "notice": _output_notice(omitted, later),
+                "notice": _output_notice(omitted, cut, tail=result.tail),
             }
 
         registry = run.ctx.work
@@ -507,20 +523,29 @@ class WorkspacePack:
         return _completed_command(finished.payload, handle.id)
 
 
-def _output_notice(omitted: int, later: int) -> str:
+def _shown(output: str, *, tail: bool) -> str:
+    """The part of the output that fits in a tool result, from the end the sandbox kept."""
+    if len(output) <= MAX_TOOL_OUTPUT_CHARS:
+        return output
+    return output[-MAX_TOOL_OUTPUT_CHARS:] if tail else output[:MAX_TOOL_OUTPUT_CHARS]
+
+
+def _output_notice(omitted: int, cut: int, *, tail: bool) -> str:
     """What was left out of a command's output, and which end it was left out of.
 
-    The output is always the *head*: the sandbox stops reading at its byte cap and this pack
-    stops at its character cap, both from the start. That has to be said, because a test run
-    or a build puts its verdict last, and a model told only "57000 characters omitted" reads
-    the head as the whole story -- when the part it never saw was a megabyte ending in the
-    failure it was asked about.
+    A test run or a build prints its verdict last, so the end is what is kept by default, and
+    the beginning only when asked for or when the sandbox predates keeping the end. Either
+    way it has to be said: a model told only "57000 characters omitted" reads what it has as
+    the whole story -- when the part it never saw was a megabyte ending in the failure it was
+    asked about, or the command line and the first error that caused the rest.
     """
     if not omitted:
         return ""
     notice = f"{omitted} output characters or bytes omitted"
-    if later:
-        notice += f"; this is the beginning of the output, and {later} of those came after it"
+    if cut and tail:
+        notice += f"; this is the end of the output, and {cut} of those came before it"
+    elif cut:
+        notice += f"; this is the beginning of the output, and {cut} of those came after it"
     return notice
 
 
