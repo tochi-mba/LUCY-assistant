@@ -307,7 +307,9 @@ class NotesPack:
             }
         client = self._client(run.ctx)
         blocks = await client.blocks(profile=run.ctx.profile)
-        facts = await client.search(profile=run.ctx.profile, limit=DEFAULT_LIMIT)
+        facts = await client.search(
+            profile=run.ctx.profile, session_id=run.ctx.session_id, limit=DEFAULT_LIMIT
+        )
         return {
             "blocks": [{"label": block.label, "body": block.body} for block in blocks],
             "facts": [as_dict(note) for note in facts],
@@ -337,7 +339,10 @@ class NotesPack:
         query = str(run.input.get("query") or "")
         limit = int(run.input.get("limit") or DEFAULT_LIMIT)
         notes = await self._client(run.ctx).search(
-            query, profile=run.ctx.profile, limit=max(1, min(limit, 20))
+            query,
+            profile=run.ctx.profile,
+            session_id=run.ctx.session_id,
+            limit=max(1, min(limit, 20)),
         )
         return [as_dict(note) for note in notes]
 
