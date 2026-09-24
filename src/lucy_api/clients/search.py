@@ -36,6 +36,19 @@ if TYPE_CHECKING:
 SERVICE = "search"
 AUDIENCE = "web-search-api"
 
+WORK_TIMEOUT_SECONDS = 90.0
+"""How long to wait on a call that fetches and summarises, rather than one that answers.
+
+`GET /v1/models` is a health check and keeps the default: a provider list that has not
+arrived in ten seconds is a provider list that is not coming. Searching and scraping are
+neither -- each one drives a headless browser and then a model, and a single page measured
+15 seconds warm. Against the default the call was abandoned at ten, retried, and abandoned
+again, and the step died at its own ceiling reporting a timeout that had already happened
+three times underneath it. The same shape as the sandbox: one figure for "is it up" and for
+"do this", and it can only be right for one of them.
+"""
+
+
 DEFAULT_RESULTS = 5
 """Results per query. The service will give more; a context window would rather it did not."""
 
@@ -187,13 +200,17 @@ class HttpSearchClient:
             "queries": [{"query": query, "max_results": max_results} for query in queries],
             "summarize": True,
         }
-        payload = await self._api.send("POST", "/v1/search", body=body, profile=profile)
+        payload = await self._api.send(
+            "POST", "/v1/search", body=body, profile=profile, timeout_seconds=WORK_TIMEOUT_SECONDS
+        )
         return tuple(_findings(row) for row in rows(payload, "results"))
 
     async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
         """Fetch pages, summarised together, keeping each page's text on its own article."""
         body = {"urls": list(urls), "summarize": True, "summarize_together": True}
-        payload = await self._api.send("POST", "/v1/scrape", body=body, profile=profile)
+        payload = await self._api.send(
+            "POST", "/v1/scrape", body=body, profile=profile, timeout_seconds=WORK_TIMEOUT_SECONDS
+        )
         return Reading(
             articles=tuple(_article(row) for row in rows(payload, "results")),
             summary=_summary(nested(payload, "summary")),
@@ -202,7 +219,11 @@ class HttpSearchClient:
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
         """Summarise text, which is how a long tool result becomes a short one."""
         payload = await self._api.send(
-            "POST", "/v1/summarize", body=given(text=body, topic=topic or None), profile=profile
+            "POST",
+            "/v1/summarize",
+            body=given(text=body, topic=topic or None),
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
         )
         return _summary(nested(payload, "summary")) or Summary()
 
