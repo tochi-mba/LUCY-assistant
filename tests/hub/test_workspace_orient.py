@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lucy_api.clients.environments import Environment, FakeEnvironmentsClient, Ran
+from lucy_api.clients.environments import ARCHIVED, Environment, FakeEnvironmentsClient, Ran
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.context.build import Live
 from lucy_api.context.sources import Sources
@@ -199,4 +199,54 @@ async def test_a_workspace_listing_outage_omits_expiry_rather_than_the_group() -
     snapshot = await live.fetch("sess-a")
     assert snapshot is not None
     assert snapshot.path.endswith("sess-a")
+    assert snapshot.expires_in_seconds is None
+
+
+# --- the sandbox's clock, not the hub's --------------------------------------------------------
+#
+# Environments-api archives an environment, and wipes it, at its last activity plus its own
+# stamped `environment_idle_ttl_seconds`, never while a shell is open, and lists it as
+# `archived` afterwards (`app/environments/service.py`, `reap` and `_archive`).
+
+
+def _live(environment: Environment) -> WorkspaceLive:
+    fake = FakeEnvironmentsClient()
+    fake.seed(environment)
+    return WorkspaceLive(fake, WorkspaceScope("env-1", "sess-a"), retention_hours=24)
+
+
+async def test_the_sandbox_idle_ttl_decides_the_expiry_rather_than_the_hub_setting() -> None:
+    """The bug, named: with the sandbox archiving after two idle hours and the hub setting at
+    twenty-four, the live block said "sandbox expires in 22h" about a workspace an hour
+    from being wiped."""
+    activity = datetime.now(UTC) - timedelta(hours=1)
+    snapshot = await _live(
+        Environment("env-1", "Conversation", last_activity_at=activity, idle_ttl_seconds=7_200.0)
+    ).fetch("sess-a")
+
+    assert snapshot is not None
+    assert snapshot.expires_in_seconds is not None
+    assert 0 < snapshot.expires_in_seconds <= 3600
+
+
+async def test_an_archived_workspace_has_expired_whatever_its_last_activity_says() -> None:
+    """Archiving does not touch `last_activity_at`, so the clock alone kept counting down
+    after the sandbox had already wiped everything."""
+    activity = datetime.now(UTC) - timedelta(minutes=1)
+    snapshot = await _live(
+        Environment("env-1", "Conversation", state=ARCHIVED, last_activity_at=activity)
+    ).fetch("sess-a")
+
+    assert snapshot is not None
+    assert snapshot.expires_in_seconds == 0.0
+
+
+async def test_a_workspace_with_a_shell_open_shows_no_countdown() -> None:
+    """The reaper never archives an environment with a live shell, so no deadline is running."""
+    activity = datetime.now(UTC) - timedelta(days=2)
+    snapshot = await _live(
+        Environment("env-1", "Conversation", shells_running=1, last_activity_at=activity)
+    ).fetch("sess-a")
+
+    assert snapshot is not None
     assert snapshot.expires_in_seconds is None

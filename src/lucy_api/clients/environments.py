@@ -120,7 +120,9 @@ class Environment:
     """One workspace, without the host path it lives at.
 
     `disk_bytes` and `shells_running` are here because they are what a person asks about
-    when something is slow, and they cost a number each.
+    when something is slow, and they cost a number each. `idle_ttl_seconds` is how long the
+    sandbox lets this one sit idle before archiving it, stamped when it was created; `None`
+    means it was stamped with nothing and the sandbox's deployment default applies.
     """
 
     environment_id: str
@@ -132,6 +134,7 @@ class Environment:
     shells_running: int = 0
     disk_bytes: int = 0
     last_activity_at: datetime | None = None
+    idle_ttl_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -537,7 +540,19 @@ def _environment(payload: Any) -> Environment:
         shells_running=number(payload, "shells_running"),
         disk_bytes=number(payload, "disk_bytes"),
         last_activity_at=moment(field(payload, "last_activity_at")),
+        idle_ttl_seconds=_seconds(field(payload, "environment_idle_ttl_seconds")),
     )
+
+
+def _seconds(value: Any) -> float | None:
+    """A duration the service stamped, or `None` when it stamped none.
+
+    `None` is kept rather than read as zero: an environment created while settings-api was
+    off carries no time to live of its own, and zero would say it had already expired.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _entry(row: Any) -> Entry:

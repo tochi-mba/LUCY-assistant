@@ -12,6 +12,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from lucy_api.clients.environments import ARCHIVED
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.context.types import WorkspaceSnapshot
 from lucy_api.sessions.scope import PROGRESS_FILE, TASKS_FILE
@@ -62,6 +63,14 @@ class WorkspaceLive:
         return replace(snapshot, expires_in_seconds=expires)
 
     async def _expires(self) -> float | None:
+        """Seconds until the sandbox archives this workspace, as the sandbox reckons it.
+
+        Its own reaper decides, from the environment's stamped time to live and its last
+        activity, and never while a shell is open (Environments-api `reap`). The hub's
+        `workspace_retention_hours` stands in only for an environment stamped with no time
+        to live. Reading the hub's setting first showed "sandbox expires in 22h" about a
+        workspace already wiped, and an archived one is expired whatever the clock says.
+        """
         try:
             environments = await self._client.environments()
         except DownstreamError:
@@ -74,13 +83,19 @@ class WorkspaceLive:
             ),
             None,
         )
-        if current is None or current.last_activity_at is None:
+        if current is None:
+            return None
+        if current.state == ARCHIVED:
+            return 0.0
+        if current.shells_running or current.last_activity_at is None:
             return None
         activity = current.last_activity_at
         if activity.tzinfo is None:
             activity = activity.replace(tzinfo=UTC)
-        remaining = self._retention_hours * 3600 - (datetime.now(UTC) - activity).total_seconds()
-        return max(0.0, remaining)
+        ttl = current.idle_ttl_seconds
+        if ttl is None:
+            ttl = self._retention_hours * 3600.0
+        return max(0.0, ttl - (datetime.now(UTC) - activity).total_seconds())
 
 
 async def orient(client: EnvironmentsClient, workspace: WorkspaceScope) -> WorkspaceSnapshot:
