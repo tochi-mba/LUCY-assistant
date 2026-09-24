@@ -3,14 +3,30 @@
 
 Usage::
 
-    python scripts/genenv.py           # refuses if .env.family already exists
-    python scripts/genenv.py --force   # replace it
+    python scripts/genenv.py                               # refuses if .env.family exists
+    python scripts/genenv.py --force                       # replace it, keeping the master key
+    python scripts/genenv.py --force --rotate-master-key   # replace it all (see below)
 
 The file is gitignored. Values are 32+ random characters. ``KEYRING_SERVICE_TOKENS``
 is built from the same strings written to each consumer's real prefixed variable.
 ``SETTINGS_API_SERVICES`` is the JSON document settings-api's ``services`` field expects.
 
 This script writes a file and prints a count. It never prints a secret.
+
+**`--force` keeps ``KEYRING_MASTER_KEY``.** Every other value is a bearer string whose only
+readers are containers started from this same file, so rotating them costs a restart. The
+master key encrypts the credentials already stored in keyring's database, and rotating it
+makes every one of them unreadable -- a person's Spotify connection, their model keys. On
+2026-09-23 the only way to refresh a stale file was to rotate the master key and put the old
+one back by hand. Now a refresh keeps it, and rotation is its own, explicit flag.
+
+**Operator-local variables live in** ``scripts/genenv.local.json`` **under** ``"env"``: things
+this machine needs and the family does not publish, such as pointing the hub at a model
+runtime on the host (``LUCY_MODEL_BASE_URLS``). They are appended as given; a name the
+generator writes itself is refused, so an extra can never replace a secret. A variable
+present in the old file that neither the generator nor ``"env"`` provides is reported by
+name when a refresh drops it, because a hand edit that silently vanishes is how a working
+setup stops working after an unrelated regeneration.
 """
 
 from __future__ import annotations
@@ -19,8 +35,10 @@ import argparse
 import base64
 import json
 import os
+import re
 import secrets
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 META_ROOT = Path(__file__).resolve().parent.parent
@@ -85,6 +103,11 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
 
 LOCAL_EXTRAS = META_ROOT / "scripts" / "genenv.local.json"
 
+MASTER_KEY = "KEYRING_MASTER_KEY"
+
+LOCAL_NAME = re.compile(r"\A[A-Z][A-Z0-9_]*\Z")
+"""What an operator-local variable may be called: the shape every name here already has."""
+
 
 class AlreadyExistsError(Exception):
     """The output file already exists, or cannot be written."""
@@ -109,6 +132,38 @@ def load_local_extras(
     return _consumers(data.get("keyring_consumers", []), path.name), _grants(
         data.get("settings_grants", []), path.name
     )
+
+
+def load_local_env(path: Path | None) -> dict[str, str]:
+    """The ``"env"`` object of the local extras file: this machine's own variables."""
+    if path is None or not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ExtraConfigError(f"{path.name} is not valid JSON") from exc
+    rows = data.get("env", {}) if isinstance(data, dict) else {}
+    if not isinstance(rows, dict):
+        raise ExtraConfigError(f"{path.name}: env must be an object of NAME: value")
+    for name, value in rows.items():
+        if not LOCAL_NAME.match(name):
+            raise ExtraConfigError(f"{path.name}: env name {name!r} is not an UPPER_SNAKE name")
+        if not isinstance(value, str):
+            raise ExtraConfigError(f"{path.name}: env {name} must be a string")
+    return dict(rows)
+
+
+def read_existing(path: Path) -> dict[str, str]:
+    """``KEY=value`` lines from a file this script wrote. Comments and blanks are skipped."""
+    if not path.is_file():
+        return {}
+    found: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        found[name.strip()] = value
+    return found
 
 
 def _consumers(rows: object, source: str) -> tuple[tuple[str, str], ...]:
@@ -177,8 +232,14 @@ def new_master_key() -> str:
     return base64.b64encode(os.urandom(MASTER_KEY_BYTES)).decode("ascii")
 
 
-def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
-    """One dict, insertion-ordered, ready to serialise as ``KEY=value`` lines."""
+def build_env(
+    extras_path: Path | None = LOCAL_EXTRAS, *, master_key: str | None = None
+) -> dict[str, str]:
+    """One dict, insertion-ordered, ready to serialise as ``KEY=value`` lines.
+
+    `master_key` is the one value carried over rather than generated; see the module
+    docstring for why. Operator-local variables from the extras file come last.
+    """
     extra_consumers, extra_grants = load_local_extras(extras_path)
     consumers = _merge(KEYRING_CONSUMERS, extra_consumers, "keyring consumer")
     grants_rows = SETTINGS_GRANTS + extra_grants
@@ -192,7 +253,7 @@ def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
 
     env: dict[str, str] = {}
 
-    env["KEYRING_MASTER_KEY"] = new_master_key()
+    env[MASTER_KEY] = master_key or new_master_key()
     env["KEYRING_ADMIN_TOKEN"] = new_token()
 
     keyring_tokens = {name: new_token() for name, _variable in consumers}
@@ -220,6 +281,13 @@ def build_env(extras_path: Path | None = LOCAL_EXTRAS) -> dict[str, str]:
     memory_token = new_token()
     env["MEMORY_SERVICE_TOKENS"] = json.dumps({"lucy-api": memory_token}, separators=(",", ":"))
     env["LUCY_MEMORY_API_TOKEN"] = memory_token
+
+    for name, value in load_local_env(extras_path).items():
+        if name in env:
+            raise ExtraConfigError(
+                f"local env {name} is written by the generator and cannot be replaced"
+            )
+        env[name] = value
     return env
 
 
@@ -235,15 +303,37 @@ def render(env: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def write_env(path: Path, *, force: bool) -> int:
+@dataclass(frozen=True, slots=True)
+class Written:
+    """What a write did, in names and counts only -- never a value."""
+
+    count: int
+    kept_master_key: bool = False
+    dropped: tuple[str, ...] = ()
+
+
+def write_env(
+    path: Path,
+    *,
+    force: bool,
+    rotate_master_key: bool = False,
+    extras_path: Path | None = LOCAL_EXTRAS,
+) -> Written:
+    """Write the file, keeping the master key unless rotation was asked for by name."""
     if path.exists() and not force:
         raise AlreadyExistsError(f"{path.name} already exists; pass --force to replace it")
-    env = build_env()
+    existing = read_existing(path)
+    kept = None if rotate_master_key else existing.get(MASTER_KEY) or None
+    env = build_env(extras_path, master_key=kept)
     text = render(env)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8", newline="\n")
     tmp.replace(path)
-    return len(env)
+    return Written(
+        count=len(env),
+        kept_master_key=kept is not None,
+        dropped=tuple(sorted(name for name in existing if name not in env)),
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -254,6 +344,14 @@ def _parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="replace an existing .env.family",
+    )
+    parser.add_argument(
+        "--rotate-master-key",
+        action="store_true",
+        help=(
+            "with --force, generate a new KEYRING_MASTER_KEY too; every credential already "
+            "stored in keyring becomes unreadable"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -268,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     path = args.output if args.output.is_absolute() else (Path.cwd() / args.output)
     try:
-        count = write_env(path, force=args.force)
+        written = write_env(path, force=args.force, rotate_master_key=args.rotate_master_key)
     except AlreadyExistsError as exc:
         print(f"genenv: {exc}", file=sys.stderr)
         return 1
@@ -278,7 +376,17 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"genenv: cannot write {path.name}: {exc.strerror}", file=sys.stderr)
         return 1
-    print(f"Wrote {count} variables to {path.name}. Re-run with --force to replace it.")
+    print(f"Wrote {written.count} variables to {path.name}. Re-run with --force to replace it.")
+    if written.kept_master_key:
+        print(
+            f"Kept {MASTER_KEY} from the file it replaced, so stored credentials still decrypt. "
+            "Pass --rotate-master-key to replace it as well."
+        )
+    if written.dropped:
+        print(
+            f"Not carried over: {', '.join(written.dropped)}. Put this machine's own variables "
+            'in scripts/genenv.local.json under "env" and they survive a refresh.'
+        )
     return 0
 
 
