@@ -88,11 +88,14 @@ Short on purpose: this runs before every turn, and a person waiting on a reply s
 be paying for a service that has stopped answering. Not answering in time is the same
 answer as being down."""
 
-SLOW_SERVICES = frozenset({"research", "mcp"})
+SLOW_SERVICES = frozenset({"research", "mcp", "music"})
 """Built-in capabilities whose steps and probes are allowed longer.
 
 A page fetch taking twelve seconds is not a bug, and failing it at ten only produces a
-retry that takes twelve too. Extensions own any additional timeout policy they need.
+retry that takes twelve too. Music is here because a play answers only once the player has
+been seen playing, which can take fifteen seconds on a device waking up; at ten the step
+gave up on a command that was working, and a model told it had failed sends it again,
+restarting the track. Extensions own any additional timeout policy they need.
 """
 
 SLOW_MULTIPLE = 3

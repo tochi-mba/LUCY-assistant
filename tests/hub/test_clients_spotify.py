@@ -6,6 +6,7 @@ import pytest
 
 from lucy_api.clients.errors import NotConnectedError
 from lucy_api.clients.spotify import (
+    CONFIRM_WAIT_SECONDS,
     Device,
     FakeSpotifyClient,
     HttpSpotifyClient,
@@ -16,6 +17,10 @@ from lucy_api.clients.spotify import (
     _track,
 )
 from lucy_api.clients.testing import Answer, FakeHttp, problem
+
+SIBLING_CONFIRM_SECONDS = 15.0
+"""Spotify-api's `confirm_timeout_seconds`: its config.py default, which preferences.py
+lets a person narrow and never raise."""
 
 
 def test_a_lookup_item_omits_hints_that_were_not_given() -> None:
@@ -134,3 +139,31 @@ async def test_the_in_memory_player_records_the_profile_on_every_call() -> None:
     assert paused.is_playing is False
     assert fake.asked[-1] == "work"
     assert fake.played[0] == ("work", ("spotify:track:1",), "d1")
+
+
+# --- a player command is waited on for as long as it takes to confirm ---------------------------
+#
+# Spotify-api answers a play, queue or pause only once it has seen the effect on the player, for
+# up to its `confirm_timeout_seconds`, and a person's setting can only narrow that. Against the
+# turn's ten-second default a device slow to wake was abandoned while it was still confirming,
+# and the command was sent again, restarting the track it had just started.
+
+
+async def test_a_player_command_is_waited_on_longer_than_the_service_takes_to_confirm_it() -> None:
+    """The bug, named: play, queue and pause carried no timeout of their own, so a device that
+    took twelve seconds to confirm was given up on at ten while its track was starting."""
+    http = FakeHttp(*(Answer(body={"is_playing": True}) for _ in range(3)))
+    client = HttpSpotifyClient(http, "http://music.test")
+
+    await client.play("work", uris=["spotify:track:1"])
+    await client.queue("work", "spotify:track:1")
+    await client.pause("work")
+
+    assert [call.timeout_seconds for call in http.calls] == [CONFIRM_WAIT_SECONDS] * 3
+    assert CONFIRM_WAIT_SECONDS > SIBLING_CONFIRM_SECONDS
+
+
+async def test_a_read_keeps_the_turn_s_ordinary_wait() -> None:
+    http = FakeHttp(Answer(body={"is_playing": False}))
+    await HttpSpotifyClient(http, "http://music.test").now_playing("work")
+    assert http.last.timeout_seconds is None

@@ -41,6 +41,20 @@ AUDIENCE = "spotify-api"
 DEFAULT_RECENT = 10
 """How many plays a history read asks for. Small on purpose: the service ceiling is 50."""
 
+CONFIRM_WAIT_SECONDS = 25.0
+"""How long to wait on a play, queue or pause, which answers only once it is confirmed.
+
+The service polls the player until the effect is visible, for up to its
+`confirm_timeout_seconds`: 15 by default (Spotify-api config.py), and a person's setting
+can only narrow that (preferences.py). The poll that straddles the deadline is allowed to
+finish, and one Spotify call there may take its `request_timeout_seconds`, another 10. So
+25, which also fits inside the widened step ceiling music is given (`SLOW_SERVICES`, 30).
+
+Against the turn's ten-second default a device slow to wake was abandoned while it was
+still confirming, and the command was sent again -- restarting the track it had just started.
+A deployment that raises the service's cap past 15 has to raise this with it.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Track:
@@ -208,25 +222,38 @@ class HttpSpotifyClient:
             body["uris"] = list(uris)
         if device_id:
             body["device_id"] = device_id
-        return _now_playing(
-            await self._api.send("POST", "/v1/player/play", body=body, profile=profile)
-        )
+        return await self._command("/v1/player/play", body=body, profile=profile)
 
     async def queue(self, profile: str, uri: str, *, device_id: str = "") -> NowPlaying:
         """Queue one track, which deliberately does not interrupt what is playing."""
         body: dict[str, Any] = {"uri": uri}
         if device_id:
             body["device_id"] = device_id
-        return _now_playing(
-            await self._api.send("POST", "/v1/player/queue", body=body, profile=profile)
-        )
+        return await self._command("/v1/player/queue", body=body, profile=profile)
 
     async def pause(self, profile: str, *, device_id: str = "") -> NowPlaying:
         """Pause, and answer with the state in which the pause was observed."""
         params = {"device_id": device_id} if device_id else None
-        return _now_playing(
-            await self._api.send("POST", "/v1/player/pause", params=params, profile=profile)
+        return await self._command("/v1/player/pause", params=params, profile=profile)
+
+    async def _command(
+        self,
+        path: str,
+        *,
+        profile: str,
+        body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> NowPlaying:
+        """One player command, waited on for as long as the service may take to confirm it."""
+        payload = await self._api.send(
+            "POST",
+            path,
+            body=body,
+            params=params,
+            profile=profile,
+            timeout_seconds=CONFIRM_WAIT_SECONDS,
         )
+        return _now_playing(payload)
 
 
 def _item(wanted: Wanted) -> dict[str, Any]:
@@ -395,6 +422,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AUDIENCE",
+    "CONFIRM_WAIT_SECONDS",
     "DEFAULT_RECENT",
     "SERVICE",
     "Device",
