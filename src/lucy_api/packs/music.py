@@ -20,6 +20,7 @@ from lucy_api.clients.spotify import (
     AUDIENCE,
     DEFAULT_RECENT,
     HttpSpotifyClient,
+    UnconfirmedError,
     Wanted,
 )
 from lucy_api.packs.base import Availability, Permission, SetupPlan, SetupStep, State
@@ -29,13 +30,24 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation, RunContext
 
     from lucy_api.clients.spotify import NowPlaying, SpotifyClient, Track
     from lucy_api.packs.context import PackContext
+
+UNCONFIRMED_NOTE = (
+    "The command was accepted but could not be confirmed in time; this is the last state "
+    "seen. Check music.nowPlaying before sending it again."
+)
+"""What the model is told when a command was accepted and not yet seen to take effect.
+
+Without it the model read an outage, told the person playback had failed while the track may
+already have been starting, and sent the command again -- which restarts a track from the
+beginning. The last sentence names the read that settles it, rather than the retry.
+"""
 
 
 class MusicPack:
@@ -240,24 +252,36 @@ class MusicPack:
 
     async def _play(self, run: RunContext[PackContext]) -> dict[str, Any]:
         uri = str(run.input.get("uri") or "")
-        state = await self._client(run.ctx).play(
-            run.ctx.profile,
-            uris=(uri,) if uri else (),
-            device_id=_device_id(run),
+        return await _commanded(
+            self._client(run.ctx).play(
+                run.ctx.profile,
+                uris=(uri,) if uri else (),
+                device_id=_device_id(run),
+            )
         )
-        return _playing(state)
 
     async def _queue(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        state = await self._client(run.ctx).queue(
-            run.ctx.profile,
-            str(run.input.get("uri") or ""),
-            device_id=_device_id(run),
+        return await _commanded(
+            self._client(run.ctx).queue(
+                run.ctx.profile,
+                str(run.input.get("uri") or ""),
+                device_id=_device_id(run),
+            )
         )
-        return _playing(state)
 
     async def _pause(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        state = await self._client(run.ctx).pause(run.ctx.profile, device_id=_device_id(run))
-        return _playing(state)
+        return await _commanded(
+            self._client(run.ctx).pause(run.ctx.profile, device_id=_device_id(run))
+        )
+
+
+async def _commanded(command: Awaitable[NowPlaying]) -> dict[str, Any]:
+    """A write's answer: the state that confirmed it, or the last one seen and why."""
+    try:
+        state = await command
+    except UnconfirmedError as unconfirmed:
+        return {**_playing(unconfirmed.observed), "confirmed": False, "note": UNCONFIRMED_NOTE}
+    return _playing(state)
 
 
 def _track(track: Track) -> dict[str, Any]:

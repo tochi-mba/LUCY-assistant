@@ -8,7 +8,7 @@ from lucy_api.clients.spotify import CONFIRM_WAIT_SECONDS, Device, FakeSpotifyCl
 from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
-from lucy_api.packs.music import MusicPack, _optional_int
+from lucy_api.packs.music import UNCONFIRMED_NOTE, MusicPack, _optional_int
 from lucy_api.packs.registry import limits_for
 from lucy_api.packs.service import Capabilities
 from lucy_api.prompt.docs import capability_doc
@@ -198,6 +198,50 @@ async def test_pause_and_queue_project_playback_the_same_way_play_does() -> None
         context,
     )
     assert result["issues"] is None
+
+
+async def test_a_command_accepted_but_not_confirmed_is_an_answer_rather_than_a_failure() -> None:
+    """The bug, named: a play the service had accepted but not yet seen take effect came back
+    as a failed step, so the model told the person playback had failed while the track may
+    already have been starting, and sent the command again."""
+    fake = FakeSpotifyClient()
+    track = Track(name="Reverie", artists=("Claude Debussy",), uri="spotify:track:0")
+    fake.state = fake.state.__class__(track=track, progress_ms=64_000, is_playing=True)
+    fake.confirms = False
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "play", "op": "music.play", "input": {"uri": "spotify:track:1"}},
+                {"id": "queue", "op": "music.queue", "input": {"uri": "spotify:track:1"}},
+                {"id": "pause", "op": "music.pause", "input": {}},
+            ]
+        },
+        context,
+    )
+
+    assert result["issues"] is None
+    for step in result["steps"]:
+        answer = step["data"]
+        assert answer["confirmed"] is False
+        assert answer["note"] == UNCONFIRMED_NOTE
+        assert answer["track"]["name"] == "Reverie"
+        assert answer["progress_ms"] == 64_000
+    assert fake.played == [("personal", ("spotify:track:1",), "")]
+
+
+async def test_a_confirmed_command_carries_no_note() -> None:
+    fake = FakeSpotifyClient()
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "pause", "op": "music.pause", "input": {}}]}, context
+    )
+
+    assert set(result["steps"][0]["data"]) == {"track", "progress_ms", "is_playing"}
 
 
 def test_a_music_step_outlasts_the_wait_for_a_confirmed_command() -> None:
