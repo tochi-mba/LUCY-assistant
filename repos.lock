@@ -2,11 +2,11 @@
 # The commit each sibling was at when the family was last verified together.
 # Re-record with `make lock` after a green `make up`; check with `make lock-check`.
 # Private repositories are never listed here: see docs/adr/0011-private-services-are-extensions.md.
-Keyring-api 6f34a4968bf3945bc2d730b3165465dfe884ac66
-Settings-api 6a1571d26f0e4f1a16fa077efc037a9751f9c76b
+Keyring-api adf1b3452b1821ae3418c74e46f2f6ae9ca19038
+Settings-api 74e1a500166563ce600a47c8aab40f8e39884604
 User-api dc6096c20c642f0f6859b7bfaf02a5a0f0bd1d9f
 Persona-api 621122a7bcf06811746669c38790931b5331d80f
-Web-search-api ee5289c1ff0974dbd89b4bd021054851ce570a12
+Web-search-api d42deb700aa20791530d8d548bd1bdbc361ba0a2
 Spotify-api 7e4796626091111aab7b8b83a5c4312a854ee8d4
-Environments-api be775d864b3e8e9c07339157d54732055d8e9491
-Memory-api 713254769c8c11acf4c297e40bd9fac2cee35667
+Environments-api c5e66e585f383bdaf1a49978447f160c5b9f12ee
+Memory-api cd147e774778715e9e0a1e92767257871cdea2c0
