@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from lucy_api.agents.types import RESTARTED, Delegation, capped_summary, declared_return
 from lucy_api.core.errors import LucyError
+from lucy_api.core.logging import bind
 from lucy_api.model.registry import parse_spec
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
@@ -203,10 +204,13 @@ class ChildRuntime:
                 parent.session_id,
                 NewItem("message", "user", _brief_text(delegation), agent_id=agent_id),
             )
-            result = await self._wait(
-                self._loop(parent, agent_id, delegation),
-                timeout=parent.policy.agent_wall_clock_seconds,
-            )
+            # Its lines carry its own id, and its parent's when it is a helper's helper, on
+            # top of the conversation and turn it inherited from the turn that started it.
+            with bind(agent_id=agent_id, parent_agent_id=parent.agent_id or None):
+                result = await self._wait(
+                    self._loop(parent, agent_id, delegation),
+                    timeout=parent.policy.agent_wall_clock_seconds,
+                )
         except asyncio.CancelledError:
             if parent.work is not None and parent.work.closing:
                 # The process is going down; nobody stopped this helper. Its row stays

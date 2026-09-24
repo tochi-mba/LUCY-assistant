@@ -53,6 +53,7 @@ from weftai import create_formatter, create_registry, create_runtime, standard_o
 from lucy_api.model.types import SAY, SAY_DESCRIPTION
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
+from lucy_api.packs.steplog import step_hooks
 from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
 
 if TYPE_CHECKING:
@@ -326,6 +327,7 @@ def build_runtime(
     if store is not None:
         options["store"] = store
     options["limits"] = limits if limits is not None else {"maxSteps": budgets.max_steps}
+    options["hooks"] = step_hooks()
     # weftai types its options as a TypedDict; we assemble the mapping conditionally
     # because passing store=None is not the same as leaving it out.
     return create_runtime(cast("Any", options))
