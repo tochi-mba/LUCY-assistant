@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-from lucy_api.clients.memory import Draft, HttpMemoryClient, _note, _scope, as_dict
-from lucy_api.clients.testing import Answer, FakeHttp
+from lucy_api.clients.memory import (
+    Draft,
+    HttpMemoryClient,
+    TopicCard,
+    _note,
+    _scope,
+    _topic,
+    as_dict,
+)
+from lucy_api.clients.testing import Answer, FakeHttp, ReadRecorder
 
 
 def test_a_row_that_is_not_an_object_becomes_an_empty_note() -> None:
@@ -76,23 +84,80 @@ async def test_listing_and_mutations_use_the_memory_audience() -> None:
     assert "account_id" not in as_dict(listed[0])
 
 
+RECORDED_TOPIC = {
+    "id": "top_41acd2de8f0fb53452eafdc8874f14d0",
+    "account_id": "acct_57d7842b361d4a4da10510a5599a3268",
+    "profile": "personal",
+    "key": "drink preference",
+    "title": "Drink preference",
+    "summary": "Prefers tea over coffee",
+    "kind": "fact",
+    "memory_count": 1,
+    "unconfirmed": 0,
+    "importance": 5,
+    "first_seen": 1790190222.509364,
+    "last_seen": 1790253148.4500523,
+    "last_summarised_at": None,
+    "revision": 1,
+}
+"""One row of `GET /v1/internal/memory/topics`, recorded from a running Memory-api on
+2026-09-24 and copied here verbatim.
+
+Recorded rather than written, because a hand-written row is written by whoever wrote the
+parser, and the two agree with each other instead of with the service. That is how this
+client came to read `count` and `unread` -- names its own test sent and the service never
+has -- and why every prompt it fed said "0 memories". Re-record it from the running family
+if Memory-api's `Topic` model changes; do not edit it to match the parser.
+"""
+
+OPTIONAL_TOPIC_KEYS = frozenset({"trust"})
+"""Keys the parser may ask for that the service is not expected to send.
+
+`trust`: Memory-api vouches server-side instead (a topic made only of unvouched members
+never reaches the index), so an absent `trust` is correct and reads as `stated`. The parser
+still asks, so a topic that ever does arrive marked otherwise is held back.
+"""
+
+
+def test_a_recorded_topic_row_decodes_to_the_counts_the_service_meant() -> None:
+    """The bug, named: one vouched memory, not zero."""
+    card = _topic(RECORDED_TOPIC)
+    assert card.count == 1
+    assert card.unconfirmed == 0
+    assert card.importance == 5.0
+    assert card.trust == "stated"
+    assert card.last_seen is not None
+    assert card.last_seen.year == 2026
+
+
+def test_the_topic_parser_reads_nothing_the_service_does_not_send() -> None:
+    """The general guard. Any name asked for and absent from a recorded row is a field this
+    client reads as a default on every call, which is the defect class, not a style point."""
+    row = ReadRecorder(RECORDED_TOPIC)
+    _topic(row)
+    assert row.absent <= OPTIONAL_TOPIC_KEYS, row.absent - OPTIONAL_TOPIC_KEYS
+
+
+def test_unconfirmed_members_are_carried_not_folded_into_the_count() -> None:
+    """They came from a page or a tool, never reach retrieval, and the service keeps them out
+    of `memory_count` on purpose. Adding them in would claim knowledge the hub cannot use."""
+    card = _topic({**RECORDED_TOPIC, "memory_count": 2, "unconfirmed": 3})
+    assert card.count == 2
+    assert card.unconfirmed == 3
+
+
+def test_a_topic_the_service_marks_untrusted_is_still_read_as_untrusted() -> None:
+    """Defence in depth: the service filters today, and the hub still holds back a topic
+    that ever arrives marked otherwise rather than trusting the default."""
+    assert _topic({**RECORDED_TOPIC, "trust": "untrusted"}).trust == "untrusted"
+
+
 async def test_the_topic_index_and_its_expansion_never_carry_an_account_id() -> None:
     http = FakeHttp(
         Answer(
             body={
                 "data": [
-                    {
-                        "id": "top_1",
-                        "key": "tea",
-                        "title": "Tea",
-                        "summary": "How they take it",
-                        "count": 3,
-                        "importance": "0.5",
-                        "unread": 1,
-                        "trust": "stated",
-                        "last_seen": "2026-09-01T12:00:00Z",
-                        "account_id": "secret",
-                    },
+                    {**RECORDED_TOPIC, "id": "top_1", "title": "Tea", "account_id": "secret"},
                     {"id": "top_bad", "importance": "not-a-number"},
                     {"id": "top_obj", "importance": {"nested": True}},
                     "not-an-object",
@@ -121,10 +186,11 @@ async def test_the_topic_index_and_its_expansion_never_carry_an_account_id() -> 
 
     assert [card.id for card in topics] == ["top_1", "top_bad", "top_obj"]
     assert topics[0].title == "Tea"
-    assert topics[0].importance == 0.5
+    assert topics[0].count == 1
+    assert topics[0].importance == 5.0
     assert topics[1].importance == 0.0
     assert topics[2].importance == 0.0
-    assert topics[0].unread == 1
+    assert "account_id" not in TopicCard.__dataclass_fields__
     assert from_memories[0].body == "prefers tea"
     assert from_data[0].id == "mem_2"
     assert all("/v1/internal/memory/topics" in call.url for call in http.calls)

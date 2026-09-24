@@ -22,7 +22,6 @@ def card(**overrides: object) -> TopicCard:
         "count": 2,
         "importance": 0.4,
         "trust": "stated",
-        "unread": 0,
         "last_seen": NOW,
     }
     fields.update(overrides)
@@ -100,3 +99,12 @@ async def test_stored_topics_take_the_same_cut_the_unit_tests_already_pinned() -
     assert [item.id for item in snapshots] == ["t-ok"]
     assert source.lists == 1
     assert source.reads == 0
+
+
+async def test_the_live_index_carries_unconfirmed_members_to_the_block() -> None:
+    """The adapter is where the service's count meets the renderer's, so it is where a name
+    dropped on the way through would go unnoticed."""
+    listing = Listing((card(id="t-ok", count=2, unconfirmed=3),))
+    snapshots = await MemoryIndex(listing, profile="personal").fetch("ses_1")
+    assert snapshots[0].count == 2
+    assert snapshots[0].unconfirmed == 3

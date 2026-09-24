@@ -100,11 +100,11 @@ def _topic_from_card(card: TopicCard) -> Topic:
         title=card.title,
         summary=card.summary,
         count=card.count,
+        unconfirmed=card.unconfirmed,
         importance=card.importance,
         first_seen=card.first_seen,
         last_seen=card.last_seen,
         trust=trust,
-        unread=card.unread,
     )
 
 

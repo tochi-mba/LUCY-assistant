@@ -111,4 +111,33 @@ class FakeHttp:
         return await self.request(call)
 
 
-__all__ = ["PROBLEM_BASE", "Answer", "ExhaustedError", "FakeHttp", "problem"]
+class ReadRecorder(dict[str, Any]):
+    """A response row that remembers which keys a parser asked it for.
+
+    The parsers here read through tolerant helpers that return a default for an absent key,
+    so a parser reading a name the service never sends does not fail -- it reads zero, every
+    time, forever. A fake payload written by hand does not catch that, because whoever wrote
+    the parser wrote the fake, and they agree with each other rather than with the service.
+    Memory's topic index was exactly this: the client read `count`, its test's fake sent
+    `count`, the service sent `memory_count`, and every prompt said "0 memories".
+
+    Wrap a row recorded from the real service in this, parse it, then compare `asked` with
+    the row's own keys: anything asked for and not there is a name the service does not
+    send. Every read goes through `.get`, because `transport.field` is the only accessor.
+    """
+
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        super().__init__(row)
+        self.asked: set[str] = set()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        self.asked.add(key)
+        return super().get(key, default)
+
+    @property
+    def absent(self) -> set[str]:
+        """Keys the parser asked for that this row does not carry."""
+        return self.asked - set(self)
+
+
+__all__ = ["PROBLEM_BASE", "Answer", "ExhaustedError", "FakeHttp", "ReadRecorder", "problem"]

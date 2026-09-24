@@ -189,6 +189,14 @@ class Topic:
     last_seen: datetime | None = None
     trust: Trust = Trust.stated
     unread: int = 0
+    unconfirmed: int = 0
+    """Members held back until the person confirms them. Reported, never ranked on.
+
+    Deliberately not a ranking input. These came from a page or a tool, and a topic must
+    not climb the index because somebody else wrote a lot of unvouched things into it --
+    that is the persistence attack the trust boundary exists to stop, pointed at the order
+    instead of the content.
+    """
 
     def __post_init__(self) -> None:
         """Resolve `trust` once, here, so that nothing downstream has to distrust it.
@@ -225,6 +233,7 @@ class Topic:
             last_seen=self.last_seen,
             trust=self.trust.value,
             unread=self.unread,
+            unconfirmed=self.unconfirmed,
         )
 
     def text(self) -> str:
@@ -570,9 +579,12 @@ def index_line(topic: Topic) -> str:
     renderer free to invent its own line is a renderer that can silently spend twice what
     it was allocated. A renderer may present this differently; it must not present more.
     """
+    counts = [f"{topic.count} memories"]
     if topic.unread:
-        return f"{topic.title} ({topic.count} memories, {topic.unread} new): {topic.summary}"
-    return f"{topic.title} ({topic.count} memories): {topic.summary}"
+        counts.append(f"{topic.unread} new")
+    if topic.unconfirmed:
+        counts.append(f"{topic.unconfirmed} unconfirmed")
+    return f"{topic.title} ({', '.join(counts)}): {topic.summary}"
 
 
 def _decay(last_seen: datetime | None, reference: datetime | None) -> float:

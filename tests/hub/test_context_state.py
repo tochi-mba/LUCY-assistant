@@ -448,6 +448,30 @@ def test_the_memory_index_is_one_line_per_topic_with_a_count_and_a_recency() -> 
     ]
 
 
+def test_unconfirmed_memories_are_said_rather_than_dropped() -> None:
+    """They cannot be used until the person confirms them, and a model that does not know
+    they exist tells the person it knows nothing about a subject it has notes on."""
+    state = a_state(
+        topics=(
+            a_topic(id="p1", last_seen=NOW - timedelta(days=3), unconfirmed=2),
+            a_topic(id="p2", title="Deploys", last_seen=NOW - timedelta(days=4), unconfirmed=1),
+        )
+    )
+    rendered = body_of(state)
+
+    assert headline(rendered, "memory") == "2 topics, 24 memories, 3 unconfirmed"
+    assert entries_of(rendered, "memory")[0] == (
+        "Ingest pipeline - how the old API is shaped and who calls it"
+        " - 12 memories, 2 unconfirmed - last seen 3d00h ago"
+    )
+
+
+def test_an_index_with_nothing_unconfirmed_does_not_mention_it() -> None:
+    rendered = body_of(a_state(topics=(a_topic(last_seen=NOW - timedelta(days=3)),)))
+    assert "unconfirmed" not in headline(rendered, "memory")
+    assert "unconfirmed" not in entries_of(rendered, "memory")[0]
+
+
 def test_a_topic_nobody_has_opened_yet_claims_no_recency_at_all() -> None:
     state = a_state(topics=(a_topic(count=1),))
 

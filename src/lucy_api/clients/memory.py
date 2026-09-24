@@ -56,18 +56,31 @@ class Block:
 
 @dataclass(frozen=True, slots=True)
 class TopicCard:
-    """One cluster, as the index lists it: a title, a count, never the memories."""
+    """One cluster, as the index lists it: a title, a count, never the memories.
+
+    `count` is Memory-api's `memory_count`: members somebody has vouched for, the only ones
+    retrieval will ever return. `unconfirmed` is the rest -- members that came from a page
+    or a tool and have not been confirmed by the person. They are not in `count`, never
+    reach retrieval, and are carried only so the index can say they exist rather than
+    quietly drop them.
+
+    `trust` is not something Memory-api sends on a topic. It filters server-side instead: a
+    topic whose members are all unvouched never reaches the index (`HAVING memory_count>0`
+    in its store). So an absent `trust` is the service having vouched, which is why the
+    default is `stated`; the field stays so that a topic arriving with any other value is
+    still held back by `Topic`, which resolves anything unrecognised to `untrusted`.
+    """
 
     id: str
     key: str = ""
     title: str = ""
     summary: str = ""
     count: int = 0
+    unconfirmed: int = 0
     importance: float = 0.0
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     trust: str = "stated"
-    unread: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,17 +229,26 @@ def _scope(*, kind: str, profile: str, session_id: str) -> dict[str, Any]:
 
 
 def _topic(row: dict[str, Any]) -> TopicCard:
+    """One row of Memory-api's topic index, read by the names it actually serialises.
+
+    The names are the service's (`Memory-api/src/memory_api/domain/models.py`, `Topic`), and
+    they matter more than they look: the helpers here return a default for a key that is not
+    there, so a wrong name is not an error, it is a zero. This parser read `count` and
+    `unread` for as long as it existed, and every prompt ever built said "3 topics, 0
+    memories" about three topics holding one memory each -- which Lucy then repeated back
+    as a reason: "the memory index shows 0 memories."
+    """
     return TopicCard(
         id=text(row, "id"),
         key=text(row, "key"),
         title=text(row, "title"),
         summary=text(row, "summary"),
-        count=number(row, "count"),
+        count=number(row, "memory_count"),
+        unconfirmed=number(row, "unconfirmed"),
         importance=_amount(row, "importance"),
         first_seen=moment(row.get("first_seen")),
         last_seen=moment(row.get("last_seen")),
         trust=text(row, "trust", "stated"),
-        unread=number(row, "unread"),
     )
 
 
