@@ -98,6 +98,7 @@ async def list_model_tools(
             user_token=acting.token,
             profile=resolved_profile,
             session_id=session,
+            incognito=_incognito(row),
         )
     )
     _attach_workspace(pack_ctx, row)
@@ -138,12 +139,24 @@ async def invoke_tool(
             profile=profile,
             session_id=session,
             permission_mode=mode,
+            incognito=_incognito(row),
         )
     )
     _attach_workspace(pack_ctx, row)
     pack_ctx.grants = await grants_for(store, acting.account_id, profile, session_id=session)
     result = await container.capabilities.invoke(name, body.input, pack_ctx)
     return {"tool": name, "steps": result.get("steps") or [], "text": result.get("text") or ""}
+
+
+def _incognito(row: dict[str, Any]) -> bool:
+    """Whether the session a call is scoped to promised to leave memory alone.
+
+    A promise about the conversation, not about who is calling: a client's own tool call in
+    an incognito session reads and writes memory no more than the model may. Both routes
+    built their context without it, so `notes.remember` scoped to an incognito session wrote
+    a memory, and `notes.search` read the person's.
+    """
+    return bool(row.get("incognito", 0))
 
 
 def _attach_workspace(pack_ctx: PackContext, row: dict[str, Any]) -> None:
