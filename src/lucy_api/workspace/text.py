@@ -200,10 +200,6 @@ def validate_text(path: str, content: str) -> str:
     return ""
 
 
-def is_binary(content: str) -> bool:
-    return "\0" in content
-
-
 def _json_error(content: str) -> str:
     try:
         json.loads(content)
@@ -338,7 +334,6 @@ __all__ = [
     "Window",
     "apply_edit",
     "digest",
-    "is_binary",
     "locate",
     "numbered_window",
     "stale_if_changed",

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from lucy_api.workspace.text import (
-    BINARY_NOTICE,
     DEFAULT_LINE_LIMIT,
     EXACT,
     FUZZY,
     WHITESPACE,
     apply_edit,
     digest,
-    is_binary,
     locate,
     numbered_window,
     stale_if_changed,
@@ -155,12 +153,6 @@ def test_json_toml_and_python_are_validated_and_other_suffixes_are_not() -> None
     assert validate_text("ok.py", "x = 1\n") == ""
     assert "Python" in validate_text("bad.py", "def (\n")
     assert validate_text("notes.md", "not code") == ""
-
-
-def test_a_nul_marks_a_file_binary() -> None:
-    assert is_binary("ok") is False
-    assert is_binary("a\0b") is True
-    assert BINARY_NOTICE
 
 
 def test_a_newline_only_needle_that_does_not_occur_falls_through_the_ladder() -> None:
