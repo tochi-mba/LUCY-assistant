@@ -53,6 +53,7 @@ from lucy_api.context.framing import Origin, frame_result
 from lucy_api.context.scrub import scrub, scrub_tree
 from lucy_api.context.types import Trust
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
+from lucy_api.turn.claims import UNBACKED, unbacked
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
 from lucy_api.turn.window import RESULT_TOKEN_CAP, attach_needles, needle_from, without_needles
@@ -211,6 +212,8 @@ class _Cycle:
     opening: str = ""
     """Spent on the first round and then empty. A fact about how this turn started, which
     stops being true the moment the model has read it."""
+    claim_checked: bool = False
+    """Whether a reply claiming undone work was already held back once this turn."""
 
 
 async def run_turn(turn: Turn) -> Outcome:
@@ -283,6 +286,13 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     spent = outcome.spent
     outcome.spent = _add(spent, reply, turn.clock() - cycle.started)
     round_ = Round(text=reply.text, reasoning=reply.reasoning, plan=reply.plan, usage=reply.usage)
+    if reply.plan is None and not cycle.claim_checked and unbacked(reply.text, outcome.rounds):
+        # Held back before it reaches the transcript: a false "I've saved that" read once is
+        # believed. The round was paid for, so it is kept, but not what it said.
+        cycle.claim_checked = True
+        outcome.rounds.append(replace(round_, text=""))
+        cycle.repair_notice = UNBACKED
+        return None
     await _assistant_item(turn, reply.text)
     ended = await _early_stop(outcome, cycle.limits, outcome.spent, cycle.is_cancelled)
     if ended is not None:
