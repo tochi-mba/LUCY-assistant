@@ -40,6 +40,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   the same gates as every sibling, and `python scripts/parity.py` now scores this
   repository too. See [ADR-0009](docs/adr/0009-the-hub-lives-here.md).
 
+### Fixed
+
+- A direct tool call scoped to a session now reaches that session's workspace.
+  `GET /v1/tools?session_id=` and `POST /v1/tools/{name}/invoke` with a `session_id`
+  built their context without the session's workspace, which only a turn attached, so
+  the workspace probed as "no workspace is attached" and a session's own files could not
+  be listed, read or written from either route. Found by the eval harness's contract test.
+
 ### Changed
 
 - **Breaking:** the family floor is **Python 3.12**, and CI gates 3.12. Python 3.13 is

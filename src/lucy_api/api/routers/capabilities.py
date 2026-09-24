@@ -18,7 +18,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from lucy_api.api.dependencies import ActingAsDep, ContainerDep, StoreDep
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.core.container import PackRequest
+from lucy_api.packs.context import PackContext
 from lucy_api.permissions.store import grants_for
+from lucy_api.sessions.scope import WorkspaceScope
 
 router = APIRouter(prefix="/v1", tags=["capabilities"])
 
@@ -86,6 +88,7 @@ async def list_model_tools(
     """The bound registry, not the whole catalogue."""
     resolved_profile = profile
     session = session_id or ""
+    row: dict[str, Any] = {}
     if session_id is not None:
         row = await store.get(acting.account_id, session_id)
         resolved_profile = str(row["profile"])
@@ -97,6 +100,7 @@ async def list_model_tools(
             session_id=session,
         )
     )
+    _attach_workspace(pack_ctx, row)
     catalogue = await container.capabilities.probe(pack_ctx)
     return container.capabilities.tools(catalogue, session)
 
@@ -122,6 +126,7 @@ async def invoke_tool(
     profile = body.profile
     session = body.session_id
     mode = "ask"
+    row: dict[str, Any] = {}
     if session:
         row = await store.get(acting.account_id, session)
         profile = str(row["profile"])
@@ -135,6 +140,21 @@ async def invoke_tool(
             permission_mode=mode,
         )
     )
+    _attach_workspace(pack_ctx, row)
     pack_ctx.grants = await grants_for(store, acting.account_id, profile, session_id=session)
     result = await container.capabilities.invoke(name, body.input, pack_ctx)
     return {"tool": name, "steps": result.get("steps") or [], "text": result.get("text") or ""}
+
+
+def _attach_workspace(pack_ctx: PackContext, row: dict[str, Any]) -> None:
+    """The session's own workspace, so its tools are the ones its turns can call.
+
+    A turn gets this from `prepare_turn`. A direct call scoped to the same session has to
+    get it too, or the workspace probes as "no workspace is attached" and its operations are
+    neither listed nor invokable: a session's own files were unreachable from here. With no
+    session there is no row, and nothing to attach.
+    """
+    environment_id = str(row.get("workspace_environment_id") or "")
+    if environment_id:
+        pack_ctx.workspace_environment_id = environment_id
+        pack_ctx.workspace_path = WorkspaceScope(environment_id, str(row["id"])).root
