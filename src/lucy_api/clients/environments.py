@@ -23,7 +23,7 @@ and no amount of connecting an account changes that.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lucy_api.clients.errors import UnavailableError
@@ -63,6 +63,14 @@ asked for is still running, which is what happened to every workspace command ev
 """
 DEFAULT_OUTPUT_BYTES = 64 * 1024
 """How much command output comes back by default. The ceiling is generous; a window is not."""
+TIMED_OUT = "timed_out"
+"""The command state the sandbox reports for a command it killed at its ceiling.
+
+This state is the only sign of a timeout the sandbox sends. Its command record keeps a
+`timed_out` flag but never serialises it (Environments-api app/shells/shell.py
+`CommandRecord.to_dict`), so a client that read the flag alone told the model
+`"timed_out": false` next to `"state": "timed_out"`.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,13 +412,14 @@ class HttpEnvironmentsClient:
             body=body,
             timeout_seconds=timeout_ms / 1000 + EXEC_MARGIN_SECONDS,
         )
+        state = text(payload, "state")
         return Ran(
             command=text(payload, "command", command),
             exit_code=_exit_code(payload),
             output=text(payload, "output"),
             output_dropped_bytes=number(payload, "output_dropped_bytes"),
-            timed_out=flag(payload, "timed_out"),
-            state=text(payload, "state"),
+            timed_out=flag(payload, "timed_out") or state == TIMED_OUT,
+            state=state,
         )
 
 
@@ -610,10 +619,15 @@ class FakeEnvironmentsClient:
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
     ) -> Ran:
-        """Whatever the test scripted, or a command that did nothing and said nothing."""
+        """Whatever the test scripted, or a command that did nothing and said nothing.
+
+        A scripted `timed_out` state reads as a timeout whether or not the script also set
+        the flag, because that is what the real client makes of the same answer.
+        """
         del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
-        return self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
+        result = self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
+        return replace(result, timed_out=result.timed_out or result.state == TIMED_OUT)
 
 
 if TYPE_CHECKING:
