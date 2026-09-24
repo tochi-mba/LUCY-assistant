@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import posixpath
 import time
 from dataclasses import dataclass, field
@@ -106,6 +107,32 @@ if TYPE_CHECKING:
     from lucy_api.permissions.gate import Grant
     from lucy_api.sessions.models import CreateSession
     from lucy_api.turn.stop import Budget as TurnBudget
+
+
+logger = logging.getLogger(__name__)
+
+OWN_NAMESPACE = "lucy"
+"""The hub's own settings: the turn policy, and everything `TurnPolicy` clamps."""
+
+SEARCH_NAMESPACE = "search"
+"""web-search's namespace, read for the person's backend and result count."""
+
+MUSIC_NAMESPACE = "spotify"
+"""spotify's namespace, read for the person's default playback device."""
+
+SIBLING_NAMESPACES = (SEARCH_NAMESPACE, MUSIC_NAMESPACE)
+"""Namespaces owned by a sibling that the hub nonetheless resolves.
+
+Named rather than spelled inline at the call site, because settings-api grants namespaces
+per service and a namespace the hub reads but was not granted answers 403 -- which
+``_optional_namespace`` swallows on purpose, since a settings outage must not take a turn
+down. A missing *grant* is not an outage, and looks exactly like one from here. Keeping
+the list in one place is what lets `tests/hub/test_settings_namespaces.py` check the grants
+in `scripts/genenv.py` against it.
+"""
+
+NAMESPACES_READ = (OWN_NAMESPACE, *SIBLING_NAMESPACES)
+"""Every namespace the hub resolves, and so every namespace it must be granted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,7 +492,7 @@ class Container:
     async def _pack_defaults(self, user_token: str, profile: str | None) -> dict[str, object]:
         """Sibling knobs the packs may use when the model omitted them. Never secrets."""
         defaults: dict[str, object] = {}
-        search = await self._optional_namespace("search", user_token, profile)
+        search = await self._optional_namespace(SEARCH_NAMESPACE, user_token, profile)
         if search is not None:
             limit = search.get("default_result_count", 8)
             if isinstance(limit, int) and not isinstance(limit, bool):
@@ -473,7 +500,7 @@ class Container:
             backend = search.get("search_backend", "google")
             if isinstance(backend, str) and backend:
                 defaults["research.backend"] = backend
-        music = await self._optional_namespace("spotify", user_token, profile)
+        music = await self._optional_namespace(MUSIC_NAMESPACE, user_token, profile)
         if music is not None:
             device = music.get("default_device", None)
             if isinstance(device, str) and device:
@@ -483,10 +510,24 @@ class Container:
     async def _optional_namespace(
         self, namespace: str, user_token: str, profile: str | None
     ) -> ResolvedSettings | None:
-        """A sibling namespace, or nothing. An outage here must not take the turn down."""
+        """A sibling namespace, or nothing. An outage here must not take the turn down.
+
+        A rejection is not an outage. 403 means this service was never granted the namespace,
+        which no retry and no waiting will fix, and which looks identical from here to a
+        settings-api that is merely down -- so it is logged once per turn rather than
+        swallowed. It stays non-fatal: the person asked for something else, and losing a
+        default result count is not worth losing the answer.
+        """
         try:
             return await self.preferences.resolve(namespace, user_token=user_token, profile=profile)
-        except (SettingsUnavailable, SettingsRejected):
+        except SettingsUnavailable:
+            return None
+        except SettingsRejected:
+            logger.warning(
+                "settings_namespace_refused namespace=%s -- the hub is not granted it, so its"
+                " defaults are being ignored; see SETTINGS_API_SERVICES",
+                namespace,
+            )
             return None
 
     async def _turn_settings(
@@ -500,7 +541,9 @@ class Container:
         failing.
         """
         try:
-            return await self.preferences.resolve("lucy", user_token=user_token, profile=profile)
+            return await self.preferences.resolve(
+                OWN_NAMESPACE, user_token=user_token, profile=profile
+            )
         except SettingsUnavailable:
             return None
 
