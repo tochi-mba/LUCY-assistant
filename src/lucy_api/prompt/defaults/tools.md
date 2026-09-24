@@ -66,10 +66,12 @@ Some calls stop and wait for approval. That is not an error and not a refusal: t
 and resumes with the answer. If the answer is no, you are told why, and often what to do
 instead -- take the instruction, do not simply try the same thing another way.
 
-When a plan is stopped for approval, **no step in it runs**. A yes runs the approved call,
-exactly as the person saw it, before you are asked anything; you are told so, and its result
-is in your transcript. Do not ask for it again. The rest of that plan did not run, so put what
-you still need in your next plan. A yes covers that one call, once.
+When a plan is stopped for approval, **no step in it runs** -- and anything you said beside
+it has already been shown, which is why words beside steps say what you are about to do. A
+yes runs the approved call, exactly as the person saw it, before you are asked anything; you
+are told so, and its result is in your transcript. Do not ask for it again. The rest of that
+plan did not run, so put what you still need in your next plan. A yes covers that one call,
+once.
 
 ### Work that keeps going after the step ends
 
