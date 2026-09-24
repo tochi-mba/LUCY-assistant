@@ -361,3 +361,27 @@ async def test_a_command_with_no_answer_says_how_it_ended_instead_of_result_null
         "work_id": step["work_id"],
         "notice": "DownstreamUnavailableError",
     }
+
+
+# --- the command, as it was asked for ---------------------------------------------------------
+
+
+async def test_the_command_reported_is_the_one_sent_not_the_sandboxs_wrapped_echo() -> None:
+    """The bug, named: the client preferred the sandbox's echo, which is the command wrapped
+    in a subshell, so the model read `( pytest -q\\n)` back for every `pytest -q`."""
+    answer = exec_answer()
+
+    ran = await ran_from(answer)
+
+    assert answer["command"] == f"( {COMMAND}\n)"
+    assert ran.command == COMMAND
+
+
+async def test_the_model_is_shown_the_command_it_ran() -> None:
+    fake = FakeEnvironmentsClient()
+    fake.script(COMMAND, Ran(command=f"( {COMMAND}\n)", exit_code=0, state="exited"))
+    capabilities, context = a_workspace(fake)
+
+    step = await run_step(capabilities, context)
+
+    assert step["command"] == COMMAND
