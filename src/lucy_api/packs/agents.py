@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 MAX_DEPTH = 3
 """How deep helpers may nest. Four levels is a system nobody can follow, including Lucy."""
 
+MAX_STOPPED_LISTED = 10
+"""How many stopped helpers `agents.list` shows, newest last. `stopped_count` says how many."""
+
 WALL_CLOCK_GRACE = 30.0
 """How far past its own wall clock the registry lets a helper run.
 
@@ -75,12 +78,12 @@ class AgentsPack:
         return Availability(state=State.ready, detail=detail)
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
-        registry, session_id, depth = context.work, context.session_id, context.depth
+        registry, depth = context.work, context.depth
         if registry is None:
             return ()
 
         async def run_list(_run: RunContext[Any]) -> dict[str, Any]:
-            return _list(registry, session_id)
+            return await _list(registry, context)
 
         async def run_spawn(run: RunContext[Any]) -> dict[str, Any]:
             return await _spawn(
@@ -121,8 +124,9 @@ class AgentsPack:
             {
                 "name": "agents.list",
                 "description": (
-                    "Helpers currently running for this conversation. Finished ones "
-                    "arrive as work.check notices, not here (helpers, subagents, roster)."
+                    "Helpers running for this conversation, and any that stopped before "
+                    "finishing and were not continued. Finished ones arrive as work.check "
+                    "notices, not here (helpers, subagents, roster, stopped, resume)."
                 ),
                 "input": object_schema({}),
                 "output": value(object_schema({})),
@@ -299,9 +303,12 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
         return {"status": "at_capacity", "message": str(exc)}
 
 
-def _list(registry: Registry, session_id: str) -> dict[str, Any]:
-    running = [record for record in registry.running(session_id) if record.kind is Kind.helper]
-    return {
+async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
+    running = [
+        record for record in registry.running(context.session_id) if record.kind is Kind.helper
+    ]
+    stopped = await context.child.stopped(context) if context.child is not None else []
+    listed: dict[str, Any] = {
         "running": [
             {
                 "id": record.id,
@@ -314,6 +321,11 @@ def _list(registry: Registry, session_id: str) -> dict[str, Any]:
         ],
         "count": len(running),
     }
+    if stopped:
+        listed["stopped"] = stopped[-MAX_STOPPED_LISTED:]
+        listed["stopped_count"] = len(stopped)
+        listed["advice"] = "agents.reopen continues a stopped helper from its own transcript."
+    return listed
 
 
 async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the parent already has
@@ -529,4 +541,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["MAX_DEPTH", "WALL_CLOCK_GRACE", "AgentsPack"]
+__all__ = ["MAX_DEPTH", "MAX_STOPPED_LISTED", "WALL_CLOCK_GRACE", "AgentsPack"]
