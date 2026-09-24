@@ -61,6 +61,7 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 | `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. |
 | `lucy eval list` | The regression conversations that ship with Lucy, and what each guards. No hub needed. |
 | `lucy eval run --model SPEC` | Hold them against a running hub with a real model and write a report. Never run by CI. See [evals.md](evals.md). |
+| `lucy logs` | The hub's log file, filtered: `--session`, `--turn`, `--agent` (any part of an id), `--level`, `--grep`, `--last N`; `--json` for the raw lines. Reads the file on this machine, so it works when the hub does not. |
 | `lucy serve` | Run the hub in the foreground. `--host` and `--port`. |
 
 `lucy` with no command prints help, and exits 0. Help leads with examples, because that is
