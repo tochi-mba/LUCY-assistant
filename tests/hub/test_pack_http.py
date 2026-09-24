@@ -569,6 +569,156 @@ async def test_a_connection_error_with_no_retries_is_the_answer() -> None:
         await client.aclose()
 
 
+EXEC_URL = "http://environments.test/v1/exec"
+PLAY_URL = "http://spotify.test/v1/player/play"
+
+
+@pytest.fixture
+async def make_retrying_client() -> AsyncIterator[Callable[..., PackHttp]]:
+    """Pack clients with two retries, a clock that never runs out and a sleep that never waits."""
+    built: list[PackHttp] = []
+
+    def factory(handler: Callable[[httpx.Request], httpx.Response]) -> PackHttp:
+        client = PackHttp(
+            tokens=a_broker(FakeExchange()),
+            transport=httpx.MockTransport(handler),
+            retry_attempts=2,
+            clock=lambda: 0.0,
+            sleeper=_no_wait,
+        )
+        built.append(client)
+        return client
+
+    yield factory
+    for client in built:
+        await client.aclose()
+
+
+def failing(error: type[httpx.TransportError]) -> Callable[[], httpx.Response]:
+    def answer() -> httpx.Response:
+        raise error("the sibling went quiet")
+
+    return answer
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH"])
+@pytest.mark.parametrize(
+    "error", [httpx.ReadTimeout, httpx.WriteTimeout, httpx.ReadError, httpx.RemoteProtocolError]
+)
+async def test_a_write_that_may_have_reached_the_sibling_is_never_sent_twice(
+    make_retrying_client, method: str, error: type[httpx.TransportError]
+) -> None:
+    """The bug, named: a ``workspace.run`` whose answer was slower than its call timeout was
+    POSTed to ``/v1/exec`` again, and the command ran twice.
+
+    The body is Environments-api's ``ExecOnceRequest`` (app/api/schemas.py), because the
+    request that was repeated is the one that runs somebody's command.
+    """
+    handler, seen = recording(failing(error), ok(json={"exit_code": 0}))
+    client = make_retrying_client(handler)
+
+    with pytest.raises(DownstreamUnavailableError):
+        await client.request(
+            Call(
+                method=method,
+                url=EXEC_URL,
+                audience=HOME,
+                json={"environment_id": "env_1", "command": "make deploy", "timeout_ms": 5000},
+            )
+        )
+
+    assert len(seen) == 1
+
+
+async def test_spotify_s_confirmation_timeout_is_answered_rather_than_played_again(
+    make_retrying_client,
+) -> None:
+    """The bug, named: Spotify-api's 504 means "accepted, not yet confirmed", and the hub
+    answered it by POSTing play again, which restarted the track that was already playing.
+
+    The body is what Spotify-api's ``problem_response`` (api/errors.py) renders for a
+    ``ConfirmationTimeoutError`` (errors.py), with the observed state the model should see.
+    """
+    confirmation_timeout = {
+        "type": "https://spotify-api.invalid/problems/confirmation-timeout",
+        "title": "Gateway timeout",
+        "status": 504,
+        "detail": "the command was accepted but its effect could not be confirmed within 15s",
+        "instance": "/v1/player/play",
+        "details": {"observed": {"is_playing": True, "progress_ms": 1200}},
+    }
+    handler, seen = recording(lambda: httpx.Response(504, json=confirmation_timeout))
+    client = make_retrying_client(handler)
+
+    response = await client.request_response(
+        Call(method="POST", url=PLAY_URL, audience=HOME, json={"uris": ["spotify:track:1"]})
+    )
+
+    assert response.status_code == 504
+    assert response.json()["details"]["observed"]["is_playing"] is True
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(("method", "status"), [("POST", 500), ("PATCH", 503)])
+async def test_a_write_the_sibling_failed_on_is_left_as_the_answer(
+    make_retrying_client, method: str, status: int
+) -> None:
+    # A 5xx says nothing about how far the sibling got before it failed.
+    handler, seen = recording(lambda: httpx.Response(status, json={"detail": "broke"}))
+    client = make_retrying_client(handler)
+
+    with pytest.raises(DownstreamUnavailableError) as outage:
+        await client.request(Call(method=method, url=URL, audience=HOME))
+
+    assert outage.value.status == status
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout])
+async def test_a_write_that_never_left_is_retried_because_nothing_can_have_happened(
+    make_retrying_client, error: type[httpx.TransportError]
+) -> None:
+    handler, seen = recording(failing(error), ok(json={"exit_code": 0}))
+    client = make_retrying_client(handler)
+
+    body = await client.request(Call(method="POST", url=EXEC_URL, audience=HOME))
+
+    assert body == {"exit_code": 0}
+    assert len(seen) == 2
+
+
+async def test_a_rate_limited_write_is_retried_because_the_sibling_said_it_did_nothing(
+    make_retrying_client,
+) -> None:
+    handler, seen = recording(
+        lambda: httpx.Response(429, json={"detail": "slow"}, headers={"Retry-After": "1"}),
+        ok(json={"ok": True}),
+    )
+    client = make_retrying_client(handler)
+
+    assert await client.request(Call(method="POST", url=URL, audience=HOME)) == {"ok": True}
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "put"])
+async def test_an_idempotent_request_is_retried_after_a_timeout_and_an_outage(
+    make_retrying_client, method: str
+) -> None:
+    # Sending one of these twice has the effect of sending it once, so a late answer or a
+    # 5xx costs a repeat rather than a failed turn. The method is compared case-blind.
+    handler, seen = recording(
+        failing(httpx.ReadTimeout),
+        lambda: httpx.Response(503, json={"detail": "busy"}),
+        ok(),
+    )
+    client = make_retrying_client(handler)
+
+    response = await client.request_response(Call(method=method, url=URL, audience=HOME))
+
+    assert response.status_code == 200
+    assert len(seen) == 3
+
+
 async def _no_wait(_seconds: float) -> None:
     return
 
