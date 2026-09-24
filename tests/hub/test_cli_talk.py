@@ -180,6 +180,42 @@ def test_a_failed_turn_is_a_refusal(patched) -> None:
     assert "could not finish" in err
 
 
+def test_a_failed_turn_says_why_when_the_hub_wrote_it_down(patched) -> None:
+    """The failure event says only that; the reason is the error item just before it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/v1/sessions":
+            return httpx.Response(201, json={"id": "ses_1"})
+        if request.url.path.endswith("/inputs"):
+            return httpx.Response(202, json={"id": "trn_1", "status": "queued"})
+        return httpx.Response(
+            200,
+            text=_sse(
+                ("lucy.content.item.added", {"type": "message", "content": "thinking"}),
+                ("lucy.content.item.added", {"type": "error", "content": "not a dict"}),
+                ("lucy.content.item.added", {"type": "error", "content": {"detail": 7}}),
+                (
+                    "lucy.content.item.added",
+                    {
+                        "type": "error",
+                        "content": {
+                            "code": "model_unavailable",
+                            "detail": "the model was unavailable: usage limit reached",
+                        },
+                    },
+                ),
+                ("lucy.turn.failed", {"status": "failed"}),
+            ),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    patched(handler)
+    code, out, err = run(["talk", "hi"], environ={TOKEN_VAR: "t"})
+    assert code == REFUSED
+    assert out == ""
+    assert "could not finish that turn: the model was unavailable: usage limit reached" in err
+
+
 def test_talk_cannot_reach_the_hub(monkeypatch) -> None:
     class Boom:
         def __enter__(self) -> Boom:

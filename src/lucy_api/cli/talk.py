@@ -35,6 +35,7 @@ READ_SECONDS = 120.0
 TEXT_DELTA = "lucy.content.text.delta"
 TURN_COMPLETED = "lucy.turn.completed"
 TURN_FAILED = "lucy.turn.failed"
+ITEM_ADDED = "lucy.content.item.added"
 STREAM_DONE = "lucy.stream.done"
 
 
@@ -122,6 +123,7 @@ def _ask(client: Any, ctx: Context, session_id: str, text: str) -> tuple[str, st
 
 def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> str:
     parts: list[str] = []
+    failure = ""
     with client.stream(
         "GET",
         f"{ctx.url}/v1/sessions/{session_id}/events",
@@ -137,14 +139,30 @@ def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> str
                 delta = payload.get("delta")
                 if isinstance(delta, str):
                     parts.append(delta)
+            elif event_type == ITEM_ADDED and envelope.get("turn_id") == turn_id:
+                failure = _error_detail(payload) or failure
             elif event_type == TURN_FAILED and envelope.get("turn_id") == turn_id:
                 message = "Lucy could not finish that turn"
-                raise CliError(message, REFUSED)
+                raise CliError(f"{message}: {failure}" if failure else message, REFUSED)
             elif event_type == STREAM_DONE or (
                 event_type == TURN_COMPLETED and envelope.get("turn_id") == turn_id
             ):
                 break
     return "".join(parts)
+
+
+def _error_detail(item: dict[str, Any]) -> str:
+    """Why a turn failed, from the error item the hub writes before it says so.
+
+    The failure event says only that the turn failed; the sentence saying why arrives just
+    before it, as the turn's error item. Without it a person saw "Lucy could not finish that
+    turn" for a usage limit, a missing credential and a model that stopped mid-answer alike.
+    """
+    content = item.get("content")
+    if item.get("type") != "error" or not isinstance(content, dict):
+        return ""
+    detail = content.get("detail")
+    return detail if isinstance(detail, str) else ""
 
 
 def _frames(lines: Any) -> Iterator[tuple[str, dict[str, Any]]]:
