@@ -284,3 +284,22 @@ async def test_the_sandbox_refusal_of_an_archived_environment_reads_as_the_archi
         await HttpEnvironmentsClient(http, "http://env.test").mkdir("env-1", "sessions/s1")
 
     assert refused.value.code == ARCHIVED_CODE
+
+
+# --- whose clock the expiry runs on ----------------------------------------------------------
+
+
+def test_the_stamped_idle_ttl_is_read_from_the_environment_view() -> None:
+    """`environment_idle_ttl_seconds` is `EnvironmentRecord`'s own field name
+    (`Environments-api/app/environments/models.py`), stamped at create from settings-api."""
+    assert _environment(_environment_view()).idle_ttl_seconds == 86_400.0
+
+
+def test_an_unstamped_or_malformed_idle_ttl_is_none_never_zero() -> None:
+    """A null TTL means the sandbox's deployment default applies. Zero would mean expired."""
+    view = _environment_view()
+    for unusable in (None, True, "86400"):
+        parsed = _environment({**view, "environment_idle_ttl_seconds": unusable})
+        assert parsed.idle_ttl_seconds is None
+    whole = _environment({**view, "environment_idle_ttl_seconds": 7_200})
+    assert whole.idle_ttl_seconds == 7_200.0

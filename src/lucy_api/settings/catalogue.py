@@ -466,8 +466,10 @@ def _core() -> tuple[Knob, ...]:
         _int(
             "workspace_retention_hours",
             24,
-            "How long an idle workspace is kept.",
-            "Shorter forgets files sooner. The sandbox expiry in live state still wins.",
+            "How long an idle workspace is assumed to last when the sandbox does not say.",
+            "Only the expiry countdown in live state reads this, and only for a workspace "
+            "the sandbox stamped no lifetime on. When files are actually wiped is the "
+            "sandbox's own idle_environment_hours setting.",
             minimum=1,
             maximum=720,
             unavailable=OnUnavailable.USE_DEFAULT,
