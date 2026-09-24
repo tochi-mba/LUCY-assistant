@@ -27,6 +27,7 @@ from lucy_api.model.types import SAY, SAY_DESCRIPTION, Stop
 from lucy_api.model.wire import said_and_planned
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
+from lucy_api.prompt.sections import PromptContext, render_all
 from lucy_api.sessions.scope import SessionScope
 
 STEPS = [{"id": "caps", "op": "capabilities.list", "input": {}}]
@@ -118,7 +119,7 @@ def test_a_chat_provider_hands_back_an_answer_in_words_as_the_reply() -> None:
     )
 
 
-def test_words_beside_steps_are_said_while_the_plan_runs() -> None:
+def test_words_beside_steps_come_back_as_the_text_before_the_plan() -> None:
     text = json.dumps({SAY: "Looking at what I can do.", "steps": STEPS})
     reply = anthropic_reply(message(content=[{"type": "text", "text": text}]), want_plan=True)
     assert (reply.text, reply.plan, reply.stop) == (
@@ -131,3 +132,16 @@ def test_words_beside_steps_are_said_while_the_plan_runs() -> None:
 def test_a_round_with_no_plan_asked_for_is_prose_whatever_it_looks_like() -> None:
     reply = anthropic_reply(message(content=[{"type": "text", "text": ANSWER}]), want_plan=False)
     assert (reply.text, reply.plan) == (ANSWER, None)
+
+
+def test_words_beside_steps_say_what_is_about_to_happen_not_that_it_happened() -> None:
+    """Read in a captured turn: "Noted -- Friday afternoons for your weekly review." reached the
+    person beside a write that then stopped for approval. Nothing had been kept, and the words
+    would have stood if the answer was no. The schema called them "said while they run", and
+    the memory prompt said to keep a fact "and say so in a clause" in the same breath.
+    """
+    assert "before they run" in SAY_DESCRIPTION
+    assert "never that it is done" in SAY_DESCRIPTION
+    prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
+    assert "once it is kept say so in a clause" in prompt
+    assert "anything you said beside it has already been shown" in prompt

@@ -140,7 +140,8 @@ OpenAI's own adapters send the same schema the same way.
 
 SAY_DESCRIPTION = (
     "What to tell the person. On its own, with no steps, it is your answer and ends the turn. "
-    "Beside steps, it is said while they run."
+    "Beside steps, it is said before they run -- what you are about to do, never that it is "
+    "done, since a step can fail or wait for the person's approval."
 )
 """How `say` describes itself inside the schema, which is all some models ever read of it."""
 
