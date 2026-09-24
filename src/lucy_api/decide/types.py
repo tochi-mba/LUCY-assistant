@@ -84,6 +84,23 @@ RECOVERY = Use(
     "Suggest reconsidering consecutive failed attempts.",
 )
 
-USES: tuple[Use, ...] = (CAPABILITIES, MEMORY, RECOVERY)
+CLAIMS = Use(
+    "claims",
+    "decision_claims",
+    "tighten",
+    "the phrase list of completion claims",
+    "Hold back a reply that claims work no step did.",
+)
 
-__all__ = ["CAPABILITIES", "MEMORY", "RECOVERY", "USES", "Direction", "Skip", "Use"]
+USES: tuple[Use, ...] = (CAPABILITIES, MEMORY, RECOVERY, CLAIMS)
+
+__all__ = [
+    "CAPABILITIES",
+    "CLAIMS",
+    "MEMORY",
+    "RECOVERY",
+    "USES",
+    "Direction",
+    "Skip",
+    "Use",
+]

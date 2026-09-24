@@ -22,6 +22,11 @@ There is no measured claim of model accuracy or end-to-end latency improvement.
 - Recovery is separately off by default. After consecutive failed rounds it can add
   one advisory reconsideration notice at confidence 0.9. It cannot stop a turn, drop a
   tool, execute an action, or weaken deterministic repetition and approval rules.
+- Claims catches a final reply that says something was done -- saved, written, started --
+  in a turn where no step did it, in wording the deterministic phrase list does not know.
+  At confidence 0.9 the reply is held back once and the model is told it was not done. It
+  only ever adds a hold: a reply the phrase list held back stays held back whatever the
+  answer, and it is never asked about a turn in which a step did real work.
 
 Topic assignment remains owned by Memory-api. The unused local decision-based assignment
 helper has been removed rather than creating a second assignment implementation.
@@ -36,6 +41,8 @@ settings surface and Settings-api. Settings apply when the next turn is prepared
 - `decision_capabilities=true`: capability preloading, subject to the master switch.
 - `decision_memory=true`: memory relevance, subject to the master switch and privacy rules.
 - `decision_recovery=false`: advisory recovery judgments.
+- `decision_claims=true`: catch unbacked completion claims in any wording, subject to the
+  master switch.
 - `decision_timeout_ms=1000`: per-call ceiling, bounded to 50–5,000 ms.
 - `decision_max_per_turn=8`: call budget, bounded to 1–32.
 

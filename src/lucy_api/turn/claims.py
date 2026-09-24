@@ -14,12 +14,18 @@ and a heuristic: a false match costs one round, and a second answer is taken as 
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING
+
+from weftai.decisions import Gate, noul
+
+from lucy_api.decide.types import CLAIMS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from lucy_api.decide import Decisions
     from lucy_api.turn.loop import Round
 
 BOOKKEEPING = frozenset({"capabilities", "help", "work"})
@@ -45,13 +51,68 @@ UNBACKED = (
 """What the model is told when a claim of that kind is held back."""
 
 
+THRESHOLD = 0.9
+"""How sure a decision has to be that a reply claims completed work before it is held back."""
+
+QUESTION = (
+    "Does this reply tell the person that an action was completed -- something saved, "
+    "recorded, remembered, written, changed, sent, started or set up?"
+)
+
+
+def did_work(rounds: Iterable[Round]) -> bool:
+    """Whether any step this turn succeeded at something other than bookkeeping."""
+    return any(
+        step.status == "ok" and step.operation.split(".", 1)[0] not in BOOKKEEPING
+        for round_ in rounds
+        for step in round_.steps
+    )
+
+
 def unbacked(text: str, rounds: Iterable[Round]) -> bool:
-    """Whether `text` claims a change that nothing this turn made."""
-    for round_ in rounds:
-        for step in round_.steps:
-            if step.status == "ok" and step.operation.split(".", 1)[0] not in BOOKKEEPING:
-                return False
-    return CLAIMED.search(text) is not None
+    """Whether `text` claims, in words the phrase list knows, a change nothing this turn made."""
+    return not did_work(rounds) and CLAIMED.search(text) is not None
 
 
-__all__ = ["BOOKKEEPING", "CLAIMED", "UNBACKED", "unbacked"]
+class ClaimCheck:
+    """The phrase list, with a decision in front of it where one is live.
+
+    The phrase list is English and names the shapes seen; it cannot know every way of saying
+    that something is done, in every language. A decision can -- so, when `decision_claims`
+    is enabled, a reply the phrase list passed is asked about. The decision can only add a
+    hold, never remove one: a direction of `tighten` means it may make Lucy stricter and never
+    looser, so a reply the phrase list held back is held back whatever the answer. In shadow
+    mode the disagreement is measured and the reply goes out as before.
+    """
+
+    def __init__(self, decide: Decisions | None = None) -> None:
+        self.decide = decide
+
+    async def unbacked(self, text: str, rounds: Iterable[Round]) -> bool:
+        if did_work(rounds):
+            return False
+        if CLAIMED.search(text) is not None:
+            return True
+        decide = self.decide
+        if decide is None or CLAIMS.id not in decide.enabled:
+            return False
+        answers = await decide.ask(
+            CLAIMS, json.dumps({"reply": text}, ensure_ascii=False), [noul("claims_done", QUESTION)]
+        )
+        gate: Gate[bool] = Gate(THRESHOLD, fail_open=False)
+        if not gate.decide(answers, "claims_done", answers.noul("claims_done")):
+            return False
+        await decide.disagreed(CLAIMS, decided="hold", fallback="send")
+        return decide.live(CLAIMS)
+
+
+__all__ = [
+    "BOOKKEEPING",
+    "CLAIMED",
+    "QUESTION",
+    "THRESHOLD",
+    "UNBACKED",
+    "ClaimCheck",
+    "did_work",
+    "unbacked",
+]
