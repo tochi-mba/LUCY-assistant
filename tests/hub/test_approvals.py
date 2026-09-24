@@ -15,7 +15,7 @@ from lucy_api.core.errors import LucyError
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.notes import NotesPack
 from lucy_api.permissions.approvals import Ask, answer_approval, open_approval
-from lucy_api.permissions.gate import ACCOUNT_PROFILE, PermissionGate
+from lucy_api.permissions.gate import ACCOUNT_PROFILE, PermissionGate, once_key
 from lucy_api.permissions.store import (
     SESSION_PROFILE_PREFIX,
     delete_grant,
@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 OWNER = "acct_owner"
 STRANGER = "acct_stranger"
 SPOKE = {"events": [{"type": "input.message", "content": "remember this"}]}
+ASKED = once_key("notes.remember", {"title": "tea", "body": "green"})
+"""The grants key of the one call `park` asks about."""
 
 
 async def a_session(store: SessionStore, account: str = OWNER, **fields: object) -> str:
@@ -100,8 +102,9 @@ async def test_approving_once_requeues_the_turn_and_is_visible_only_on_that_clai
     later = await grants_for(sessions_store, OWNER, "personal", session_id=session)
     assert decided.turn["id"] == turn
     assert decided.turn["status"] == "queued"
-    assert grants["notes.write"].decision == "allow"
-    assert "notes.write" not in later
+    assert grants[ASKED].decision == "allow"
+    assert ASKED not in later
+    assert "notes.write" not in grants, "a one-time answer is not the whole permission"
 
 
 async def test_an_account_lifetime_grant_survives_into_the_next_session(
@@ -256,8 +259,9 @@ async def test_denying_requeues_the_turn_with_an_instruction_the_gate_will_see(
 
     grants = await grants_for(sessions_store, OWNER, "personal", session_id=session, turn_id=turn)
     items = await sessions_store.records(OWNER, session, "items")
-    assert grants["notes.write"].decision == "deny"
-    assert grants["notes.write"].instruction == "Ask me first next time."
+    assert grants[ASKED].decision == "deny"
+    assert grants[ASKED].instruction == "Ask me first next time."
+    assert "notes.write" not in grants
     assert items[-1]["type"] == "approval_response"
     assert items[-1]["content"]["approved"] is False
 
@@ -478,7 +482,7 @@ async def test_an_ask_without_an_operation_is_labelled_by_its_permission(
     assert item["content"]["description"] == "notes.write"
 
 
-async def test_a_oneshot_with_a_malformed_payload_still_uses_the_operation(
+async def test_a_oneshot_with_a_malformed_payload_answers_the_argumentless_call(
     sessions_store: SessionStore,
 ) -> None:
     session = await a_session(sessions_store)
@@ -498,10 +502,10 @@ async def test_a_oneshot_with_a_malformed_payload_still_uses_the_operation(
     )
 
     grants = await grants_for(sessions_store, OWNER, "personal", turn_id=turn)
-    assert grants["notes.remember"].decision == "allow"
+    assert grants[once_key("notes.remember", {})].decision == "allow"
 
 
-async def test_a_oneshot_with_no_payload_still_uses_the_operation(
+async def test_a_oneshot_with_no_payload_answers_the_argumentless_call(
     sessions_store: SessionStore,
 ) -> None:
     session = await a_session(sessions_store)
@@ -521,7 +525,7 @@ async def test_a_oneshot_with_no_payload_still_uses_the_operation(
     )
 
     grants = await grants_for(sessions_store, OWNER, "personal", turn_id=turn)
-    assert grants["notes.remember"].decision == "deny"
+    assert grants[once_key("notes.remember", {})].decision == "deny"
 
 
 async def test_an_account_wide_profile_name_is_not_listed_twice(

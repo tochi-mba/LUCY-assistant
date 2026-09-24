@@ -284,22 +284,99 @@ def _storage_profile(lifetime: str, profile: str, session_id: str) -> str:
 
 
 RESUMED_NOTICE = (
-    "{operations} {was} approved just now. Approval does not run anything: the plan that "
-    "asked for {pronoun} was stopped before any of its steps ran, so nothing has happened "
-    "yet. Ask for {pronoun} again in this round's plan, with the same arguments, along with "
-    "whatever depended on {pronoun}."
+    "{operations} {was} approved just now and {has} already run, exactly as approved; "
+    "{its} result{s} {are} above. Do not ask for {pronoun} again. Carry on with whatever "
+    "depended on {pronoun}; the rest of the plan that asked for {pronoun} did not run."
 )
 """What a model is told at the top of a round that a person has just unblocked.
 
-Without it the transcript reads as though the work was done. The model's own proposed plan is
-never written to the transcript when the reply was plan-only, so all that survives a park is
-two JSON blobs in the *person's* voice -- the request and `{"approved": true}` -- and a model
-reading those concludes the write happened and moves on to reading the file back. It does not
-exist, and the 404 is the first anybody hears of it.
+An approved call is run by the hub, with the arguments the person saw, before the model is
+asked anything (`approved_calls`, `approved_plan`). It used to be the model's job to ask for
+it again "with the same arguments", and two things went wrong. A weak model regenerating a
+file rarely reproduces it byte for byte, so the call it re-emitted was not the call the person
+approved. And the one-time grant covered the whole permission, so whatever it re-emitted ran
+anyway: approved `node test.js`, then found node missing, wrote two files nobody was asked
+about and ran `python test.py`, and the person saw none of it.
 
 Phrased as a fact about this turn rather than as an instruction, because it sits in the notice
 channel beside the budget warnings, and those are facts too.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedCall:
+    """One call a person approved and the hub has not run yet."""
+
+    approval_id: str
+    operation: str
+    arguments: dict[str, Any]
+
+
+async def approved_calls(store: SessionStore, turn_id: str) -> tuple[ApprovedCall, ...]:
+    """The calls approved on this turn that have not run, in the order they were asked.
+
+    Every lifetime, not only "once": whatever else the person allowed, they approved this
+    call, and it is this call that runs. Read back rather than carried forward because nothing
+    carries it: a parked plan is held only in memory and is gone by the time the answer
+    arrives, and the `approvals` row is the one durable record of what the model asked for.
+    """
+
+    def read(db: sqlite3.Connection) -> tuple[ApprovedCall, ...]:
+        rows = db.execute(
+            "SELECT id, operation, input_json FROM approvals "
+            "WHERE turn_id=? AND status=? AND executed_at IS NULL "
+            "ORDER BY requested_at, rowid",
+            (turn_id, GRANTED),
+        ).fetchall()
+        found: list[ApprovedCall] = []
+        for row in rows:
+            payload = _payload(row["input_json"])
+            arguments = payload.get("arguments")
+            found.append(
+                ApprovedCall(
+                    approval_id=str(row["id"]),
+                    operation=str(row["operation"]),
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                )
+            )
+        return tuple(found)
+
+    return await store.worker.call(read)
+
+
+async def mark_executed(store: SessionStore, calls: Sequence[ApprovedCall]) -> None:
+    """Record that these calls are being run, before they run.
+
+    Before, not after: a hub that dies mid-call must not run an approved write a second time
+    when the turn is claimed again. At most once is the promise an approval card makes.
+    """
+    if not calls:
+        return
+    now = time.time()
+
+    def write(db: sqlite3.Connection) -> None:
+        db.executemany(
+            "UPDATE approvals SET executed_at=? WHERE id=? AND executed_at IS NULL",
+            [(now, call.approval_id) for call in calls],
+        )
+
+    await store.worker.call(write)
+
+
+def approved_plan(calls: Sequence[ApprovedCall]) -> dict[str, Any] | None:
+    """The approved calls as a plan the executor can run, or nothing to run.
+
+    No `note` on the steps: the executor's plan schema has no such key and refuses the whole
+    plan over it. What each call was for is already on its approval record.
+    """
+    if not calls:
+        return None
+    return {
+        "steps": [
+            {"id": f"approved_{index}", "op": call.operation, "input": call.arguments}
+            for index, call in enumerate(calls, 1)
+        ]
+    }
 
 
 def resumed_notice(operations: Sequence[str]) -> str:
@@ -312,35 +389,23 @@ def resumed_notice(operations: Sequence[str]) -> str:
     return RESUMED_NOTICE.format(
         operations=listed,
         was="was" if single else "were",
+        has="has" if single else "have",
+        its="its" if single else "their",
+        s="" if single else "s",
+        are="is" if single else "are",
         pronoun="it" if single else "them",
     )
 
 
-async def granted_operations(store: SessionStore, turn_id: str) -> tuple[str, ...]:
-    """The operations a person approved on this turn, oldest first.
-
-    Read back rather than carried forward because nothing carries it: a parked plan is held
-    only in memory and is gone by the time the answer arrives. The `approvals` row is the one
-    durable record that the model ever asked.
-    """
-
-    def read(db: sqlite3.Connection) -> tuple[str, ...]:
-        rows = db.execute(
-            "SELECT operation FROM approvals WHERE turn_id=? AND status=? "
-            "ORDER BY requested_at, rowid",
-            (turn_id, GRANTED),
-        ).fetchall()
-        return tuple(str(row["operation"]) for row in rows if row["operation"])
-
-    return await store.worker.call(read)
-
-
 __all__ = [
     "RESUMED_NOTICE",
+    "ApprovedCall",
     "Ask",
     "Decision",
     "answer_approval",
-    "granted_operations",
+    "approved_calls",
+    "approved_plan",
+    "mark_executed",
     "open_approval",
     "resumed_notice",
 ]

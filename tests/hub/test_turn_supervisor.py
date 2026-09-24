@@ -435,15 +435,18 @@ async def test_a_gated_write_parks_until_the_person_answers_then_resumes(
     assert finished["status"] == "completed"
     assert provider.remaining == 0
 
-    # The round after the answer is told the approved call still has not run. Without this the
-    # transcript reads exactly like a turn where the work was done: no step of a gated plan
-    # runs, the plan itself is never written down, and all the model sees is its own request
-    # and `{"approved": true}` in the person's voice. Against a real model it read that way --
-    # it skipped the approved write and went straight to reading the file back, which 404'd.
+    # The approved call runs, as approved, before the model is asked anything -- once. This
+    # model only speaks after the answer, and under the old contract that meant the approved
+    # write never happened at all: it was the model's job to ask for it again.
+    writes = [call for call in http.calls if call.method == "POST"]
+    assert len(writes) == 1
+    items = await store.records(ACCOUNT, conversation, "items")
+    ran = [item for item in items if item["type"] == "tool_result"]
+    assert [item["content"]["operation"] for item in ran] == ["notes.remember"]
+    assert ran[0]["content"]["status"] == "ok"
     resumed = provider.requests[-1]
     said = resumed.system + " ".join(message.content for message in resumed.messages)
-    assert "notes.remember was approved just now" in said
-    assert "nothing has happened yet" in said
+    assert "notes.remember was approved just now and has already run" in said
     await running.aclose()
 
 
