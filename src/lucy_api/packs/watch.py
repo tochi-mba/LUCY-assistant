@@ -432,6 +432,12 @@ async def _command_check(
             fired=True, detail="exit 0", excerpt=excerpt_around(ran.output, None), facts=facts
         )
     found = pattern.search(ran.output)
+    if found is None and ran.output_truncated_bytes:
+        # Only the head came back, and a verdict printed last is in the part that did not.
+        detail = (
+            f"exit {ran.exit_code}, no match; {ran.output_truncated_bytes:,} later bytes unread"
+        )
+        return Check(fired=False, detail=detail, facts=facts)
     if found is None:
         return Check(fired=False, detail=f"exit {ran.exit_code}, no match", facts=facts)
     return Check(

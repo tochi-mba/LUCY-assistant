@@ -178,12 +178,18 @@ class Ran:
     `output_dropped_bytes` is the service's own count of what fell out of the ring buffer
     between the start of the command and the read, and it is carried for the same reason as
     every other notice: a gap nobody mentions is a gap nobody can account for.
+
+    `output_truncated_bytes` is the other gap, at the far end: `output` is the *head* of what
+    the command printed, cut at `max_output_bytes`, and this is how much came after it. The
+    ring buffer count never included it, so a megabyte build log was reported as a few
+    thousand characters omitted, with the failure summary at its end never mentioned.
     """
 
     command: str
     exit_code: int | None = None
     output: str = ""
     output_dropped_bytes: int = 0
+    output_truncated_bytes: int = 0
     timed_out: bool = False
     state: str = ""
 
@@ -418,9 +424,25 @@ class HttpEnvironmentsClient:
             exit_code=_exit_code(payload),
             output=text(payload, "output"),
             output_dropped_bytes=number(payload, "output_dropped_bytes"),
+            output_truncated_bytes=_truncated_bytes(payload),
             timed_out=flag(payload, "timed_out") or state == TIMED_OUT,
             state=state,
         )
+
+
+def _truncated_bytes(payload: Any) -> int:
+    """How much output the command printed after the part that came back.
+
+    The sandbox reads from the start of the command and stops at `max_output_bytes`
+    (Environments-api app/api/routes/shells.py `command_result`), and says so only in two
+    byte offsets: `output_cursor`, where the read stopped, and `output_end`, where the
+    command's output did. A command still running has no end yet, and then nothing here can
+    say how much there is, so it counts as nothing rather than as a guess.
+    """
+    end, cursor = field(payload, "output_end"), field(payload, "output_cursor")
+    if end is None or cursor is None:
+        return 0
+    return max(0, number(payload, "output_end") - number(payload, "output_cursor"))
 
 
 def _exit_code(payload: Any) -> int | None:
@@ -622,11 +644,21 @@ class FakeEnvironmentsClient:
         """Whatever the test scripted, or a command that did nothing and said nothing.
 
         A scripted `timed_out` state reads as a timeout whether or not the script also set
-        the flag, because that is what the real client makes of the same answer.
+        the flag, because that is what the real client makes of the same answer. Scripted
+        output longer than `max_output_bytes` comes back as its head and a count of the
+        rest, because that is what the sandbox does with it.
         """
         del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
         result = self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
+        printed = result.output.encode()
+        if len(printed) > max_output_bytes:
+            cut = len(printed) - max_output_bytes
+            result = replace(
+                result,
+                output=printed[:max_output_bytes].decode("utf-8", "replace"),
+                output_truncated_bytes=result.output_truncated_bytes + cut,
+            )
         return replace(result, timed_out=result.timed_out or result.state == TIMED_OUT)
 
 

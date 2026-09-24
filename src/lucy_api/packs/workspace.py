@@ -442,7 +442,8 @@ class WorkspacePack:
                 max_output_bytes=DEFAULT_OUTPUT_BYTES,
             )
             output = result.output[:MAX_TOOL_OUTPUT_CHARS]
-            omitted = max(0, len(result.output) - len(output)) + result.output_dropped_bytes
+            later = max(0, len(result.output) - len(output)) + result.output_truncated_bytes
+            omitted = later + result.output_dropped_bytes
             return {
                 "command": result.command,
                 "exit_code": result.exit_code,
@@ -450,7 +451,7 @@ class WorkspacePack:
                 "state": result.state,
                 "timed_out": result.timed_out,
                 "output_dropped_bytes": omitted,
-                "notice": f"{omitted} output characters or bytes omitted" if omitted else "",
+                "notice": _output_notice(omitted, later),
             }
 
         registry = run.ctx.work
@@ -490,6 +491,23 @@ class WorkspacePack:
             }
         payload = finished.payload
         return _completed_command(payload, handle.id)
+
+
+def _output_notice(omitted: int, later: int) -> str:
+    """What was left out of a command's output, and which end it was left out of.
+
+    The output is always the *head*: the sandbox stops reading at its byte cap and this pack
+    stops at its character cap, both from the start. That has to be said, because a test run
+    or a build puts its verdict last, and a model told only "57000 characters omitted" reads
+    the head as the whole story -- when the part it never saw was a megabyte ending in the
+    failure it was asked about.
+    """
+    if not omitted:
+        return ""
+    notice = f"{omitted} output characters or bytes omitted"
+    if later:
+        notice += f"; this is the beginning of the output, and {later} of those came after it"
+    return notice
 
 
 def _completed_command(payload: object, work_id: str) -> dict[str, Any]:
