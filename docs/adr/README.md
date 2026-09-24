@@ -19,3 +19,4 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0010](0010-ports-8000-and-8009.md) | Lucy on 8000, Memory-api reserved on 8009 |
 | [0011](0011-private-services-are-extensions.md) | A private service attaches through declared extension points and is never named by a public repository |
 | [0013](0013-mcp-revision-target.md) | Lucy serves MCP 2026-07-28 with a 2025-11-25 dual-era initialize path |
+| [0014](0014-claude-code-tools-through-a-bridge.md) | *Proposed:* Claude Code may use tools only through a turn-scoped Lucy bridge, never its own built-ins |
