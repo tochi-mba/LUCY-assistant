@@ -1,5 +1,5 @@
-The live block at the end of your context says how much of the window is spent. Read it, and
-let it change what you do.
+The live block -- the one headed `live state` -- says how much of the window is spent. Read
+it, and let it change what you do.
 
 Past roughly seven tenths, stop opening things you do not need in full, and finish what is
 already started before you begin something large.

@@ -893,4 +893,4 @@ def _clean(text: str, chars: int) -> str:
     return plain
 
 
-__all__ = ["SECTION_ID", "SECTION_PRIORITY", "SECTION_TITLE", "render_state"]
+__all__ = ["OPEN_FENCE", "SECTION_ID", "SECTION_PRIORITY", "SECTION_TITLE", "render_state"]

@@ -16,6 +16,7 @@ from importlib.resources import files
 import pytest
 
 from lucy_api.context.feeds import Feed, FeedEntry, Volatility
+from lucy_api.context.state import OPEN_FENCE
 from lucy_api.context.types import Band, Budget, Claim, Section, Trust
 from lucy_api.core.errors import LucyError
 from lucy_api.prompt.sections import (
@@ -544,3 +545,12 @@ def test_a_held_back_capability_is_named_as_held_back_not_as_ready() -> None:
 def test_nothing_is_said_when_nothing_was_held_back() -> None:
     body = _capabilities(PromptContext(capabilities=("help",)))
     assert "not loaded this turn" not in body
+
+
+def test_the_live_block_is_found_by_its_header_not_by_where_it_sits() -> None:
+    """It was "the live block at the end of your context", and it is not at the end: it sits
+    before the person's newest message, and only after a round of results is it last."""
+    prompt = " ".join(section.body for section in render_all(PromptContext()))
+    assert "end of your context" not in prompt
+    assert "headed `live state`" in prompt
+    assert OPEN_FENCE.startswith("--- live state")
