@@ -24,9 +24,9 @@ where to start when something goes wrong. Read it with the code open.
 5. **Back to the model.** Results are trimmed to fit (`turn/window.py`), written to the
    transcript (`sessions/`), and streamed to the client (`stream/`). The loop goes round
    again until the model answers.
-6. **Out.** A final reply that claims work nothing did is held back once
-   (`turn/claims.py`). The turn is finished with its cost, and a failure is written into the
-   transcript with its reason.
+6. **Out.** Where the `claims` decision is on, a final reply that says something was done in a
+   turn where nothing was is held back once (`turn/claims.py`). The turn is finished with its
+   cost, and a failure is written into the transcript with its reason.
 
 Two things happen beside that path:
 

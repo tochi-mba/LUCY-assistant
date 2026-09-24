@@ -23,10 +23,9 @@ There is no measured claim of model accuracy or end-to-end latency improvement.
   one advisory reconsideration notice at confidence 0.9. It cannot stop a turn, drop a
   tool, execute an action, or weaken deterministic repetition and approval rules.
 - Claims catches a final reply that says something was done -- saved, written, started --
-  in a turn where no step did it, in wording the deterministic phrase list does not know.
-  At confidence 0.9 the reply is held back once and the model is told it was not done. It
-  only ever adds a hold: a reply the phrase list held back stays held back whatever the
-  answer, and it is never asked about a turn in which a step did real work.
+  in a turn where no step did it, in any wording or language. At confidence 0.9 the reply is
+  held back once and the model is told it was not done. It is never asked about a turn in
+  which a step did real work, and with decisions off, replies go out unchecked.
 
 Topic assignment remains owned by Memory-api. The unused local decision-based assignment
 helper has been removed rather than creating a second assignment implementation.

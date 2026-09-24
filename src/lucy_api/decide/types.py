@@ -88,7 +88,7 @@ CLAIMS = Use(
     "claims",
     "decision_claims",
     "tighten",
-    "the phrase list of completion claims",
+    "replies go out unchecked",
     "Hold back a reply that claims work no step did.",
 )
 
