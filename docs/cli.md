@@ -59,6 +59,8 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 | `lucy status` | Is the hub alive, is it ready, which dependency is unusable, and who does it think you are. |
 | `lucy version` | This client's version, and the hub's when one answers. |
 | `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. |
+| `lucy eval list` | The regression conversations that ship with Lucy, and what each guards. No hub needed. |
+| `lucy eval run --model SPEC` | Hold them against a running hub with a real model and write a report. Never run by CI. See [evals.md](evals.md). |
 | `lucy serve` | Run the hub in the foreground. `--host` and `--port`. |
 
 `lucy` with no command prints help, and exits 0. Help leads with examples, because that is

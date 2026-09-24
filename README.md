@@ -470,6 +470,11 @@ comes from `LUCY_TOKEN` or the saved configuration and is never a flag value. Ex
 codes are `0` worked, `1` the answer was no, `2` bad command, `3` hub unreachable.
 [docs/cli.md](docs/cli.md) has the rest.
 
+`lucy eval run --model clyde:haiku` (or `make evals MODEL=clyde:haiku`) holds a
+constant list of real conversations with Lucy through a real model and checks what the
+hub recorded after every turn -- the regressions no unit test can see. It runs only when
+you ask, never in CI. [docs/evals.md](docs/evals.md) explains it.
+
 ## Signing in to GitHub
 
 ```bash
@@ -563,6 +568,7 @@ private; its callers continue using the canonical public workflow. The
 | --- | --- |
 | Family standard | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
+| Conversation regressions (`lucy eval`) | [docs/evals.md](docs/evals.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | How Lucy's context is built | [docs/context.md](docs/context.md) |
 | Model providers and keys | [docs/models.md](docs/models.md) |

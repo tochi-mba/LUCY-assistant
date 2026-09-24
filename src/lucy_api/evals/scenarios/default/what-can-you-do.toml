@@ -1,0 +1,20 @@
+# The first thing most people ask a fresh session, with the one question that shows
+# whether the live-state block is telling the truth about the context window.
+
+summary = """\
+A fresh session says what it can do and how full its window is. Guards two defects: \
+research was reported as "did not answer in time" on the first turn of every session \
+(its probe got a shorter leash than its steps), and the context line always read \
+"0 of 200,000 tokens" because every prompt was built with nothing used.\
+"""
+tags = ["capabilities", "context", "first-turn"]
+
+[[turns]]
+say = "What can you do right now, and how full is your context window?"
+
+[turns.expect]
+reply_matches = ['\d']
+reply_avoids = [
+  'did not answer in time',
+  '\b0 of [\d,]+',
+]

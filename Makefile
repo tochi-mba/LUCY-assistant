@@ -1,5 +1,5 @@
 .PHONY: help install fmt lint type imports test cov check run docker clean \
-        parity github-ci images up down matrix
+        parity github-ci images up down matrix evals
 .DEFAULT_GOAL := help
 
 UV ?= uv
@@ -15,6 +15,8 @@ help: ## Show available targets
 	@echo "  cov        Write an HTML coverage report to htmlcov/"
 	@echo "  check      Everything CI runs: lint type imports test"
 	@echo "  matrix     Optional tests on Python 3.12 and 3.13"
+	@echo "  evals      Hold the regression conversations: make evals MODEL=clyde:haiku"
+	@echo "             Optional: SUITE=default|path  EVAL_ARGS='--repeat 3 --dry-run'"
 	@echo "  run        Serve the hub on :8000 with reload"
 	@echo "  docker     Build the container image"
 	@echo "  clean      Remove caches and build output"
@@ -63,6 +65,13 @@ check: lint type imports test ## Everything CI runs, on one interpreter
 matrix: ## Optional tests on both supported interpreters (CI gates 3.12)
 	$(UV) run --python 3.12 python -m pytest -q
 	$(UV) run --python 3.13 python -m pytest -q
+
+# Never part of `check`, and never run by CI: it holds real conversations with a real model
+# against a hub that is already running, which costs minutes and somebody's model budget.
+# `lucy eval` is invoked through the interpreter for the same reason as mypy and pytest above.
+evals: ## Hold the regression conversations with a real model: make evals MODEL=clyde:haiku
+	@test -n "$(MODEL)" || { echo "MODEL is required: make evals MODEL=clyde:haiku"; exit 2; }
+	$(UV) run python -m lucy_api.cli.main eval run --model $(MODEL) $(if $(SUITE),--suite $(SUITE)) $(EVAL_ARGS)
 
 run: ## Serve the hub on :8000 with reload
 	$(UV) run uvicorn lucy_api.api.app:create_app --factory --reload --port 8000
