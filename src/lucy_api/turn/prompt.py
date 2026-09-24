@@ -7,6 +7,7 @@ apart: both ask the same function, and a bug in one is a bug in both.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -48,6 +49,8 @@ class SessionView:
     warn_at_percent: int = 60
     compact_at_percent: int = 72
     tool_results_kept: int = 3
+    schema_tokens: int = 0
+    """The plan schema's size, sent with every request. Only whoever built the turn knows it."""
 
 
 class ViewLimits(TypedDict):
@@ -110,7 +113,7 @@ def view_limits(policy: Any) -> ViewLimits:
 def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
     """Drop reclaimable items from the view without touching the transcript."""
     converted = items_from_rows(view.items)
-    used = _tokens_for(converted)
+    used = _tokens_for(converted) + _carried(view)
     result: Reclaimed = reclaim(
         converted,
         used=used,
@@ -124,6 +127,31 @@ def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
     kept = {item.id for item in result.items}
     rows = [row for row in view.items if str(row["id"]) in kept]
     return rows, result
+
+
+def schema_tokens(schema: object) -> int:
+    """A plan schema's size in tokens, as it goes over the wire."""
+    return default_counter().count(json.dumps(schema, separators=(",", ":")))
+
+
+def _carried(view: SessionView) -> int:
+    """What every request carries besides the transcript: the fixed prompt and the plan schema.
+
+    Counting the transcript alone told the model "11 of 200,000 tokens (0% used)" on a request
+    that carried some 17,000 -- and warnings and compaction read the same number, so with a
+    small window the prompt could fill it while the line still said nearly nothing was used.
+    """
+    fixed = render_all(_prompt_context(view))
+    return sum(section.tokens for section in fixed) + view.schema_tokens
+
+
+def _prompt_context(view: SessionView) -> PromptContext:
+    return PromptContext(
+        capabilities=view.capabilities,
+        deferred=view.deferred,
+        advertised=view.advertised,
+        response_style=view.response_style,
+    )
 
 
 def _tokens_for(items: tuple[Item, ...]) -> int:
@@ -263,12 +291,6 @@ def _model_prompt(view: SessionView, built: Built) -> tuple[str, tuple[Message, 
 async def _build(view: SessionView) -> Built:
     rows, reclaimed = projected_rows(view)
     row = view.session or {}
-    prompt = PromptContext(
-        capabilities=view.capabilities,
-        deferred=view.deferred,
-        advertised=view.advertised,
-        response_style=view.response_style,
-    )
     allowance = Budget(window=view.window, shares=shares_for(view.reserve_percent))
     built = await build_context(
         StateRequest(
@@ -289,7 +311,7 @@ async def _build(view: SessionView) -> Built:
         ),
         ContextTurn(
             items=items_from_rows(rows),
-            prompt=prompt,
+            prompt=_prompt_context(view),
             compactions=compactions_from_rows(view.compactions or ()),
         ),
         live_from=view.live,
@@ -317,9 +339,6 @@ def compactions_from_rows(
     )
 
 
-# render_all is imported so a test can pin that preview and a live turn share sections.
-_ = render_all
-
 __all__ = [
     "SessionView",
     "assembled_prompt",
@@ -330,6 +349,7 @@ __all__ = [
     "messages_from_items",
     "preview_document",
     "projected_rows",
+    "schema_tokens",
     "system_and_messages",
     "view_limits",
 ]
