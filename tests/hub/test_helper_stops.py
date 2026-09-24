@@ -10,6 +10,7 @@ and the registry took any result as success.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,7 @@ from lucy_api.agents.store import AgentStore
 from lucy_api.agents.types import CONTINUABLE, STOPPED
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, flakes, plans, speaks
-from lucy_api.packs.agents import AgentsPack, _ended, _reopen, _spawn
+from lucy_api.packs.agents import WALL_CLOCK_GRACE, AgentsPack, _ended, _reopen, _spawn
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.work import _check
@@ -147,3 +148,19 @@ async def test_a_helper_that_finished_is_not_offered_for_continuing(store: Sessi
 
 def test_work_that_fails_in_its_own_words_without_a_report_has_no_payload() -> None:
     assert WorkError("five checks failed").payload is None
+
+
+async def test_a_helper_runs_as_long_as_its_wall_clock_setting_says(store: SessionStore) -> None:
+    """The bug, named: the registry stopped every helper at eight rounds times thirty seconds,
+    four minutes, whatever `agent_wall_clock_seconds` said -- and recorded it as cancelled."""
+    context, work, _agents = await _parent(store, ScriptedProvider([speaks("a"), speaks("b")]))
+    context.policy = replace(context.policy, agent_wall_clock_seconds=1_800)
+
+    spawned = await _spawn(work, context, depth=0, objective="Read it all", role="reader")
+    spawned_deadline = work.running(context.session_id)[0].timeout_seconds
+    await work.wait(str(spawned["id"]), 30)
+    reopened = await _reopen(work, context, depth=0, agent_id=str(spawned["id"]))
+    reopened_deadline = work.running(context.session_id)[0].timeout_seconds
+    await work.wait(str(reopened["id"]), 30)
+
+    assert spawned_deadline == reopened_deadline == 1_800 + WALL_CLOCK_GRACE
