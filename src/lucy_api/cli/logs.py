@@ -26,7 +26,10 @@ FAMILY_LOG = Path("var") / "log" / "lucy.jsonl"
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 DEFAULT_LAST = 200
 SHORT_ID = 8
-"""How much of an id's tail a line shows. Enough to tell two apart, short enough to read."""
+"""How much of an id's tail a line shows. Enough to tell two apart, short enough to read.
+
+Marked with an ASCII `...`, not an ellipsis character: a Windows console printing in its
+own code page showed that as a replacement character on every line."""
 
 CORRELATION = (("session", "session_id"), ("turn", "turn_id"), ("agent", "agent_id"))
 DETAIL = ("operation", "outcome", "error_type")
@@ -115,7 +118,7 @@ def _short(line: dict[str, Any]) -> str:
     for label, field in CORRELATION:
         value = line.get(field)
         if value:
-            parts.append(f"{label}=…{str(value)[-SHORT_ID:]}")
+            parts.append(f"{label}=...{str(value)[-SHORT_ID:]}")
     parts.extend(f"{name}={line[name]}" for name in DETAIL if line.get(name) is not None)
     if line.get("duration_ms") is not None:
         parts.append(f"{line['duration_ms']}ms")

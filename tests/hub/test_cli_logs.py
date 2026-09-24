@@ -85,9 +85,9 @@ def test_one_session_s_lines_in_short_form(tmp_path: Path) -> None:
     assert code == OK
     shown = out.splitlines()
     assert shown == [
-        "18:08:01 INFO    step session=…11112222 turn=…trn_one "
+        "18:08:01 INFO    step session=...11112222 turn=...trn_one "
         "operation=help.docs outcome=ok 12.5ms",
-        "18:08:01 WARNING step session=…11112222 turn=…trn_one agent=…helper99 "
+        "18:08:01 WARNING step session=...11112222 turn=...trn_one agent=...helper99 "
         "operation=broken.go outcome=error error_type=RuntimeError",
     ]
 
