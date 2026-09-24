@@ -55,7 +55,13 @@ from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply
 from lucy_api.turn.claims import UNBACKED, ClaimCheck
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
-from lucy_api.turn.window import RESULT_TOKEN_CAP, attach_needles, needle_from, without_needles
+from lucy_api.turn.window import (
+    RESULT_TOKEN_CAP,
+    attach_needles,
+    executable,
+    needle_from,
+    notes_of,
+)
 from lucy_api.turn.window import window as result_window
 
 if TYPE_CHECKING:
@@ -339,7 +345,7 @@ async def _run_plan(
     """Execute the plan on a reply that already survived the cancel check."""
     turn = cycle.turn
     outcome = cycle.outcome
-    result = await executor(without_needles(reply.plan))
+    result = await executor(executable(reply.plan))
     attach_needles(reply.plan, result)
     waiting = _permission_issues(result)
     if waiting:
@@ -367,7 +373,12 @@ async def _run_plan(
             ),
         )
     else:
-        executed = _record(result, repetition=cycle.repetition, cap=turn.result_token_cap)
+        executed = _record(
+            result,
+            repetition=cycle.repetition,
+            cap=turn.result_token_cap,
+            notes=notes_of(reply.plan),
+        )
     if turn.append is not None:
         for step in executed:
             await turn.append("tool_result", "tool", _item_for(step))
@@ -629,9 +640,18 @@ def _issue_text(result: Any) -> str:
 
 
 def _record(
-    result: Any, *, repetition: Repetition, cap: int = RESULT_TOKEN_CAP
+    result: Any,
+    *,
+    repetition: Repetition,
+    cap: int = RESULT_TOKEN_CAP,
+    notes: dict[str, str] | None = None,
 ) -> tuple[Step, ...]:
-    """Turn executed steps into items, scrubbed and framed on the way in."""
+    """Turn executed steps into items, scrubbed and framed on the way in.
+
+    `notes` is each step's sentence from the plan the model wrote, by step id: the executor
+    never sees it, so the result cannot carry it back.
+    """
+    written = notes or {}
     steps: list[Step] = []
     for raw in result.get("steps", ()):
         operation = str(raw.get("operation", ""))
@@ -643,7 +663,7 @@ def _record(
                 id=str(raw.get("id", "")),
                 operation=operation,
                 status=str(raw.get("status", "ok")),
-                note=str(raw.get("note", "")),
+                note=written.get(str(raw.get("id", ""))) or str(raw.get("note") or ""),
                 summary=summary,
                 notices=notices,
                 error=str(raw.get("error") or ""),

@@ -30,7 +30,7 @@ from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
 from lucy_api.permissions.gate import PermissionGate
-from lucy_api.turn.window import without_needles
+from lucy_api.turn.window import executable
 
 NOT_FOUND = "not-found"
 TOOL_FAILED = "this tool could not run"
@@ -253,7 +253,7 @@ class Capabilities:
             }
         runtime = self.runtime_for(catalogue, context.session_id, context)
         result = await runtime.execute(
-            without_needles(plan),
+            executable(plan),
             {
                 "ctx": context,
                 "session": {"id": context.session_id},
