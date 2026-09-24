@@ -23,11 +23,13 @@ from lucy_api.decide.uses import Recovery, suggest_capabilities
 from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
     Ask,
-    granted_operations,
+    approved_calls,
+    approved_plan,
+    mark_executed,
     open_approval,
     resumed_notice,
 )
-from lucy_api.permissions.gate import PermissionGate
+from lucy_api.permissions.gate import PermissionGate, once_key
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
@@ -232,7 +234,13 @@ class TurnSupervisor:
         # and nothing about the row says it was ever parked. The approvals it collected are
         # the only durable record that the model already asked, so they are what the first
         # round is told about.
-        opening = resumed_notice(await granted_operations(self._store, claimed.id))
+        approved = await approved_calls(self._store, claimed.id)
+        await mark_executed(self._store, approved)
+        opening = resumed_notice(tuple(call.operation for call in approved))
+        # A one-time approval is spent by the run it approved. The grants were read above,
+        # before the calls were marked, so the opening plan finds them; they are removed once
+        # it has run, so the same call planned again is asked about again, not run twice.
+        spent = {once_key(call.operation, call.arguments) for call in approved}
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         # The profile's policy, narrowed by this conversation's own list. Re-read at every
         # round below, because a person may change it while the turn runs and asked for
@@ -342,6 +350,9 @@ class TurnSupervisor:
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             executed = await self._capabilities.execute(plan, pack_ctx)
+            for key in spent:
+                pack_ctx.grants.pop(key, None)
+            spent.clear()
             await self._store.record_steps(
                 claimed.account_id, claimed.session_id, claimed.id, plan, executed
             )
@@ -377,6 +388,7 @@ class TurnSupervisor:
                         ),
                         append=append,
                         opening_notice=opening,
+                        opening_plan=approved_plan(approved),
                         # The id the provider understands, not the spec. A session stores
                         # `lmstudio:sonnet`; the provider was already built for `sonnet` and
                         # sends whatever this says straight up the wire, so passing the spec

@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any
 from lucy_api.context.framing import Origin, frame_result
 from lucy_api.context.scrub import scrub, scrub_tree
 from lucy_api.context.types import Trust
-from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Request, Stop
+from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
 from lucy_api.turn.window import RESULT_TOKEN_CAP, attach_needles, needle_from, without_needles
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
     from lucy_api.decide.uses import Recovery
-    from lucy_api.model.types import Chunk, Message, Provider, Reply, Usage
+    from lucy_api.model.types import Chunk, Message, Provider, Usage
 
 MAX_PLAN_REPAIRS = 2
 """How many times a malformed plan is handed back for correction.
@@ -171,6 +171,12 @@ class Turn:
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
     recovery: Recovery | None = None
     opening_notice: str = ""
+    opening_plan: dict[str, Any] | None = None
+    """Steps to run before the model is asked anything: the calls a person just approved.
+
+    Run through the same executor, recorded the same way, so the model's first round reads
+    their results like any other tool result.
+    """
     """A sentence for the first round only, decided before the turn starts.
 
     This exists because a resumed turn looks, from the transcript, exactly like a turn where
@@ -218,6 +224,14 @@ async def run_turn(turn: Turn) -> Outcome:
         repetition=Repetition(),
         opening=turn.opening_notice,
     )
+
+    if turn.opening_plan is not None and turn.execute is not None:
+        opening = Reply(plan=turn.opening_plan, stop=Stop.tool_use)
+        opened = await _run_plan(
+            cycle, opening, Round(text="", plan=turn.opening_plan), turn.execute
+        )
+        if opened is not None:
+            return opened
 
     while True:
         ended = await _early_stop(
