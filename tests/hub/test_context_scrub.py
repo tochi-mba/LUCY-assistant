@@ -9,7 +9,9 @@ would be a test asserting a lie -- so the suite below pins the honest boundary i
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import UTC, datetime
 
 import pytest
 
@@ -262,8 +264,8 @@ def test_an_ordinary_sentence_about_showing_something_is_left_alone() -> None:
 
 # --- a structured result is scrubbed value by value, before it is rendered ------------------
 #
-# A tool result that is not a string reaches the model as `repr(data)`, and scrubbing used to
-# run on that rendering. `repr` turns a line break into the two characters `\n` and a tab into
+# A tool result that is not a string is rendered for the model, and scrubbing used to run on
+# that rendering. A rendering turns a line break into the two characters `\n` and a tab into
 # `\t`, so "Human:" at the start of a line -- the classic injection position -- became
 # `nHuman:` or `tHuman:`, one word to `\b`, and the turn-marker rule never fired. Observed on a
 # line-numbered workspace read of a planted file: four rules fired, `turn-marker` did not, and
@@ -283,12 +285,30 @@ def test_a_turn_marker_at_the_start_of_a_line_inside_a_structured_result_is_caug
     assert "Human:" not in cleaned.text
 
 
-def test_rendering_a_scrubbed_tree_is_the_same_rendering_as_before() -> None:
-    """Nothing to neutralise means nothing changes: the same `repr`, and no marker."""
-    data = {"path": "a.txt", "lines": [1, 2, 3], "ok": True, "size": 1.5, "none": None}
+def test_a_structured_result_reaches_the_model_as_json_not_python() -> None:
+    """The bug, named: read in the requests the hub sent, a note came back as
+    `{'id': 'mem_08a4...', ..., 'confirmed': False}` -- Python, beside a plan written in JSON."""
+    data = {"title": "it's", "confirmed": False, "note": None, "place": "café"}
     cleaned = scrub_tree(data)
-    assert cleaned.text == repr(data)
+    assert cleaned.text == '{"title": "it\'s", "confirmed": false, "note": null, "place": "café"}'
     assert cleaned.matched == ()
+
+
+def test_nothing_to_neutralise_means_the_plain_json() -> None:
+    data = {"path": "a.txt", "lines": [1, 2, 3], "ok": True, "size": 1.5}
+    assert scrub_tree(data).text == json.dumps(data)
+
+
+def test_a_value_json_has_no_type_for_is_written_as_text() -> None:
+    moment = datetime(2026, 9, 24, 20, 3, tzinfo=UTC)
+    assert scrub_tree({"at": moment}).text == f'{{"at": "{moment}"}}'
+
+
+def test_a_structure_json_cannot_hold_is_still_rendered_and_scrubbed() -> None:
+    """A key that is not a string has no JSON form. The step must not fail over it."""
+    cleaned = scrub_tree({("Human: a", 1): "b"})
+    assert cleaned.text.endswith(repr({("Human&#58; a", 1): "b"}))
+    assert cleaned.matched == ("turn-marker",)
 
 
 def test_every_string_in_the_tree_is_reached_keys_lists_and_tuples_included() -> None:
@@ -309,9 +329,9 @@ def test_every_string_in_the_tree_is_reached_keys_lists_and_tuples_included() ->
 
 
 def test_a_scrubbed_tree_keeps_its_shape() -> None:
-    """Lists stay lists and tuples stay tuples, so the rendering the model reads is the one it
-    would have read, escapes aside."""
+    """Every container is walked and kept, so the rendering the model reads is the one it would
+    have read, escapes aside. A tuple is an array, as JSON has no other kind."""
     data = {"rows": ["Human: a"], "pair": ("Human: b", 2)}
     cleaned = scrub_tree(data)
     body = cleaned.text.split("\n", 1)[1]
-    assert body == repr({"rows": ["Human&#58; a"], "pair": ("Human&#58; b", 2)})
+    assert body == json.dumps({"rows": ["Human&#58; a"], "pair": ["Human&#58; b", 2]})
