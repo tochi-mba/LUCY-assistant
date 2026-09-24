@@ -54,6 +54,7 @@ from lucy_api.cli.base import (
 from lucy_api.cli.config import CONFIG_VAR
 from lucy_api.cli.connect import cmd_connect
 from lucy_api.cli.evals import add_parser as add_eval_parser
+from lucy_api.cli.logs import add_parser as add_logs_parser
 from lucy_api.cli.models import cmd_models
 from lucy_api.cli.setup import cmd_config, cmd_doctor, cmd_setup
 from lucy_api.cli.talk import cmd_talk
@@ -325,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect_model.set_defaults(run=cmd_models)
 
     add_eval_parser(sub, after)
+    add_logs_parser(sub, after)
 
     return parser
 
