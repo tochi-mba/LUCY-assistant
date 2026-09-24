@@ -72,6 +72,7 @@ class Sibling:
         params: Mapping[str, Any] | None = None,
         profile: str = "",
         timeout_seconds: float | None = None,
+        repeatable: bool | None = None,
     ) -> Any:
         """One call, translated. Returns the decoded body, or `None` for a 204.
 
@@ -87,6 +88,7 @@ class Sibling:
             params=params,
             headers={PROFILE_HEADER: profile} if profile else None,
             timeout_seconds=timeout_seconds,
+            repeatable=repeatable,
         )
         response = await self.http.request_response(call)
         raise_for(response, service=self.service)

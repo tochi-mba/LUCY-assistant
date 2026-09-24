@@ -719,6 +719,36 @@ async def test_an_idempotent_request_is_retried_after_a_timeout_and_an_outage(
     assert len(seen) == 3
 
 
+async def test_a_read_sent_as_a_post_says_so_and_is_retried_like_a_get(
+    make_retrying_client,
+) -> None:
+    """A search is a POST because its question does not fit a query string. Treated as a
+    write, a web-search 503 while its browser warmed up failed the step outright."""
+    handler, seen = recording(
+        failing(httpx.ReadTimeout),
+        lambda: httpx.Response(503, json={"detail": "warming up"}),
+        ok(json={"results": []}),
+    )
+    client = make_retrying_client(handler)
+
+    body = await client.request(Call(method="POST", url=URL, audience=HOME, repeatable=True))
+
+    assert body == {"results": []}
+    assert len(seen) == 3
+
+
+async def test_a_call_that_says_it_must_not_be_repeated_is_not_whatever_its_method(
+    make_retrying_client,
+) -> None:
+    handler, seen = recording(lambda: httpx.Response(503, json={"detail": "busy"}), ok())
+    client = make_retrying_client(handler)
+
+    with pytest.raises(DownstreamUnavailableError):
+        await client.request(Call(method="PUT", url=URL, audience=HOME, repeatable=False))
+
+    assert len(seen) == 1
+
+
 async def _no_wait(_seconds: float) -> None:
     return
 

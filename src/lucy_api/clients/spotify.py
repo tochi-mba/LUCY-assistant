@@ -237,7 +237,9 @@ class HttpSpotifyClient:
         body: dict[str, Any] = {"items": [_item(one) for one in wanted]}
         if market:
             body["market"] = market
-        payload = await self._api.send("POST", "/v1/lookup", body=body, profile=profile)
+        payload = await self._api.send(
+            "POST", "/v1/lookup", body=body, profile=profile, repeatable=True
+        )
         return tuple(_found(row) for row in rows(payload, "results"))
 
     async def play(

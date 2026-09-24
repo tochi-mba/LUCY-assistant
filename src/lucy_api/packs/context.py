@@ -62,6 +62,15 @@ class Call:
     `None` means the client's own figure, which is what almost every call wants.
     """
 
+    repeatable: bool | None = None
+    """Whether sending this twice does it once, where the method does not say so.
+
+    `None` leaves it to the method (RFC 9110 section 9.2.2), which is right for every write.
+    A read sent as a POST -- a search, a scrape, a lookup, because its question does not fit a
+    query string -- says `True`, so a 5xx or a late answer costs a repeat, as a GET's would,
+    rather than a failed step.
+    """
+
 
 class Http(Protocol):
     """The one way a capability reaches a sibling service."""

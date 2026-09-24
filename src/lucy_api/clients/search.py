@@ -220,7 +220,12 @@ class HttpSearchClient:
             "summarize": True,
         }
         payload = await self._api.send(
-            "POST", "/v1/search", body=body, profile=profile, timeout_seconds=WORK_TIMEOUT_SECONDS
+            "POST",
+            "/v1/search",
+            body=body,
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
         )
         return tuple(_findings(row) for row in rows(payload, "results"))
 
@@ -228,7 +233,12 @@ class HttpSearchClient:
         """Fetch pages, summarised together, keeping each page's text on its own article."""
         body = {"urls": list(urls), "summarize": True, "summarize_together": True}
         payload = await self._api.send(
-            "POST", "/v1/scrape", body=body, profile=profile, timeout_seconds=WORK_TIMEOUT_SECONDS
+            "POST",
+            "/v1/scrape",
+            body=body,
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
         )
         return Reading(
             articles=tuple(_article(row) for row in rows(payload, "results")),
@@ -243,6 +253,7 @@ class HttpSearchClient:
             body=given(text=body, topic=topic or None),
             profile=profile,
             timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
         )
         return _summary(nested(payload, "summary")) or Summary()
 

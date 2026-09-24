@@ -98,7 +98,7 @@ setting never moves the ceilings of a turn that is already running.
 | `auto_title` | true | Name a new conversation from the first user message |
 | `notify_on_long_turn` | true | Emit `lucy.turn.slow` after `long_turn_seconds` |
 | `long_turn_seconds` | 60 | Wait before that slow-turn event |
-| `retry_attempts` | 2 | Extra tries for a failed sibling call; 401 is never retried this way |
+| `retry_attempts` | 2 | Extra tries for a failed sibling call when a repeat is safe: reads, and writes that never left or got a 429; 401 is never retried this way |
 | `retry_max_seconds` | 30 | Total window those extra tries may use |
 | `downstream_timeout_seconds` | 10 | Per-request wait for one sibling call |
 | `agent_wall_clock_seconds` | 600 | Helper is stopped and told it ran out of time |
