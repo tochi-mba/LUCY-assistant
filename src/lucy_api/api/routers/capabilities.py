@@ -18,7 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from lucy_api.api.dependencies import ActingAsDep, ContainerDep, StoreDep
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.core.container import PackRequest
+from lucy_api.core.logging import bind
+from lucy_api.packs.context import PackContext
 from lucy_api.permissions.store import grants_for
+from lucy_api.sessions.scope import WorkspaceScope
 
 router = APIRouter(prefix="/v1", tags=["capabilities"])
 
@@ -86,6 +89,7 @@ async def list_model_tools(
     """The bound registry, not the whole catalogue."""
     resolved_profile = profile
     session = session_id or ""
+    row: dict[str, Any] = {}
     if session_id is not None:
         row = await store.get(acting.account_id, session_id)
         resolved_profile = str(row["profile"])
@@ -95,9 +99,12 @@ async def list_model_tools(
             user_token=acting.token,
             profile=resolved_profile,
             session_id=session,
+            incognito=_incognito(row),
         )
     )
-    catalogue = await container.capabilities.probe(pack_ctx)
+    _attach_workspace(pack_ctx, row)
+    with bind(session_id=session or None):
+        catalogue = await container.capabilities.probe(pack_ctx)
     return container.capabilities.tools(catalogue, session)
 
 
@@ -122,6 +129,7 @@ async def invoke_tool(
     profile = body.profile
     session = body.session_id
     mode = "ask"
+    row: dict[str, Any] = {}
     if session:
         row = await store.get(acting.account_id, session)
         profile = str(row["profile"])
@@ -133,8 +141,37 @@ async def invoke_tool(
             profile=profile,
             session_id=session,
             permission_mode=mode,
+            incognito=_incognito(row),
         )
     )
+    _attach_workspace(pack_ctx, row)
     pack_ctx.grants = await grants_for(store, acting.account_id, profile, session_id=session)
-    result = await container.capabilities.invoke(name, body.input, pack_ctx)
+    # A direct call's lines say which conversation it was about, as a turn's do.
+    with bind(session_id=session or None):
+        result = await container.capabilities.invoke(name, body.input, pack_ctx)
     return {"tool": name, "steps": result.get("steps") or [], "text": result.get("text") or ""}
+
+
+def _incognito(row: dict[str, Any]) -> bool:
+    """Whether the session a call is scoped to promised to leave memory alone.
+
+    A promise about the conversation, not about who is calling: a client's own tool call in
+    an incognito session reads and writes memory no more than the model may. Both routes
+    built their context without it, so `notes.remember` scoped to an incognito session wrote
+    a memory, and `notes.search` read the person's.
+    """
+    return bool(row.get("incognito", 0))
+
+
+def _attach_workspace(pack_ctx: PackContext, row: dict[str, Any]) -> None:
+    """The session's own workspace, so its tools are the ones its turns can call.
+
+    A turn gets this from `prepare_turn`. A direct call scoped to the same session has to
+    get it too, or the workspace probes as "no workspace is attached" and its operations are
+    neither listed nor invokable: a session's own files were unreachable from here. With no
+    session there is no row, and nothing to attach.
+    """
+    environment_id = str(row.get("workspace_environment_id") or "")
+    if environment_id:
+        pack_ctx.workspace_environment_id = environment_id
+        pack_ctx.workspace_path = WorkspaceScope(environment_id, str(row["id"])).root

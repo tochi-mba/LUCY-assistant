@@ -55,7 +55,6 @@ def card(**overrides: object) -> TopicCard:
         "count": 2,
         "importance": 0.4,
         "trust": "stated",
-        "unread": 0,
         "last_seen": NOW,
     }
     fields.update(overrides)

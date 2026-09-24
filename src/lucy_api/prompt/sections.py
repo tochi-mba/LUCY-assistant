@@ -104,7 +104,16 @@ class PromptContext:
     """
 
     capabilities: tuple[str, ...] = ()
-    """Product names of what is connected and usable right now."""
+    """Product names of what is connected and callable **this turn**.
+
+    Not everything that is ready. A ready capability the registry held back has no operations
+    in this turn's schema, so naming it here tells the model it has an ability it does not,
+    against the one rule the identity section states plainly: "Your abilities are exactly the
+    capabilities you have been given this turn, and no more."
+    """
+
+    deferred: tuple[str, ...] = ()
+    """Ready, and held back to keep the schema small. Named so the model can ask for one."""
 
     advertised: tuple[str, ...] = ()
     """Disconnected capabilities this profile asked to hear about. Empty stays quiet."""
@@ -191,11 +200,18 @@ def _behaviour(context: PromptContext) -> str:
 
 def _capabilities(context: PromptContext) -> str:
     """Naming what is connected is cheaper than watching the model guess and apologise."""
-    if not context.capabilities and not context.advertised:
+    if not context.capabilities and not context.advertised and not context.deferred:
         return ""
     lines: list[str] = []
     if context.capabilities:
         lines.append(f"Ready now: {', '.join(context.capabilities)}.")
+    if context.deferred:
+        lines.append(
+            "Ready but not loaded this turn, to keep this list short: "
+            f"{', '.join(context.deferred)}. To use one, bind it by name with "
+            "capabilities.use; its operations are callable in your very next plan, in this "
+            "same turn."
+        )
     if context.advertised:
         lines.append(
             "Not connected yet, and this profile asked to hear about them: "

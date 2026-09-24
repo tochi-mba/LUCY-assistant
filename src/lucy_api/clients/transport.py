@@ -63,7 +63,7 @@ class Sibling:
     service: str
     audience: str
 
-    async def send(
+    async def send(  # noqa: PLR0913 - one request, described: verb, path, body, query, who
         self,
         method: str,
         path: str,
@@ -71,6 +71,8 @@ class Sibling:
         body: Any = None,
         params: Mapping[str, Any] | None = None,
         profile: str = "",
+        timeout_seconds: float | None = None,
+        repeatable: bool | None = None,
     ) -> Any:
         """One call, translated. Returns the decoded body, or `None` for a 204.
 
@@ -85,6 +87,8 @@ class Sibling:
             json=body,
             params=params,
             headers={PROFILE_HEADER: profile} if profile else None,
+            timeout_seconds=timeout_seconds,
+            repeatable=repeatable,
         )
         response = await self.http.request_response(call)
         raise_for(response, service=self.service)

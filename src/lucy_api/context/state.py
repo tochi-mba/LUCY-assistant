@@ -106,6 +106,19 @@ SUMMARY_CHARS = 120
 PROGRESS_CHARS = 96
 DETAIL_CHARS = 96
 PATH_CHARS = 80
+ORIENTATION_CHARS = 240
+"""A resume line: the journal's latest entries or the last commits, which are worth a sentence."""
+
+WORKSPACE = "workspace"
+"""The workspace group's label, and the id of the live feed whose facts it carries."""
+
+JOURNAL_FILE = "progress.md"
+WORK_FILE = "tasks.json"
+"""The session's own files, named so the model can open them.
+
+`lucy_api.sessions.scope` owns these names. This layer does not import sessions, so a test pins
+that the two agree.
+"""
 
 MINUTE = 60
 HOUR = 60 * MINUTE
@@ -472,11 +485,16 @@ def _groups(state: LiveState) -> tuple[_Group, ...]:
         groups.append(_tasks_group(state.tasks))
     if state.topics:
         groups.append(_memory_group(state.topics, state.now))
+    feeds = [feed for feed in state.feeds if feed.lines]
     if state.workspace is not None:
-        groups.append(_workspace_group(state.workspace))
+        # The workspace's own feed is about the same place. Rendered as its own group it was
+        # a second `workspace` line under the first, so its facts join this one's headline.
+        facts = tuple(line for feed in feeds if feed.id == WORKSPACE for line in feed.lines)
+        feeds = [feed for feed in feeds if feed.id != WORKSPACE]
+        groups.append(_workspace_group(state.workspace, facts))
     if state.capabilities:
         groups.append(_capabilities_group(state.capabilities))
-    groups.extend(_feed_group(feed) for feed in state.feeds if feed.lines)
+    groups.extend(_feed_group(feed) for feed in feeds)
     if state.pending.any:
         groups.append(_pending_group(state.pending))
     if state.failures:
@@ -542,14 +560,28 @@ def _memory_group(topics: Sequence[TopicSnapshot], now: datetime) -> _Group:
     carrying none leaves the model unable to know that it knows anything. A title, a
     sentence and a count are enough for it to decide that one topic is worth expanding.
     """
-    ordered = sorted(topics, key=lambda topic: _topic_order(topic, now))
+    relevance = any(topic.relevance_order is not None for topic in topics)
+    ordered = sorted(
+        topics,
+        key=lambda topic: (
+            topic.relevance_order if topic.relevance_order is not None else len(topics),
+            _topic_order(topic, now),
+        ),
+    )
     unread = sum(topic.unread for topic in ordered)
+    unconfirmed = sum(topic.unconfirmed for topic in ordered)
     headline = (
         f"{_plural(len(ordered), 'topic', 'topics')}, "
         f"{_plural(sum(topic.count for topic in ordered), 'memory', 'memories')}"
     )
+    if ordered[0].index_notice:
+        headline += "; " + ordered[0].index_notice
     if unread:
         headline += f", {unread} unread"
+    if unconfirmed:
+        # Said, not dropped: these exist and cannot be used until the person confirms them,
+        # and a model that does not know they exist will tell the person it knows nothing.
+        headline += f", {unconfirmed} unconfirmed"
     return _Group(
         name="memory",
         quota=QUOTAS["memory"],
@@ -560,47 +592,53 @@ def _memory_group(topics: Sequence[TopicSnapshot], now: datetime) -> _Group:
         # on its title. Where even one topic is undated the group gives up the claim and
         # confesses with a plain count, because a cut made partly on alphabetical order that
         # calls itself recency is worse than one that admits it is just a count.
-        recent=all(_touched(topic, now) is not None for topic in ordered),
+        recent=not relevance and all(_touched(topic, now) is not None for topic in ordered),
     )
 
 
-def _workspace_group(workspace: WorkspaceSnapshot) -> _Group:
-    """Where the work is happening, and what moved in it since the model last looked."""
+def _workspace_group(workspace: WorkspaceSnapshot, facts: Sequence[str] = ()) -> _Group:
+    """Where the work is happening, and what moved in it since the model last looked.
+
+    Each thing once. `facts` are the workspace feed's lines -- shells, isolation, branch --
+    and go in the headline, which always renders. The session's files are named as files the
+    model can open, because the `tasks` group is the helpers' shared journal: a different
+    thing under the same word.
+    """
     ready = "ready" if workspace.ready else "not ready"
     changed = (
         f"{_plural(len(workspace.changed_files), 'file', 'files')} changed since your last turn"
         if workspace.changed_files
         else ""
     )
-    checkpoint = (
-        f"last checkpoint {_clean(workspace.last_checkpoint, NAME_CHARS)}"
-        if workspace.last_checkpoint
-        else ""
-    )
     oriented = tuple(
-        INDENT + _clean(line, SUMMARY_CHARS)
+        INDENT + _clean(line, ORIENTATION_CHARS)
         for line in (
-            f"cwd {workspace.cwd}" if workspace.cwd else "",
-            f"journal {workspace.journal}" if workspace.journal else "",
-            f"tasks {workspace.tasks}" if workspace.tasks else "",
-            f"git {workspace.git_log}" if workspace.git_log else "",
-            f"smoke {workspace.smoke}" if workspace.smoke else "",
+            _git_line(workspace),
+            f"{JOURNAL_FILE}, latest: {workspace.journal}" if workspace.journal else "",
+            f"{WORK_FILE}: {workspace.tasks}" if workspace.tasks else "",
         )
         if line
     )
     listing = tuple(INDENT + _clean(name, PATH_CHARS) for name in workspace.changed_files)
     return _Group(
-        name="workspace",
-        quota=QUOTAS["workspace"],
+        name=WORKSPACE,
+        quota=QUOTAS[WORKSPACE],
         headline=_joined(
             _clean(workspace.path, PATH_CHARS),
             ready,
+            *(_clean(fact, DETAIL_CHARS) for fact in facts),
             changed,
-            checkpoint,
             _expiry(workspace.expires_in_seconds),
         ),
         entries=(*oriented, *listing),
     )
+
+
+def _git_line(workspace: WorkspaceSnapshot) -> str:
+    """The last few commits, or that there is no git to ask."""
+    if workspace.git_missing:
+        return "git is not available in this sandbox"
+    return "recent commits: " + "; ".join(workspace.commits) if workspace.commits else ""
 
 
 def _capabilities_group(capabilities: Sequence[CapabilitySnapshot]) -> _Group:
@@ -704,13 +742,18 @@ def _topic_line(topic: TopicSnapshot, now: datetime) -> str:
     counts = _plural(topic.count, "memory", "memories")
     if topic.unread:
         counts += f", {topic.unread} unread"
+    if topic.unconfirmed:
+        counts += f", {topic.unconfirmed} unconfirmed"
     trust = "" if topic.trust == Trust.stated else f"trust: {_clean(topic.trust, STATUS_CHARS)}"
+    # Named as `notes.openTopic` names its input. Left out, the index offered a topic to
+    # expand and no way to ask for it: the model guessed an id and was told "not found".
     return INDENT + _joined(
         _clean(topic.title, TITLE_CHARS),
         _clean(topic.summary, SUMMARY_CHARS),
         counts,
         _seen(topic.last_seen, now),
         trust,
+        f"topic_id {_clean(topic.id, NAME_CHARS)}",
     )
 
 
@@ -850,4 +893,4 @@ def _clean(text: str, chars: int) -> str:
     return plain
 
 
-__all__ = ["SECTION_ID", "SECTION_PRIORITY", "SECTION_TITLE", "render_state"]
+__all__ = ["OPEN_FENCE", "SECTION_ID", "SECTION_PRIORITY", "SECTION_TITLE", "render_state"]

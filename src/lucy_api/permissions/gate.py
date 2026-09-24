@@ -10,7 +10,9 @@ questionnaire nobody asked for.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, replace
+from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,6 +22,17 @@ if TYPE_CHECKING:
 
 WRITE_EFFECTS = frozenset({"write"})
 ACCOUNT_PROFILE = "*"
+
+ONCE_PREFIX = "once:"
+"""How a one-time answer is keyed among the grants: by the call it answered, not its permission.
+
+A person answering an approval card for one call is answering about that call. Keyed by
+permission, as it was, one "yes" to `cd calculator && node test.js` let every
+`workspace.run` for the rest of the turn through: the model found node missing, wrote two
+files nobody was asked about and ran `python test.py`, and the person saw none of it. And a
+"no, call it `weekly.md` instead" refused the corrected write too, because it denied the
+permission rather than the file.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,9 +126,15 @@ class PermissionGate:
                 continue
             if not _is_gated(permission, name, catalogue):
                 continue
-            verdict = _decide(permission, mode=mode, grants=grants, floors=floors)
             raw_input = step.get("input")
             arguments = raw_input if isinstance(raw_input, dict) else {}
+            verdict = _decide(
+                permission,
+                mode=mode,
+                grants=grants,
+                floors=floors,
+                once=grants.get(once_key(name, arguments)),
+            )
             if not verdict.allowed:
                 item = Blocked(
                     permission=verdict.permission,
@@ -135,15 +154,35 @@ class PermissionGate:
         return Verdict(allowed=True, auto_bypassed=tuple(auto_bypassed))
 
 
+def once_key(operation: str, arguments: Mapping[str, object]) -> str:
+    """The grants key of a one-time answer to exactly this call.
+
+    Arguments are canonicalised -- keys sorted, no whitespace -- so the same call planned again
+    after the turn resumes matches whatever order the model wrote its fields in, and any
+    change to what the call would do is a different call, asked about again.
+    """
+    canonical = json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
+    digest = sha256(canonical.encode("utf-8")).hexdigest()[:32]
+    return f"{ONCE_PREFIX}{operation}:{digest}"
+
+
 def _is_gated(permission: Permission, name: str, catalogue: Catalogue | None) -> bool:
     effects = _effects(name, catalogue)
     return effects in WRITE_EFFECTS or permission.risk in {"execute", "destructive", "spend"}
 
 
 def _decide(
-    permission: Permission, *, mode: str, grants: Mapping[str, Grant], floors: Floors
+    permission: Permission,
+    *,
+    mode: str,
+    grants: Mapping[str, Grant],
+    floors: Floors,
+    once: Grant | None = None,
 ) -> Verdict:
-    grant = grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
+    """`once` is the person's answer to this exact call, when there is one. It stands in for
+    the permission's standing grant and goes through the same floors in the same order, so a
+    one-time yes can never lift a floor a standing yes could not."""
+    grant = once or grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
     if grant is not None and grant.decision.startswith("deny"):
         message = grant.instruction or f"{permission.title} is not allowed."
         return Verdict(False, message, permission.id, permission.title, denied=True)
@@ -276,4 +315,12 @@ def _effects(name: str, catalogue: Catalogue | None) -> str:
     return "read"
 
 
-__all__ = ["ACCOUNT_PROFILE", "Blocked", "Grant", "PermissionGate", "Verdict"]
+__all__ = [
+    "ACCOUNT_PROFILE",
+    "ONCE_PREFIX",
+    "Blocked",
+    "Grant",
+    "PermissionGate",
+    "Verdict",
+    "once_key",
+]

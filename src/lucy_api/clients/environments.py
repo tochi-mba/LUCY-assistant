@@ -23,10 +23,12 @@ and no amount of connecting an account changes that.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import base64
+import codecs
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.clients.errors import UnavailableError
+from lucy_api.clients.errors import ConflictError, RejectedError, UnavailableError
 from lucy_api.clients.transport import (
     Sibling,
     field,
@@ -51,8 +53,57 @@ AUDIENCE = "environments-api"
 
 READY = "ready"
 DEFAULT_TIMEOUT_MS = 60_000
+"""How long the sandbox may spend on one command."""
+
+EXEC_MARGIN_SECONDS = 15.0
+"""Waited on top of whatever the command was given, for the round trip around it.
+
+The sandbox opens a shell, runs, and closes it, and charges for all three: a `git rev-parse`
+asked for with a sixty-second ceiling took 15.1 seconds of wall clock, every time. So the
+margin is generous on purpose -- the alternative is a caller that gives up while the thing it
+asked for is still running, which is what happened to every workspace command ever run.
+"""
 DEFAULT_OUTPUT_BYTES = 64 * 1024
 """How much command output comes back by default. The ceiling is generous; a window is not."""
+TIMED_OUT = "timed_out"
+"""The command state the sandbox reports for a command it killed at its ceiling.
+
+This state is the only sign of a timeout the sandbox sends. Its command record keeps a
+`timed_out` flag but never serialises it (Environments-api app/shells/shell.py
+`CommandRecord.to_dict`), so a client that read the flag alone told the model
+`"timed_out": false` next to `"state": "timed_out"`.
+"""
+MID_CHARACTER = "validation-error"
+"""The code a read at an offset inside a UTF-8 character is refused with.
+
+Environments-api decodes a window from the byte it was asked for and will not hand back a
+character with its head cut off (`ValidationError("Read offset is inside a UTF-8
+character")`, app/files.py:132-136, code `validation_error`, app/errors.py:123-127). It
+arrives here folded to one spelling by `problem_code`.
+"""
+BASE64 = "base64"
+"""The encoding a binary file's content arrives in.
+
+Environments-api calls a file binary when it holds a NUL or is not valid UTF-8, and sends
+it base64 with `is_binary` set (app/file_safety.py:82-102, app/files.py:129-130). Base64
+never contains a NUL, so a hub that looked for one in the content never saw a binary file,
+and handed the model a `.pyc` as line-numbered base64.
+"""
+
+ARCHIVED = "archived"
+"""The state the sandbox's reaper leaves a workspace in once it has sat idle past its TTL.
+
+Its files are wiped, but it is still listed under the same name, so a hub that picks a
+workspace by name picks this one. Every file and shell call on it is then refused until it
+is reset, which is the only way back.
+"""
+ARCHIVED_CODE = "environment-archived"
+"""The problem code of that refusal, folded the way `problem_code` folds every code.
+
+The sandbox sends `environment_archived` with a 409, and a 409 alone does not say which
+state the call ran into: a full quota is a 409 as well, and resetting on that one would
+wipe a workspace that was working.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +120,9 @@ class Environment:
     """One workspace, without the host path it lives at.
 
     `disk_bytes` and `shells_running` are here because they are what a person asks about
-    when something is slow, and they cost a number each.
+    when something is slow, and they cost a number each. `idle_ttl_seconds` is how long the
+    sandbox lets this one sit idle before archiving it, stamped when it was created; `None`
+    means it was stamped with nothing and the sandbox's deployment default applies.
     """
 
     environment_id: str
@@ -81,6 +134,7 @@ class Environment:
     shells_running: int = 0
     disk_bytes: int = 0
     last_activity_at: datetime | None = None
+    idle_ttl_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,16 +159,22 @@ class Listing:
 class FileText:
     """A read of one file, which may be part of one.
 
-    `notice` is empty when the whole file came back and says exactly how much of how much
-    arrived when it did not. Nothing here truncates silently.
+    `notice` is empty when the whole file came back and names the exact bytes that arrived,
+    and the offset to read on from, when it did not. Nothing here truncates silently.
+    `offset`, `next_offset` and `size` are byte positions, never character counts.
+
+    `binary` is the service's verdict on the whole file, not on the window. When it is set,
+    `content` is base64 and is not the file's text to anything that reads it.
     """
 
     path: str
     content: str = ""
     size: int = 0
     offset: int = 0
+    next_offset: int = 0
     truncated: bool = False
     notice: str = ""
+    binary: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,14 +220,24 @@ class Ran:
     `output_dropped_bytes` is the service's own count of what fell out of the ring buffer
     between the start of the command and the read, and it is carried for the same reason as
     every other notice: a gap nobody mentions is a gap nobody can account for.
+
+    `output_truncated_bytes` is the other gap: `output` is one end of what the command
+    printed, cut at `max_output_bytes`, and this is how much of the rest there was. The ring
+    buffer count never included it, so a megabyte build log was reported as a few thousand
+    characters omitted, with the failure summary at its end never mentioned.
+
+    `tail` says which end `output` is: the end when the sandbox honoured a request for it,
+    and otherwise the beginning, which is all a sandbox that predates the request returns.
     """
 
     command: str
     exit_code: int | None = None
     output: str = ""
     output_dropped_bytes: int = 0
+    output_truncated_bytes: int = 0
     timed_out: bool = False
     state: str = ""
+    tail: bool = False
 
 
 class EnvironmentsClient(Protocol):
@@ -187,6 +257,10 @@ class EnvironmentsClient(Protocol):
 
     async def destroy(self, environment_id: str) -> None:
         """Permanently remove one workspace and everything inside it."""
+        ...
+
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe one workspace and make it usable again, which brings an archived one back."""
         ...
 
     async def mkdir(self, environment_id: str, path: str) -> str:
@@ -221,7 +295,7 @@ class EnvironmentsClient(Protocol):
 
     async def move(self, environment_id: str, source: str, destination: str) -> Mutation: ...
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -229,6 +303,7 @@ class EnvironmentsClient(Protocol):
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
         """Run one command in a fresh shell and close it afterwards, whatever happened."""
         ...
@@ -268,6 +343,11 @@ class HttpEnvironmentsClient:
         """Delete a workspace after a failed provisioning attempt or session cleanup."""
         await self._api.send("DELETE", f"/v1/environments/{segment(environment_id)}")
 
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe a workspace and leave it active. The service answers with its new view."""
+        payload = await self._api.send("POST", f"/v1/environments/{segment(environment_id)}/reset")
+        return _environment(payload)
+
     async def mkdir(self, environment_id: str, path: str) -> str:
         """Create a directory tree and return its normalized relative path."""
         payload = await self._api.send(
@@ -296,15 +376,17 @@ class HttpEnvironmentsClient:
             f"/v1/environments/{segment(environment_id)}/files/content",
             params=given(path=path, offset=offset, max_bytes=max_bytes),
         )
-        content, size = text(payload, "content"), number(payload, "size")
-        truncated = flag(payload, "truncated")
+        start, size = number(payload, "offset"), number(payload, "size")
+        end, truncated = number(payload, "next_offset", start), flag(payload, "truncated")
         return FileText(
             path=text(payload, "path", path),
-            content=content,
+            content=text(payload, "content"),
             size=size,
-            offset=number(payload, "offset"),
+            offset=start,
+            next_offset=end,
             truncated=truncated,
-            notice=f"showing {len(content)} of {size} bytes" if truncated else "",
+            notice=_window_notice(start, end, size, truncated=truncated),
+            binary=flag(payload, "is_binary") or text(payload, "encoding") == BASE64,
         )
 
     async def write(
@@ -369,7 +451,7 @@ class HttpEnvironmentsClient:
         )
         return _mutation(payload)
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -377,24 +459,62 @@ class HttpEnvironmentsClient:
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
-        """Run one command through the one-call shape: open, run, return, close."""
+        """Run one command through the one-call shape: open, run, return, close.
+
+        The command that comes back is the one sent, never the sandbox's echo of it. The
+        sandbox runs `( command\\n)` in a subshell and echoes that string (Environments-api
+        app/api/routes/exec.py), so the model was shown `"( ls -la\\n)"` for every `ls -la`
+        it ran. The hub knows what it asked for, and the echo adds nothing to that.
+        """
         body = {
             "environment_id": environment_id,
             "command": command,
             "cwd": cwd,
             "timeout_ms": timeout_ms,
             "max_output_bytes": max_output_bytes,
+            "output_window": "tail" if tail else "head",
         }
-        payload = await self._api.send("POST", "/v1/exec", body=body)
+        # Longer than the command's own ceiling, necessarily: waiting less than the work you
+        # asked for is a failure you have arranged yourself.
+        payload = await self._api.send(
+            "POST",
+            "/v1/exec",
+            body=body,
+            timeout_seconds=timeout_ms / 1000 + EXEC_MARGIN_SECONDS,
+        )
+        state = text(payload, "state")
         return Ran(
-            command=text(payload, "command", command),
+            command=command,
             exit_code=_exit_code(payload),
             output=text(payload, "output"),
             output_dropped_bytes=number(payload, "output_dropped_bytes"),
-            timed_out=flag(payload, "timed_out"),
-            state=text(payload, "state"),
+            output_truncated_bytes=_truncated_bytes(payload),
+            timed_out=flag(payload, "timed_out") or state == TIMED_OUT,
+            state=state,
+            # Only a sandbox that counts its own cut knows the window it was asked for; one
+            # that predates `output_window` ignores it and returns the head.
+            tail=tail and field(payload, "output_truncated_bytes") is not None,
         )
+
+
+def _truncated_bytes(payload: Any) -> int:
+    """How much of the command's output the byte cap left out.
+
+    The sandbox says so itself, as `output_truncated_bytes`, since it learned to return
+    either end (Environments-api app/api/routes/shells.py `command_result`). Before that it
+    read from the start and said so only in two byte offsets: `output_cursor`, where the read
+    stopped, and `output_end`, where the command's output did. A command still running has no
+    end yet, and then nothing here can say how much there is, so it counts as nothing rather
+    than as a guess.
+    """
+    if field(payload, "output_truncated_bytes") is not None:
+        return number(payload, "output_truncated_bytes")
+    end, cursor = field(payload, "output_end"), field(payload, "output_cursor")
+    if end is None or cursor is None:
+        return 0
+    return max(0, number(payload, "output_end") - number(payload, "output_cursor"))
 
 
 def _exit_code(payload: Any) -> int | None:
@@ -405,6 +525,20 @@ def _exit_code(payload: Any) -> int | None:
     """
     raw = field(payload, "exit_code")
     return None if raw is None else number(payload, "exit_code")
+
+
+def _window_notice(start: int, end: int, size: int, *, truncated: bool) -> str:
+    """Which bytes of how many a read returned, and where the next window starts.
+
+    Byte positions only, because the model's next call takes one. The notice this replaced
+    said `showing 5 of 13 bytes` for a six-byte window of "héllo wörld": it counted decoded
+    characters, overcounted base64 by a third, and never said where the window began, so a
+    model reading on could only guess an offset.
+    """
+    if not truncated and not start:
+        return ""
+    shown = f"showing bytes {start}-{end} of {size}"
+    return f"{shown}; continue with offset={end}" if truncated else shown
 
 
 def _environment(payload: Any) -> Environment:
@@ -419,7 +553,19 @@ def _environment(payload: Any) -> Environment:
         shells_running=number(payload, "shells_running"),
         disk_bytes=number(payload, "disk_bytes"),
         last_activity_at=moment(field(payload, "last_activity_at")),
+        idle_ttl_seconds=_seconds(field(payload, "environment_idle_ttl_seconds")),
     )
+
+
+def _seconds(value: Any) -> float | None:
+    """A duration the service stamped, or `None` when it stamped none.
+
+    `None` is kept rather than read as zero: an environment created while settings-api was
+    off carries no time to live of its own, and zero would say it had already expired.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _entry(row: Any) -> Entry:
@@ -459,12 +605,23 @@ class FakeEnvironmentsClient:
         self.scripted: dict[str, Ran] = {}
         self.ran: list[tuple[str, str, int, int]] = []
         self.wrote: list[tuple[str, str]] = []
+        self.resets: list[str] = []
 
     def seed(self, environment: Environment, *, files: Iterable[tuple[str, str]] = ()) -> None:
         """Put one workspace in place, with whatever files a test needs in it."""
         self.workspaces[environment.environment_id] = environment
         for path, body in files:
             self.contents[(environment.environment_id, path)] = body
+
+    def archive(self, environment_id: str) -> None:
+        """Do what the sandbox's reaper does to an idle workspace: wipe it and keep listing it."""
+        self.workspaces[environment_id] = replace(self.workspaces[environment_id], state=ARCHIVED)
+        self._wipe(environment_id)
+
+    def _wipe(self, environment_id: str) -> None:
+        self.contents = {
+            key: body for key, body in self.contents.items() if key[0] != environment_id
+        }
 
     def script(self, command: str, result: Ran) -> None:
         """Say what one command will do, because this fake cannot actually run it."""
@@ -491,14 +648,29 @@ class FakeEnvironmentsClient:
     async def destroy(self, environment_id: str) -> None:
         """Remove a fake workspace and all of its files."""
         self.workspaces.pop(environment_id, None)
-        self.contents = {
-            key: body for key, body in self.contents.items() if key[0] != environment_id
-        }
+        self._wipe(environment_id)
+
+    async def reset(self, environment_id: str) -> Environment:
+        """Wipe the workspace and make it active, whatever state it was in, as the service does."""
+        self.resets.append(environment_id)
+        environment = replace(self.workspaces[environment_id], state="active")
+        self.workspaces[environment_id] = environment
+        self._wipe(environment_id)
+        return environment
 
     async def mkdir(self, environment_id: str, path: str) -> str:
-        """Directories are implicit in the fake, but the workspace must exist."""
-        if environment_id not in self.workspaces:
+        """Directories are implicit in the fake, but the workspace must exist and be usable.
+
+        An archived one is refused here with the sandbox's own 409 and code. The sandbox
+        refuses every file and shell call the same way; this is the one the hub makes first
+        when it provisions or resets a session, so it is where the refusal is met.
+        """
+        environment = self.workspaces.get(environment_id)
+        if environment is None:
             raise KeyError(environment_id)
+        if environment.state == ARCHIVED:
+            detail = f"environment {environment_id} is archived; reset it first"
+            raise ConflictError(SERVICE, 409, detail, ARCHIVED_CODE)
         return path
 
     async def files(self, environment_id: str, path: str = ".") -> Listing:
@@ -516,17 +688,39 @@ class FakeEnvironmentsClient:
     async def read(
         self, environment_id: str, path: str, *, offset: int = 0, max_bytes: int | None = None
     ) -> FileText:
-        """The seeded file, cut at `max_bytes` so a truncation notice can be tested."""
-        whole = self.contents.get((environment_id, path), "")[offset:]
-        content = whole if max_bytes is None else whole[:max_bytes]
-        truncated = content != whole
+        """The seeded file as environments-api serves it: a window of its UTF-8 bytes.
+
+        Offsets and sizes are byte counts, the window ends on a character boundary, and one
+        that starts inside a character is refused with the service's own 422 (app/files.py:
+        127-138). A fake that sliced the str could never refuse, so a tail read at a
+        computed offset passed here and failed against the sandbox whenever it landed
+        inside a `✓`. A body with a NUL in it is binary, as it is to the service, and its
+        window comes back base64.
+        """
+        data = self.contents.get((environment_id, path), "").encode()
+        window = data[offset:] if max_bytes is None else data[offset : offset + max_bytes]
+        binary = b"\0" in data
+        if binary:
+            content = base64.b64encode(window).decode("ascii")
+        else:
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            try:
+                content = decoder.decode(window)
+            except UnicodeDecodeError as exc:
+                detail = "Read offset is inside a UTF-8 character"
+                raise RejectedError(SERVICE, 422, detail, MID_CHARACTER) from exc
+            window = window[: len(window) - len(decoder.getstate()[0])]
+        end = offset + len(window)
+        truncated = end < len(data)
         return FileText(
             path=path,
             content=content,
-            size=len(whole),
+            size=len(data),
             offset=offset,
+            next_offset=end,
             truncated=truncated,
-            notice=f"showing {len(content)} of {len(whole)} bytes" if truncated else "",
+            notice=_window_notice(offset, end, len(data), truncated=truncated),
+            binary=binary,
         )
 
     async def write(
@@ -584,7 +778,7 @@ class FakeEnvironmentsClient:
         self.contents[(environment_id, destination)] = body
         return Mutation(destination, len(body))
 
-    async def run(
+    async def run(  # noqa: PLR0913 - one command: where, what, how long, how much, which end
         self,
         environment_id: str,
         command: str,
@@ -592,11 +786,69 @@ class FakeEnvironmentsClient:
         cwd: str = ".",
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
+        tail: bool = False,
     ) -> Ran:
-        """Whatever the test scripted, or a command that did nothing and said nothing."""
+        """Whatever the test scripted, or a command that did nothing and said nothing.
+
+        A scripted `timed_out` state reads as a timeout whether or not the script also set
+        the flag, because that is what the real client makes of the same answer. Scripted
+        output longer than `max_output_bytes` comes back as its head and a count of the
+        rest, because that is what the sandbox does with it -- or as its end and a count of
+        what came before, when the end was asked for. And the command is the one asked for,
+        whatever the script called it, as the real client reports it.
+        """
         del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
-        return self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
+        result = self.scripted.get(command, Ran(command=command, exit_code=0, state="idle"))
+        printed = result.output.encode()
+        if len(printed) > max_output_bytes:
+            cut = len(printed) - max_output_bytes
+            kept = printed[cut:] if tail else printed[:max_output_bytes]
+            result = replace(
+                result,
+                output=kept.decode("utf-8", "replace"),
+                output_truncated_bytes=result.output_truncated_bytes + cut,
+            )
+        return replace(
+            result,
+            command=command,
+            timed_out=result.timed_out or result.state == TIMED_OUT,
+            tail=tail,
+        )
+
+
+UTF8_STEP_BYTES = 3
+"""How far past a byte offset the next character can start.
+
+A tail is read from a file's size less a window, a byte offset that lands wherever it lands,
+and the sandbox refuses one inside a character rather than return it half-decoded. A
+character is at most four bytes, so the next boundary is at most three further on. Without
+the step, a watch waiting for the verdict at the end of a build log with a `✓` or a progress
+bar in it failed its check, and after five of those was reported as a broken probe instead
+of firing.
+"""
+
+
+async def read_from(
+    client: EnvironmentsClient,
+    environment_id: str,
+    path: str,
+    offset: int,
+    *,
+    max_bytes: int,
+) -> FileText:
+    """The window at `offset`, or at the next character boundary when it is inside one."""
+    for step in range(UTF8_STEP_BYTES):
+        try:
+            return await client.read(
+                environment_id, path, offset=offset + step, max_bytes=max_bytes
+            )
+        except RejectedError as refused:
+            if refused.code != MID_CHARACTER:
+                raise
+    return await client.read(
+        environment_id, path, offset=offset + UTF8_STEP_BYTES, max_bytes=max_bytes
+    )
 
 
 if TYPE_CHECKING:
@@ -609,10 +861,15 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "ARCHIVED",
+    "ARCHIVED_CODE",
     "AUDIENCE",
+    "BASE64",
     "DEFAULT_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT_MS",
+    "MID_CHARACTER",
     "SERVICE",
+    "UTF8_STEP_BYTES",
     "Entry",
     "Environment",
     "EnvironmentsClient",
@@ -626,4 +883,5 @@ __all__ = [
     "SearchMatch",
     "SearchResult",
     "Written",
+    "read_from",
 ]

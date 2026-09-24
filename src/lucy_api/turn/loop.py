@@ -49,19 +49,26 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.context.framing import Origin, frame_result
-from lucy_api.context.scrub import scrub
-from lucy_api.context.types import Trust
-from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Request, Stop
+from lucy_api.context.framing import Origin, frame_result, result_trust
+from lucy_api.context.scrub import scrub, scrub_tree
+from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
+from lucy_api.turn.claims import UNBACKED, ClaimCheck
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
-from lucy_api.turn.window import RESULT_TOKEN_CAP, attach_needles, needle_from, without_needles
+from lucy_api.turn.window import (
+    RESULT_TOKEN_CAP,
+    attach_needles,
+    executable,
+    needle_from,
+    notes_of,
+)
 from lucy_api.turn.window import window as result_window
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
-    from lucy_api.model.types import Chunk, Message, Provider, Reply, Usage
+    from lucy_api.decide.uses import Recovery
+    from lucy_api.model.types import Chunk, Message, Provider, Usage
 
 MAX_PLAN_REPAIRS = 2
 """How many times a malformed plan is handed back for correction.
@@ -69,6 +76,19 @@ MAX_PLAN_REPAIRS = 2
 Two, because the first repair usually works and the third never does. A model that cannot
 answer the schema after two tries has misunderstood the task, not the format, and spending
 the rest of the turn on it helps nobody."""
+
+EMPTY_REPLY = (
+    "Your previous reply was empty: nothing reached the person, and no plan was sent. "
+    "Answer the person in prose, or send a plan."
+)
+"""What the model is told after a round in which it said nothing at all.
+
+An empty reply used to end the turn as a success. The person saw nothing, the turn said
+`completed`, and on the weakest model it happened on ordinary requests -- "Show me what's in
+the calculator folder" came back as a finished turn with no words and no steps. So it is
+handed back like a malformed plan, from the same repair budget, and a model that still says
+nothing after that fails the turn rather than succeeding at silence.
+"""
 
 # RESULT_TOKEN_CAP lives on the window so spill, focus and the loop share one number.
 
@@ -155,7 +175,16 @@ class Turn:
     cancelled: Callable[[], bool | Awaitable[bool]] | None = None
     clock: Callable[[], float] = time.monotonic
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
+    recovery: Recovery | None = None
+    claims: ClaimCheck = field(default_factory=ClaimCheck)
+    """Whether a final reply claims work nothing did. The phrase list, unless a decision is live."""
     opening_notice: str = ""
+    opening_plan: dict[str, Any] | None = None
+    """Steps to run before the model is asked anything: the calls a person just approved.
+
+    Run through the same executor, recorded the same way, so the model's first round reads
+    their results like any other tool result.
+    """
     """A sentence for the first round only, decided before the turn starts.
 
     This exists because a resumed turn looks, from the transcript, exactly like a turn where
@@ -190,6 +219,8 @@ class _Cycle:
     opening: str = ""
     """Spent on the first round and then empty. A fact about how this turn started, which
     stops being true the moment the model has read it."""
+    claim_checked: bool = False
+    """Whether a reply claiming undone work was already held back once this turn."""
 
 
 async def run_turn(turn: Turn) -> Outcome:
@@ -203,6 +234,14 @@ async def run_turn(turn: Turn) -> Outcome:
         repetition=Repetition(),
         opening=turn.opening_notice,
     )
+
+    if turn.opening_plan is not None and turn.execute is not None:
+        opening = Reply(plan=turn.opening_plan, stop=Stop.tool_use)
+        opened = await _run_plan(
+            cycle, opening, Round(text="", plan=turn.opening_plan), turn.execute
+        )
+        if opened is not None:
+            return opened
 
     while True:
         ended = await _early_stop(
@@ -247,48 +286,94 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     """Consume one model reply: cancel, speak, or run the plan.
 
     A speaking reply is recorded before the cancel check, because the person asked to stop
-    a turn that had already produced words, not to un-say them.
+    a turn that had already produced words, not to un-say them. Words beside a plan are not:
+    they wait for the plan to run (see `_run_plan`), and a turn stopped first never ran it.
     """
     turn = cycle.turn
     outcome = cycle.outcome
     spent = outcome.spent
     outcome.spent = _add(spent, reply, turn.clock() - cycle.started)
     round_ = Round(text=reply.text, reasoning=reply.reasoning, plan=reply.plan, usage=reply.usage)
-    await _assistant_item(turn, reply.text)
+    if (
+        reply.plan is None
+        and not cycle.claim_checked
+        and await turn.claims.unbacked(reply.text, outcome.rounds)
+    ):
+        # Held back before it reaches the transcript: a false "I've saved that" read once is
+        # believed. The round was paid for, so it is kept, but not what it said.
+        cycle.claim_checked = True
+        outcome.rounds.append(replace(round_, text=""))
+        cycle.repair_notice = UNBACKED
+        return None
+    executor = turn.execute
+    acting = reply.plan is not None and executor is not None
+    if not acting:
+        await _assistant_item(turn, reply.text)
     ended = await _early_stop(outcome, cycle.limits, outcome.spent, cycle.is_cancelled)
     if ended is not None:
-        outcome.rounds.append(round_)
+        outcome.rounds.append(replace(round_, text="") if acting else round_)
         return ended
-    executor = turn.execute
     if reply.plan is None or executor is None:
+        if _said_nothing(reply):
+            return await _nothing_said(cycle, round_)
         return _finished(outcome, round_, reply)
     return await _run_plan(cycle, reply, round_, executor)
+
+
+def _said_nothing(reply: Reply) -> bool:
+    """No words and no plan. A refusal is a fact about the request, not an empty reply."""
+    return reply.plan is None and not reply.text.strip() and reply.stop is not Stop.refusal
+
+
+async def _nothing_said(cycle: _Cycle, round_: Round) -> Outcome | None:
+    """Hand an empty reply back once or twice; after that, fail rather than succeed silently."""
+    outcome = cycle.outcome
+    # Kept for its accounting -- the round was paid for -- but whitespace is not something
+    # the model said, and it must not reach the answer the turn reports.
+    outcome.rounds.append(replace(round_, text=""))
+    if cycle.turn.append is not None:
+        await cycle.turn.append("error", "tool", {"code": "empty_reply", "detail": EMPTY_REPLY})
+    if cycle.repairs < MAX_PLAN_REPAIRS:
+        cycle.repairs += 1
+        cycle.repair_notice = EMPTY_REPLY
+        return None
+    outcome.termination = Termination.failed
+    outcome.detail = "the model replied with nothing, each time it was asked"
+    return outcome
 
 
 async def _run_plan(
     cycle: _Cycle, reply: Reply, round_: Round, executor: ExecutePlan
 ) -> Outcome | None:
-    """Execute the plan on a reply that already survived the cancel check."""
+    """Execute the plan on a reply that already survived the cancel check.
+
+    What the model wrote beside the plan is shown only once the plan has run, just before its
+    results. Parked for approval, refused, or invalid, none of it ran: read in a sent turn,
+    "Got it. I've noted that..." reached the person beside a write still waiting for their
+    yes, and would have stood had the answer been no. The approval says what is pending.
+    """
     turn = cycle.turn
     outcome = cycle.outcome
-    result = await executor(without_needles(reply.plan))
+    result = await executor(executable(reply.plan))
     attach_needles(reply.plan, result)
+    unsaid = replace(round_, text="")
     waiting = _permission_issues(result)
     if waiting:
-        return _parked(outcome, round_, reply.plan, waiting)
-    denied_notice = await _record_denial(turn, outcome, round_, result)
+        return _parked(outcome, unsaid, reply.plan, waiting)
+    denied_notice = await _record_denial(turn, outcome, unsaid, result)
     if denied_notice:
         cycle.repair_notice = denied_notice
         return None
     executed: tuple[Step, ...]
     repair_notice = ""
+    said = ""
     if not _is_valid(result):
         repair_notice = "The previous plan was invalid: " + _issue_text(result)
         await _invalid_item(turn, repair_notice)
         if cycle.repairs < MAX_PLAN_REPAIRS:
             cycle.repairs += 1
             cycle.repair_notice = repair_notice
-            outcome.rounds.append(round_)
+            outcome.rounds.append(unsaid)
             return None
         executed = (
             Step(
@@ -299,13 +384,20 @@ async def _run_plan(
             ),
         )
     else:
-        executed = _record(result, repetition=cycle.repetition, cap=turn.result_token_cap)
+        said = reply.text
+        await _assistant_item(turn, said)
+        executed = _record(
+            result,
+            repetition=cycle.repetition,
+            cap=turn.result_token_cap,
+            notes=notes_of(reply.plan),
+        )
     if turn.append is not None:
         for step in executed:
             await turn.append("tool_result", "tool", _item_for(step))
     outcome.rounds.append(
         Round(
-            text=reply.text,
+            text=said,
             reasoning=reply.reasoning,
             plan=reply.plan,
             steps=executed,
@@ -319,6 +411,10 @@ async def _run_plan(
         return outcome
     cycle.repairs = 0
     cycle.repair_notice = ""
+    if turn.recovery is not None:
+        cycle.repair_notice = await turn.recovery.observe(
+            [f"{step.operation}: {step.error}" for step in executed if step.status == "error"]
+        )
     outcome.spent = Spent(
         iterations=outcome.spent.iterations,
         tokens=outcome.spent.tokens,
@@ -557,9 +653,18 @@ def _issue_text(result: Any) -> str:
 
 
 def _record(
-    result: Any, *, repetition: Repetition, cap: int = RESULT_TOKEN_CAP
+    result: Any,
+    *,
+    repetition: Repetition,
+    cap: int = RESULT_TOKEN_CAP,
+    notes: dict[str, str] | None = None,
 ) -> tuple[Step, ...]:
-    """Turn executed steps into items, scrubbed and framed on the way in."""
+    """Turn executed steps into items, scrubbed and framed on the way in.
+
+    `notes` is each step's sentence from the plan the model wrote, by step id: the executor
+    never sees it, so the result cannot carry it back.
+    """
+    written = notes or {}
     steps: list[Step] = []
     for raw in result.get("steps", ()):
         operation = str(raw.get("operation", ""))
@@ -571,7 +676,7 @@ def _record(
                 id=str(raw.get("id", "")),
                 operation=operation,
                 status=str(raw.get("status", "ok")),
-                note=str(raw.get("note", "")),
+                note=written.get(str(raw.get("id", ""))) or str(raw.get("note") or ""),
                 summary=summary,
                 notices=notices,
                 error=str(raw.get("error") or ""),
@@ -614,12 +719,11 @@ def _summarise(raw: Any, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str
     body = raw.get("data")
     if body is None:
         return "", ()
-    text = body if isinstance(body, str) else repr(body)
-    cleaned = scrub(text)
+    cleaned = scrub(body) if isinstance(body, str) else scrub_tree(body)
     operation = str(raw.get("operation", ""))
     origin = Origin(capability=operation.split(".", 1)[0] or "a tool")
     viewed = result_window(cleaned.text, needle_from(raw), cap=cap)
-    framed = frame_result(viewed.text, origin, trust=Trust.untrusted)
+    framed = frame_result(viewed.text, origin, trust=result_trust(operation, body))
     return framed, viewed.notices
 
 
@@ -664,6 +768,7 @@ def _never() -> bool:
 
 
 __all__ = [
+    "EMPTY_REPLY",
     "MAX_PLAN_REPAIRS",
     "RESULT_TOKEN_CAP",
     "Outcome",

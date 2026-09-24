@@ -127,6 +127,35 @@ def test_an_unreadable_body_still_produces_the_error_the_status_calls_for() -> N
     assert caught.value.detail == ""
 
 
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(409, "no-active-device"), (429, ""), (502, "credential-unavailable"), (504, ""), (400, "")],
+)
+def test_the_structured_details_travel_with_whichever_error_the_status_became(
+    status: int, code: str
+) -> None:
+    """The bug, named: `details` was read by nobody, so Spotify-api's 504 confirmation-timeout
+    -- "accepted, not confirmed" -- lost the player state it carries in `details.observed` and
+    reached the model as nothing more than an outage."""
+    details = {"observed": {"is_playing": True}}
+    body = {**problem(status, code=code).body, "details": details}
+
+    with pytest.raises(DownstreamError) as caught:
+        raise_for(Answer(status_code=status, body=body), service=SERVICE)
+
+    assert caught.value.details == details
+
+
+@pytest.mark.parametrize(
+    "body", [problem(503).body, {**problem(503).body, "details": ["not", "an", "object"]}]
+)
+def test_details_that_are_absent_or_not_an_object_are_empty(body: Any) -> None:
+    with pytest.raises(UnavailableError) as caught:
+        raise_for(Answer(status_code=503, body=body), service=SERVICE)
+
+    assert caught.value.details == {}
+
+
 def test_the_message_names_the_service_and_the_status_and_quotes_the_detail() -> None:
     assert (
         str(DownstreamError(SERVICE, 409, "at your limit")) == "spotify answered 409: at your limit"

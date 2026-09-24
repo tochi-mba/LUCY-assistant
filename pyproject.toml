@@ -21,7 +21,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "settings-client",
     "uvicorn[standard]>=0.30",
-    "weftai[all]==0.3.0",
+    "weftai[all]==0.4.0",
 ]
 
 [project.scripts]
@@ -63,7 +63,7 @@ src = ["src", "tests"]
 # Markdown is excluded because ruff now formats Python code blocks inside it, and the
 # snippets in our documents are illustrative: reformatting them silently edits the prose's
 # meaning, and a plan that quotes a signature wants the signature it quoted.
-extend-exclude = ["broker", "examples", "*.md"]
+extend-exclude = ["broker", "examples", "*.md", ".claude"]
 
 [tool.ruff.lint]
 select = [
@@ -185,6 +185,32 @@ name = "The HTTP surface sits above auth, and auth never reaches back up"
 type = "layers"
 layers = ["lucy_api.api", "lucy_api.auth"]
 exhaustive = false
+
+# The eval harness exists because tests that reach inside the hub were green while real
+# conversations failed. It holds conversations over the public HTTP surface and nothing
+# else: the one HTTP adapter lives in `lucy_api.cli.evals_hub`, on the CLI's own client.
+[[tool.importlinter.contracts]]
+name = "The eval harness is a client of the hub, never a reader of its internals"
+type = "forbidden"
+source_modules = ["lucy_api.evals"]
+forbidden_modules = [
+    "lucy_api.agents",
+    "lucy_api.api",
+    "lucy_api.auth",
+    "lucy_api.cli",
+    "lucy_api.clients",
+    "lucy_api.context",
+    "lucy_api.core",
+    "lucy_api.memory",
+    "lucy_api.model",
+    "lucy_api.packs",
+    "lucy_api.permissions",
+    "lucy_api.sessions",
+    "lucy_api.turn",
+    "lucy_api.work",
+    "httpx",
+    "weftai",
+]
 
 [[tool.importlinter.contracts]]
 name = "Configuration is a leaf: it imports nothing of ours"

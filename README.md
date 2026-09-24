@@ -417,7 +417,8 @@ For family service development:
 5. `make check` in that repository. `python scripts/parity.py` from here for the family
    scoreboard — it scores the hub too.
 
-To work on **Lucy herself**, you are already in the right directory:
+To work on **Lucy herself**, you are already in the right directory. [docs/hub.md](docs/hub.md)
+follows one message through the code and says where to start when something breaks.
 
 ```bash
 make install
@@ -434,7 +435,22 @@ python scripts/genenv.py          # writes .env.family; never prints the values
 make images && make up            # host ports 8000–8009; up reuses the build cache
 ```
 
-Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`.
+Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`. A
+refresh with `--force` keeps `KEYRING_MASTER_KEY`, because it decrypts every credential
+already stored in keyring; `--rotate-master-key` replaces it too, and makes those credentials
+unreadable. Variables this machine needs that the family does not publish -- pointing the hub
+at [clyde](https://github.com/tochi-mba/clyde) on the host, say -- belong in
+`scripts/genenv.local.json` so a refresh keeps them:
+
+```json
+{
+  "env": {
+    "LUCY_MODEL_BASE_URLS": "{\"clyde\":\"http://host.docker.internal:8127/v1\"}"
+  }
+}
+```
+
+A refresh names any variable from the old file that it did not carry over.
 
 ## The `lucy` command
 
@@ -454,6 +470,11 @@ another machine. `--url` overrides `LUCY_URL`, which overrides the saved URL. Yo
 comes from `LUCY_TOKEN` or the saved configuration and is never a flag value. Exit
 codes are `0` worked, `1` the answer was no, `2` bad command, `3` hub unreachable.
 [docs/cli.md](docs/cli.md) has the rest.
+
+`lucy eval run --model clyde:haiku` (or `make evals MODEL=clyde:haiku`) holds a
+constant list of real conversations with Lucy through a real model and checks what the
+hub recorded after every turn -- the regressions no unit test can see. It runs only when
+you ask, never in CI. [docs/evals.md](docs/evals.md) explains it.
 
 ## Signing in to GitHub
 
@@ -548,6 +569,7 @@ private; its callers continue using the canonical public workflow. The
 | --- | --- |
 | Family standard | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
+| Conversation regressions (`lucy eval`) | [docs/evals.md](docs/evals.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | How Lucy's context is built | [docs/context.md](docs/context.md) |
 | Model providers and keys | [docs/models.md](docs/models.md) |

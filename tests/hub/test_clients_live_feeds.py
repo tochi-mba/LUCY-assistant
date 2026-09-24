@@ -175,18 +175,18 @@ async def test_workspace_feed_selects_only_the_attached_environment() -> None:
     feed = (await WorkspaceFeeds(client, "wanted").fetch(REQUEST))[0]
 
     assert feed.lines == (
-        "2 shells running; environment ready",
+        "2 shells running",
         "sandbox isolation: container",
     )
     assert await WorkspaceFeeds(client, "missing").fetch(REQUEST) == ()
 
 
-async def test_workspace_feed_adds_cwd_and_git_branch_when_they_are_known() -> None:
+async def test_workspace_feed_adds_the_git_branch_but_never_the_path_again() -> None:
     client = FakeEnvironmentsClient()
     client.seed(Environment("wanted", "Project", profile="personal", state="ready"))
     client.script(GIT_BRANCH, Ran(command=GIT_BRANCH, exit_code=0, output="main\n"))
     feed = (await WorkspaceFeeds(client, "wanted", workspace_rel="sess-a").fetch(REQUEST))[0]
-    assert "working directory: sess-a" in feed.lines
+    assert all("sess-a" not in line for line in feed.lines), "the workspace group says it"
     assert "git branch: main" in feed.lines
 
     client.script(GIT_BRANCH, Ran(command=GIT_BRANCH, exit_code=0, output="HEAD\n"))
@@ -215,7 +215,7 @@ async def test_a_git_outage_omits_the_branch_rather_than_the_whole_workspace_fee
     client = NoGit()
     client.seed(Environment("wanted", "Project", profile="personal", state="ready"))
     feed = (await WorkspaceFeeds(client, "wanted", workspace_rel="sess-a").fetch(REQUEST))[0]
-    assert "working directory: sess-a" in feed.lines
+    assert feed.lines == ("0 shells running", "sandbox isolation: unknown")
     assert all("git branch" not in line for line in feed.lines)
 
 

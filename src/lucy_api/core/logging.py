@@ -5,9 +5,11 @@ becomes unauditable. The **event stream** is what a client sees and can replay, 
 in SQLite for the life of the session. The **audit log** is security-relevant fact -- token
 mints, approvals, connections, erasures -- appended to its own table and never trimmed. This
 module is the third one: the **application log**, which is operational, goes to stdout, and
-is rotated and sampled by whatever is collecting it. It is the only one of the three that a
-person outside this system may end up reading, which is why it is the one with a list of
-things it may not contain.
+is rotated and sampled by whatever is collecting it -- and, when `LUCY_LOG_FILE` names one, to a
+file this process rotates itself, so that a person on the machine can read and filter it
+(`lucy logs`) without knowing how their container runtime keeps logs. It is the only one of
+the three that a person outside this system may end up reading, which is why it is the one
+with a list of things it may not contain.
 
 ## Every line carries the same eleven fields
 
@@ -53,6 +55,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import re
 import sys
 import time
@@ -62,6 +65,7 @@ from contextvars import ContextVar
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.core.request_id import get_request_id
@@ -328,27 +332,61 @@ class JsonFormatter(logging.Formatter):
         return value
 
 
-def configure(
+FILE_MAX_BYTES = 20 * 1024 * 1024
+"""When the log file is rotated. Twenty megabytes is days of a busy hub, and greps in a blink."""
+
+FILE_BACKUPS = 5
+"""How many rotated files are kept beside the live one. The oldest is deleted, not archived."""
+
+
+def configure(  # noqa: PLR0913 - where lines go, how many, and what they may say
     *,
     level: str = "INFO",
     stream: Any = None,
     log_message_content: bool = False,
+    file: str = "",
+    max_bytes: int = FILE_MAX_BYTES,
+    backups: int = FILE_BACKUPS,
 ) -> logging.Handler:
-    """Send structured logs to stdout, replacing any handler this function installed before.
+    """Send structured logs to stdout, and to `file` when one is named.
 
-    stdout and not a file: a container's logs belong to whatever is running the container,
-    and a service that writes its own files has to be told where, rotate them, and be given
-    a disk. Called once, from the composition root.
+    Replaces, and closes, any handler this function installed before. stdout always: a
+    container's logs belong to whatever is running the container. The file is for a person on
+    the machine who wants one place to read and filter, and it is optional because a service
+    that writes files has to be told where and given a disk. A file that cannot be opened is
+    said on stdout and otherwise ignored: a log file is never a reason for the hub not to start.
+    Called once, from the composition root.
     """
     root = logging.getLogger()
     for existing in tuple(root.handlers):
         if isinstance(existing.formatter, JsonFormatter):
             root.removeHandler(existing)
+            existing.close()
+    formatter = JsonFormatter(log_message_content=log_message_content)
     handler = logging.StreamHandler(stream if stream is not None else sys.stdout)
-    handler.setFormatter(JsonFormatter(log_message_content=log_message_content))
+    handler.setFormatter(formatter)
     root.addHandler(handler)
     root.setLevel(level)
+    if file:
+        _add_file(root, formatter, file, max_bytes=max_bytes, backups=backups)
     return handler
+
+
+def _add_file(
+    root: logging.Logger, formatter: JsonFormatter, file: str, *, max_bytes: int, backups: int
+) -> None:
+    try:
+        Path(file).parent.mkdir(parents=True, exist_ok=True)
+        written = logging.handlers.RotatingFileHandler(
+            file, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+        )
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "log_file_unavailable path=%s error_type=%s", file, type(exc).__name__
+        )
+        return
+    written.setFormatter(formatter)
+    root.addHandler(written)
 
 
 @contextmanager
@@ -382,6 +420,8 @@ def _elapsed(started: float) -> float:
 __all__ = [
     "BINDABLE",
     "CONTENT_FIELDS",
+    "FILE_BACKUPS",
+    "FILE_MAX_BYTES",
     "MANDATORY_FIELDS",
     "NEVER_FIELDS",
     "NOTHING_BOUND",

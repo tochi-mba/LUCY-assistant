@@ -59,7 +59,13 @@ from lucy_api.sessions.models import CreateSession, ForkSession, InputBatch, Upd
 from lucy_api.sessions.turns import cancel_turn as request_cancellation
 from lucy_api.sessions.turns import list_turns, submit_messages
 from lucy_api.stream import ai_sdk, sse
-from lucy_api.turn.prompt import SessionView, context_for_session, conversation_order, view_limits
+from lucy_api.turn.prompt import (
+    SessionView,
+    context_for_session,
+    conversation_order,
+    schema_tokens,
+    view_limits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -579,6 +585,9 @@ async def get_session_context(
             turn_number=sum(1 for turn in turns if turn["status"] == "completed") + 1,
             live=prepared.live,
             response_style=policy.response_style,
+            schema_tokens=schema_tokens(
+                container.capabilities.plan_schema(catalogue, session_id, prepared.pack_context)
+            ),
             **view_limits(policy),
         )
     )

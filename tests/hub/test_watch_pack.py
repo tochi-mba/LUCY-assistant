@@ -10,17 +10,34 @@ piece of work.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from lucy_api.clients.environments import Environment, FakeEnvironmentsClient, FileText, Ran
-from lucy_api.clients.errors import AbsentError
+import pytest
+
+from lucy_api.clients.environments import (
+    Environment,
+    FakeEnvironmentsClient,
+    FileText,
+    HttpEnvironmentsClient,
+    Ran,
+)
+from lucy_api.clients.errors import AbsentError, RejectedError
+from lucy_api.clients.testing import Answer, FakeHttp
 from lucy_api.net.ssrf import REFUSED as ADDRESS_REFUSED
 from lucy_api.packs.base import State as PackState
 from lucy_api.packs.context import PackContext, SilentTokens
 from lucy_api.packs.http import NullHttp
 from lucy_api.packs.registry import build_registry, build_runtime
-from lucy_api.packs.watch import MAX_BODY, NO_WORKSPACE, WatchPack, httpx_fetch
+from lucy_api.packs.watch import (
+    BINARY_FILE,
+    MAX_BODY,
+    NO_WORKSPACE,
+    WatchPack,
+    _file_check,
+    httpx_fetch,
+)
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import Brief, Kind, Registry, State
 from lucy_api.work.watch import MAX_EVERY_SECONDS, MIN_EVERY_SECONDS
@@ -359,6 +376,155 @@ async def test_a_file_watch_with_a_pattern_waits_while_there_is_no_match() -> No
     registry.cancel(started["id"])
     await settled()
     assert registry.result(started["id"]).state is State.cancelled
+
+
+ELF = "\x7fELF\0\0"
+"""The start of a compiled binary. The sandbox sends it as `f0VMRgAA`."""
+
+
+async def test_a_pattern_is_never_matched_against_a_binary_file() -> None:
+    """The bug, named: the sandbox sends a binary file base64, and the check searched that,
+    so a pattern that only occurs in the encoding fired on a file that never contained it."""
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/out/app", ELF),),
+    )
+
+    check = await _file_check(fake, ENV, f"{ROOT}/out/app", re.compile("VMRg"))
+
+    assert check.fired is False
+    assert check.detail == BINARY_FILE
+
+
+async def test_a_binary_file_can_still_be_waited_for_without_a_pattern() -> None:
+    """It exists, which is all that was asked; the base64 is no excerpt of anything."""
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/out/app", ELF),),
+    )
+
+    check = await _file_check(fake, ENV, f"{ROOT}/out/app", None)
+
+    assert check.fired is True
+    assert check.excerpt == ""
+
+
+class Offsets(Workspace):
+    """The fake, remembering which byte offset each read asked for."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.offsets: list[int] = []
+
+    async def read(
+        self, environment_id: str, path: str, *, offset: int = 0, max_bytes: int | None = None
+    ) -> FileText:
+        self.offsets.append(offset)
+        return await super().read(environment_id, path, offset=offset, max_bytes=max_bytes)
+
+
+async def test_a_tail_read_that_lands_inside_a_character_steps_to_the_next_one() -> None:
+    """The bug, named: the tail of a long log is read from its size less `MAX_BODY`, the
+    sandbox refuses an offset inside a UTF-8 character with a 422, and the check let the
+    refusal escape -- so a watch on a build log with a tick in its last 200 KB failed its
+    check instead of matching. A four-byte character is the worst case: three refusals,
+    then the boundary."""
+    body = "\N{LARGE GREEN CIRCLE}" * (MAX_BODY // 4) + "\nRESULT: green\n\n\n"
+    fake = Offsets()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/build.log", body),),
+    )
+    tail = len(body.encode()) - MAX_BODY
+
+    check = await _file_check(fake, ENV, f"{ROOT}/build.log", re.compile(r"RESULT: (\w+)"))
+
+    assert tail % 4 == 1, "the tail offset is one byte into a four-byte character"
+    assert fake.offsets == [0, tail, tail + 1, tail + 2, tail + 3]
+    assert check.fired is True
+    assert "RESULT: green" in check.excerpt
+
+
+SIZE = MAX_BODY + 4
+"""A log four bytes longer than one window, so its tail read starts at byte 4."""
+
+
+def a_window(offset: int, content: str, next_offset: int) -> Answer:
+    """One read as environments-api sends it: `FileContent`'s fields (Environments-api
+    app/files.py:33-45) beside the environment id (app/api/routes/files.py:59)."""
+    return Answer(
+        body={
+            "environment_id": ENV,
+            "path": f"{ROOT}/build.log",
+            "size": SIZE,
+            "offset": offset,
+            "content": content,
+            "encoding": "utf-8",
+            "truncated": next_offset < SIZE,
+            "is_binary": False,
+            "etag": '"e1"',
+            "next_offset": next_offset,
+        }
+    )
+
+
+def a_refusal(status: int, code: str, title: str, detail: str) -> Answer:
+    """A refusal as environments-api sends it: `DomainError.to_problem` (Environments-api
+    app/errors.py:35-47)."""
+    return Answer(
+        status_code=status,
+        body={
+            "type": f"urn:environments-api:error:{code}",
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "code": code,
+            "instance": f"/v1/environments/{ENV}/files/content",
+        },
+    )
+
+
+async def test_the_sandbox_refusal_is_the_one_a_tail_read_steps_past() -> None:
+    """Over the real client, so the code the step waits for is the one `ValidationError`
+    (Environments-api app/errors.py:123-127) arrives as once `problem_code` has folded it."""
+    http = FakeHttp(
+        a_window(0, "x" * MAX_BODY, MAX_BODY),
+        a_refusal(
+            422,
+            "validation_error",
+            "Validation error",
+            "Read offset is inside a UTF-8 character",
+        ),
+        a_window(5, "RESULT: green", SIZE),
+    )
+    client = HttpEnvironmentsClient(http, "http://environments.test")
+
+    check = await _file_check(client, ENV, f"{ROOT}/build.log", re.compile("RESULT"))
+
+    assert [(call.params or {})["offset"] for call in http.calls] == [0, 4, 5]
+    assert check.fired is True
+
+
+async def test_a_tail_read_refused_for_any_other_reason_is_not_stepped_past() -> None:
+    """Only the one refusal a boundary can fix is retried; stepping past anything else
+    would hide it behind three more calls."""
+    http = FakeHttp(
+        a_window(0, "x" * MAX_BODY, MAX_BODY),
+        a_refusal(
+            400,
+            "path_outside_workspace",
+            "Path is outside the workspace",
+            "File operations do not follow symbolic links",
+        ),
+    )
+    client = HttpEnvironmentsClient(http, "http://environments.test")
+
+    with pytest.raises(RejectedError):
+        await _file_check(client, ENV, f"{ROOT}/build.log", re.compile("RESULT"))
+
+    assert len(http.calls) == 2
 
 
 # --------------------------------------------------------------------------------------

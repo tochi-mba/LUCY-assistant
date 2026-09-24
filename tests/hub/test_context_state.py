@@ -28,6 +28,7 @@ from lucy_api.context.types import (
     BudgetSnapshot,
     CapabilitySnapshot,
     FailureSnapshot,
+    FeedSnapshot,
     LiveState,
     PendingSnapshot,
     Section,
@@ -444,15 +445,46 @@ def test_the_memory_index_is_one_line_per_topic_with_a_count_and_a_recency() -> 
     assert headline(rendered, "memory") == "1 topic, 12 memories, 2 unread"
     assert entries_of(rendered, "memory") == [
         "Ingest pipeline - how the old API is shaped and who calls it"
-        " - 12 memories, 2 unread - last seen 3d00h ago"
+        " - 12 memories, 2 unread - last seen 3d00h ago - topic_id p1"
     ]
+
+
+def test_unconfirmed_memories_are_said_rather_than_dropped() -> None:
+    """They cannot be used until the person confirms them, and a model that does not know
+    they exist tells the person it knows nothing about a subject it has notes on."""
+    state = a_state(
+        topics=(
+            a_topic(id="p1", last_seen=NOW - timedelta(days=3), unconfirmed=2),
+            a_topic(id="p2", title="Deploys", last_seen=NOW - timedelta(days=4), unconfirmed=1),
+        )
+    )
+    rendered = body_of(state)
+
+    assert headline(rendered, "memory") == "2 topics, 24 memories, 3 unconfirmed"
+    assert entries_of(rendered, "memory")[0] == (
+        "Ingest pipeline - how the old API is shaped and who calls it"
+        " - 12 memories, 2 unconfirmed - last seen 3d00h ago - topic_id p1"
+    )
+
+
+def test_each_topic_carries_the_id_opening_it_takes() -> None:
+    """`notes.openTopic` asks for "the topic id from the live memory index", and the index
+    never gave one: the model guessed, and was told the topic was not found."""
+    state = a_state(topics=(a_topic(id="top_4f2a"),))
+    assert entries_of(body_of(state), "memory")[0].endswith(" - topic_id top_4f2a")
+
+
+def test_an_index_with_nothing_unconfirmed_does_not_mention_it() -> None:
+    rendered = body_of(a_state(topics=(a_topic(last_seen=NOW - timedelta(days=3)),)))
+    assert "unconfirmed" not in headline(rendered, "memory")
+    assert "unconfirmed" not in entries_of(rendered, "memory")[0]
 
 
 def test_a_topic_nobody_has_opened_yet_claims_no_recency_at_all() -> None:
     state = a_state(topics=(a_topic(count=1),))
 
     assert entries_of(body_of(state), "memory") == [
-        "Ingest pipeline - how the old API is shaped and who calls it - 1 memory"
+        "Ingest pipeline - how the old API is shaped and who calls it - 1 memory - topic_id p1"
     ]
     assert headline(body_of(state), "memory") == "1 topic, 1 memory"
 
@@ -500,7 +532,7 @@ def test_a_topic_built_from_untrusted_content_is_marked_as_such() -> None:
     shown = entries_of(body_of(state), "memory")
 
     assert "trust" not in shown[0]
-    assert shown[1].endswith("trust: untrusted")
+    assert shown[1].endswith("trust: untrusted - topic_id p2")
 
 
 def test_forty_topics_show_eight_and_say_how_many_more_there_are() -> None:
@@ -550,13 +582,13 @@ def test_a_crowd_in_one_group_cannot_spend_another_groups_room() -> None:
         )
     )
 
-    squeezed = body_of(state, limit=290)
+    squeezed = body_of(state, limit=300)
     assert len(entries_of(squeezed, "in_flight")) == 2
     assert len(entries_of(squeezed, "memory")) == 3
 
     # Tighter still, the index goes and the roster stays: what is already under way cannot
     # be fetched back the way a topic can. See the ranks in `QUOTAS`.
-    tighter = body_of(state, limit=260)
+    tighter = body_of(state, limit=270)
     assert not has_group(tighter, "memory")
     assert len(entries_of(tighter, "in_flight")) == 2
 
@@ -571,35 +603,72 @@ def a_workspace(**overrides: Any) -> WorkspaceSnapshot:
     return WorkspaceSnapshot(**{**fields, **overrides})
 
 
+WORKSPACE_FEED = FeedSnapshot(
+    id="workspace",
+    title="attached workspace right now",
+    lines=("2 shells running", "sandbox isolation: container", "git branch: main"),
+)
+
+
 def test_the_workspace_line_names_the_path_its_readiness_and_what_moved() -> None:
+    state = a_state(workspace=a_workspace(changed_files=("src/ingest/api.py", "docs/migration.md")))
+    rendered = body_of(state)
+
+    assert headline(rendered, "workspace") == (
+        "/work/ingest - ready - 2 files changed since your last turn"
+    )
+    assert entries_of(rendered, "workspace") == ["src/ingest/api.py", "docs/migration.md"]
+
+
+def test_the_workspace_feed_joins_the_workspace_group_rather_than_opening_a_second() -> None:
+    """Read in a sent request: `workspace sessions/ses_... - ready` and, under it, `workspace
+    attached workspace right now` with the same path again as its working directory."""
+    research = FeedSnapshot(id="research", title="search in force", lines=("backend: Google",))
+    rendered = body_of(a_state(workspace=a_workspace(), feeds=(WORKSPACE_FEED, research)))
+
+    assert headline(rendered, "workspace") == (
+        "/work/ingest - ready - 2 shells running - sandbox isolation: container - git branch: main"
+    )
+    assert sum(line.startswith("workspace") for line in rendered.splitlines()) == 1
+    assert "attached workspace right now" not in rendered
+    assert headline(rendered, "research") == "search in force"
+
+
+def test_without_a_workspace_group_the_workspace_feed_still_says_its_piece() -> None:
+    rendered = body_of(a_state(feeds=(WORKSPACE_FEED,)))
+    assert headline(rendered, "workspace") == "attached workspace right now"
+    assert entries_of(rendered, "workspace")[0] == "2 shells running"
+
+
+def test_a_resume_says_each_thing_once_and_names_the_files_it_read() -> None:
+    """Read in a sent request: the first commit as the last checkpoint and again in the log,
+    `smoke git is available`, the journal's seeded header, and `tasks {"tasks":[]}`."""
     state = a_state(
         workspace=a_workspace(
-            changed_files=("src/ingest/api.py", "docs/migration.md"), last_checkpoint="ckpt_9"
+            commits=("abc123 first", "def456 second"),
+            journal="Did the dates.",
+            tasks="1 task: dates",
+            changed_files=("dates.txt",),
         )
     )
     rendered = body_of(state)
 
     assert headline(rendered, "workspace") == (
-        "/work/ingest - ready - 2 files changed since your last turn - last checkpoint ckpt_9"
+        "/work/ingest - ready - 1 file changed since your last turn"
     )
-    assert entries_of(rendered, "workspace") == ["src/ingest/api.py", "docs/migration.md"]
+    assert entries_of(rendered, "workspace") == [
+        "recent commits: abc123 first; def456 second",
+        "progress.md, latest: Did the dates.",
+        "tasks.json: 1 task: dates",
+        "dates.txt",
+    ]
 
 
-def test_a_resume_orientation_lists_cwd_journal_tasks_git_and_smoke_first() -> None:
-    state = a_state(
-        workspace=a_workspace(
-            cwd="sessions/ses_1",
-            journal="Did the dates.",
-            tasks='{"tasks":[]}',
-            git_log="abc123 session-start",
-            smoke="git is available",
-            changed_files=("dates.txt",),
-        )
-    )
-    rendered = body_of(state)
-    assert entries_of(rendered, "workspace")[0].startswith("cwd ")
-    assert any(line.startswith("journal ") for line in entries_of(rendered, "workspace"))
-    assert "dates.txt" in entries_of(rendered, "workspace")
+def test_a_sandbox_without_git_says_so_instead_of_its_commits() -> None:
+    missing = a_workspace(git_missing=True, commits=("abc123 first",))
+    assert entries_of(body_of(a_state(workspace=missing)), "workspace") == [
+        "git is not available in this sandbox"
+    ]
 
 
 def test_a_workspace_that_is_not_ready_says_so_before_anything_is_attempted_in_it() -> None:

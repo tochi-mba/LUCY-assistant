@@ -127,10 +127,11 @@ class WorkPack:
 
         async def run_wait(run: RunContext[Any]) -> dict[str, Any]:
             asked = run.input.get("seconds")
+            wanted = float(asked) if asked is not None else DEFAULT_WAIT_SECONDS
             return await _wait(
                 registry,
                 str(run.input["work_id"]),
-                float(asked) if asked is not None else DEFAULT_WAIT_SECONDS,
+                run.ctx.within_step(min(wanted, MAX_WAIT_SECONDS)),
             )
 
         async def run_cancel(run: RunContext[Any]) -> dict[str, Any]:
@@ -286,7 +287,7 @@ def _result(registry: Registry, work_id: str) -> dict[str, Any]:
 
 async def _wait(registry: Registry, work_id: str, seconds: float) -> dict[str, Any]:
     try:
-        result = await registry.wait(work_id, min(seconds, MAX_WAIT_SECONDS))
+        result = await registry.wait(work_id, seconds)
     except UnknownWorkError as exc:
         return _refusal("unknown", str(exc))
     except StillRunningError as exc:

@@ -12,6 +12,7 @@ ranking nobody can debug at three in the morning.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import permutations
 
@@ -56,6 +57,7 @@ def topic(
     last_seen: datetime | None = None,
     trust: Trust = Trust.stated,
     unread: int = 0,
+    unconfirmed: int = 0,
 ) -> Topic:
     """A topic with everything a given test does not care about already filled in."""
     return Topic(
@@ -69,6 +71,7 @@ def topic(
         last_seen=last_seen,
         trust=trust,
         unread=unread,
+        unconfirmed=unconfirmed,
     )
 
 
@@ -579,6 +582,33 @@ def test_an_index_line_mentions_unread_memories_only_when_there_are_any() -> Non
 
     assert index_line(read) == "Home network (4 memories): Router details"
     assert index_line(unread) == "Home network (4 memories, 2 new): Router details"
+
+
+def test_an_index_line_prices_the_unconfirmed_count_the_renderer_shows() -> None:
+    """`index_line` is what the cut pays for, and a renderer may not show more than was paid
+    for -- so a count the block renders has to be in the line the budget priced."""
+    held = topic("t-a", title="Home network", summary="Router details", count=4, unconfirmed=3)
+    both = topic(
+        "t-b", title="Home network", summary="Router details", count=4, unread=2, unconfirmed=1
+    )
+
+    assert index_line(held) == "Home network (4 memories, 3 unconfirmed): Router details"
+    assert index_line(both) == "Home network (4 memories, 2 new, 1 unconfirmed): Router details"
+
+
+def test_unconfirmed_members_never_lift_a_topic_up_the_index() -> None:
+    """Somebody who can write a page can write a lot of unvouched notes into one topic. That
+    must not buy the topic a better place in the prompt: the persistence attack, pointed at
+    the order instead of the content."""
+    flooded = topic("t-flood", importance=0.5, last_seen=NOW, unconfirmed=500)
+    quiet = topic("t-quiet", importance=0.5, last_seen=NOW)
+    with_flood = select_topics([flooded, quiet], limit=8, counter=OneToken(), now=NOW).snapshots()
+    without = select_topics(
+        [replace(flooded, unconfirmed=0), quiet], limit=8, counter=OneToken(), now=NOW
+    ).snapshots()
+
+    assert [item.id for item in with_flood] == [item.id for item in without]
+    assert with_flood[[item.id for item in with_flood].index("t-flood")].unconfirmed == 500
 
 
 async def test_the_index_is_built_without_reading_a_single_memory() -> None:

@@ -27,6 +27,7 @@ from lucy_api.model.wire import (
     events,
     json_object,
     model_for,
+    plan_object,
     retry_after_seconds,
     send,
     sse_event,
@@ -285,3 +286,66 @@ def test_carriage_returns_do_not_defeat_the_fence() -> None:
 
 def test_surrounding_whitespace_is_tolerated() -> None:
     assert json_object('\n\n```json\n{"a": 1}\n```\n\n') == {"a": 1}
+
+
+# --- a plan the model put a sentence in front of ------------------------------------------------
+#
+# Models narrate. This one repeatedly emitted a progress note and then the plan it had already
+# decided on, and reading the pair as prose ended the turn -- showing the person the wire
+# format and never running the step.
+
+NARRATED = (
+    "The step timed out, but the command kept running and finished. "
+    "I'm fetching its output now.\n\n"
+    '{"steps":[{"id":"pyresult","op":"work.result","input":{"work_id":"wrk_1"}}]}'
+)
+
+
+def test_a_narrated_plan_is_still_a_plan() -> None:
+    assert plan_object(NARRATED) == {
+        "steps": [{"id": "pyresult", "op": "work.result", "input": {"work_id": "wrk_1"}}]
+    }
+
+
+def test_a_bare_plan_is_read_the_same_way() -> None:
+    assert plan_object('{"steps":[{"id":"a"}]}') == {"steps": [{"id": "a"}]}
+
+
+def test_a_fenced_plan_is_read_the_same_way() -> None:
+    assert plan_object('```json\n{"steps":[{"id":"a"}]}\n```') == {"steps": [{"id": "a"}]}
+
+
+def test_an_answer_that_ends_by_quoting_a_configuration_is_not_a_plan() -> None:
+    """The risk this guard exists for. Without the `steps` check, a final answer that ends in
+    an object would be executed, fail validation, and burn the turn's repair budget."""
+    assert plan_object('Here is your config: {"host": "a", "port": 1}') is None
+
+
+def test_a_plain_answer_is_not_a_plan() -> None:
+    assert plan_object("All done. Nothing else to do.") is None
+
+
+def test_the_object_has_to_be_the_last_thing_in_the_message() -> None:
+    """A plan the model then talked itself out of is not what it finished on."""
+    assert plan_object('Maybe {"steps":[1]} -- no, actually {"other": 2}') is None
+
+
+def test_the_last_object_wins_when_there_are_several() -> None:
+    assert plan_object('Note: {"x":1}\n{"steps":[{"id":"z"}]}') == {"steps": [{"id": "z"}]}
+
+
+def test_json_object_itself_stays_strict() -> None:
+    """`plan_object` is the forgiving one. `json_object` reads error bodies and anything else
+    that must be JSON or nothing, and loosening it would let a sentence become a payload."""
+    assert json_object(NARRATED) is None
+
+
+def test_a_trailing_object_that_is_not_valid_json_is_not_a_plan() -> None:
+    """Balanced braces are not JSON. The scan finds a candidate and `json.loads` rejects it,
+    which is a miss rather than an error."""
+    assert plan_object("see {not json}") is None
+
+
+def test_an_unbalanced_brace_is_not_a_plan() -> None:
+    """The scan runs off the front without ever closing. Nothing to parse."""
+    assert plan_object("unbalanced }") is None

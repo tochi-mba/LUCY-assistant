@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from lucy_api.model.types import ModelUnavailableError
+from lucy_api.model.types import SAY, ModelUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
@@ -122,6 +122,80 @@ def json_object(text: str) -> dict[str, Any] | None:
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def plan_object(text: str) -> dict[str, Any] | None:
+    """The plan in `text`, including one the model put a sentence in front of.
+
+    :func:`json_object` is strict on purpose: a message is JSON or it is prose, and reading
+    JSON out of prose would let a sentence that merely *contains* an object be executed. But
+    models narrate. This one repeatedly did:
+
+        The step timed out, but the command kept running and finished. I'm fetching its
+        output now.
+
+        {"steps":[{"id":"pyresult","op":"work.result","input":{...}}]}
+
+    Every word of that is a progress note and every character of the object is a plan, and
+    reading the pair as prose ends the turn -- showing the person the wire format and never
+    running the step the model had already decided on.
+
+    Narrower than it looks. The object has to be the *last* thing in the message, it has to
+    parse on its own, and it has to carry a `steps` array, which is what makes a plan a plan.
+    A final answer that ends by quoting a configuration is not mistaken for one.
+    """
+    whole = json_object(text)
+    if whole is not None:
+        return whole
+    trailing = _trailing_object(text)
+    return trailing if trailing is not None and isinstance(trailing.get("steps"), list) else None
+
+
+def said_and_planned(text: str, *, narrated: bool = False) -> tuple[str, dict[str, Any] | None]:
+    """What a reply says to the person, and the plan it asks to run, from one message.
+
+    The shapes, in the order they are tried: a message that holds no object is prose, and
+    is what it says. An object with `say` and no `steps` is an answer in words -- the only
+    kind a provider enforcing the plan schema lets a model give. An object with steps is a
+    plan, and its `say`, if any, is shown once it has run. An object with neither is passed on
+    as the plan it claims to be, so the repair path can quote it back.
+
+    `narrated` reads a plan the model put a sentence in front of; see :func:`plan_object`.
+    """
+    found = plan_object(text) if narrated else json_object(text)
+    if found is None:
+        return text, None
+    said = found.get(SAY)
+    words = said.strip() if isinstance(said, str) else ""
+    if SAY in found and "steps" not in found:
+        return words, None
+    return words, {key: value for key, value in found.items() if key != SAY}
+
+
+def _trailing_object(text: str) -> dict[str, Any] | None:
+    """The JSON object a message ends with, or nothing.
+
+    Scanned backwards from the last `}` to the `{` that balances it, so a message with more
+    than one object yields the one the model finished on -- which is the one it meant.
+    """
+    end = text.rstrip().rfind("}")
+    if end < 0:
+        return None
+    body = text.rstrip()[: end + 1]
+    depth = 0
+    for index in range(len(body) - 1, -1, -1):
+        character = body[index]
+        if character == "}":
+            depth += 1
+        elif character == "{":
+            depth -= 1
+            if depth == 0:
+                try:
+                    value = json.loads(body[index:])
+                except ValueError:
+                    return None
+                return value if isinstance(value, dict) else None
+    return None
 
 
 def model_for(request: Request, fallback: str) -> str:
@@ -286,6 +360,7 @@ __all__ = [
     "json_object",
     "model_for",
     "retry_after_seconds",
+    "said_and_planned",
     "send",
     "sse_event",
 ]

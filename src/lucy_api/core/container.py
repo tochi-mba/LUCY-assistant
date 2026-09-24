@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import posixpath
 import time
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ import httpx
 from keyring_client import JwksClient, SystemClock
 from settings_client import HttpSettingsClient
 from settings_client.errors import SettingsRejected, SettingsUnavailable
+from weftai.decisions import Decider, NullDecider
+from weftai.providers.laya import LayaDecider
 
 from lucy_api.agents.journal import JournalLive
 from lucy_api.agents.runtime import ChildRuntime
@@ -37,8 +40,8 @@ from lucy_api.auth.device import DeviceFlow
 from lucy_api.auth.exchange import KeyringExchange
 from lucy_api.auth.verifier import TokenVerifier, VerifiedCaller
 from lucy_api.blobs import Blobs
-from lucy_api.clients.environments import HttpEnvironmentsClient
-from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.environments import ARCHIVED, ARCHIVED_CODE, HttpEnvironmentsClient
+from lucy_api.clients.errors import ConflictError, DownstreamError
 from lucy_api.clients.keyring import DelegatedKeyringClient
 from lucy_api.clients.live_feeds import (
     MusicFeeds,
@@ -56,12 +59,13 @@ from lucy_api.context.build import Live
 from lucy_api.context.fields import FIELDS, feed_setting_key
 from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
 from lucy_api.context.sources import Sources
-from lucy_api.core.errors import LucyError, settings_unavailable
+from lucy_api.core.errors import LucyError, model_unavailable, settings_unavailable
+from lucy_api.decide import USES, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
 from lucy_api.memory.index import MemoryIndex
 from lucy_api.model.readiness import Readiness
-from lucy_api.model.registry import ModelRegistry, http_registry
+from lucy_api.model.registry import ModelRegistry, UnknownModelError, http_registry
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportDownstreamError
 from lucy_api.packs.http import PackHttp, apply_downstream_policy
@@ -69,6 +73,7 @@ from lucy_api.packs.mcp import McpPack
 from lucy_api.packs.probes import GuardedHttp
 from lucy_api.packs.service import Capabilities, installed_packs
 from lucy_api.packs.watch import WatchPack, httpx_fetch
+from lucy_api.permissions.live import PendingLive
 from lucy_api.sessions.models import TERMINAL
 from lucy_api.sessions.scope import (
     GIT_BASELINE,
@@ -83,9 +88,10 @@ from lucy_api.sessions.scope import (
 )
 from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
+from lucy_api.settings.catalogue import DEFAULT_MODEL
 from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.store.worker import SqlWorker
-from lucy_api.stream.emitter import EventEmitter, SqlEventLog
+from lucy_api.stream.emitter import EventEmitter, NewEvent, SqlEventLog
 from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 from lucy_api.webhooks import Webhooks, httpx_deliver
 from lucy_api.work.live import WorkInFlight
@@ -106,6 +112,32 @@ if TYPE_CHECKING:
     from lucy_api.permissions.gate import Grant
     from lucy_api.sessions.models import CreateSession
     from lucy_api.turn.stop import Budget as TurnBudget
+
+
+logger = logging.getLogger(__name__)
+
+OWN_NAMESPACE = "lucy"
+"""The hub's own settings: the turn policy, and everything `TurnPolicy` clamps."""
+
+SEARCH_NAMESPACE = "search"
+"""web-search's namespace, read for the person's backend and result count."""
+
+MUSIC_NAMESPACE = "spotify"
+"""spotify's namespace, read for the person's default playback device."""
+
+SIBLING_NAMESPACES = (SEARCH_NAMESPACE, MUSIC_NAMESPACE)
+"""Namespaces owned by a sibling that the hub nonetheless resolves.
+
+Named rather than spelled inline at the call site, because settings-api grants namespaces
+per service and a namespace the hub reads but was not granted answers 403 -- which
+``_optional_namespace`` swallows on purpose, since a settings outage must not take a turn
+down. A missing *grant* is not an outage, and looks exactly like one from here. Keeping
+the list in one place is what lets `tests/hub/test_settings_namespaces.py` check the grants
+in `scripts/genenv.py` against it.
+"""
+
+NAMESPACES_READ = (OWN_NAMESPACE, *SIBLING_NAMESPACES)
+"""Every namespace the hub resolves, and so every namespace it must be granted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +185,7 @@ class Container:
     webhooks: Webhooks
     environment_override: EnvironmentsClient | None = None
     memory_topics: TopicListing | None = None
+    decider: Decider = field(default_factory=NullDecider)
     started_at: float = field(default_factory=time.monotonic)
     _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
@@ -234,6 +267,12 @@ class Container:
         One environment belongs to the account/profile and each session receives its own
         confined directory inside it. Listing before create makes a retry after a process
         interruption recover that environment rather than consume another quota slot.
+
+        The one found by name may have been archived by the sandbox for sitting idle. It is
+        still listed, and every call into it is refused until it is reset, so it is reset
+        here first: otherwise every new session on the profile answered 503 "retry", and
+        every retry found the same archived environment again. The archive already wiped
+        it, so the reset loses nothing.
         """
         if session.get("workspace_environment_id"):
             return session
@@ -247,6 +286,8 @@ class Container:
             client = self.environment_client(request)
             available = await client.environments(profile=request.profile)
             existing = next((item for item in available if item.name == name), None)
+            if existing is not None and existing.state == ARCHIVED:
+                existing = await client.reset(existing.environment_id)
             environment = existing or await client.create(name, profile=request.profile)
             workspace = WorkspaceScope(environment.environment_id, session_id)
             await client.mkdir(environment.environment_id, workspace.root)
@@ -269,7 +310,12 @@ class Container:
         }
 
     async def reset_workspace(self, request: PackRequest, session_id: str) -> dict[str, object]:
-        """Wipe the session subtree and seed it again. The environment itself stays."""
+        """Wipe the session subtree and seed it again. The environment itself stays.
+
+        Unless the sandbox has archived it, in which case this session's folder is already
+        gone along with everything else, and the environment refuses the new one until it
+        is reset. That refusal is the one thing that resets the environment from here.
+        """
         row = await self.store.get(request.caller.account_id, session_id)
         if not row.get("workspace_environment_id"):
             row = await self.ensure_workspace(request, row)
@@ -289,9 +335,34 @@ class Container:
         client = self.environment_client(request)
         with contextlib.suppress(DownstreamError, KeyError, LucyError):
             await client.delete(env_id, rel, recursive=True)
-        await client.mkdir(env_id, rel)
+        try:
+            await client.mkdir(env_id, rel)
+        except ConflictError as refused:
+            if refused.code != ARCHIVED_CODE:
+                raise
+            await self._revive(request, client, env_id)
+            await client.mkdir(env_id, rel)
         await _bootstrap_session_workspace(client, WorkspaceScope(env_id, session_id))
         return self.workspace_view(row)
+
+    async def _revive(
+        self, request: PackRequest, client: EnvironmentsClient, environment_id: str
+    ) -> None:
+        """Reset an archived environment, unless another session already has.
+
+        A reset wipes the whole environment, not one folder. Between the refusal and here,
+        a new session on the same profile may have reset it and been given a folder in it,
+        and resetting again would wipe that. So the state is read again under the lock
+        `ensure_workspace` provisions under.
+        """
+        name = _workspace_name(request.caller.account_id, request.profile)
+        async with self._workspace_locks.setdefault(name, asyncio.Lock()):
+            available = await client.environments(profile=request.profile)
+            if any(
+                item.environment_id == environment_id and item.state == ARCHIVED
+                for item in available
+            ):
+                await client.reset(environment_id)
 
     async def session_memory(
         self, request: PackRequest, session: dict[str, object]
@@ -377,8 +448,10 @@ class Container:
         policy = TurnPolicy.from_resolved(resolved)
         sent = request.model_fields_set
         updates: dict[str, object] = {}
-        if "model" not in sent:
-            updates["model"] = policy.model
+        if "model" in sent:
+            self._require_runnable(request.model)
+        else:
+            updates["model"] = await self._runnable_default(policy.model)
         if "thinking_config" not in sent:
             updates["thinking_config"] = policy.thinking
         if "permission_mode" not in sent:
@@ -390,6 +463,47 @@ class Container:
         if not updates:
             return request
         return request.model_copy(update=updates)
+
+    def _runnable(self, spec: str) -> bool:
+        try:
+            self.models.resolve(spec)
+        except UnknownModelError:
+            return False
+        return True
+
+    def _require_runnable(self, spec: str) -> None:
+        """Refuse a named model this hub cannot reach, with the registry's own explanation.
+
+        The registry already says what is wrong and what fixes it -- "this hub can talk to
+        Anthropic, but nothing is configured for it. Run `lucy models connect anthropic`" --
+        and it used to be thrown away: the conversation was created, and its first turn failed
+        with `model configuration failed (UnknownModelError)` and nothing else.
+        """
+        try:
+            self.models.resolve(spec)
+        except UnknownModelError as exc:
+            raise model_unavailable(str(exc)) from exc
+
+    async def _runnable_default(self, chosen: str) -> str:
+        """The profile's model, unless nobody chose it and this hub cannot run it.
+
+        A model somebody chose is kept when it can run and refused, with the reason, when it
+        cannot -- switching a person's choice silently would be worse than saying no. Only the
+        catalogue's own default is replaced, by the first model a ready (then a configured)
+        provider says it has. When nothing at all is configured there is no better choice to
+        make, so the default stands and the turn will say what is missing.
+        """
+        if self._runnable(chosen):
+            return chosen
+        if chosen != DEFAULT_MODEL:
+            self._require_runnable(chosen)
+        report = await self.readiness.report(prove=True)
+        for row in (*report.ready, *report.available):
+            for model in row.models[:1]:
+                spec = f"{row.provider}:{model}"
+                if self._runnable(spec):
+                    return spec
+        return chosen
 
     async def prepare_turn(self, request: PackRequest, session: dict[str, object]) -> PreparedTurn:
         """Resolve one turn's ephemeral authority, feeds, and feed policy.
@@ -404,6 +518,25 @@ class Container:
             raise settings_unavailable(SETTINGS_UNAVAILABLE)
         pack_context = self.pack_context(request)
         pack_context.policy = policy.for_session(disabled_in(session))
+
+        async def decision_event(name: str, fields: dict[str, Any]) -> None:
+            await self.events.emit(
+                request.session_id,
+                NewEvent(
+                    name,
+                    fields,
+                    turn_id=request.turn_id or None,
+                ),
+            )
+
+        pack_context.decide = Decisions(
+            self.decider,
+            enabled=[use.id for use in USES if policy.decisions and getattr(policy, use.setting)],
+            shadow=policy.decision_shadow_mode,
+            timeout_ms=policy.decision_timeout_ms,
+            max_per_turn=policy.decision_max_per_turn,
+            emit=decision_event,
+        )
         pack_context.max_subagent_turns = policy.max_subagent_turns
         pack_context.defaults = await self._pack_defaults(request.user_token, request.profile)
         apply_downstream_policy(pack_context.http, policy)
@@ -422,6 +555,7 @@ class Container:
             workspace_live = WorkspaceLive(
                 self.environment_client(request),
                 workspace,
+                profile=request.profile,
                 retention_hours=policy.workspace_retention_hours,
             )
             feeds.append(
@@ -445,6 +579,13 @@ class Container:
                 profile=request.profile,
                 limit=policy.memory_retrieval_limit,
                 incognito=request.incognito,
+                decide=pack_context.decide,
+            ),
+            pending=PendingLive(
+                store=self.store,
+                tickets=self.connection_tickets,
+                account_id=request.caller.account_id,
+                profile=request.profile,
             ),
         )
         return PreparedTurn(
@@ -465,7 +606,7 @@ class Container:
     async def _pack_defaults(self, user_token: str, profile: str | None) -> dict[str, object]:
         """Sibling knobs the packs may use when the model omitted them. Never secrets."""
         defaults: dict[str, object] = {}
-        search = await self._optional_namespace("search", user_token, profile)
+        search = await self._optional_namespace(SEARCH_NAMESPACE, user_token, profile)
         if search is not None:
             limit = search.get("default_result_count", 8)
             if isinstance(limit, int) and not isinstance(limit, bool):
@@ -473,7 +614,7 @@ class Container:
             backend = search.get("search_backend", "google")
             if isinstance(backend, str) and backend:
                 defaults["research.backend"] = backend
-        music = await self._optional_namespace("spotify", user_token, profile)
+        music = await self._optional_namespace(MUSIC_NAMESPACE, user_token, profile)
         if music is not None:
             device = music.get("default_device", None)
             if isinstance(device, str) and device:
@@ -483,10 +624,24 @@ class Container:
     async def _optional_namespace(
         self, namespace: str, user_token: str, profile: str | None
     ) -> ResolvedSettings | None:
-        """A sibling namespace, or nothing. An outage here must not take the turn down."""
+        """A sibling namespace, or nothing. An outage here must not take the turn down.
+
+        A rejection is not an outage. 403 means this service was never granted the namespace,
+        which no retry and no waiting will fix, and which looks identical from here to a
+        settings-api that is merely down -- so it is logged once per turn rather than
+        swallowed. It stays non-fatal: the person asked for something else, and losing a
+        default result count is not worth losing the answer.
+        """
         try:
             return await self.preferences.resolve(namespace, user_token=user_token, profile=profile)
-        except (SettingsUnavailable, SettingsRejected):
+        except SettingsUnavailable:
+            return None
+        except SettingsRejected:
+            logger.warning(
+                "settings_namespace_refused namespace=%s -- the hub is not granted it, so its"
+                " defaults are being ignored; see SETTINGS_API_SERVICES",
+                namespace,
+            )
             return None
 
     async def _turn_settings(
@@ -500,7 +655,9 @@ class Container:
         failing.
         """
         try:
-            return await self.preferences.resolve("lucy", user_token=user_token, profile=profile)
+            return await self.preferences.resolve(
+                OWN_NAMESPACE, user_token=user_token, profile=profile
+            )
         except SettingsUnavailable:
             return None
 
@@ -650,6 +807,7 @@ def build_container(
                 search_base_url=settings.web_search_base_url,
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,
+                persona_base_url=settings.persona_api_base_url,
             ),
             WatchPack(settings.environments_api_base_url, fetch=httpx_fetch(outbound)),
             McpPack(mcp_servers, httpx_call(outbound)),
@@ -706,6 +864,16 @@ def build_container(
         mcp_servers=mcp_servers,
         blobs=Blobs(store, root=_blobs_root(settings)),
         webhooks=webhooks,
+        decider=LayaDecider(
+            outbound,
+            settings.laya_base_url,
+            api_key=settings.laya_api_key,
+            model=settings.laya_model,
+            timeout_ms=settings.laya_timeout_ms,
+            max_concurrent=settings.laya_max_concurrent,
+        )
+        if settings.laya_base_url
+        else NullDecider(),
     )
 
 

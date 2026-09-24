@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     environment: str = "local"
     log_level: str = "INFO"
     log_format: LogFormat = LogFormat.JSON
+    log_file: str = ""
+    """A file to write the JSON log to as well as stdout, rotated by the hub. Empty: none."""
     host: str = "127.0.0.1"
     port: PositiveInt = 8000
 
@@ -127,6 +129,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     model_keys: dict[str, str] = Field(default_factory=dict)
     model_base_urls: dict[str, str] = Field(default_factory=dict)
+
+    laya_base_url: str = ""
+    laya_api_key: str = ""
+    laya_model: str = ""
+    laya_timeout_ms: PositiveInt = 5000
+    laya_max_concurrent: PositiveInt = 2
 
     # The rest of the family. Each is a base URL only; what the hub does with them lives in
     # a capability pack, and a pack whose service is unreachable is absent from the model's

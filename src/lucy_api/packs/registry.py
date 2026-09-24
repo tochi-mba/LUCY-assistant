@@ -50,8 +50,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from weftai import create_formatter, create_registry, create_runtime, standard_operations
 
+from lucy_api.model.types import SAY, SAY_DESCRIPTION
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
+from lucy_api.packs.steplog import step_hooks
 from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
 
 if TYPE_CHECKING:
@@ -81,6 +83,15 @@ make deferral a one-way door. `work` and `agents` are the check-in path for ever
 that outlives a step, so hiding them when the system is busy hides the one capability
 that exists specifically for that case."""
 
+FIRST_LOADED = ("notes", "workspace", "research", "watch", "settings")
+"""The order capabilities a conversation has not used yet are kept in, most useful first.
+
+Without it the tie was broken by id, alphabetically, and on a stock family the one left out of
+four slots was `workspace` -- last in the alphabet, and the capability anything built needs --
+so every new conversation spent a `capabilities.use` round before it could touch a file. What
+the conversation has used always comes first; anything not named here comes after, by id.
+"""
+
 PROBE_SECONDS = 5.0
 """How long a capability has to say whether it is usable.
 
@@ -88,12 +99,28 @@ Short on purpose: this runs before every turn, and a person waiting on a reply s
 be paying for a service that has stopped answering. Not answering in time is the same
 answer as being down."""
 
-SLOW_SERVICES = frozenset({"research", "mcp"})
-"""Built-in capabilities whose steps are allowed longer.
+SLOW_SERVICES = frozenset({"research", "mcp", "music"})
+"""Built-in capabilities whose steps and probes are allowed longer.
 
 A page fetch taking twelve seconds is not a bug, and failing it at ten only produces a
-retry that takes twelve too. Extensions own any additional timeout policy they need.
+retry that takes twelve too. Music is here because a play answers only once the player has
+been seen playing, which can take fifteen seconds on a device waking up; at ten the step
+gave up on a command that was working, and a model told it had failed sends it again,
+restarting the track. Extensions own any additional timeout policy they need.
 """
+
+SLOW_MULTIPLE = 3
+"""What "allowed longer" is worth, for both a step and the probe in front of it.
+
+One figure, used in both places, because they answer the same question about the same
+service. Two figures drift, and the way they drift is the whole bug below: a capability
+generous enough to fetch a page but not to say that it can.
+"""
+
+
+def _ceiling(pack_id: str, seconds: float) -> float:
+    """How long this capability has to answer, before it is called down."""
+    return seconds * SLOW_MULTIPLE if pack_id in SLOW_SERVICES else seconds
 
 
 async def probe_all(
@@ -104,6 +131,13 @@ async def probe_all(
     A probe is a network call to somebody else's service, so it gets a timeout. A capability
     that does not answer in time is unavailable for this turn rather than a turn that does
     not happen.
+
+    The slow ones get the same allowance their steps get. They are slow because of what they
+    do -- research asks a browser and a model provider whether they are there -- and the
+    first such call after an idle spell measured 5.06 seconds against a ceiling of 5.00, in
+    front of a service that answered every later call in 47 milliseconds. So the capability
+    documented as needing longer was the one capability reported down, on the first turn of
+    every session, about a service that was working.
     """
 
     async def one(pack: CapabilityPack) -> Bound:
@@ -114,7 +148,7 @@ async def probe_all(
             availability = cached
         else:
             try:
-                async with asyncio.timeout(seconds):
+                async with asyncio.timeout(_ceiling(pack.id, seconds)):
                     availability = await pack.probe(context)
             except TimeoutError:
                 availability = Availability(
@@ -155,18 +189,40 @@ def choose_bound(
         return ready, ()
 
     order = {pack_id: index for index, pack_id in enumerate(recent)}
-    ranked = sorted(ready, key=lambda item: (order.get(item.pack.id, len(order)), item.pack.id))
+    ranked = sorted(
+        ready,
+        key=lambda item: (
+            order.get(item.pack.id, len(order)),
+            _first_loaded(item.pack.id),
+            item.pack.id,
+        ),
+    )
     kept: list[Bound] = []
     deferred: list[str] = []
+    spent = 0
     for item in ranked:
-        if item.pack.id in ALWAYS or len(kept) < keep_recent:
+        if item.pack.id in ALWAYS:
+            # Free, not first in the queue. `ALWAYS` is documented as "never deferred" and
+            # `KEEP_RECENT` as "how many of them stay bound, most recently used first" -- but
+            # appending these to `kept` charged them against that budget, so three always-on
+            # capabilities ate three of the four slots. On a stock family that deferred
+            # `workspace` and `watch` on every fresh session, which cost a `capabilities.use`
+            # round before any file could be touched, and told the model its workspace was
+            # ready and unusable in the same prompt.
             kept.append(item)
+        elif spent < keep_recent:
+            kept.append(item)
+            spent += 1
         else:
             deferred.append(item.pack.id)
     # Back into catalogue order: a registry whose operation order changes between turns
     # ends the prompt cache for no reason at all.
     keep_ids = {item.pack.id for item in kept}
     return tuple(item for item in ready if item.pack.id in keep_ids), tuple(sorted(deferred))
+
+
+def _first_loaded(pack_id: str) -> int:
+    return FIRST_LOADED.index(pack_id) if pack_id in FIRST_LOADED else len(FIRST_LOADED)
 
 
 def apply_disabled(catalogue: Catalogue, disabled: Sequence[str]) -> Catalogue:
@@ -248,11 +304,12 @@ def limits_for(bound: Sequence[Bound], policy: TurnPolicy | None = None) -> dict
     """
     limits = policy if policy is not None else TurnPolicy()
     slow = any(item.pack.id in SLOW_SERVICES for item in bound)
+    multiple = SLOW_MULTIPLE if slow else 1
     return {
         "maxSteps": limits.max_steps,
         "maxParallel": limits.max_parallel,
-        "stepTimeoutMs": limits.step_timeout_ms * (3 if slow else 1),
-        "planTimeoutMs": limits.plan_timeout_ms * (3 if slow else 1),
+        "stepTimeoutMs": limits.step_timeout_ms * multiple,
+        "planTimeoutMs": limits.plan_timeout_ms * multiple,
     }
 
 
@@ -290,6 +347,7 @@ def build_runtime(
     if store is not None:
         options["store"] = store
     options["limits"] = limits if limits is not None else {"maxSteps": budgets.max_steps}
+    options["hooks"] = step_hooks()
     # weftai types its options as a TypedDict; we assemble the mapping conditionally
     # because passing store=None is not the same as leaving it out.
     return create_runtime(cast("Any", options))
@@ -306,13 +364,42 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
-    return allow_show_from(schema)
+    return _with_words(_ids_said_once(allow_show_from(schema)))
+
+
+def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
+    """The plan, with a way to answer that is not a step. See `lucy_api.model.types.SAY`.
+
+    `steps` stops being required, so a reply of words alone matches; when steps are sent there
+    is still at least one, because the array keeps its own `minItems`.
+    """
+    properties = {
+        **schema.get("properties", {}),
+        SAY: {"type": "string", "description": SAY_DESCRIPTION},
+    }
+    required = [name for name in schema.get("required", []) if name != "steps"]
+    return {**schema, "properties": properties, "required": required}
+
+
+def _ids_said_once(schema: dict[str, Any]) -> dict[str, Any]:
+    """Every operation's `id` without the sentence explaining ids, which is said elsewhere.
+
+    weftai puts "Short name for this step's result; later steps reference it as $id." on the `id`
+    of every operation, and a family with fifty operations sent it fifty times a round. The
+    steps array and the prompt's tools section already say how `$id` works.
+    """
+    steps = schema.get("properties", {}).get("steps", {})
+    for variant in steps.get("items", {}).get("anyOf", ()):
+        variant.get("properties", {}).get("id", {}).pop("description", None)
+    return schema
 
 
 __all__ = [
     "ALWAYS",
     "DEFER_ABOVE",
+    "FIRST_LOADED",
     "KEEP_RECENT",
+    "SLOW_MULTIPLE",
     "SLOW_SERVICES",
     "apply_disabled",
     "build_registry",

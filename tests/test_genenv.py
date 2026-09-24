@@ -15,7 +15,7 @@ import genenv  # noqa: E402
 
 
 def test_build_env_tokens_meet_the_floor() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     for key, value in env.items():
         if key == "KEYRING_MASTER_KEY":
             continue
@@ -95,9 +95,9 @@ def test_refuse_overwrite_without_force(tmp_path: Path) -> None:
 def test_force_replaces(tmp_path: Path) -> None:
     path = tmp_path / ".env.family"
     path.write_text("already=1\n", encoding="utf-8")
-    count = genenv.write_env(path, force=True)
+    written = genenv.write_env(path, force=True)
     text = path.read_text(encoding="utf-8")
-    assert count > 0
+    assert written.count > 0
     assert "KEYRING_SERVICE_TOKENS=" in text
     assert "KEYRING_EXCHANGE_AUDIENCES=" in text
     assert "SETTINGS_API_SERVICES=" in text
@@ -150,3 +150,93 @@ def test_generated_environment_never_contains_github_credentials(
     assert "GITHUB" not in rendered
     assert "GH_TOKEN" not in rendered
     assert "test-only-github-secret" not in rendered
+
+
+# --- the local extras file refuses anything it cannot use, and says which part ---------------
+
+
+@pytest.mark.parametrize(
+    ("body", "complaint"),
+    [
+        ("{not json", "not valid JSON"),
+        ("[]", "must be a JSON object"),
+        ('{"keyring_consumers": {}}', "keyring_consumers must be a list"),
+        ('{"keyring_consumers": [["only-one"]]}', r"\[name, ENV_VAR\]"),
+        ('{"keyring_consumers": [["", "VAR"]]}', "two non-empty strings"),
+        ('{"settings_grants": {}}', "settings_grants must be a list"),
+        ('{"settings_grants": [["a", "b", []]]}', "token_var_or_null"),
+        ('{"settings_grants": [["", "b", [], null]]}', "name and audience_prefix"),
+        ('{"settings_grants": [["a", "b", "ns", null]]}', "list of strings"),
+        ('{"settings_grants": [["a", "b", ["ns"], ""]]}', "non-empty string or null"),
+    ],
+)
+def test_an_unusable_extras_file_is_refused_by_name(
+    tmp_path: Path, body: str, complaint: str
+) -> None:
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text(body, encoding="utf-8")
+    with pytest.raises(genenv.ExtraConfigError, match=complaint):
+        genenv.load_local_extras(extras)
+
+
+def test_extras_are_added_to_the_published_lists(tmp_path: Path) -> None:
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text(
+        json.dumps(
+            {
+                "keyring_consumers": [["private-api", "PRIVATE_KEYRING_TOKEN"]],
+                "settings_grants": [["private-api", "private-api", ["private"], None]],
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = genenv.build_env(extras)
+    assert "private-api" in json.loads(env["KEYRING_SERVICE_TOKENS"])
+    assert "private-api" in json.loads(env["SETTINGS_API_SERVICES"])
+    assert env["PRIVATE_KEYRING_TOKEN"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"keyring_consumers": [["lucy-api", "OTHER"]]},
+        {"settings_grants": [["lucy-api", "lucy-api", ["lucy"], None]]},
+    ],
+)
+def test_an_extra_cannot_shadow_a_published_service(tmp_path: Path, body: object) -> None:
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(genenv.ExtraConfigError, match="duplicates a published service"):
+        genenv.build_env(extras)
+
+
+def test_a_short_token_is_refused_rather_than_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(genenv.secrets, "token_urlsafe", lambda _n: "short")
+    with pytest.raises(RuntimeError, match="shorter than the floor"):
+        genenv.new_token()
+
+
+def test_main_reports_an_unusable_extras_file_without_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text("{not json", encoding="utf-8")
+    original = genenv.write_env
+    monkeypatch.setattr(
+        genenv, "write_env", lambda path, **kwargs: original(path, extras_path=extras, **kwargs)
+    )
+    path = tmp_path / ".env.family"
+    assert genenv.main(["--output", str(path)]) == 1
+    assert "not valid JSON" in capsys.readouterr().err
+    assert not path.exists()
+
+
+def test_main_reports_a_file_it_cannot_write(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(_path: Path, **_kwargs: object) -> object:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(genenv, "write_env", refuse)
+    assert genenv.main(["--output", str(tmp_path / ".env.family")]) == 1
+    assert "cannot write .env.family: Permission denied" in capsys.readouterr().err

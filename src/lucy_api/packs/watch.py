@@ -39,7 +39,12 @@ from weftai.schema.spec import (
 )
 from weftai.schema.types import value
 
-from lucy_api.clients.environments import AUDIENCE, DEFAULT_OUTPUT_BYTES, HttpEnvironmentsClient
+from lucy_api.clients.environments import (
+    AUDIENCE,
+    DEFAULT_OUTPUT_BYTES,
+    HttpEnvironmentsClient,
+    read_from,
+)
 from lucy_api.clients.errors import AbsentError
 from lucy_api.core.errors import LucyError
 from lucy_api.net.ssrf import REFUSED as ADDRESS_REFUSED
@@ -76,6 +81,15 @@ if TYPE_CHECKING:
 
 MAX_BODY = 200_000
 """How much of a file or a page one check reads. Enough for a log's verdict, not the log."""
+
+
+BINARY_FILE = "binary file; a pattern only matches text"
+"""What a file watch with a pattern says while it waits on a binary file.
+
+The sandbox sends a binary file base64, and a pattern searched for in that matches the
+encoding rather than the file: `watch.file` on a build artefact grepped base64 and could
+fire on a run of letters that was never in it.
+"""
 
 COMMAND_TIMEOUT_MS = 60_000
 """How long one check's command may run. A check that takes longer than the interval is a
@@ -364,19 +378,16 @@ async def _file_check(
         return Check(fired=False, detail="no file yet")
     facts = {"size": head.size}
     if pattern is None:
-        return Check(
-            fired=True,
-            detail="file exists",
-            excerpt=excerpt_around(head.content, None),
-            facts=facts,
-        )
+        excerpt = "" if head.binary else excerpt_around(head.content, None)
+        return Check(fired=True, detail="file exists", excerpt=excerpt, facts=facts)
+    if head.binary:
+        return Check(fired=False, detail=BINARY_FILE, facts=facts)
     found = pattern.search(head.content)
     body = head.content
     if found is None and head.truncated:
         # The verdict of a long log is at the end, and the head window did not reach it.
-        tail = await client.read(
-            environment, path, offset=max(0, head.size - MAX_BODY), max_bytes=MAX_BODY
-        )
+        offset = max(0, head.size - MAX_BODY)
+        tail = await read_from(client, environment, path, offset, max_bytes=MAX_BODY)
         body = tail.content
         found = pattern.search(body)
     if found is None:
@@ -432,6 +443,12 @@ async def _command_check(
             fired=True, detail="exit 0", excerpt=excerpt_around(ran.output, None), facts=facts
         )
     found = pattern.search(ran.output)
+    if found is None and ran.output_truncated_bytes:
+        # Only the head came back, and a verdict printed last is in the part that did not.
+        detail = (
+            f"exit {ran.exit_code}, no match; {ran.output_truncated_bytes:,} later bytes unread"
+        )
+        return Check(fired=False, detail=detail, facts=facts)
     if found is None:
         return Check(fired=False, detail=f"exit {ran.exit_code}, no match", facts=facts)
     return Check(

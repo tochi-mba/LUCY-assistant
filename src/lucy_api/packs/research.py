@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from weftai.operation import AnyOperation, RunContext
 
-    from lucy_api.clients.search import SearchClient, Summary
+    from lucy_api.clients.search import Page, SearchClient, Summary
     from lucy_api.packs.context import PackContext
 
 
@@ -73,7 +73,7 @@ class ResearchPack:
 
     async def probe(self, context: PackContext) -> Availability:
         try:
-            providers = await self._client(context).providers()
+            providers = await self._client(context).providers(profile=context.profile)
         except (NoBrokerError, ExchangeError):
             return Availability(state=State.unavailable, detail="cannot act for this person yet")
         except (DownstreamError, TransportError):
@@ -177,18 +177,11 @@ class ResearchPack:
         reading = await self._client(run.ctx).scrape(
             (str(run.input.get("url") or ""),), profile=run.ctx.profile
         )
-        return {
-            "pages": [
-                {
-                    "url": page.url,
-                    "final_url": page.final_url,
-                    "title": page.title,
-                    "word_count": page.word_count,
-                }
-                for page in reading.pages()
-            ],
-            "summary": _summary(reading.summary),
-        }
+        pages = reading.pages()
+        for page in pages:
+            if not page.fetched:
+                run.notice(f"could not open {page.url}: {page.detail}")
+        return {"pages": [_page(page) for page in pages], "summary": _summary(reading.summary)}
 
     async def _summarize(self, run: RunContext[PackContext]) -> dict[str, Any]:
         summary = await self._client(run.ctx).summarize(
@@ -207,6 +200,20 @@ def _search_limit(run: RunContext[PackContext]) -> int:
         return max(1, min(int(raw), 20))
     except (TypeError, ValueError):
         return DEFAULT_RESULTS
+
+
+def _page(page: Page) -> dict[str, Any]:
+    """Citation metadata, and for a page that was never read, the service's reason why."""
+    projected: dict[str, Any] = {
+        "url": page.url,
+        "final_url": page.final_url,
+        "title": page.title,
+        "word_count": page.word_count,
+        "status": page.status,
+    }
+    if page.detail:
+        projected["error"] = page.detail
+    return projected
 
 
 def _summary(summary: Summary | None) -> dict[str, Any] | None:

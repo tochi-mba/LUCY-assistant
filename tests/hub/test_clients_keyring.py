@@ -18,6 +18,7 @@ from keyring_client import USER_TOKEN_HEADER
 
 from lucy_api.clients.errors import UnavailableError
 from lucy_api.clients.keyring import (
+    PENDING,
     Connection,
     DelegatedKeyringClient,
     FakeKeyringClient,
@@ -155,6 +156,42 @@ async def test_the_fake_records_what_a_setup_flow_did_because_there_is_no_answer
     assert fake.authorized == [(PROFILE, "spotify")]
     assert fake.disconnected == [(PROFILE, "spotify")]
     assert await fake.connections(PROFILE) == ()
+
+
+async def test_the_fake_leaves_the_pending_row_keyring_writes_before_handing_out_a_link() -> None:
+    """The bug, named: the fake wrote nothing, so the connection poll's test never met the row
+    the real vault always has by then. keyring writes `status=ConnectionStatus.PENDING` before
+    it returns the link, and replaces an earlier placeholder rather than adding a second
+    (`Keyring-api/src/keyring_api/credentials/service.py:244-258`)."""
+    fake = FakeKeyringClient()
+
+    await fake.authorize(PROFILE, "spotify")
+    await fake.authorize(PROFILE, "spotify")
+
+    assert await fake.connections(PROFILE) == (Connection(service="spotify", status=PENDING),)
+
+
+async def test_the_fake_marks_a_connection_that_stopped_working_as_waiting_again() -> None:
+    """keyring keeps only a working connection; an expired one reads `pending` while the new
+    consent is under way, so the poll does not answer `expired` the moment it starts."""
+    fake = FakeKeyringClient()
+    fake.seed(PROFILE, [Connection(service="spotify", status="expired")])
+
+    await fake.authorize(PROFILE, "spotify")
+
+    assert await fake.connections(PROFILE) == (Connection(service="spotify", status=PENDING),)
+
+
+async def test_the_fake_starting_consent_again_does_not_stop_a_connection_that_works() -> None:
+    """keyring writes its placeholder only where no real connection stands, because one over
+    a working connection turned it `pending` for good if the person closed the page."""
+    fake = FakeKeyringClient()
+    working = Connection(service="spotify", status="active", scopes=("user-read-private",))
+    fake.seed(PROFILE, [working])
+
+    await fake.authorize(PROFILE, "spotify")
+
+    assert await fake.connections(PROFILE) == (working,)
 
 
 async def test_the_delegated_client_uses_two_credentials_and_internal_paths() -> None:

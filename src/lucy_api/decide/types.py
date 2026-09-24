@@ -5,8 +5,7 @@ option among ones the deterministic path could also have chosen; it may not gran
 trust, or skip an approval. Every use in this package states its direction, and
 :class:`Use` records it so a test can read the whole set back.
 
-Three gates stand between a question and its answer being acted on, and the default answer
-at each is no:
+Three gates stand between a question and its answer being acted on:
 
 1. ``lucy.decisions`` -- the master, off until a person turns it on.
 2. the use's own setting -- each judgement is enabled separately.
@@ -15,7 +14,8 @@ at each is no:
 
 Shadow mode is the reason this is safe to try. A person who turns the master on gets the
 events and byte-identical behaviour, watches how often the decision and the deterministic
-path disagree on their own traffic, and only then turns shadow off for a use they believe.
+path disagree on their own traffic, and only then turns global shadow mode off for the
+enabled uses they have evaluated.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from enum import StrEnum
 from typing import Literal
 
 Direction = Literal["tighten", "advisory"]
-"""`tighten` is the rule. `advisory` is for a use that only adds a sentence and changes
-nothing, and every one of those has to say so out loud."""
+"""`tighten` can only restrict an action. `advisory` changes context selection or adds
+a suggestion, without granting authority or executing an action."""
 
 
 class Skip(StrEnum):
@@ -62,20 +62,45 @@ class Use:
         return self.direction == "tighten"
 
 
-TOPIC = Use(
-    id="topic",
-    setting="decision_topic",
-    direction="tighten",
-    fallback="Jaccard overlap against the same topics",
-    summary="Which existing topic a new memory joins, or none of them.",
+CAPABILITIES = Use(
+    "capabilities",
+    "decision_capabilities",
+    "advisory",
+    "ordinary capability discovery",
+    "Preload relevant eligible capabilities.",
 )
-"""Only ever routes to a topic the word-overlap pass could also have chosen, or abstains to a
-new one. It never touches a candidate that carries a key: a key settles the question on its
-own, and folding one key into another is a decision about the taxonomy."""
+MEMORY = Use(
+    "memory",
+    "decision_memory",
+    "advisory",
+    "recency and importance ranking",
+    "Promote relevant trusted memory topics.",
+)
+RECOVERY = Use(
+    "recovery",
+    "decision_recovery",
+    "advisory",
+    "deterministic loop guards",
+    "Suggest reconsidering consecutive failed attempts.",
+)
 
+CLAIMS = Use(
+    "claims",
+    "decision_claims",
+    "tighten",
+    "replies go out unchecked",
+    "Hold back a reply that claims work no step did.",
+)
 
-USES: tuple[Use, ...] = (TOPIC,)
-"""Every declared use. The settings catalogue, the docs page and the tests all read this."""
+USES: tuple[Use, ...] = (CAPABILITIES, MEMORY, RECOVERY, CLAIMS)
 
-
-__all__ = ["TOPIC", "USES", "Direction", "Skip", "Use"]
+__all__ = [
+    "CAPABILITIES",
+    "CLAIMS",
+    "MEMORY",
+    "RECOVERY",
+    "USES",
+    "Direction",
+    "Skip",
+    "Use",
+]

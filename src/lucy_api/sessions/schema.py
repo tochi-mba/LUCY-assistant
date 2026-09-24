@@ -10,6 +10,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "disabled_capabilities_json", "TEXT NOT NULL DEFAULT '[]'"),
     ("sessions", "pending_changes_json", "TEXT"),
     ("turns", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("approvals", "executed_at", "REAL"),
 )
 """(table, column, definition) for every column that post-dates the table."""
 
@@ -125,7 +126,7 @@ CREATE TABLE IF NOT EXISTS approvals (
  turn_id TEXT, agent_id TEXT, operation TEXT NOT NULL, description TEXT NOT NULL,
  input_json TEXT NOT NULL, status TEXT NOT NULL, policy TEXT NOT NULL,
  lifetime TEXT NOT NULL DEFAULT 'once', instruction TEXT,
- requested_at REAL NOT NULL, decided_at REAL, decided_by TEXT
+ requested_at REAL NOT NULL, decided_at REAL, decided_by TEXT, executed_at REAL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS approvals_open ON approvals(session_id,status,requested_at);
 

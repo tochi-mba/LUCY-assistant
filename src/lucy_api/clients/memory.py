@@ -31,6 +31,34 @@ DEFAULT_LIMIT = 10
 The service will give more. Ten facts is a page a model can actually weigh; forty is a
 second conversation stuffed into the first."""
 
+CORRECTION_CARRIES = (
+    "kind",
+    "scope",
+    "profile",
+    "session_id",
+    "source",
+    "trust",
+    "value",
+    "confidence",
+    "importance",
+    "occurred_at",
+    "expires_at",
+)
+"""What a correction keeps from the memory it replaces: everything but the words.
+
+Memory-api's correct route takes a whole `MemoryInput`, and a field left out is not
+"unchanged", it is that field's default -- `scope: account`, `trust: stated`,
+`source: person`. The store then refuses any correction whose scope differs from the
+original's ("A correction must preserve the original memory scope", 409), and every note
+the hub writes is profile- or session-scoped, so every correction Lucy ever attempted
+failed. Where one did get through, the defaults would have rewritten its provenance: an
+untrusted note from a page, corrected, would come back `stated` and enter retrieval --
+trust laundered by an edit.
+
+`valid_from` is not carried: the store stamps a correction with its own time, and a
+correction dated before the memory it replaces is refused.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Note:
@@ -56,18 +84,31 @@ class Block:
 
 @dataclass(frozen=True, slots=True)
 class TopicCard:
-    """One cluster, as the index lists it: a title, a count, never the memories."""
+    """One cluster, as the index lists it: a title, a count, never the memories.
+
+    `count` is Memory-api's `memory_count`: members somebody has vouched for, the only ones
+    retrieval will ever return. `unconfirmed` is the rest -- members that came from a page
+    or a tool and have not been confirmed by the person. They are not in `count`, never
+    reach retrieval, and are carried only so the index can say they exist rather than
+    quietly drop them.
+
+    `trust` is not something Memory-api sends on a topic. It filters server-side instead: a
+    topic whose members are all unvouched never reaches the index (`HAVING memory_count>0`
+    in its store). So an absent `trust` is the service having vouched, which is why the
+    default is `stated`; the field stays so that a topic arriving with any other value is
+    still held back by `Topic`, which resolves anything unrecognised to `untrusted`.
+    """
 
     id: str
     key: str = ""
     title: str = ""
     summary: str = ""
     count: int = 0
+    unconfirmed: int = 0
     importance: float = 0.0
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     trust: str = "stated"
-    unread: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +128,12 @@ class MemoryClient(Protocol):
     """The notes surface, as the pack calls it."""
 
     async def search(
-        self, query: str = "", *, profile: str = "", limit: int = DEFAULT_LIMIT
+        self,
+        query: str = "",
+        *,
+        profile: str = "",
+        session_id: str = "",
+        limit: int = DEFAULT_LIMIT,
     ) -> tuple[Note, ...]: ...
 
     async def listing(
@@ -118,12 +164,30 @@ class HttpMemoryClient:
         self._api = Sibling(http=http, base_url=base_url, service=SERVICE, audience=audience)
 
     async def search(
-        self, query: str = "", *, profile: str = "", limit: int = DEFAULT_LIMIT
+        self,
+        query: str = "",
+        *,
+        profile: str = "",
+        session_id: str = "",
+        limit: int = DEFAULT_LIMIT,
     ) -> tuple[Note, ...]:
+        """The retrieval view: current, vouched-for, ranked.
+
+        `session_id` is what lets an episode come back. Memory-api's retrieval keeps a
+        session-scoped memory only when `session_id` matches the one asked for, and with none
+        sent the comparison is against NULL, which is never true -- so every episode
+        `notes.remember` ever saved "with this session" was invisible to search in that same
+        session, and the model concluded nothing had been remembered.
+        """
         payload = await self._api.send(
             "GET",
             f"{INTERNAL}/search",
-            params=given(q=query or None, limit=limit, profile=profile or None),
+            params=given(
+                q=query or None,
+                limit=limit,
+                profile=profile or None,
+                session_id=session_id or None,
+            ),
             profile=profile,
         )
         return tuple(_note(row) for row in rows(payload, "data"))
@@ -169,11 +233,23 @@ class HttpMemoryClient:
         )
 
     async def correct(self, memory_id: str, title: str, body: str, *, profile: str = "") -> Note:
+        """Replace a memory's words, keeping everything else it was. See `CORRECTION_CARRIES`.
+
+        Two calls, because the correct route needs the whole memory and the hub does not
+        hold it: the original is read first and everything but its words is sent back.
+        """
+        path = f"{INTERNAL}/{segment(memory_id)}"
+        original = await self._api.send("GET", path, profile=profile)
+        carried = (
+            {key: original[key] for key in CORRECTION_CARRIES if key in original}
+            if isinstance(original, dict)
+            else {}
+        )
         return _note(
             await self._api.send(
                 "POST",
-                f"{INTERNAL}/{segment(memory_id)}/correct",
-                body={"title": title, "body": body},
+                f"{path}/correct",
+                body={**carried, "title": title, "body": body},
                 profile=profile,
             )
         )
@@ -216,17 +292,26 @@ def _scope(*, kind: str, profile: str, session_id: str) -> dict[str, Any]:
 
 
 def _topic(row: dict[str, Any]) -> TopicCard:
+    """One row of Memory-api's topic index, read by the names it actually serialises.
+
+    The names are the service's (`Memory-api/src/memory_api/domain/models.py`, `Topic`), and
+    they matter more than they look: the helpers here return a default for a key that is not
+    there, so a wrong name is not an error, it is a zero. This parser read `count` and
+    `unread` for as long as it existed, and every prompt ever built said "3 topics, 0
+    memories" about three topics holding one memory each -- which Lucy then repeated back
+    as a reason: "the memory index shows 0 memories."
+    """
     return TopicCard(
         id=text(row, "id"),
         key=text(row, "key"),
         title=text(row, "title"),
         summary=text(row, "summary"),
-        count=number(row, "count"),
+        count=number(row, "memory_count"),
+        unconfirmed=number(row, "unconfirmed"),
         importance=_amount(row, "importance"),
         first_seen=moment(row.get("first_seen")),
         last_seen=moment(row.get("last_seen")),
         trust=text(row, "trust", "stated"),
-        unread=number(row, "unread"),
     )
 
 

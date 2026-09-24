@@ -604,6 +604,7 @@ async def test_a_command_that_outlives_the_wait_is_left_running() -> None:
             cwd: str = ".",
             timeout_ms: int = 60_000,
             max_output_bytes: int = 64 * 1024,
+            tail: bool = False,
         ) -> Ran:
             await self.gate.wait()
             return await super().run(
@@ -612,6 +613,7 @@ async def test_a_command_that_outlives_the_wait_is_left_running() -> None:
                 cwd=cwd,
                 timeout_ms=timeout_ms,
                 max_output_bytes=max_output_bytes,
+                tail=tail,
             )
 
     fake = SlowFake()

@@ -30,7 +30,7 @@ from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
 from lucy_api.permissions.gate import PermissionGate
-from lucy_api.turn.window import without_needles
+from lucy_api.turn.window import executable
 
 NOT_FOUND = "not-found"
 TOOL_FAILED = "this tool could not run"
@@ -54,6 +54,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     search_base_url: str = "http://127.0.0.1:8006",
     settings_base_url: str = "http://127.0.0.1:8003",
     environments_base_url: str = "http://127.0.0.1:8008",
+    persona_base_url: str = "",
 ) -> tuple[CapabilityPack, ...]:
     """What this build ships. Third-party packs arrive through entry points later.
 
@@ -67,7 +68,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     """
     return (
         HelpPack(),
-        NotesPack(memory_base_url, user_base_url=user_base_url),
+        NotesPack(memory_base_url, user_base_url=user_base_url, persona_base_url=persona_base_url),
         ResearchPack(search_base_url),
         MusicPack(spotify_base_url),
         SettingsPack(settings_base_url),
@@ -99,9 +100,17 @@ class Capabilities:
         self.probes.drop(account_id, profile, pack_id)
 
     def remember_use(self, session_id: str, pack_id: str) -> None:
+        """Put a capability at the front of this session's recency: most recently used first.
+
+        It used to append and never move, so recency meant "first used first" and
+        `KEEP_RECENT` kept whichever capabilities a session happened to touch first. Once
+        four had been used, `capabilities.use` on a fifth answered `bound: true` and the
+        capability was never bound -- the one-way door `ALWAYS` exists to prevent.
+        """
         used = self._uses.setdefault(session_id, [])
-        if pack_id not in used:
-            used.append(pack_id)
+        if pack_id in used:
+            used.remove(pack_id)
+        used.insert(0, pack_id)
 
     def recent(self, session_id: str) -> tuple[str, ...]:
         return tuple(self._uses.get(session_id, ()))
@@ -135,7 +144,6 @@ class Capabilities:
                 scope.workspace.environment_id if scope.workspace is not None else ""
             ),
             workspace_path=scope.workspace_root,
-            bound_ids=set(self.recent(scope.session_id)),
             work=self.work,
             child=self.child,
             probes=self.probes,
@@ -147,8 +155,20 @@ class Capabilities:
         return catalogue
 
     def bound_for(self, catalogue: Catalogue, session_id: str) -> tuple[Any, tuple[str, ...]]:
-        recent = (*self.recent(session_id), *sorted(context_ids(catalogue)))
-        return choose_bound(catalogue, recent=recent)
+        """What this turn can call, and what it is holding back.
+
+        The single answer. It used to be one of two: this method seeded recency with every
+        ready pack while `tools`, `registry_for` and `runtime_for` each called `choose_bound`
+        themselves, so the list the prompt could have shown and the list the schema was built
+        from were computed by different code with nothing keeping them equal. Nothing called
+        this one, which is the only reason they never visibly disagreed.
+        """
+        bound, deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        selected = {item.pack.id for item in bound} | set(catalogue.suggested)
+        return (
+            tuple(item for item in catalogue.ready() if item.pack.id in selected),
+            tuple(name for name in deferred if name not in selected),
+        )
 
     def listings(self, catalogue: Catalogue) -> list[dict[str, Any]]:
         return [
@@ -165,7 +185,7 @@ class Capabilities:
         ]
 
     def tools(self, catalogue: Catalogue, session_id: str) -> dict[str, Any]:
-        bound, deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, deferred = self.bound_for(catalogue, session_id)
         tools = [
             {
                 "name": operation.name,
@@ -178,15 +198,17 @@ class Capabilities:
         return {"tools": tools, "deferred": list(deferred)}
 
     def registry_for(self, catalogue: Catalogue, session_id: str) -> Registry[Any]:
-        bound, _deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, _deferred = self.bound_for(catalogue, session_id)
         operations = tuple(operation for item in bound for operation in item.operations)
         return build_registry(operations)
 
     def runtime_for(self, catalogue: Catalogue, session_id: str, context: PackContext) -> Any:
-        bound, _deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        bound, _deferred = self.bound_for(catalogue, session_id)
+        limits = limits_for(bound, context.policy)
+        context.step_seconds = limits["stepTimeoutMs"] / 1000
         return build_runtime(
             self.registry_for(catalogue, session_id),
-            limits=limits_for(bound, context.policy),
+            limits=limits,
             policy=context.policy,
         )
 
@@ -232,15 +254,21 @@ class Capabilities:
             }
         runtime = self.runtime_for(catalogue, context.session_id, context)
         result = await runtime.execute(
-            without_needles(plan),
+            executable(plan),
             {
                 "ctx": context,
                 "session": {"id": context.session_id},
                 "allowWrites": True,
             },
         )
+        # What ran is recent; what was explicitly asked for is more recent still, because
+        # asking is the model saying it needs that capability next. Marking every bound
+        # capability on every plan, as this once did, made recency mean nothing.
+        for pack_id in _packs_run(plan, catalogue):
+            self.remember_use(context.session_id, pack_id)
         for pack_id in context.bound_ids:
             self.remember_use(context.session_id, pack_id)
+        context.bound_ids.clear()
         return as_loop_result(result)
 
     async def invoke(
@@ -266,10 +294,6 @@ class Capabilities:
         return result
 
 
-def context_ids(catalogue: Catalogue) -> tuple[str, ...]:
-    return tuple(item.pack.id for item in catalogue.ready())
-
-
 def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:
     available = ", ".join(sorted(bound)) if bound else "no bound tools"
     message = f"Unknown tool `{name}`; this turn has {available}"
@@ -277,6 +301,25 @@ def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:
         held = ", ".join(sorted(deferred))
         return f"{message}. Deferred: {held}. Bind one with capabilities.use."
     return f"{message}."
+
+
+def _packs_run(plan: dict[str, Any], catalogue: Catalogue) -> tuple[str, ...]:
+    """The capabilities a plan's steps belong to, in the order the plan first named them.
+
+    Read from the catalogue rather than from the operation's prefix, because the prefix is
+    not always the pack: `capabilities.use` belongs to `help`.
+    """
+    owner = {
+        operation.name: item.pack.id for item in catalogue.bound for operation in item.operations
+    }
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    found: list[str] = []
+    for step in steps if isinstance(steps, list) else ():
+        name = step.get("op") if isinstance(step, dict) else None
+        pack_id = owner.get(name) if isinstance(name, str) else None
+        if pack_id is not None and pack_id not in found:
+            found.append(pack_id)
+    return tuple(found)
 
 
 def as_loop_result(result: Any) -> dict[str, Any]:

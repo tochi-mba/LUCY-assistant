@@ -18,6 +18,8 @@ from settings_client.testing import FakeSettingsClient
 from lucy_api.api.app import create_app
 from lucy_api.clients.environments import FakeEnvironmentsClient
 from lucy_api.core.config import LogFormat, Settings
+from lucy_api.model.registry import ModelRegistry
+from lucy_api.model.scripted import ScriptedProvider
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.store.worker import SqlWorker
 
@@ -65,6 +67,29 @@ async def client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[Asyn
         await app.state.container.preferences.aclose()
         app.state.container.preferences = FakeSettingsClient()
         app.state.container.environment_override = FakeEnvironmentsClient()
+        yield http
+
+
+@pytest.fixture
+async def workspace_client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[AsyncClient]:
+    """`client`, with the workspace capability on the same fake sandbox that provisions each
+    session -- so a session has a workspace its tools can really read and write -- and a
+    scripted model, because a conversation on a model this hub cannot run is refused when
+    it is created."""
+    app = create_app(settings, transport=keyring.transport())
+    async with (
+        LifespanManager(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
+    ):
+        container = app.state.container
+        await container.preferences.aclose()
+        container.preferences = FakeSettingsClient()
+        container.models = ModelRegistry({"scripted": lambda _model: ScriptedProvider()})
+        sandbox = FakeEnvironmentsClient()
+        container.environment_override = sandbox
+        for pack in container.capabilities.packs:
+            if pack.id == "workspace":
+                pack._override = sandbox
         yield http
 
 

@@ -117,13 +117,24 @@ def _enum(  # noqa: PLR0913
     )
 
 
+DEFAULT_MODEL = "anthropic:claude-opus-5"
+"""The model a profile gets when nobody chose one -- which is a default, not a guarantee.
+
+A deployment may have no key for it. On a family whose only provider was clyde, every
+conversation `lucy talk` started got this model and failed in 22 milliseconds, so a session
+created without a model falls back to one the hub can actually run
+(`Container.apply_create_defaults`). Named once, because comparing against it is how that
+fallback tells "nobody chose" from "somebody chose this and it cannot run here".
+"""
+
+
 def _core() -> tuple[Knob, ...]:
     return (
         Knob(
             key="model",
             summary="Which model Lucy uses for this profile.",
             value_type=ValueType.STR,
-            default="anthropic:claude-opus-5",
+            default=DEFAULT_MODEL,
             on_unavailable=OnUnavailable.USE_DEFAULT,
             description=(
                 "Empty means the hub default. A named model must be one this deployment "
@@ -356,8 +367,10 @@ def _core() -> tuple[Knob, ...]:
         _int(
             "retry_attempts",
             2,
-            "How many extra tries a failed downstream call gets.",
-            "Zero means the first failure is the answer. 401 is never retried.",
+            "How many extra tries a failed downstream call gets, when trying again is safe.",
+            "Zero means the first failure is the answer. 401 is never retried. A write is "
+            "tried again only when it cannot have been acted on: it never left, or was "
+            "turned away with a 429.",
             minimum=0,
             maximum=10,
             unavailable=OnUnavailable.USE_DEFAULT,
@@ -455,8 +468,10 @@ def _core() -> tuple[Knob, ...]:
         _int(
             "workspace_retention_hours",
             24,
-            "How long an idle workspace is kept.",
-            "Shorter forgets files sooner. The sandbox expiry in live state still wins.",
+            "How long an idle workspace is assumed to last when the sandbox does not say.",
+            "Only the expiry countdown in live state reads this, and only for a workspace "
+            "the sandbox stamped no lifetime on. When files are actually wiped is the "
+            "sandbox's own idle_environment_hours setting.",
             minimum=1,
             maximum=720,
             unavailable=OnUnavailable.USE_DEFAULT,
@@ -633,7 +648,72 @@ def _feed_knobs() -> tuple[Knob, ...]:
     return caps + fields
 
 
-KNOBS: tuple[Knob, ...] = (*_core(), *_feed_knobs())
+def _decision_knobs() -> tuple[Knob, ...]:
+    flags = (
+        (
+            "decisions",
+            False,
+            "Enable Laya-assisted decisions.",
+            "Off makes no decision calls. On uses the configured decision service.",
+        ),
+        (
+            "decision_shadow_mode",
+            True,
+            "Measure decisions without applying them.",
+            "On records suggestions while preserving ordinary behavior.",
+        ),
+        (
+            "decision_capabilities",
+            True,
+            "Preload relevant available capabilities.",
+            "Only when decisions are enabled. Never executes tools or grants permission.",
+        ),
+        (
+            "decision_memory",
+            True,
+            "Rank trusted memory topics by relevance.",
+            "Only when decisions are enabled. Incognito sends no memories.",
+        ),
+        (
+            "decision_recovery",
+            False,
+            "Suggest a new approach after repeated failures.",
+            "Advisory only. Existing loop limits and approvals remain in force.",
+        ),
+        (
+            "decision_claims",
+            True,
+            "Catch a reply that claims work no step did, in any wording.",
+            "Only when decisions are enabled. Otherwise replies go out unchecked.",
+        ),
+    )
+    return (
+        *tuple(
+            _bool(key, default, summary, description, unavailable=OnUnavailable.USE_DEFAULT)
+            for key, default, summary, description in flags
+        ),
+        _int(
+            "decision_timeout_ms",
+            1000,
+            "Maximum wait for one decision in milliseconds.",
+            "Timeout uses ordinary behavior.",
+            minimum=50,
+            maximum=5000,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "decision_max_per_turn",
+            8,
+            "Maximum decision calls in one turn.",
+            "Helpers use ordinary behavior; a new main turn gets a fresh budget.",
+            minimum=1,
+            maximum=32,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+    )
+
+
+KNOBS: tuple[Knob, ...] = (*_core(), *_feed_knobs(), *_decision_knobs())
 
 
 def knob(key: str) -> Knob | None:

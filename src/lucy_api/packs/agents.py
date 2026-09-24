@@ -13,11 +13,12 @@ from weftai.operation import define_operation
 from weftai.schema.spec import object_schema, string_schema
 from weftai.schema.types import value
 
+from lucy_api.agents.types import CONTINUABLE, STOPPED
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work.registry import AtCapacityError, Registry
 from lucy_api.work.registry import _discard as discard_unstarted
-from lucy_api.work.types import Brief, Handle, Kind
+from lucy_api.work.types import Brief, Handle, Kind, WorkError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -29,6 +30,19 @@ if TYPE_CHECKING:
 
 MAX_DEPTH = 3
 """How deep helpers may nest. Four levels is a system nobody can follow, including Lucy."""
+
+MAX_STOPPED_LISTED = 10
+"""How many stopped helpers `agents.list` shows, newest last. `stopped_count` says how many."""
+
+WALL_CLOCK_GRACE = 30.0
+"""How far past its own wall clock the registry lets a helper run.
+
+The runtime enforces `agent_wall_clock_seconds` itself, and a helper stopped that way ends as
+"ran out of time", continuable, with its roster row and journal task written. The registry's
+deadline is only the backstop behind it. It used to be eight rounds times thirty seconds, so it
+fired first -- at four minutes, against a setting that promises ten and allows two hours -- and
+cancelled the helper, which the roster then recorded as cancelled by somebody.
+"""
 
 
 class AgentsPack:
@@ -64,12 +78,12 @@ class AgentsPack:
         return Availability(state=State.ready, detail=detail)
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
-        registry, session_id, depth = context.work, context.session_id, context.depth
+        registry, depth = context.work, context.depth
         if registry is None:
             return ()
 
         async def run_list(_run: RunContext[Any]) -> dict[str, Any]:
-            return _list(registry, session_id)
+            return await _list(registry, context)
 
         async def run_spawn(run: RunContext[Any]) -> dict[str, Any]:
             return await _spawn(
@@ -110,8 +124,9 @@ class AgentsPack:
             {
                 "name": "agents.list",
                 "description": (
-                    "Helpers currently running for this conversation. Finished ones "
-                    "arrive as work.check notices, not here (helpers, subagents, roster)."
+                    "Helpers running for this conversation, and any that stopped before "
+                    "finishing and were not continued. Finished ones arrive as work.check "
+                    "notices, not here (helpers, subagents, roster, stopped, resume)."
                 ),
                 "input": object_schema({}),
                 "output": value(object_schema({})),
@@ -243,6 +258,11 @@ class AgentsPack:
         )
 
 
+def _deadline(context: PackContext) -> float:
+    """The registry's backstop: the helper's own wall clock, and a grace to end by it."""
+    return float(context.policy.agent_wall_clock_seconds) + WALL_CLOCK_GRACE
+
+
 def _helpers_running(registry: Registry, session_id: str) -> int:
     return sum(1 for record in registry.running(session_id) if record.kind is Kind.helper)
 
@@ -283,9 +303,12 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
         return {"status": "at_capacity", "message": str(exc)}
 
 
-def _list(registry: Registry, session_id: str) -> dict[str, Any]:
-    running = [record for record in registry.running(session_id) if record.kind is Kind.helper]
-    return {
+async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
+    running = [
+        record for record in registry.running(context.session_id) if record.kind is Kind.helper
+    ]
+    stopped = await context.child.stopped(context) if context.child is not None else []
+    listed: dict[str, Any] = {
         "running": [
             {
                 "id": record.id,
@@ -298,6 +321,11 @@ def _list(registry: Registry, session_id: str) -> dict[str, Any]:
         ],
         "count": len(running),
     }
+    if stopped:
+        listed["stopped"] = stopped[-MAX_STOPPED_LISTED:]
+        listed["stopped_count"] = len(stopped)
+        listed["advice"] = "agents.reopen continues a stopped helper from its own transcript."
+    return listed
 
 
 async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the parent already has
@@ -324,7 +352,6 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             "message": "helpers cannot run in this turn; the child runtime is not attached",
         }
     name = role.strip() or "helper"
-    cap = context.max_subagent_turns
     refused = _at_helper_cap(registry, context)
     if refused is not None:
         return refused
@@ -334,12 +361,14 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
     )
 
     async def work() -> dict[str, Any]:
-        return await runtime.run(
-            context,
-            objective=brief,
-            role=name,
-            agent_id=agent_id,
-            task_id=task_id,
+        return _ended(
+            await runtime.run(
+                context,
+                objective=brief,
+                role=name,
+                agent_id=agent_id,
+                task_id=task_id,
+            )
         )
 
     try:
@@ -351,7 +380,7 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
                 role=name,
                 objective=brief,
                 depth=depth + 1,
-                timeout_seconds=float(max(1, cap) * 30),
+                timeout_seconds=_deadline(context),
                 account_id=context.account_id,
                 # The main thread's helpers wake an idle session when they finish; a
                 # helper's helpers do not, because their parent is still running and is
@@ -405,12 +434,14 @@ async def _reopen(
     role = str(prepared.get("role") or "helper")
 
     async def work() -> dict[str, Any]:
-        return await runtime.run(
-            context,
-            objective=objective,
-            role=role,
-            agent_id=new_id,
-            task_id=task_id,
+        return _ended(
+            await runtime.run(
+                context,
+                objective=objective,
+                role=role,
+                agent_id=new_id,
+                task_id=task_id,
+            )
         )
 
     started = await _begin_helper(
@@ -424,7 +455,7 @@ async def _reopen(
             role=role,
             objective=objective,
             depth=depth + 1,
-            timeout_seconds=float(max(1, context.max_subagent_turns) * 30),
+            timeout_seconds=_deadline(context),
             account_id=context.account_id,
             wake=depth == 0,
         ),
@@ -440,6 +471,22 @@ async def _reopen(
         "resume_from": handle,
         "advice": "It is running from the previous transcript. Read work.result when it finishes.",
     }
+
+
+def _ended(result: dict[str, Any]) -> dict[str, Any]:
+    """A helper's return when it finished, and a failed ending that says why when it did not.
+
+    The runtime answers a helper that stopped partway -- its model unavailable, out of
+    rounds, out of time -- with a result rather than an exception, so its report of how far
+    it got survives. Handed to the registry as it was, that result was recorded as a
+    success: the notice said `succeeded`, and a model had to read the payload to learn the
+    helper had died, which on the strength of that notice it had no reason to do.
+    """
+    if result.get("status") == "ok":
+        return result
+    lead = CONTINUABLE if result.get("resumable") else STOPPED
+    why = str(result.get("summary") or "").strip()
+    raise WorkError(f"{lead}: {why}" if why else lead, payload=result)
 
 
 async def _message(context: PackContext, *, agent_id: str, body: str) -> dict[str, Any]:
@@ -494,4 +541,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["MAX_DEPTH", "AgentsPack"]
+__all__ = ["MAX_DEPTH", "MAX_STOPPED_LISTED", "WALL_CLOCK_GRACE", "AgentsPack"]

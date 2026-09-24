@@ -11,33 +11,41 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.agents.restart import announce_interrupted
 from lucy_api.context.build import Live
+from lucy_api.context.scrub import scrub
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
-from lucy_api.core.logging import allow_message_content
+from lucy_api.core.logging import allow_message_content, bind
+from lucy_api.decide.uses import Recovery, suggest_capabilities
 from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
     Ask,
-    granted_operations,
+    approved_calls,
+    approved_plan,
+    mark_executed,
     open_approval,
     resumed_notice,
 )
-from lucy_api.permissions.gate import PermissionGate
+from lucy_api.permissions.gate import PermissionGate, once_key
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
 from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
+from lucy_api.turn.claims import ClaimCheck
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.project import StreamProjector
 from lucy_api.turn.prompt import (
     SessionView,
     conversation_order,
     projected_rows,
+    schema_tokens,
     system_and_messages,
     view_limits,
 )
@@ -92,6 +100,15 @@ class PreparedTurn:
 
 
 logger = logging.getLogger(__name__)
+
+MODEL_UNAVAILABLE = "model_unavailable"
+"""The error code of a turn whose model could not be reached, before or during it."""
+
+TURN_FAILED = "turn_failed"
+"""The error code of any other turn that failed."""
+
+NO_REASON = "the turn stopped without saying why"
+"""What a failed turn's error says when nothing recorded a reason."""
 
 
 def _spend(result: Any) -> TurnSpend:
@@ -152,7 +169,8 @@ class TurnSupervisor:
         """Fail turns a previous process left running, then drain what is still queued."""
         await self._store.interrupt_abandoned_turns()
         if self._agents is not None:
-            await self._agents.interrupt_running()
+            stopped = await self._agents.interrupt_running()
+            announce_interrupted(self._capabilities.work, stopped)
         self.wake()
 
     @property
@@ -190,15 +208,29 @@ class TurnSupervisor:
             if row is None:
                 return
             claimed = ClaimedTurn.from_row(row)
-            try:
-                await self._run(claimed)
-            finally:
-                await self._events.publish_persisted(claimed.session_id)
+            began = time.perf_counter()
+            # Every line this turn writes -- its model calls, its steps, the helpers it starts,
+            # which inherit this context -- says which conversation and turn it belongs to.
+            with bind(session_id=claimed.session_id, turn_id=claimed.id):
+                try:
+                    await self._run(claimed)
+                finally:
+                    logger.info(
+                        "turn_ended",
+                        extra={"duration_ms": round((time.perf_counter() - began) * 1000, 3)},
+                    )
+                    await self._events.publish_persisted(claimed.session_id)
 
     async def _run(self, claimed: ClaimedTurn) -> None:  # noqa: PLR0915 - one turn is one function
         prepared = self._prepared.pop(claimed.id, None)
         try:
             provider = self._models.resolve(claimed.model)
+        except UnknownModelError as exc:
+            # Authored for the person -- which provider, what is missing, the command that
+            # adds it -- so it is the one exception whose message is kept. Reduced to its type,
+            # as it was, a turn on an unconfigured model failed with nothing to act on.
+            await self._finish_failure(claimed, str(exc))
+            return
         except Exception as exc:
             await self._finish_failure(
                 claimed, f"model configuration failed ({type(exc).__name__})"
@@ -224,7 +256,13 @@ class TurnSupervisor:
         # and nothing about the row says it was ever parked. The approvals it collected are
         # the only durable record that the model already asked, so they are what the first
         # round is told about.
-        opening = resumed_notice(await granted_operations(self._store, claimed.id))
+        approved = await approved_calls(self._store, claimed.id)
+        await mark_executed(self._store, approved)
+        opening = resumed_notice(tuple(call.operation for call in approved))
+        # A one-time approval is spent by the run it approved. The grants were read above,
+        # before the calls were marked, so the opening plan finds them; they are removed once
+        # it has run, so the same call planned again is asked about again, not run twice.
+        spent = {once_key(call.operation, call.arguments) for call in approved}
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         # The profile's policy, narrowed by this conversation's own list. Re-read at every
         # round below, because a person may change it while the turn runs and asked for
@@ -233,10 +271,16 @@ class TurnSupervisor:
         pack_ctx.permission_mode = str(session.get("permission_mode") or pack_ctx.permission_mode)
         catalogue = await self._capabilities.probe(pack_ctx)
         ready = tuple(item.pack.id for item in catalogue.ready())
+        # What the prompt may name is what the schema was built from, which is not everything
+        # ready: a held-back capability has no operations this turn, and saying otherwise
+        # contradicts the one rule the identity section states plainly.
+        bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+        callable_now = tuple(item.pack.id for item in bound)
         policy = pack_ctx.policy
         advertised = _advertised(policy.enabled, ready, policy.all_disabled)
         oriented = False
         compacted = False
+        decisions_prepared = False
 
         fallback_provider = None
         fallback_model = ""
@@ -251,6 +295,7 @@ class TurnSupervisor:
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
             nonlocal oriented, compacted, session, catalogue, ready, advertised
+            nonlocal callable_now, deferred, decisions_prepared
             fresh = await self._store.get(claimed.account_id, claimed.session_id)
             if _knobs(fresh) != _knobs(session):
                 # Changed under the running turn, on purpose (`apply: "now"`). The next
@@ -262,6 +307,13 @@ class TurnSupervisor:
                 catalogue = await self._capabilities.probe(pack_ctx)
                 ready = tuple(item.pack.id for item in catalogue.ready())
                 advertised = _advertised(policy.enabled, ready, pack_ctx.policy.all_disabled)
+            # Every round, not only when a knob changed: `capabilities.use` in one plan binds
+            # a capability for the next, and the schema is rebuilt from recency every round.
+            # A prompt left at the turn's opening list told the model a capability it could
+            # now call was "not loaded" -- so it stopped and, on the weakest model, reported
+            # work it had never done.
+            bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+            callable_now = tuple(item.pack.id for item in bound)
             rows = await self._store.records(claimed.account_id, claimed.session_id, "items")
             turns = await self._store.records(claimed.account_id, claimed.session_id, "turns")
             compact = await self._store.records(
@@ -274,19 +326,30 @@ class TurnSupervisor:
                 or turn["id"] == claimed.id
             }
             ordered = conversation_order(_items_for(rows, pack_ctx.agent_id), turns, visible_turns)
+            if not decisions_prepared:
+                decisions_prepared = True
+                pack_ctx.decide.request_text = scrub(_first_user_text(list(reversed(ordered)))).text
+                catalogue = await suggest_capabilities(pack_ctx.decide, catalogue)
+                pack_ctx.catalogue = catalogue
+                bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+                callable_now = tuple(item.pack.id for item in bound)
             turn_number = sum(1 for turn in turns if turn["status"] == "completed") + 1
             _arm_workspace(live, resume=turn_number > 1 and not oriented)
             oriented = True
             view = SessionView(
                 session_id=claimed.session_id,
                 items=ordered,
-                capabilities=ready,
+                capabilities=callable_now,
+                deferred=deferred,
                 advertised=advertised,
                 session=session,
                 compactions=compact,
                 turn_number=turn_number,
                 live=live,
                 response_style=policy.response_style,
+                schema_tokens=schema_tokens(
+                    self._capabilities.plan_schema(catalogue, claimed.session_id, pack_ctx)
+                ),
                 **view_limits(policy),
             )
             _rows, reclaimed = projected_rows(view)
@@ -312,6 +375,9 @@ class TurnSupervisor:
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             executed = await self._capabilities.execute(plan, pack_ctx)
+            for key in spent:
+                pack_ctx.grants.pop(key, None)
+            spent.clear()
             await self._store.record_steps(
                 claimed.account_id, claimed.session_id, claimed.id, plan, executed
             )
@@ -347,6 +413,7 @@ class TurnSupervisor:
                         ),
                         append=append,
                         opening_notice=opening,
+                        opening_plan=approved_plan(approved),
                         # The id the provider understands, not the spec. A session stores
                         # `lmstudio:sonnet`; the provider was already built for `sonnet` and
                         # sends whatever this says straight up the wire, so passing the spec
@@ -368,6 +435,8 @@ class TurnSupervisor:
                         fallback_provider=fallback_provider,
                         fallback_model=fallback_model,
                         max_thinking_tokens=policy.max_thinking_tokens,
+                        recovery=Recovery(pack_ctx.decide),
+                        claims=ClaimCheck(pack_ctx.decide),
                     )
                 )
                 await self._finish_result(claimed, result, pack_ctx, session)
@@ -423,18 +492,21 @@ class TurnSupervisor:
             await self._signal(claimed, "input_required")
             return
         status = _status_for(result.termination)
+        failure = ""
         if status == "failed":
-            # The only place a turn's reason for failing is written down. `Outcome.detail`
-            # reaches the transcript for a refusal and for a parked turn, and for nothing
-            # else -- so a turn that failed said `error_during_execution` in the API and gave
-            # an operator no second sentence anywhere. It is already written for a person to
-            # read and carries no prompt text, which is what makes it safe to log.
+            # `Outcome.detail` is already written for a person to read and carries no prompt
+            # text, which is what makes it safe to log and to show. It used to be logged and
+            # nothing else: a turn whose model became unavailable mid-conversation ended with
+            # no reply, `error_during_execution` in the API, and its reason in a log line the
+            # person never sees.
+            failure = MODEL_UNAVAILABLE if result.unavailable else TURN_FAILED
             logger.warning(
                 "turn_failed turn_id=%s termination=%s detail=%s",
                 claimed.id,
                 result.termination.value,
                 result.detail or "(none given)",
             )
+            await self._said_failure(claimed, failure, result.detail or NO_REASON)
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
@@ -442,29 +514,30 @@ class TurnSupervisor:
             result.termination.value,
             result.stop_reason.value,
             spent=_spend(result),
+            error_code=failure or None,
         )
         if status == "completed":
             await _maybe_title(self._store, claimed, pack_ctx, session)
         await self._signal(claimed, status)
 
     async def _finish_failure(self, claimed: ClaimedTurn, detail: str) -> None:
-        await self._store.append(
-            claimed.account_id,
-            claimed.session_id,
-            NewItem(
-                "error",
-                "assistant",
-                {"code": "model_unavailable", "detail": detail},
-                turn=claimed.id,
-            ),
-        )
+        await self._said_failure(claimed, MODEL_UNAVAILABLE, detail)
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
             "failed",
             Termination.failed.value,
+            error_code=MODEL_UNAVAILABLE,
         )
         await self._signal(claimed, "failed")
+
+    async def _said_failure(self, claimed: ClaimedTurn, code: str, detail: str) -> None:
+        """Tell the person why their turn failed, in the transcript where they are reading."""
+        await self._store.append(
+            claimed.account_id,
+            claimed.session_id,
+            NewItem("error", "assistant", {"code": code, "detail": detail}, turn=claimed.id),
+        )
 
     async def _signal(self, claimed: ClaimedTurn, status: str) -> None:
         if self._on_status is None:
@@ -614,4 +687,11 @@ def _status_for(termination: Termination) -> str:
     return "failed"
 
 
-__all__ = ["ClaimedTurn", "PreparedTurn", "TurnSupervisor"]
+__all__ = [
+    "MODEL_UNAVAILABLE",
+    "NO_REASON",
+    "TURN_FAILED",
+    "ClaimedTurn",
+    "PreparedTurn",
+    "TurnSupervisor",
+]

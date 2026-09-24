@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
 
+from lucy_api.clients.errors import CREDENTIAL_CODES, problem_code
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
@@ -67,6 +69,25 @@ NEVER_FORWARDED = frozenset(
 
 The family's two user-token headers are here beside ``Authorization`` because they are the
 plausible mistake: a pack written by copying an inbound request forwards what it copied.
+"""
+
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+"""The methods RFC 9110 section 9.2.2 lets a client send twice for the effect of once.
+
+A timeout after sending, a dropped connection mid-answer, or a 5xx is retried only for
+these. For a POST each of those can mean the sibling already did the work and was slow to
+say so: a ``workspace.run`` whose answer outlasted the call timeout was sent again and the
+command ran twice, and Spotify-api's own 504 -- "Spotify accepted the command but its
+effect could not be confirmed" -- was answered by POSTing play again, which restarted the
+track that was already playing.
+"""
+
+NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+"""Transport failures that happen before a single byte of the request leaves.
+
+The one kind of failure a POST can be retried after, because the sibling cannot have acted
+on a request it never received. A read timeout is deliberately not here: by then the whole
+request was written, and the sibling may be halfway through it.
 """
 
 UNREACHABLE = "the service could not be reached"
@@ -231,7 +252,12 @@ class PackHttp:
             ) from exc
 
     async def request_response(self, call: Call) -> httpx.Response:
-        """Authenticate once and preserve status and headers for sibling adapters."""
+        """Authenticate once and preserve status and headers for sibling adapters.
+
+        A failure is retried only when sending the request again cannot do its work twice:
+        any method that never left (:data:`NEVER_SENT`) or was turned away with a 429, and
+        otherwise only :data:`IDEMPOTENT_METHODS` and a call that says it is ``repeatable``.
+        """
         deadline = self._clock() + self.retry_max_seconds
         attempt = 0
         while True:
@@ -246,12 +272,13 @@ class PackHttp:
                 raise DownstreamRefusedError(
                     REFUSED, audience=call.audience, status=httpx.codes.UNAUTHORIZED
                 ) from exc
-            except DownstreamUnavailableError:
-                if not self._may_retry(attempt, deadline):
+            except DownstreamUnavailableError as exc:
+                unsent = isinstance(exc.__cause__, NEVER_SENT)
+                if not (unsent or _idempotent(call)) or not self._may_retry(attempt, deadline):
                     raise
                 await self._sleeper(0.0)
                 continue
-            if _retryable_status(response.status_code) and self._may_retry(attempt, deadline):
+            if _retryable(call, response) and self._may_retry(attempt, deadline):
                 await self._sleeper(_backoff(_retry_after(response), self.retry_max_seconds))
                 continue
             return response
@@ -275,7 +302,7 @@ class PackHttp:
                 headers=_outbound(
                     call.headers, token, service_token=self._service_tokens.get(call.audience, "")
                 ),
-                timeout=self._timeout_seconds,
+                timeout=call.timeout_seconds or self._timeout_seconds,
             )
         except httpx.HTTPError as exc:
             raise DownstreamUnavailableError(UNREACHABLE, audience=call.audience) from exc
@@ -292,8 +319,36 @@ def apply_downstream_policy(http: object, policy: object) -> None:
         apply(policy)
 
 
-def _retryable_status(status: int) -> bool:
-    return status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
+def _idempotent(call: Call) -> bool:
+    if call.repeatable is not None:
+        return call.repeatable
+    return call.method.upper() in IDEMPOTENT_METHODS
+
+
+def _retryable(call: Call, response: httpx.Response) -> bool:
+    """A 429 says the request was not processed; a 5xx says nothing about whether it was.
+
+    Except the one 5xx that says exactly why, and why asking again cannot help: a 502 whose
+    problem is a missing credential. Spotify-api answers that for every call a person makes
+    before connecting it, and each was sent three times -- on every model round, because the
+    live block reads the player each round. Seen in the hub's own log.
+    """
+    status = response.status_code
+    if status == httpx.codes.TOO_MANY_REQUESTS:
+        return True
+    if status < httpx.codes.INTERNAL_SERVER_ERROR or not _idempotent(call):
+        return False
+    return not _no_credential(response)
+
+
+def _no_credential(response: httpx.Response) -> bool:
+    if response.status_code != httpx.codes.BAD_GATEWAY:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return problem_code(body) in CREDENTIAL_CODES
 
 
 def _backoff(retry_after: float | None, ceiling: float) -> float:

@@ -4,7 +4,8 @@ This repository is two things at once, and knowing which one you are touching is
 the job.
 
 1. **The hub.** `src/lucy_api/` is Lucy: the HTTP API a person holds a conversation with.
-   It is a family service like any other and is held to the same gates.
+   It is a family service like any other and is held to the same gates. [docs/hub.md](docs/hub.md)
+   is the map: one message through the code, and where to start when something breaks.
 2. **The family desk.** `scripts/`, `docs/`, `docker-compose.yml`, `repos.txt`,
    `.github/workflows/service.yml`, `broker/` and `examples/` are how the other services
    are bootstrapped, checked, built and released. They are not part of the wheel.
@@ -41,7 +42,8 @@ not "invalid input". A wrong question is an error, never an empty result.
 ## Gates
 
 `make check` is `lint type imports test`, and it does not grow a fifth gate. Anything else
-— an eval suite, a live-model smoke test — is its own verb behind a pytest marker.
+is its own verb, run on demand: conversations with a real model are `make evals
+MODEL=provider:model` (`lucy eval`), which no workflow and no pytest run ever starts.
 
 - 100% branch coverage, `fail_under = 100`, and no `pragma: no cover`.
 - mypy `strict = true`; `filterwarnings = ["error"]`.

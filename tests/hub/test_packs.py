@@ -28,7 +28,7 @@ async def test_help_is_ready_and_lists_itself() -> None:
     assert "help" in names
 
 
-async def test_use_remembers_a_pack_for_the_next_turn() -> None:
+async def test_use_remembers_a_pack_for_the_next_plan() -> None:
     capabilities = Capabilities()
     context = capabilities.context_for(
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")

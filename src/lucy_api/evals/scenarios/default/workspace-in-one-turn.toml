@@ -1,0 +1,22 @@
+# A fresh session holds the workspace back; asking for a file has to bind it and use it in
+# the same turn, and the file has to really be there afterwards.
+
+summary = """\
+Create a file and run it in one turn, on a fresh session. Guards the defect where binding \
+the deferred workspace took effect only on the next turn, so the turn ended after the \
+bind -- and a weak model then said "Done" having written nothing.\
+"""
+tags = ["workspace", "deferral", "approvals"]
+
+[[turns]]
+say = "Create hello.py in my workspace that prints hello, then run it."
+approve = "yes"
+
+[turns.expect]
+ran = ["workspace.write", "workspace.run"]
+reply_matches = ['hello']
+
+[[turns.verify]]
+op = "workspace.read"
+input = { path = "hello.py" }
+output_matches = ['print']

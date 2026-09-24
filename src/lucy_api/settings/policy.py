@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.settings.catalogue import DEFAULT_MODEL
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -69,7 +71,15 @@ class TurnPolicy:
     with a guessed floor.
     """
 
-    model: str = "anthropic:claude-opus-5"
+    decisions: bool = False
+    decision_shadow_mode: bool = True
+    decision_capabilities: bool = True
+    decision_memory: bool = True
+    decision_recovery: bool = False
+    decision_claims: bool = True
+    decision_timeout_ms: int = 1000
+    decision_max_per_turn: int = 8
+    model: str = DEFAULT_MODEL
     fallback_model: str = ""
     thinking: str = "medium"
     max_thinking_tokens: int = 0
@@ -162,7 +172,19 @@ class TurnPolicy:
             name for name in _names(read("disabled_capabilities", [])) if name not in ALWAYS_ON
         )
         return cls(
-            model=_text(read("model", "anthropic:claude-opus-5"), "anthropic:claude-opus-5"),
+            decisions=_flag(read("decisions", False), False),
+            decision_shadow_mode=_flag(read("decision_shadow_mode", True), True),
+            decision_capabilities=_flag(read("decision_capabilities", True), True),
+            decision_memory=_flag(read("decision_memory", True), True),
+            decision_recovery=_flag(read("decision_recovery", False), False),
+            decision_claims=_flag(read("decision_claims", True), True),
+            decision_timeout_ms=_clamp(
+                read("decision_timeout_ms", 1000), 1000, minimum=50, maximum=5000
+            ),
+            decision_max_per_turn=_clamp(
+                read("decision_max_per_turn", 8), 8, minimum=1, maximum=32
+            ),
+            model=_text(read("model", DEFAULT_MODEL), DEFAULT_MODEL),
             fallback_model=_optional_spec(read("fallback_model", "")),
             thinking=_text(
                 read("thinking", "medium"),

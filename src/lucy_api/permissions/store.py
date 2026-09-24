@@ -13,7 +13,7 @@ import time
 from typing import TYPE_CHECKING
 
 from lucy_api.core.errors import absent
-from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant
+from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant, once_key
 from lucy_api.sessions.sql_store import audit_row
 
 SESSION_PROFILE_PREFIX = "session:"
@@ -77,7 +77,8 @@ def _profiles(profile: str, session_id: str) -> tuple[str, ...]:
 def _oneshots(db: sqlite3.Connection, turn_id: str, profile: str) -> dict[str, Grant]:
     rows = db.execute(
         "SELECT input_json, operation, status, instruction FROM approvals "
-        "WHERE turn_id=? AND lifetime='once' AND status IN ('granted','denied')",
+        "WHERE turn_id=? AND lifetime='once' AND status IN ('granted','denied') "
+        "AND executed_at IS NULL",
         (turn_id,),
     ).fetchall()
     found: dict[str, Grant] = {}
@@ -85,7 +86,9 @@ def _oneshots(db: sqlite3.Connection, turn_id: str, profile: str) -> dict[str, G
         payload = json.loads(row["input_json"]) if row["input_json"] else {}
         raw = payload.get("permission") if isinstance(payload, dict) else None
         permission = str(raw or row["operation"])
-        found[permission] = Grant(
+        asked = payload.get("arguments") if isinstance(payload, dict) else None
+        arguments = asked if isinstance(asked, dict) else {}
+        found[once_key(str(row["operation"]), arguments)] = Grant(
             permission=permission,
             decision="allow" if str(row["status"]) == "granted" else "deny",
             profile=profile,

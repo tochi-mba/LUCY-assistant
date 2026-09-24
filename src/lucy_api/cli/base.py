@@ -123,6 +123,16 @@ def headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def unreachable(url: str, cause: BaseException) -> CliError:
+    """The one sentence for a hub that did not answer at all, and where to look instead."""
+    message = f"cannot reach Lucy at {url}"
+    hint = (
+        f"start it with `lucy serve`, or set {URL_VAR} to where it runs "
+        f"({cause.__class__.__name__})"
+    )
+    return CliError(message, UNREACHABLE, hint=hint)
+
+
 def fetch(client: Any, url: str, path: str, token: str) -> Any:
     """One GET. An unreachable hub is a different answer from a hub that said no."""
     import httpx  # noqa: PLC0415 - kept out of `lucy --help`
@@ -130,12 +140,7 @@ def fetch(client: Any, url: str, path: str, token: str) -> Any:
     try:
         return client.get(f"{url}{path}", headers=headers(token))
     except httpx.HTTPError as exc:
-        message = f"cannot reach Lucy at {url}"
-        hint = (
-            f"start it with `lucy serve`, or set {URL_VAR} to where it runs "
-            f"({exc.__class__.__name__})"
-        )
-        raise CliError(message, UNREACHABLE, hint=hint) from exc
+        raise unreachable(url, exc) from exc
 
 
 class Context:

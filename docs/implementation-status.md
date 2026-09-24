@@ -127,8 +127,8 @@ machine is listed as in progress, however finished it looks.
 - **Workspace bootstrap, fingerprints, and resume orientation.** Every session and fork
   gets `progress.md`, `tasks.json`, and a best-effort git baseline. Reads are numbered
   with file and window digests. Edits walk the application ladder and refuse a stale
-  fingerprint. The first assemble of a returning turn re-orients from the journal, tasks,
-  git log and a smoke check. Documented in [docs/tools.md](tools.md) and
+  fingerprint. The first assemble of a returning turn re-orients from the journal's latest
+  entries, the tasks and the recent commits. Documented in [docs/tools.md](tools.md) and
   [docs/context.md](context.md).
 - **M8 MCP, both directions.** RFC 9728 well-known metadata, outbound SSRF, Lucy as a
   dual-era MCP **server** (`POST /mcp`, `server/discover`, skills, tasks gated per
@@ -155,7 +155,8 @@ machine is listed as in progress, however finished it looks.
   means never. A running, queued, or `input_required` conversation is not idle.
 - **Approval floor.** `lucy.approval_policy` still asks about destructive writes in
   `auto`, and about spend when it is `spend_and_destructive_ask`. Grants skip the floor;
-  the mode does not. `notes.erase` covers `notes.forget`; `workspace.destroy` covers
+  the mode does not. `notes.erase` covers `notes.forget` and `notes.unlearn`;
+  `workspace.destroy` covers
   `workspace.delete`.
 - **Pack documentation.** Help, notes, workspace, music, research, settings, work and
   helpers ship inline markdown the model can read through `help.docs`. MCP skills cover
@@ -179,8 +180,8 @@ machine is listed as in progress, however finished it looks.
   create a confined `sessions/<id>` subtree, seed `progress.md` and `tasks.json`, and try a
   git baseline. Reads return numbered lines and content fingerprints. Edits walk the
   exact→whitespace→fuzzy ladder, refuse a stale fingerprint, and validate JSON/TOML/Python
-  before writing. The first assemble of a returning turn re-orients from cwd, the journal,
-  `tasks.json`, git log and a smoke check. Linux sandbox runtime validation remains because
+  before writing. The first assemble of a returning turn re-orients from the journal's latest
+  entries, `tasks.json` and the recent commits. Linux sandbox runtime validation remains because
   Environments-api cannot import `fcntl` on this Windows host.
 - M5 Memory-api: the service is published, the hub shows the topic index every turn, the
   two-credential `/v1/internal` surface exists, Lucy's notes client uses it, and idle

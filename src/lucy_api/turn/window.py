@@ -32,6 +32,18 @@ MAX_OCCURRENCES = 8
 NEEDLE_KEYS = ("show_from", "fingerprint")
 """Plan-step fields, then input fields, in that order. ``show_from`` is the one we teach."""
 
+NOTE = "note"
+"""The plan-step field saying what a call is for, in a sentence the person would understand.
+
+The prompt has always asked for one on every step, and the gate has always put it on the
+approval card -- but no schema offered the field and weftai's validator refuses it, so a model
+that did as it was told wrote an invalid plan. It is taught in the schema now and taken off
+before the executor sees the plan, like `show_from`.
+"""
+
+STEP_ONLY_KEYS = (*NEEDLE_KEYS, NOTE)
+"""Fields a plan step carries for Lucy, not for the operation: removed before execution."""
+
 UNSHOWN = (
     "This result was not shown again because the fingerprint was missing or not unique. "
     "The notices name the lines to distinguish."
@@ -89,18 +101,30 @@ def attach_needles(plan: Any, result: Any) -> None:
             raw["show_from"] = wanted[step_id]
 
 
-def without_needles(plan: Any) -> Any:
-    """A copy weftai can execute: Lucy's window fields are not operation arguments.
+def executable(plan: Any) -> Any:
+    """A copy weftai can execute: Lucy's own step fields are not operation arguments.
 
-    The original plan is left intact so :func:`attach_needles` can still find the
-    fingerprint after the runtime has run.
+    The original plan is left intact so :func:`attach_needles` can still find the fingerprint,
+    and :func:`notes_of` the notes, after the runtime has run.
     """
     if not isinstance(plan, dict):
         return plan
     steps = [
-        _without_needle_keys(step) if isinstance(step, dict) else step for step in _steps_of(plan)
+        _without_step_only_keys(step) if isinstance(step, dict) else step
+        for step in _steps_of(plan)
     ]
     return {**plan, "steps": steps}
+
+
+def notes_of(plan: Any) -> dict[str, str]:
+    """Each step's note, by step id, from the plan the model wrote."""
+    if not isinstance(plan, dict):
+        return {}
+    return {
+        str(step.get("id") or ""): str(step.get(NOTE) or "").strip()
+        for step in _steps_of(plan)
+        if isinstance(step, dict) and str(step.get(NOTE) or "").strip()
+    }
 
 
 def focus(text: str, needle: str) -> View:
@@ -173,11 +197,13 @@ def _steps_of(payload: dict[str, Any]) -> tuple[Any, ...]:
     return ()
 
 
-def _without_needle_keys(step: dict[str, Any]) -> dict[str, Any]:
-    cleaned = {key: value for key, value in step.items() if key not in NEEDLE_KEYS}
+def _without_step_only_keys(step: dict[str, Any]) -> dict[str, Any]:
+    cleaned = {key: value for key, value in step.items() if key not in STEP_ONLY_KEYS}
     incoming = cleaned.get("input")
     if isinstance(incoming, dict):
-        cleaned["input"] = {key: value for key, value in incoming.items() if key not in NEEDLE_KEYS}
+        cleaned["input"] = {
+            key: value for key, value in incoming.items() if key not in STEP_ONLY_KEYS
+        }
     return cleaned
 
 
@@ -238,12 +264,15 @@ def _patch_steps(node: Any) -> None:
         return
     props = node.get("properties")
     if isinstance(props, dict) and "id" in props and "op" in props and "show_from" not in props:
+        props[NOTE] = {
+            "type": "string",
+            "description": "What this call is for, in one plain sentence.",
+        }
+        # Short on purpose: this is copied onto every operation in the schema, and the full
+        # explanation is said once, in the prompt's tools section.
         props["show_from"] = {
             "type": "string",
-            "description": (
-                "A unique snippet of a spilled result to start showing from. Display starts "
-                "at the only match; if that window is still too large, its head and tail are kept."
-            ),
+            "description": "Show a spilled result from this unique snippet onward.",
         }
     for value in node.values():
         _patch_steps(value)
@@ -251,14 +280,17 @@ def _patch_steps(node: Any) -> None:
 
 __all__ = [
     "NEEDLE_KEYS",
+    "NOTE",
     "RESULT_TOKEN_CAP",
+    "STEP_ONLY_KEYS",
     "UNSHOWN",
     "View",
     "allow_show_from",
     "attach_needles",
+    "executable",
     "focus",
     "needle_from",
+    "notes_of",
     "spill",
     "window",
-    "without_needles",
 ]

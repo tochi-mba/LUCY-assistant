@@ -36,6 +36,19 @@ if TYPE_CHECKING:
 SERVICE = "search"
 AUDIENCE = "web-search-api"
 
+WORK_TIMEOUT_SECONDS = 90.0
+"""How long to wait on a call that fetches and summarises, rather than one that answers.
+
+`GET /v1/models` is a health check and keeps the default: a provider list that has not
+arrived in ten seconds is a provider list that is not coming. Searching and scraping are
+neither -- each one drives a headless browser and then a model, and a single page measured
+15 seconds warm. Against the default the call was abandoned at ten, retried, and abandoned
+again, and the step died at its own ceiling reporting a timeout that had already happened
+three times underneath it. The same shape as the sandbox: one figure for "is it up" and for
+"do this", and it can only be right for one of them.
+"""
+
+
 DEFAULT_RESULTS = 5
 """Results per query. The service will give more; a context window would rather it did not."""
 
@@ -99,12 +112,25 @@ class Findings:
 
 @dataclass(frozen=True, slots=True)
 class Page:
-    """Where a page came from and how much of it there was. The part a model may see."""
+    """Where a page came from and how much of it there was. The part a model may see.
+
+    A URL the service could not fetch -- robots.txt, a blocked address, a 404, a timeout --
+    is still a row in a 200, with no page and the reason in its `error`. Read without its
+    `status` it became a page with no title and no words, which is also exactly what an
+    empty page looks like, so a model could cite a source nobody had read and the service's
+    "https://example.com/private disallows automated fetching." went nowhere.
+    """
 
     url: str
     final_url: str = ""
     title: str = ""
     word_count: int = 0
+    status: str = "ok"
+    detail: str = ""
+
+    @property
+    def fetched(self) -> bool:
+        return self.status == "ok"
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,8 +162,8 @@ class Reading:
 class SearchClient(Protocol):
     """Search, open, summarise. Three operations, because a model needs no more."""
 
-    async def providers(self) -> tuple[Provider, ...]:
-        """Which model providers this person can currently use."""
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
+        """Which model providers this person can currently use, under this profile."""
         ...
 
     async def search(
@@ -161,9 +187,15 @@ class HttpSearchClient:
     def __init__(self, http: Http, base_url: str, *, audience: str = AUDIENCE) -> None:
         self._api = Sibling(http=http, base_url=base_url, service=SERVICE, audience=audience)
 
-    async def providers(self) -> tuple[Provider, ...]:
-        """The probe. Answers per caller, so the statuses are about this person."""
-        payload = await self._api.send("GET", "/v1/models")
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
+        """The probe. Answers per caller and per profile, so the statuses are about this turn.
+
+        Without the profile the service checks the person's default one
+        (Web-search-api/app/api/deps.py `get_caller`), while every search, open and summarise
+        runs under the turn's. A session under `work` could be told "a research model is
+        connected" because `personal` had one, and then fail on its first search.
+        """
+        payload = await self._api.send("GET", "/v1/models", profile=profile)
         return tuple(
             Provider(
                 name=text(row, "name"),
@@ -187,13 +219,27 @@ class HttpSearchClient:
             "queries": [{"query": query, "max_results": max_results} for query in queries],
             "summarize": True,
         }
-        payload = await self._api.send("POST", "/v1/search", body=body, profile=profile)
+        payload = await self._api.send(
+            "POST",
+            "/v1/search",
+            body=body,
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
+        )
         return tuple(_findings(row) for row in rows(payload, "results"))
 
     async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
         """Fetch pages, summarised together, keeping each page's text on its own article."""
         body = {"urls": list(urls), "summarize": True, "summarize_together": True}
-        payload = await self._api.send("POST", "/v1/scrape", body=body, profile=profile)
+        payload = await self._api.send(
+            "POST",
+            "/v1/scrape",
+            body=body,
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
+        )
         return Reading(
             articles=tuple(_article(row) for row in rows(payload, "results")),
             summary=_summary(nested(payload, "summary")),
@@ -202,7 +248,12 @@ class HttpSearchClient:
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
         """Summarise text, which is how a long tool result becomes a short one."""
         payload = await self._api.send(
-            "POST", "/v1/summarize", body=given(text=body, topic=topic or None), profile=profile
+            "POST",
+            "/v1/summarize",
+            body=given(text=body, topic=topic or None),
+            profile=profile,
+            timeout_seconds=WORK_TIMEOUT_SECONDS,
+            repeatable=True,
         )
         return _summary(nested(payload, "summary")) or Summary()
 
@@ -250,6 +301,8 @@ def _article(row: Any) -> Article:
             final_url=text(page, "final_url"),
             title=text(page, "title"),
             word_count=number(page, "word_count"),
+            status=text(row, "status", "ok"),
+            detail=text(nested(row, "error"), "detail"),
         ),
         text=text(page, "text"),
     )
@@ -284,8 +337,9 @@ class FakeSearchClient:
         """Say which providers this person can use."""
         self.known = tuple(providers)
 
-    async def providers(self) -> tuple[Provider, ...]:
+    async def providers(self, *, profile: str = "") -> tuple[Provider, ...]:
         """Whatever the test said about this person's providers."""
+        self.profiles.append(profile)
         return self.known
 
     async def search(
@@ -309,10 +363,14 @@ class FakeSearchClient:
         return tuple(found)
 
     async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
-        """The seeded articles for the URLs that were stocked, and nothing for the rest."""
+        """The seeded article for each stocked URL, and a failed row for each of the rest.
+
+        A failed row rather than no row, because that is what the service answers: one result
+        per URL asked for, whether or not it could be fetched.
+        """
         self.profiles.append(profile)
         self.opened.extend(urls)
-        articles = tuple(self.library[url] for url in urls if url in self.library)
+        articles = tuple(self.library.get(url) or _unfetched(url) for url in urls)
         return Reading(articles=articles, summary=self.summary)
 
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
@@ -320,6 +378,11 @@ class FakeSearchClient:
         self.profiles.append(profile)
         self.asked.append(topic or body[:40])
         return self.summary
+
+
+def _unfetched(url: str) -> Article:
+    """What the service answers for a URL whose origin said 404."""
+    return Article(page=Page(url=url, status="error", detail=f"{url} responded 404."))
 
 
 if TYPE_CHECKING:

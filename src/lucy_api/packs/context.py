@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from lucy_api.permissions.gate import Grant
     from lucy_api.work import Registry
 
+from lucy_api.decide import Decisions
 from lucy_api.settings.policy import TurnPolicy
 
 
@@ -49,6 +50,26 @@ class Call:
     json: Any = None
     params: Mapping[str, Any] | None = None
     headers: Mapping[str, str] | None = None
+
+    timeout_seconds: float | None = None
+    """How long to wait on this one call, when the default is the wrong question.
+
+    The default is right for a sibling that is either up or down, and wrong for a sibling
+    that was asked to do work: a caller that asks the sandbox to spend up to sixty seconds on
+    a command and then waits ten for the answer has guaranteed its own failure, whatever the
+    sandbox does. Every workspace command ever run did exactly that.
+
+    `None` means the client's own figure, which is what almost every call wants.
+    """
+
+    repeatable: bool | None = None
+    """Whether sending this twice does it once, where the method does not say so.
+
+    `None` leaves it to the method (RFC 9110 section 9.2.2), which is right for every write.
+    A read sent as a POST -- a search, a scrape, a lookup, because its question does not fit a
+    query string -- says `True`, so a 5xx or a late answer costs a repeat, as a GET's would,
+    rather than a failed step.
+    """
 
 
 class Http(Protocol):
@@ -106,6 +127,8 @@ class ChildRuntime(Protocol):
         self, parent: PackContext, agent_id: str, *, return_schema: str = ""
     ) -> dict[str, Any]: ...
 
+    async def stopped(self, parent: PackContext) -> list[dict[str, Any]]: ...
+
     async def read_journal(self, parent: PackContext) -> dict[str, Any]: ...
 
     async def claim(self, parent: PackContext, task_id: str) -> dict[str, Any]: ...
@@ -141,15 +164,36 @@ class PackContext:
     incognito: bool = False
     max_subagent_turns: int = 8
     policy: TurnPolicy = field(default_factory=TurnPolicy)
+    decide: Decisions = field(default_factory=Decisions)
     catalogue: Catalogue | None = None
     work: Registry | None = None
     child: ChildRuntime | None = None
     grants: dict[str, Grant] = field(default_factory=dict)
-    bound_ids: set[str] = field(default_factory=set)
+    bound_ids: list[str] = field(default_factory=list)
+    """Capabilities `capabilities.use` asked for since the last plan ran, in the order asked.
+
+    Drained by `Capabilities.execute` into the session's recency, where a bind takes effect:
+    the plan schema and the executor are rebuilt from recency every round, so a capability
+    bound in one plan is callable in the very next one, in the same turn.
+    """
     limits: dict[str, asyncio.Semaphore] = field(default_factory=dict)
     probes: ProbeCache | None = None
     defaults: dict[str, object] = field(default_factory=dict)
     """Sibling knobs this turn may use when the model omitted them. Never secrets."""
+    step_seconds: float = 10.0
+    """How long one step may run in the plan being executed, as weftai enforces it.
+
+    weftai applies one `stepTimeoutMs` to every step alike and has no per-operation figure.
+    So an operation that waits has to fit inside it by itself: `work.wait` was asked for
+    120 seconds inside a 30-second step and was cut off, three times in one turn, with
+    "timed out after 30000ms. Narrow the query or raise the step timeout" -- advice that
+    means nothing for a wait -- and a waiting `workspace.run` cut off that way lost the
+    handle to the command it had started.
+    """
+
+    def within_step(self, seconds: float) -> float:
+        """The longest an operation may wait inside this step, and answer before it ends."""
+        return max(0.0, min(seconds, self.step_seconds - STEP_MARGIN_SECONDS))
 
     def limit(self, service: str, *, concurrent: int = 2) -> asyncio.Semaphore:
         """The gate for one service, created the first time somebody asks for it."""
@@ -158,7 +202,12 @@ class PackContext:
         return self.limits[service]
 
 
+STEP_MARGIN_SECONDS = 2.0
+"""How long before its step ends a wait gives up, so that saying "still running" fits too."""
+
+
 __all__ = [
+    "STEP_MARGIN_SECONDS",
     "Call",
     "ChildRuntime",
     "Http",

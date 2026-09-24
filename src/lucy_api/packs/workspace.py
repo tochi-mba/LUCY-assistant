@@ -6,7 +6,13 @@ import posixpath
 from typing import TYPE_CHECKING, Any, Literal
 
 from weftai.operation import define_operation
-from weftai.schema.spec import boolean_schema, integer_schema, object_schema, string_schema
+from weftai.schema.spec import (
+    boolean_schema,
+    enum_schema,
+    integer_schema,
+    object_schema,
+    string_schema,
+)
 from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
@@ -14,6 +20,7 @@ from lucy_api.clients.environments import (
     AUDIENCE,
     DEFAULT_OUTPUT_BYTES,
     DEFAULT_TIMEOUT_MS,
+    EXEC_MARGIN_SECONDS,
     HttpEnvironmentsClient,
 )
 from lucy_api.clients.errors import DownstreamError
@@ -30,7 +37,6 @@ from lucy_api.workspace.text import (
     DEFAULT_LINE_LIMIT,
     apply_edit,
     digest,
-    is_binary,
     numbered_window,
     stale_if_changed,
     validate_text,
@@ -47,6 +53,20 @@ if TYPE_CHECKING:
 
 
 MAX_TOOL_OUTPUT_CHARS = 8_000
+SHOW = ("end", "start")
+"""Which end of a long command output `workspace.run` shows. The end is the default: a test
+run or a build prints its verdict last, and the beginning of a megabyte log is not where
+anybody looks first."""
+OUTLAST_EXEC_SECONDS = 1.0
+"""How much longer a command's work deadline is than the exec call it wraps.
+
+The work registry ends work at its deadline by cancelling it, which leaves nothing behind
+but "stopped waiting after 60s; it may still be running". The exec call ends by answering,
+or by raising when its own timeout fires. A deadline equal to the command's ceiling cut the
+call off while the sandbox was still closing the shell, so a command the sandbox had
+already killed, or had finished within its margin, was reported as perhaps still running
+and its output thrown away. Outlasting the call means it always gets to end on its own.
+"""
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
 
@@ -210,9 +230,12 @@ class WorkspacePack:
                 "run",
                 "Run a command inside this session's workspace subtree. "
                 "Long commands return a handle; check work.check or work.wait. "
-                "With wake, a command that finishes while nobody is talking wakes the session.",
+                "With wake, a command that finishes while nobody is talking wakes the session. "
+                "Long output shows its end, where a test run or a build prints its verdict; "
+                "ask for show=start for the beginning.",
                 {
                     "command": string_schema(),
+                    "show": enum_schema(*SHOW).optional(),
                     "timeout_ms": integer_schema().optional(),
                     "wait": boolean_schema().optional(),
                     "wait_seconds": integer_schema().optional(),
@@ -293,7 +316,7 @@ class WorkspacePack:
             max_bytes=_optional_int(run.input.get("max_bytes")),
         )
         relative = _relative(run.ctx, content.path)
-        if is_binary(content.content):
+        if content.binary:
             return {
                 "path": relative,
                 "binary": True,
@@ -314,6 +337,7 @@ class WorkspacePack:
             "content": window.numbered,
             "size": content.size,
             "offset": content.offset,
+            "next_offset": content.next_offset,
             "start_line": window.start_line,
             "end_line": window.end_line,
             "total_lines": window.total_lines,
@@ -352,7 +376,7 @@ class WorkspacePack:
         client = self._client(run.ctx)
         current = await client.read(env_id, path)
         relative = _relative(run.ctx, path)
-        if is_binary(current.content):
+        if current.binary:
             return {"path": relative, "replaced": False, "notice": BINARY_NOTICE}
         expected = str(run.input.get("if_match") or "")
         stale = stale_if_changed(current.content, expected)
@@ -431,7 +455,12 @@ class WorkspacePack:
         wait = run.input.get("wait", True)
         wait_flag = wait if isinstance(wait, bool) else True
         raw_wait = run.input.get("wait_seconds")
-        wait_seconds = timeout_ms / 1000 if raw_wait is None else max(0.0, float(raw_wait))
+        deadline = timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
+        wait_seconds = run.ctx.within_step(
+            deadline if raw_wait is None else max(0.0, float(raw_wait))
+        )
+
+        tail = run.input.get("show") != "start"
 
         async def work() -> dict[str, Any]:
             result = await self._client(run.ctx).run(
@@ -440,17 +469,19 @@ class WorkspacePack:
                 cwd=run.ctx.workspace_path,
                 timeout_ms=timeout_ms,
                 max_output_bytes=DEFAULT_OUTPUT_BYTES,
+                tail=tail,
             )
-            output = result.output[:MAX_TOOL_OUTPUT_CHARS]
-            omitted = max(0, len(result.output) - len(output)) + result.output_dropped_bytes
+            shown = _shown(result.output, tail=result.tail)
+            cut = len(result.output) - len(shown) + result.output_truncated_bytes
+            omitted = cut + result.output_dropped_bytes
             return {
                 "command": result.command,
                 "exit_code": result.exit_code,
-                "output": output,
+                "output": shown,
                 "state": result.state,
                 "timed_out": result.timed_out,
                 "output_dropped_bytes": omitted,
-                "notice": f"{omitted} output characters or bytes omitted" if omitted else "",
+                "notice": _output_notice(omitted, cut, tail=result.tail),
             }
 
         registry = run.ctx.work
@@ -464,7 +495,7 @@ class WorkspacePack:
                     kind=Kind.command,
                     role="command",
                     objective=command[:160] or "run a workspace command",
-                    timeout_seconds=timeout_ms / 1000,
+                    timeout_seconds=deadline,
                     account_id=run.ctx.account_id,
                     wake=bool(run.input.get("wake", False)),
                 ),
@@ -488,8 +519,36 @@ class WorkspacePack:
                     "it has not been stopped. Use work.check or work.wait."
                 ),
             }
-        payload = finished.payload
-        return _completed_command(payload, handle.id)
+        if finished.payload is None:
+            # It ended without an answer; how it ended is the only thing there is to say.
+            return {"status": finished.state.value, "work_id": handle.id, "notice": finished.detail}
+        return _completed_command(finished.payload, handle.id)
+
+
+def _shown(output: str, *, tail: bool) -> str:
+    """The part of the output that fits in a tool result, from the end the sandbox kept."""
+    if len(output) <= MAX_TOOL_OUTPUT_CHARS:
+        return output
+    return output[-MAX_TOOL_OUTPUT_CHARS:] if tail else output[:MAX_TOOL_OUTPUT_CHARS]
+
+
+def _output_notice(omitted: int, cut: int, *, tail: bool) -> str:
+    """What was left out of a command's output, and which end it was left out of.
+
+    A test run or a build prints its verdict last, so the end is what is kept by default, and
+    the beginning only when asked for or when the sandbox predates keeping the end. Either
+    way it has to be said: a model told only "57000 characters omitted" reads what it has as
+    the whole story -- when the part it never saw was a megabyte ending in the failure it was
+    asked about, or the command line and the first error that caused the rest.
+    """
+    if not omitted:
+        return ""
+    notice = f"{omitted} output characters or bytes omitted"
+    if cut and tail:
+        notice += f"; this is the end of the output, and {cut} of those came before it"
+    elif cut:
+        notice += f"; this is the beginning of the output, and {cut} of those came after it"
+    return notice
 
 
 def _completed_command(payload: object, work_id: str) -> dict[str, Any]:
