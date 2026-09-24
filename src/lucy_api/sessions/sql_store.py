@@ -790,8 +790,9 @@ class SessionStore:
         stop_reason: str | None = None,
         *,
         spent: TurnSpend | None = None,
+        error_code: str | None = None,
     ) -> None:
-        """End a turn, and write down what it cost.
+        """End a turn, and write down what it cost and, when it failed, which way.
 
         `spent` is optional so the callers that end a turn without ever reaching a model --
         a cancel before the first round, an abandoned turn swept up at startup -- do not have
@@ -809,7 +810,8 @@ class SessionStore:
                 return
             db.execute(
                 "UPDATE turns SET status=?,termination=?,stop_reason=?,finished_at=?,"
-                "input_tokens=?,output_tokens=?,cache_read_tokens=?,iterations=? WHERE id=?",
+                "input_tokens=?,output_tokens=?,cache_read_tokens=?,iterations=?,"
+                "error_code=COALESCE(?,error_code) WHERE id=?",
                 (
                     status,
                     termination,
@@ -819,6 +821,7 @@ class SessionStore:
                     cost.output_tokens,
                     cost.cache_read_tokens,
                     cost.iterations,
+                    error_code,
                     turn,
                 ),
             )

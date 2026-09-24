@@ -98,6 +98,15 @@ class PreparedTurn:
 
 logger = logging.getLogger(__name__)
 
+MODEL_UNAVAILABLE = "model_unavailable"
+"""The error code of a turn whose model could not be reached, before or during it."""
+
+TURN_FAILED = "turn_failed"
+"""The error code of any other turn that failed."""
+
+NO_REASON = "the turn stopped without saying why"
+"""What a failed turn's error says when nothing recorded a reason."""
+
 
 def _spend(result: Any) -> TurnSpend:
     """What a finished turn used, summed over its rounds.
@@ -468,18 +477,21 @@ class TurnSupervisor:
             await self._signal(claimed, "input_required")
             return
         status = _status_for(result.termination)
+        failure = ""
         if status == "failed":
-            # The only place a turn's reason for failing is written down. `Outcome.detail`
-            # reaches the transcript for a refusal and for a parked turn, and for nothing
-            # else -- so a turn that failed said `error_during_execution` in the API and gave
-            # an operator no second sentence anywhere. It is already written for a person to
-            # read and carries no prompt text, which is what makes it safe to log.
+            # `Outcome.detail` is already written for a person to read and carries no prompt
+            # text, which is what makes it safe to log and to show. It used to be logged and
+            # nothing else: a turn whose model became unavailable mid-conversation ended with
+            # no reply, `error_during_execution` in the API, and its reason in a log line the
+            # person never sees.
+            failure = MODEL_UNAVAILABLE if result.unavailable else TURN_FAILED
             logger.warning(
                 "turn_failed turn_id=%s termination=%s detail=%s",
                 claimed.id,
                 result.termination.value,
                 result.detail or "(none given)",
             )
+            await self._said_failure(claimed, failure, result.detail or NO_REASON)
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
@@ -487,29 +499,30 @@ class TurnSupervisor:
             result.termination.value,
             result.stop_reason.value,
             spent=_spend(result),
+            error_code=failure or None,
         )
         if status == "completed":
             await _maybe_title(self._store, claimed, pack_ctx, session)
         await self._signal(claimed, status)
 
     async def _finish_failure(self, claimed: ClaimedTurn, detail: str) -> None:
-        await self._store.append(
-            claimed.account_id,
-            claimed.session_id,
-            NewItem(
-                "error",
-                "assistant",
-                {"code": "model_unavailable", "detail": detail},
-                turn=claimed.id,
-            ),
-        )
+        await self._said_failure(claimed, MODEL_UNAVAILABLE, detail)
         await self._store.finish_turn(
             claimed.account_id,
             claimed.id,
             "failed",
             Termination.failed.value,
+            error_code=MODEL_UNAVAILABLE,
         )
         await self._signal(claimed, "failed")
+
+    async def _said_failure(self, claimed: ClaimedTurn, code: str, detail: str) -> None:
+        """Tell the person why their turn failed, in the transcript where they are reading."""
+        await self._store.append(
+            claimed.account_id,
+            claimed.session_id,
+            NewItem("error", "assistant", {"code": code, "detail": detail}, turn=claimed.id),
+        )
 
     async def _signal(self, claimed: ClaimedTurn, status: str) -> None:
         if self._on_status is None:
@@ -659,4 +672,11 @@ def _status_for(termination: Termination) -> str:
     return "failed"
 
 
-__all__ = ["ClaimedTurn", "PreparedTurn", "TurnSupervisor"]
+__all__ = [
+    "MODEL_UNAVAILABLE",
+    "NO_REASON",
+    "TURN_FAILED",
+    "ClaimedTurn",
+    "PreparedTurn",
+    "TurnSupervisor",
+]
