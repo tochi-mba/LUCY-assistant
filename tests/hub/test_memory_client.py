@@ -334,6 +334,24 @@ async def test_an_original_missing_some_fields_carries_only_what_it_has() -> Non
     assert _corrected(http) == {**sparse, "title": "t", "body": "b"}
 
 
+async def test_a_search_asks_for_this_sessions_episodes() -> None:
+    """Retrieval keeps a session-scoped memory only for the session asked about, and with
+    none asked about it compares against NULL: every episode was invisible to search."""
+    http = FakeHttp(Answer(body={"data": []}))
+    await HttpMemoryClient(http, "http://memory.test").search(
+        "tea", profile="personal", session_id="ses_1"
+    )
+    assert http.last.params is not None
+    assert http.last.params["session_id"] == "ses_1"
+
+
+async def test_a_search_with_no_session_does_not_send_an_empty_one() -> None:
+    http = FakeHttp(Answer(body={"data": []}))
+    await HttpMemoryClient(http, "http://memory.test").search("tea", profile="personal")
+    assert http.last.params is not None
+    assert "session_id" not in http.last.params
+
+
 def test_the_note_parser_reads_nothing_the_service_does_not_send() -> None:
     row = ReadRecorder(RECORDED_MEMORY)
     _note(row)

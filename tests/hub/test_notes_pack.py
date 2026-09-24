@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 from lucy_api.packs.help import HelpPack
@@ -292,6 +294,31 @@ async def test_search_does_not_call_the_account_store() -> None:
 
     assert all("/v1/user/" not in call.url for call in http.calls)
     assert http.calls[-1].url.endswith("/v1/internal/memory/search")
+
+
+@pytest.mark.parametrize(
+    ("op", "arguments"),
+    [("notes.search", {"query": "tour dates"}), ("notes.aboutMe", {})],
+)
+async def test_reading_notes_asks_for_this_sessions_episodes(
+    op: str, arguments: dict[str, str]
+) -> None:
+    """`notes.remember` tells the model an episode "stays with this session". Both ways of
+    reading it back have to say which session that is, or the store compares against NULL
+    and the episode is never returned -- not even to the session that wrote it."""
+    http = FakeHttp(
+        Answer(body={"data": []}),
+        Answer(body={"data": []}),
+        Answer(body={"data": []}),
+    )
+    capabilities, context = _capabilities(http, permission_mode="auto")
+    await capabilities.probe(context)
+    await capabilities.execute({"steps": [{"id": "r", "op": op, "input": arguments}]}, context)
+
+    searched = [call for call in http.calls if call.url.endswith("/v1/internal/memory/search")]
+    assert searched
+    assert searched[-1].params is not None
+    assert searched[-1].params["session_id"] == "ses_a"
 
 
 async def test_incognito_writes_are_refused_without_calling_the_store() -> None:

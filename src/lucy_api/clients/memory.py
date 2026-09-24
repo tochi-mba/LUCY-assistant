@@ -128,7 +128,12 @@ class MemoryClient(Protocol):
     """The notes surface, as the pack calls it."""
 
     async def search(
-        self, query: str = "", *, profile: str = "", limit: int = DEFAULT_LIMIT
+        self,
+        query: str = "",
+        *,
+        profile: str = "",
+        session_id: str = "",
+        limit: int = DEFAULT_LIMIT,
     ) -> tuple[Note, ...]: ...
 
     async def listing(
@@ -159,12 +164,30 @@ class HttpMemoryClient:
         self._api = Sibling(http=http, base_url=base_url, service=SERVICE, audience=audience)
 
     async def search(
-        self, query: str = "", *, profile: str = "", limit: int = DEFAULT_LIMIT
+        self,
+        query: str = "",
+        *,
+        profile: str = "",
+        session_id: str = "",
+        limit: int = DEFAULT_LIMIT,
     ) -> tuple[Note, ...]:
+        """The retrieval view: current, vouched-for, ranked.
+
+        `session_id` is what lets an episode come back. Memory-api's retrieval keeps a
+        session-scoped memory only when `session_id` matches the one asked for, and with none
+        sent the comparison is against NULL, which is never true -- so every episode
+        `notes.remember` ever saved "with this session" was invisible to search in that same
+        session, and the model concluded nothing had been remembered.
+        """
         payload = await self._api.send(
             "GET",
             f"{INTERNAL}/search",
-            params=given(q=query or None, limit=limit, profile=profile or None),
+            params=given(
+                q=query or None,
+                limit=limit,
+                profile=profile or None,
+                session_id=session_id or None,
+            ),
             profile=profile,
         )
         return tuple(_note(row) for row in rows(payload, "data"))
