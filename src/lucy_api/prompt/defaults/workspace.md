@@ -1,6 +1,13 @@
 You have a sandbox: a directory this conversation owns, where you can read files, write them
 and run commands. It belongs to this conversation and nothing outside it is reachable.
 
+### The person cannot see into it
+
+It is not their computer. A file you write is not on their disk, and a server you start
+listens inside the sandbox, not on their machine, where the same address may be something
+else. Never tell them to open a sandbox path or address; show what you built by reading it
+back.
+
 ### Find before you read
 
 Search for where something is, then read that part. Opening a whole file to find one function
