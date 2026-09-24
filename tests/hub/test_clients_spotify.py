@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from lucy_api.clients.errors import NotConnectedError
+from lucy_api.clients.errors import NotConnectedError, UnavailableError
 from lucy_api.clients.spotify import (
     CONFIRM_WAIT_SECONDS,
     Device,
     FakeSpotifyClient,
     HttpSpotifyClient,
+    NowPlaying,
     Play,
     Track,
+    UnconfirmedError,
     Wanted,
     _item,
     _track,
@@ -167,3 +169,99 @@ async def test_a_read_keeps_the_turn_s_ordinary_wait() -> None:
     http = FakeHttp(Answer(body={"is_playing": False}))
     await HttpSpotifyClient(http, "http://music.test").now_playing("work")
     assert http.last.timeout_seconds is None
+
+
+# --- accepted and not yet confirmed is not a failure ---------------------------------------------
+
+
+def unconfirmed(observed: dict[str, object]) -> Answer:
+    """Spotify-api's answer when its confirmation window runs out, field for field.
+
+    The document is its `Problem` (models/responses.py), built by `problem_response`
+    (api/errors.py) from a `ConfirmationTimeoutError(message, observed=...)`
+    (jobs/confirm.py): the type slug is its `error_type` with the underscore made a hyphen,
+    the title is its 504 title, and `observed` is the raw player read it last polled, whose
+    fields are `PlaybackState`'s (models/spotify/player.py).
+    """
+    return Answer(
+        status_code=504,
+        body={
+            "type": "https://spotify-api.invalid/problems/confirmation-timeout",
+            "title": "Gateway timeout",
+            "status": 504,
+            "detail": "the command was accepted but its effect could not be confirmed within 15s",
+            "instance": "/v1/player/play",
+            "request_id": "0f8c1e2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
+            "details": {"observed": observed},
+        },
+    )
+
+
+STILL_ON_THE_LAST_TRACK = {
+    "device": {"id": "d1", "name": "Kitchen", "type": "Speaker", "is_active": True},
+    "repeat_state": "off",
+    "shuffle_state": False,
+    "context": None,
+    "timestamp": 1_790_000_000_000,
+    "progress_ms": 64_000,
+    "is_playing": True,
+    "item": {"name": "Reverie", "artists": [{"name": "Debussy"}], "uri": "spotify:track:0"},
+    "currently_playing_type": "track",
+    "actions": {"disallows": {"resuming": True}},
+}
+"""A player still playing what it played before the command, as Spotify reports it."""
+
+
+@pytest.mark.parametrize("command", ["play", "queue", "pause"])
+async def test_a_command_accepted_but_not_confirmed_says_so_and_carries_what_was_seen(
+    command: str,
+) -> None:
+    """The bug, named: the service's 504 confirmation-timeout became an outage, so a play that
+    Spotify had accepted -- the track possibly already starting -- reached the model as a
+    failure, the state in `details.observed` was dropped, and the model played it again."""
+    http = FakeHttp(unconfirmed(STILL_ON_THE_LAST_TRACK))
+    client = HttpSpotifyClient(http, "http://music.test")
+    commands = {
+        "play": lambda: client.play("work", uris=["spotify:track:1"]),
+        "queue": lambda: client.queue("work", "spotify:track:1"),
+        "pause": lambda: client.pause("work"),
+    }
+
+    with pytest.raises(UnconfirmedError) as caught:
+        await commands[command]()
+
+    observed = caught.value.observed
+    assert observed.track is not None
+    assert observed.track.uri == "spotify:track:0"
+    assert observed.progress_ms == 64_000
+    assert observed.is_playing is True
+    assert caught.value.status == 504
+    assert "could not be confirmed" in caught.value.detail
+
+
+async def test_any_other_504_is_still_an_outage() -> None:
+    http = FakeHttp(problem(504, code="gateway-timeout", detail="upstream stalled"))
+    with pytest.raises(UnavailableError) as caught:
+        await HttpSpotifyClient(http, "http://music.test").play("work")
+    assert not isinstance(caught.value, UnconfirmedError)
+
+
+async def test_the_in_memory_player_can_accept_a_command_it_never_sees_take_effect() -> None:
+    fake = FakeSpotifyClient()
+    before = NowPlaying(track=Track(name="Reverie", uri="spotify:track:0"), is_playing=True)
+    fake.state = before
+    fake.confirms = False
+
+    for command in (
+        lambda: fake.play("work", uris=["spotify:track:1"]),
+        lambda: fake.queue("work", "spotify:track:1"),
+        lambda: fake.pause("work"),
+    ):
+        with pytest.raises(UnconfirmedError) as caught:
+            await command()
+        assert caught.value.observed == before
+
+    assert fake.state == before
+    assert fake.played == [("work", ("spotify:track:1",), "")]
+    assert fake.queued == [("work", "spotify:track:1", "")]
+    assert fake.paused == [("work", "")]

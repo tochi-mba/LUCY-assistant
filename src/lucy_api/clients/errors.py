@@ -29,8 +29,9 @@ limit into a thundering herd against it.
 Two things are deliberately absent. There is no retry here: re-minting a token after a 401
 belongs to the thing that holds the token broker, which is the HTTP seam beneath this, and
 a client that retried as well would double every backoff. And nothing here is written for a
-model to read. `service` is an internal name and `detail` is another service's prose; a
-pack translates both into product words before anything reaches a prompt.
+model to read. `service` is an internal name, `detail` is another service's prose and
+`details` is another service's document; a client projects the last and a pack translates
+all of them into product words before anything reaches a prompt.
 """
 
 from __future__ import annotations
@@ -79,13 +80,27 @@ class DownstreamError(Exception):
     Carries the status and the service's own `detail` because the interesting cases are all
     ones somebody can act on, and "invalid input" helps nobody. The message is for a log or
     a pack, never for a prompt.
+
+    `details` is the problem document's structured context, empty when it sent none. Some
+    answers are only half a failure: Spotify-api's 504 `confirmation-timeout` means the
+    command was accepted, and the player state it last saw travels in `details.observed`.
+    Dropped here, that state could never reach the client that knows how to read it.
     """
 
-    def __init__(self, service: str, status: int, detail: str = "", code: str = "") -> None:
+    def __init__(
+        self,
+        service: str,
+        status: int,
+        detail: str = "",
+        code: str = "",
+        *,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
         self.service = service
         self.status = status
         self.detail = detail
         self.code = code
+        self.details: Mapping[str, Any] = dict(details or {})
         said = f": {detail}" if detail else ""
         super().__init__(f"{service} answered {status}{said}")
 
@@ -138,15 +153,17 @@ class RateLimitedError(DownstreamError):
     number this client made up.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - every error's five, and the interval that makes this one
         self,
         service: str,
         status: int,
         detail: str = "",
         code: str = "",
         retry_after: float | None = None,
+        *,
+        details: Mapping[str, Any] | None = None,
     ) -> None:
-        super().__init__(service, status, detail, code)
+        super().__init__(service, status, detail, code, details=details)
         self.retry_after = retry_after
 
 
@@ -186,6 +203,12 @@ def problem_detail(body: Any) -> str:
     if isinstance(nested, dict) and nested.get("message"):
         return str(nested["message"])
     return str(body.get("detail") or body.get("title") or "")
+
+
+def _details_of(body: Any) -> Mapping[str, Any]:
+    """The problem document's `details` object, or nothing when it is absent or not one."""
+    details = body.get("details") if isinstance(body, dict) else None
+    return details if isinstance(details, dict) else {}
 
 
 def retry_after(headers: Mapping[str, str]) -> float | None:
@@ -260,19 +283,24 @@ def raise_for(response: Response, *, service: str) -> None:
         return
 
     body = _body_of(response)
-    detail, code = problem_detail(body), problem_code(body)
+    detail, code, details = problem_detail(body), problem_code(body), _details_of(body)
     named = _BY_STATUS.get(status)
     if named is not None:
-        raise named(service, status, detail, code)
+        raise named(service, status, detail, code, details=details)
     if status == TOO_MANY:
         raise RateLimitedError(
-            service, status, detail, code, retry_after=retry_after(response.headers)
+            service,
+            status,
+            detail,
+            code,
+            retry_after=retry_after(response.headers),
+            details=details,
         )
     if status == BAD_GATEWAY and code in CREDENTIAL_CODES:
-        raise NotConnectedError(service, status, detail, code)
+        raise NotConnectedError(service, status, detail, code, details=details)
     if status >= SERVER_ERROR:
-        raise UnavailableError(service, status, detail, code)
-    raise RejectedError(service, status, detail, code)
+        raise UnavailableError(service, status, detail, code, details=details)
+    raise RejectedError(service, status, detail, code, details=details)
 
 
 __all__ = [

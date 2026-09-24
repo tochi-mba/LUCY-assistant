@@ -18,7 +18,9 @@ capability into `not_connected`, which is how a person gets a link rather than a
 
 Every write here confirms itself downstream -- Spotify's own 204 means "command accepted",
 not "audio is playing" -- so each one answers with the player state in which the effect was
-observed, and that state comes back through the same projection as a read.
+observed, and that state comes back through the same projection as a read. A write the
+service could not see take effect in time raises `UnconfirmedError`, carrying the last state
+it did see.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.clients.errors import NotConnectedError
+from lucy_api.clients.errors import DownstreamError, NotConnectedError, UnavailableError
 from lucy_api.clients.transport import Sibling, field, flag, moment, nested, number, rows, text
 
 if TYPE_CHECKING:
@@ -54,6 +56,16 @@ Against the turn's ten-second default a device slow to wake was abandoned while 
 still confirming, and the command was sent again -- restarting the track it had just started.
 A deployment that raises the service's cap past 15 has to raise this with it.
 """
+
+UNCONFIRMED = "confirmation-timeout"
+"""The problem code of the service's 504 that means "accepted, not yet seen to take effect".
+
+Spotify-api raises it when its confirmation window runs out with a device in view (its
+jobs/confirm.py), answers it 504 (api/errors.py), and documents it on every player command
+as "Spotify accepted the command but its effect could not be confirmed" (api/routes/player.py).
+"""
+
+GATEWAY_TIMEOUT = 504
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +131,21 @@ class Found:
     status: str
     track: Track | None = None
     detail: str = ""
+
+
+class UnconfirmedError(DownstreamError):
+    """The command was accepted and has not yet been seen to take effect.
+
+    Not a failure, and not the confirmation a write promises either, so it is neither
+    returned nor left as the outage its 504 would otherwise read as. An outage told the
+    model playback had failed while the track may already have been starting, and a model
+    told that tries again. `observed` is the last player state the service saw, projected
+    like any other.
+    """
+
+    def __init__(self, observed: NowPlaying, detail: str = "") -> None:
+        super().__init__(SERVICE, GATEWAY_TIMEOUT, detail, UNCONFIRMED)
+        self.observed = observed
 
 
 class SpotifyClient(Protocol):
@@ -244,15 +271,25 @@ class HttpSpotifyClient:
         body: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
     ) -> NowPlaying:
-        """One player command, waited on for as long as the service may take to confirm it."""
-        payload = await self._api.send(
-            "POST",
-            path,
-            body=body,
-            params=params,
-            profile=profile,
-            timeout_seconds=CONFIRM_WAIT_SECONDS,
-        )
+        """One player command, waited on for as long as the service may take to confirm it.
+
+        Raises:
+            UnconfirmedError: accepted, and not seen to take effect in the service's window.
+        """
+        try:
+            payload = await self._api.send(
+                "POST",
+                path,
+                body=body,
+                params=params,
+                profile=profile,
+                timeout_seconds=CONFIRM_WAIT_SECONDS,
+            )
+        except UnavailableError as exc:
+            if exc.code != UNCONFIRMED:
+                raise
+            observed = _now_playing(exc.details.get("observed"))
+            raise UnconfirmedError(observed, exc.detail) from exc
         return _now_playing(payload)
 
 
@@ -335,10 +372,15 @@ class FakeSpotifyClient:
 
     Every method records the profile it was called with. Which credential set a call used is
     invisible in its answer and is exactly the thing a multi-profile bug gets wrong.
+
+    `confirms` off is a device too slow to wake inside the service's confirmation window:
+    every write is still recorded, as the command was still accepted, and none is seen to
+    take effect.
     """
 
     def __init__(self) -> None:
         self.is_connected = True
+        self.confirms = True
         self.state = NowPlaying()
         self.known: tuple[Device, ...] = ()
         self.history: tuple[Play, ...] = ()
@@ -396,20 +438,30 @@ class FakeSpotifyClient:
         self.asked.append(profile)
         self.played.append((profile, tuple(uris), device_id))
         track = next((item for item in self.catalogue.values() if item.uri in uris), None)
-        self.state = NowPlaying(track=track or self.state.track, is_playing=True)
-        return self.state
+        return self._settle(NowPlaying(track=track or self.state.track, is_playing=True))
 
     async def queue(self, profile: str, uri: str, *, device_id: str = "") -> NowPlaying:
         """Record the queued uri without disturbing what is playing."""
         self.asked.append(profile)
         self.queued.append((profile, uri, device_id))
-        return self.state
+        return self._settle(self.state)
 
     async def pause(self, profile: str, *, device_id: str = "") -> NowPlaying:
         """Stop, keeping whatever track was loaded."""
         self.asked.append(profile)
         self.paused.append((profile, device_id))
-        self.state = NowPlaying(track=self.state.track, progress_ms=self.state.progress_ms)
+        return self._settle(NowPlaying(track=self.state.track, progress_ms=self.state.progress_ms))
+
+    def _settle(self, after: NowPlaying) -> NowPlaying:
+        """Show a write taking effect, or, when `confirms` is off, not yet having done so.
+
+        Raises:
+            UnconfirmedError: what the service answers when its window runs out, carrying
+                the state it last saw -- here, the one from before the command.
+        """
+        if not self.confirms:
+            raise UnconfirmedError(self.state, "the command was accepted but not confirmed")
+        self.state = after
         return self.state
 
 
@@ -433,5 +485,6 @@ __all__ = [
     "Play",
     "SpotifyClient",
     "Track",
+    "UnconfirmedError",
     "Wanted",
 ]
