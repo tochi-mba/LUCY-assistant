@@ -30,6 +30,22 @@ AUDIENCE = "user"
 PATH = "/v1/user/entries"
 SENSITIVE = "sensitive"
 
+PAGE_LIMIT = 100
+"""User-api's own ceiling on `limit` (`le=100` on `search_user`).
+
+Left unsent, the page is the person's `search_default_limit` -- twenty, or fewer if they
+lowered it -- while an account may pin forty. Asking for the ceiling makes a default
+account's whole block one request, and the cursor carries anything past it.
+"""
+
+MAX_PAGES = 10
+"""How many pages one read follows before it keeps what it already has.
+
+User-api refuses a pin past `max_pinned`, so a real walk ends on its first page or two. The
+bound is for a sibling whose `next_cursor` never comes back null, which would otherwise hold
+every turn open on a loop; a thousand facts is already more than a standing block can carry.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class AccountFact:
@@ -57,17 +73,29 @@ class HttpUserClient:
         self._api = Sibling(http=http, base_url=base_url, service=SERVICE, audience=audience)
 
     async def pinned(self, *, profile: str = "") -> tuple[AccountFact, ...]:
-        payload = await self._api.send(
-            "GET",
-            PATH,
-            params=given(pinned=True),
-            profile=profile,
-        )
+        """Every pinned entry, following `next_cursor` until User-api says there is no more.
+
+        One page used to be read as the whole block. With twenty-one pins the standing
+        "pinned facts about you" feed carried the twenty most recently updated and said
+        nothing about the one it lost, and a sensitive pin, dropped only after the page was
+        cut, still took one of those twenty places.
+        """
         facts: list[AccountFact] = []
-        for row in rows(payload, "entries"):
-            fact = _fact(row)
-            if fact is not None:
-                facts.append(fact)
+        cursor: str | None = None
+        for _ in range(MAX_PAGES):
+            payload = await self._api.send(
+                "GET",
+                PATH,
+                params=given(pinned=True, limit=PAGE_LIMIT, cursor=cursor),
+                profile=profile,
+            )
+            for row in rows(payload, "entries"):
+                fact = _fact(row)
+                if fact is not None:
+                    facts.append(fact)
+            cursor = text(payload, "next_cursor") or None
+            if cursor is None:
+                break
         return tuple(facts)
 
 
@@ -113,6 +141,8 @@ def as_dict(fact: AccountFact) -> dict[str, Any]:
 
 __all__ = [
     "AUDIENCE",
+    "MAX_PAGES",
+    "PAGE_LIMIT",
     "PATH",
     "AccountFact",
     "HttpUserClient",
