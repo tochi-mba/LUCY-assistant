@@ -238,12 +238,11 @@ def _patch_steps(node: Any) -> None:
         return
     props = node.get("properties")
     if isinstance(props, dict) and "id" in props and "op" in props and "show_from" not in props:
+        # Short on purpose: this is copied onto every operation in the schema, and the full
+        # explanation is said once, in the prompt's tools section.
         props["show_from"] = {
             "type": "string",
-            "description": (
-                "A unique snippet of a spilled result to start showing from. Display starts "
-                "at the only match; if that window is still too large, its head and tail are kept."
-            ),
+            "description": "Show a spilled result from this unique snippet onward.",
         }
     for value in node.values():
         _patch_steps(value)
