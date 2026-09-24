@@ -4,7 +4,8 @@ This repository is two things at once, and knowing which one you are touching is
 the job.
 
 1. **The hub.** `src/lucy_api/` is Lucy: the HTTP API a person holds a conversation with.
-   It is a family service like any other and is held to the same gates.
+   It is a family service like any other and is held to the same gates. [docs/hub.md](docs/hub.md)
+   is the map: one message through the code, and where to start when something breaks.
 2. **The family desk.** `scripts/`, `docs/`, `docker-compose.yml`, `repos.txt`,
    `.github/workflows/service.yml`, `broker/` and `examples/` are how the other services
    are bootstrapped, checked, built and released. They are not part of the wheel.

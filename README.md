@@ -417,7 +417,8 @@ For family service development:
 5. `make check` in that repository. `python scripts/parity.py` from here for the family
    scoreboard — it scores the hub too.
 
-To work on **Lucy herself**, you are already in the right directory:
+To work on **Lucy herself**, you are already in the right directory. [docs/hub.md](docs/hub.md)
+follows one message through the code and says where to start when something breaks.
 
 ```bash
 make install
