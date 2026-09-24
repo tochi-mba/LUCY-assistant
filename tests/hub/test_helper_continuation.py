@@ -9,6 +9,7 @@ notice that announced it: `agents.list` showed what was running and nothing else
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -160,11 +161,34 @@ async def test_the_stopped_list_is_the_newest_few_and_says_how_many(store: Sessi
         await agents.finish(ACCOUNT, agent_id, status="failed", result={"summary": "x"})
         ids.append(agent_id)
 
+    await _started_in_one_tick(store, ids)
     listed = await _list(work, context)
 
     assert listed["stopped_count"] == MAX_STOPPED_LISTED + 2
     assert len(listed["stopped"]) == MAX_STOPPED_LISTED
     assert listed["stopped"][-1]["objective"] == f"job {MAX_STOPPED_LISTED + 1}"
+
+
+async def _started_in_one_tick(store: SessionStore, ids: list[str]) -> None:
+    def tie(db: sqlite3.Connection) -> None:
+        db.executemany("UPDATE agents SET created_at=1 WHERE id=?", [(one,) for one in ids])
+
+    await store.transaction(tie)
+
+
+async def test_helpers_started_in_one_tick_keep_the_order_they_were_started_in(
+    store: SessionStore,
+) -> None:
+    """The bug, named: ties on the clock were broken by id, and ids are random."""
+    context, _work, agents = await _parent(store, ScriptedProvider([speaks("x")]))
+    ids = [
+        await agents.insert(ACCOUNT, context.session_id, role="r", objective=f"{n}", depth=1)
+        for n in range(8)
+    ]
+    await _started_in_one_tick(store, ids)
+
+    assert [row["id"] for row in await agents.for_session(ACCOUNT, context.session_id)] == ids
+    assert [row["id"] for row in await agents.running(ACCOUNT, context.session_id)] == ids
 
 
 def test_a_chain_that_loops_back_on_itself_ends() -> None:
