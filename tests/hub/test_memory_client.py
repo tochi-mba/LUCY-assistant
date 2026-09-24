@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lucy_api.clients.memory import (
+    CORRECTION_CARRIES,
     Draft,
     HttpMemoryClient,
     TopicCard,
@@ -53,6 +54,7 @@ async def test_listing_and_mutations_use_the_memory_audience() -> None:
     http = FakeHttp(
         Answer(body={"data": [stored]}),
         Answer(body={"data": [stored]}),
+        Answer(body=stored),
         Answer(body=stored),
         Answer(body=stored),
         Answer(body=stored),
@@ -195,3 +197,144 @@ async def test_the_topic_index_and_its_expansion_never_carry_an_account_id() -> 
     assert from_data[0].id == "mem_2"
     assert all("/v1/internal/memory/topics" in call.url for call in http.calls)
     assert "account_id" not in as_dict(from_memories[0])
+
+
+# --- one memory, as the service returns it ----------------------------------------------------
+
+RECORDED_MEMORY = {
+    "title": "Drink preference",
+    "body": "Prefers tea over coffee.",
+    "value": None,
+    "kind": "fact",
+    "scope": "profile",
+    "profile": "personal",
+    "session_id": None,
+    "source": "conversation",
+    "trust": "stated",
+    "confidence": 1.0,
+    "importance": 5,
+    "occurred_at": None,
+    "valid_from": 1790190222.50511,
+    "expires_at": None,
+    "id": "mem_a473e59d4d06bc51849c06eb0042bbf0",
+    "account_id": "acct_57d7842b361d4a4da10510a5599a3268",
+    "asserted_by": "lucy-api",
+    "topic_id": "top_41acd2de8f0fb53452eafdc8874f14d0",
+    "created_at": 1790190222.50511,
+    "updated_at": 1790190222.50511,
+    "last_accessed_at": 1790254787.7675898,
+    "access_count": 6,
+    "confirmed_at": None,
+    "valid_to": None,
+    "supersedes_id": None,
+    "superseded_by_id": None,
+    "forgotten_at": None,
+    "revision": 1,
+}
+"""`GET /v1/internal/memory/{id}`, recorded from a running Memory-api on 2026-09-24.
+
+A fact Lucy wrote itself, so profile-scoped -- which is every note the hub writes, and is
+why a correction sent as `{title, body}` was refused for all of them. Re-record rather than
+edit if Memory-api's `Memory` model changes.
+"""
+
+MEMORY_ONLY = frozenset(
+    {
+        "id",
+        "account_id",
+        "asserted_by",
+        "topic_id",
+        "created_at",
+        "updated_at",
+        "last_accessed_at",
+        "access_count",
+        "confirmed_at",
+        "valid_to",
+        "supersedes_id",
+        "superseded_by_id",
+        "forgotten_at",
+        "revision",
+    }
+)
+"""Fields `Memory` adds to `MemoryInput` (Memory-api `domain/models.py`). The correct route
+takes a `MemoryInput` with `extra="forbid"`, so sending any of these back is a 422."""
+
+
+def _corrected(http: FakeHttp) -> dict[str, object]:
+    posted = http.calls[-1]
+    assert posted.method == "POST"
+    assert isinstance(posted.json, dict)
+    return posted.json
+
+
+async def test_a_correction_keeps_the_scope_it_would_otherwise_be_refused_for() -> None:
+    """The bug, named: a profile-scoped fact, corrected, stays profile-scoped -- which is the
+    one thing the store checks before it will accept a correction at all."""
+    http = FakeHttp(
+        Answer(body=RECORDED_MEMORY),
+        Answer(body={**RECORDED_MEMORY, "id": "mem_new", "body": "Drinks green tea."}),
+    )
+    client = HttpMemoryClient(http, "http://memory.test")
+
+    note = await client.correct(
+        str(RECORDED_MEMORY["id"]), "Drink preference", "Drinks green tea.", profile="personal"
+    )
+
+    assert http.calls[0].method == "GET"
+    assert http.calls[0].url.endswith(f"/v1/internal/memory/{RECORDED_MEMORY['id']}")
+    assert http.calls[1].url.endswith(f"/v1/internal/memory/{RECORDED_MEMORY['id']}/correct")
+    body = _corrected(http)
+    assert (body["scope"], body["profile"], body["session_id"]) == ("profile", "personal", None)
+    assert body["title"] == "Drink preference"
+    assert body["body"] == "Drinks green tea."
+    assert note.id == "mem_new"
+
+
+async def test_a_correction_keeps_the_provenance_the_defaults_would_overwrite() -> None:
+    http = FakeHttp(Answer(body=RECORDED_MEMORY), Answer(body=RECORDED_MEMORY))
+    await HttpMemoryClient(http, "http://memory.test").correct("mem_1", "t", "b")
+    body = _corrected(http)
+    assert body["kind"] == "fact"
+    assert body["source"] == "conversation"
+    assert body["confidence"] == 1.0
+    assert body["importance"] == 5
+
+
+async def test_correcting_an_untrusted_note_does_not_launder_its_trust() -> None:
+    """Left to its defaults, a correction arrives `stated`. An untrusted note from a page,
+    edited, would then enter retrieval -- trust acquired by an edit nobody vouched for."""
+    untrusted = {**RECORDED_MEMORY, "trust": "untrusted", "source": "https://example.invalid"}
+    http = FakeHttp(Answer(body=untrusted), Answer(body=untrusted))
+    await HttpMemoryClient(http, "http://memory.test").correct("mem_1", "t", "b")
+    assert _corrected(http)["trust"] == "untrusted"
+    assert _corrected(http)["source"] == "https://example.invalid"
+
+
+async def test_a_correction_body_is_one_the_correct_route_would_accept() -> None:
+    """Carry the words and the provenance, and nothing only a stored memory has: the route's
+    model forbids extra fields. `valid_from` stays behind so the store can stamp it."""
+    http = FakeHttp(Answer(body=RECORDED_MEMORY), Answer(body=RECORDED_MEMORY))
+    await HttpMemoryClient(http, "http://memory.test").correct("mem_1", "t", "b")
+    body = _corrected(http)
+    assert not set(body) & MEMORY_ONLY
+    assert "valid_from" not in body
+    assert set(body) == {*CORRECTION_CARRIES, "title", "body"}
+
+
+async def test_an_original_that_is_not_a_document_still_sends_the_new_words() -> None:
+    http = FakeHttp(Answer(body="not an object"), Answer(body=RECORDED_MEMORY))
+    await HttpMemoryClient(http, "http://memory.test").correct("mem_1", "t", "b")
+    assert _corrected(http) == {"title": "t", "body": "b"}
+
+
+async def test_an_original_missing_some_fields_carries_only_what_it_has() -> None:
+    sparse = {"scope": "session", "profile": "personal", "session_id": "ses_1"}
+    http = FakeHttp(Answer(body=sparse), Answer(body=RECORDED_MEMORY))
+    await HttpMemoryClient(http, "http://memory.test").correct("mem_1", "t", "b")
+    assert _corrected(http) == {**sparse, "title": "t", "body": "b"}
+
+
+def test_the_note_parser_reads_nothing_the_service_does_not_send() -> None:
+    row = ReadRecorder(RECORDED_MEMORY)
+    _note(row)
+    assert not row.absent, row.absent

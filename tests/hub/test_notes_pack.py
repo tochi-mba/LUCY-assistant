@@ -141,6 +141,7 @@ async def test_schema_and_writes_go_through_memory_api() -> None:
         Answer(body=stored),
         Answer(body=stored),
         Answer(body=stored),
+        Answer(body=stored),
         Answer(body={"data": [{"label": "human", "body": "a person"}]}),
         Answer(body={"data": [stored]}),
     )

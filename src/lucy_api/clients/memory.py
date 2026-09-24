@@ -31,6 +31,34 @@ DEFAULT_LIMIT = 10
 The service will give more. Ten facts is a page a model can actually weigh; forty is a
 second conversation stuffed into the first."""
 
+CORRECTION_CARRIES = (
+    "kind",
+    "scope",
+    "profile",
+    "session_id",
+    "source",
+    "trust",
+    "value",
+    "confidence",
+    "importance",
+    "occurred_at",
+    "expires_at",
+)
+"""What a correction keeps from the memory it replaces: everything but the words.
+
+Memory-api's correct route takes a whole `MemoryInput`, and a field left out is not
+"unchanged", it is that field's default -- `scope: account`, `trust: stated`,
+`source: person`. The store then refuses any correction whose scope differs from the
+original's ("A correction must preserve the original memory scope", 409), and every note
+the hub writes is profile- or session-scoped, so every correction Lucy ever attempted
+failed. Where one did get through, the defaults would have rewritten its provenance: an
+untrusted note from a page, corrected, would come back `stated` and enter retrieval --
+trust laundered by an edit.
+
+`valid_from` is not carried: the store stamps a correction with its own time, and a
+correction dated before the memory it replaces is refused.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Note:
@@ -182,11 +210,23 @@ class HttpMemoryClient:
         )
 
     async def correct(self, memory_id: str, title: str, body: str, *, profile: str = "") -> Note:
+        """Replace a memory's words, keeping everything else it was. See `CORRECTION_CARRIES`.
+
+        Two calls, because the correct route needs the whole memory and the hub does not
+        hold it: the original is read first and everything but its words is sent back.
+        """
+        path = f"{INTERNAL}/{segment(memory_id)}"
+        original = await self._api.send("GET", path, profile=profile)
+        carried = (
+            {key: original[key] for key in CORRECTION_CARRIES if key in original}
+            if isinstance(original, dict)
+            else {}
+        )
         return _note(
             await self._api.send(
                 "POST",
-                f"{INTERNAL}/{segment(memory_id)}/correct",
-                body={"title": title, "body": body},
+                f"{path}/correct",
+                body={**carried, "title": title, "body": body},
                 profile=profile,
             )
         )
