@@ -171,6 +171,17 @@ async def test_the_fake_leaves_the_pending_row_keyring_writes_before_handing_out
     assert await fake.connections(PROFILE) == (Connection(service="spotify", status=PENDING),)
 
 
+async def test_the_fake_marks_a_connection_that_stopped_working_as_waiting_again() -> None:
+    """keyring keeps only a working connection; an expired one reads `pending` while the new
+    consent is under way, so the poll does not answer `expired` the moment it starts."""
+    fake = FakeKeyringClient()
+    fake.seed(PROFILE, [Connection(service="spotify", status="expired")])
+
+    await fake.authorize(PROFILE, "spotify")
+
+    assert await fake.connections(PROFILE) == (Connection(service="spotify", status=PENDING),)
+
+
 async def test_the_fake_starting_consent_again_does_not_stop_a_connection_that_works() -> None:
     """keyring writes its placeholder only where no real connection stands, because one over
     a working connection turned it `pending` for good if the person closed the page."""
