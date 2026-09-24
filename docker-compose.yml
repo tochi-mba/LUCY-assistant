@@ -55,8 +55,11 @@ services:
       LUCY_ENVIRONMENTS_API_BASE_URL: http://environments:8008
       LUCY_MEMORY_API_BASE_URL: http://memory:8009
       LUCY_LOG_FORMAT: json
+      # One file on the host a person can read and filter: `lucy logs --session ses_...`.
+      LUCY_LOG_FILE: /var/log/lucy/lucy.jsonl
     volumes:
       - lucy-data:/var/lib/lucy
+      - ./var/log:/var/log/lucy
     depends_on:
       keyring:
         condition: service_healthy

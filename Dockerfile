@@ -43,9 +43,9 @@ RUN --mount=type=secret,id=github_token,required=false \
 
 # Session state, workspaces metadata and the result store are written at runtime and must
 # not live in an image layer. 0700 because the contents are a person's conversation.
-RUN mkdir -p /var/lib/lucy \
+RUN mkdir -p /var/lib/lucy /var/log/lucy \
     && useradd --create-home --uid 10001 lucy \
-    && chown -R lucy:lucy /var/lib/lucy /app \
+    && chown -R lucy:lucy /var/lib/lucy /var/log/lucy /app \
     && chmod 0700 /var/lib/lucy
 USER lucy
 
