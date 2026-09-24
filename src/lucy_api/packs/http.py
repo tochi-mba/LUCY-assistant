@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
 
+from lucy_api.clients.errors import CREDENTIAL_CODES, problem_code
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
@@ -276,7 +278,7 @@ class PackHttp:
                     raise
                 await self._sleeper(0.0)
                 continue
-            if _retryable(call, response.status_code) and self._may_retry(attempt, deadline):
+            if _retryable(call, response) and self._may_retry(attempt, deadline):
                 await self._sleeper(_backoff(_retry_after(response), self.retry_max_seconds))
                 continue
             return response
@@ -323,11 +325,30 @@ def _idempotent(call: Call) -> bool:
     return call.method.upper() in IDEMPOTENT_METHODS
 
 
-def _retryable(call: Call, status: int) -> bool:
-    """A 429 says the request was not processed; a 5xx says nothing about whether it was."""
+def _retryable(call: Call, response: httpx.Response) -> bool:
+    """A 429 says the request was not processed; a 5xx says nothing about whether it was.
+
+    Except the one 5xx that says exactly why, and why asking again cannot help: a 502 whose
+    problem is a missing credential. Spotify-api answers that for every call a person makes
+    before connecting it, and each was sent three times -- on every model round, because the
+    live block reads the player each round. Seen in the hub's own log.
+    """
+    status = response.status_code
     if status == httpx.codes.TOO_MANY_REQUESTS:
         return True
-    return status >= httpx.codes.INTERNAL_SERVER_ERROR and _idempotent(call)
+    if status < httpx.codes.INTERNAL_SERVER_ERROR or not _idempotent(call):
+        return False
+    return not _no_credential(response)
+
+
+def _no_credential(response: httpx.Response) -> bool:
+    if response.status_code != httpx.codes.BAD_GATEWAY:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return problem_code(body) in CREDENTIAL_CODES
 
 
 def _backoff(retry_after: float | None, ceiling: float) -> float:

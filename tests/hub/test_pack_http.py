@@ -749,6 +749,42 @@ async def test_a_call_that_says_it_must_not_be_repeated_is_not_whatever_its_meth
     assert len(seen) == 1
 
 
+async def test_a_missing_credential_is_answered_at_once_not_asked_three_times(
+    make_retrying_client,
+) -> None:
+    """The bug, named: Spotify-api's 502 for a service nobody connected was sent three times
+    per call, every model round. Asking again finds no credential either."""
+    unconnected = {
+        "type": "https://spotify-api.invalid/problems/credential-unavailable",
+        "title": "Bad gateway",
+        "status": 502,
+        "detail": "spotify is not connected for this profile",
+    }
+    handler, seen = recording(lambda: httpx.Response(502, json=unconnected))
+    client = make_retrying_client(handler)
+
+    response = await client.request_response(Call(method="GET", url=URL, audience=HOME))
+
+    assert response.status_code == 502
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("body", [{"type": "about:blank/upstream-failed"}, None])
+async def test_any_other_502_on_a_read_is_still_asked_again(make_retrying_client, body) -> None:
+    def answer() -> httpx.Response:
+        if body is None:
+            return httpx.Response(502, text="<html>bad gateway</html>")
+        return httpx.Response(502, json=body)
+
+    handler, seen = recording(answer, answer, ok())
+    client = make_retrying_client(handler)
+
+    response = await client.request_response(Call(method="GET", url=URL, audience=HOME))
+
+    assert response.status_code == 200
+    assert len(seen) == 3
+
+
 async def _no_wait(_seconds: float) -> None:
     return
 
