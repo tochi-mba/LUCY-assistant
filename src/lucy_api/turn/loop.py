@@ -50,7 +50,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.framing import Origin, frame_result
-from lucy_api.context.scrub import scrub
+from lucy_api.context.scrub import scrub, scrub_tree
 from lucy_api.context.types import Trust
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Request, Stop
 from lucy_api.turn.repetition import Repetition
@@ -651,8 +651,7 @@ def _summarise(raw: Any, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str
     body = raw.get("data")
     if body is None:
         return "", ()
-    text = body if isinstance(body, str) else repr(body)
-    cleaned = scrub(text)
+    cleaned = scrub(body) if isinstance(body, str) else scrub_tree(body)
     operation = str(raw.get("operation", ""))
     origin = Origin(capability=operation.split(".", 1)[0] or "a tool")
     viewed = result_window(cleaned.text, needle_from(raw), cap=cap)
