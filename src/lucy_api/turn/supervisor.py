@@ -15,9 +15,11 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.build import Live
+from lucy_api.context.scrub import scrub
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content
+from lucy_api.decide.uses import Recovery, suggest_capabilities
 from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
     Ask,
@@ -242,6 +244,7 @@ class TurnSupervisor:
         advertised = _advertised(policy.enabled, ready, policy.all_disabled)
         oriented = False
         compacted = False
+        decisions_prepared = False
 
         fallback_provider = None
         fallback_model = ""
@@ -256,7 +259,7 @@ class TurnSupervisor:
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
             nonlocal oriented, compacted, session, catalogue, ready, advertised
-            nonlocal callable_now, deferred
+            nonlocal callable_now, deferred, decisions_prepared
             fresh = await self._store.get(claimed.account_id, claimed.session_id)
             if _knobs(fresh) != _knobs(session):
                 # Changed under the running turn, on purpose (`apply: "now"`). The next
@@ -287,6 +290,13 @@ class TurnSupervisor:
                 or turn["id"] == claimed.id
             }
             ordered = conversation_order(_items_for(rows, pack_ctx.agent_id), turns, visible_turns)
+            if not decisions_prepared:
+                decisions_prepared = True
+                pack_ctx.decide.request_text = scrub(_first_user_text(list(reversed(ordered)))).text
+                catalogue = await suggest_capabilities(pack_ctx.decide, catalogue)
+                pack_ctx.catalogue = catalogue
+                bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+                callable_now = tuple(item.pack.id for item in bound)
             turn_number = sum(1 for turn in turns if turn["status"] == "completed") + 1
             _arm_workspace(live, resume=turn_number > 1 and not oriented)
             oriented = True
@@ -382,6 +392,7 @@ class TurnSupervisor:
                         fallback_provider=fallback_provider,
                         fallback_model=fallback_model,
                         max_thinking_tokens=policy.max_thinking_tokens,
+                        recovery=Recovery(pack_ctx.decide),
                     )
                 )
                 await self._finish_result(claimed, result, pack_ctx, session)

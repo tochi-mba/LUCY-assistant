@@ -162,7 +162,12 @@ class Capabilities:
         from were computed by different code with nothing keeping them equal. Nothing called
         this one, which is the only reason they never visibly disagreed.
         """
-        return choose_bound(catalogue, recent=self.recent(session_id))
+        bound, deferred = choose_bound(catalogue, recent=self.recent(session_id))
+        selected = {item.pack.id for item in bound} | set(catalogue.suggested)
+        return (
+            tuple(item for item in catalogue.ready() if item.pack.id in selected),
+            tuple(name for name in deferred if name not in selected),
+        )
 
     def listings(self, catalogue: Catalogue) -> list[dict[str, Any]]:
         return [

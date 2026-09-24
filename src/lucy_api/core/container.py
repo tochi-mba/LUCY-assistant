@@ -29,6 +29,8 @@ import httpx
 from keyring_client import JwksClient, SystemClock
 from settings_client import HttpSettingsClient
 from settings_client.errors import SettingsRejected, SettingsUnavailable
+from weftai.decisions import Decider, NullDecider
+from weftai.providers.laya import LayaDecider
 
 from lucy_api.agents.journal import JournalLive
 from lucy_api.agents.runtime import ChildRuntime
@@ -58,6 +60,7 @@ from lucy_api.context.fields import FIELDS, feed_setting_key
 from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError, settings_unavailable
+from lucy_api.decide import USES, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
 from lucy_api.memory.index import MemoryIndex
@@ -87,7 +90,7 @@ from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.store.worker import SqlWorker
-from lucy_api.stream.emitter import EventEmitter, SqlEventLog
+from lucy_api.stream.emitter import EventEmitter, NewEvent, SqlEventLog
 from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 from lucy_api.webhooks import Webhooks, httpx_deliver
 from lucy_api.work.live import WorkInFlight
@@ -181,6 +184,7 @@ class Container:
     webhooks: Webhooks
     environment_override: EnvironmentsClient | None = None
     memory_topics: TopicListing | None = None
+    decider: Decider = field(default_factory=NullDecider)
     started_at: float = field(default_factory=time.monotonic)
     _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
@@ -432,6 +436,25 @@ class Container:
             raise settings_unavailable(SETTINGS_UNAVAILABLE)
         pack_context = self.pack_context(request)
         pack_context.policy = policy.for_session(disabled_in(session))
+
+        async def decision_event(name: str, fields: dict[str, Any]) -> None:
+            await self.events.emit(
+                request.session_id,
+                NewEvent(
+                    name,
+                    fields,
+                    turn_id=request.turn_id or None,
+                ),
+            )
+
+        pack_context.decide = Decisions(
+            self.decider,
+            enabled=[use.id for use in USES if policy.decisions and getattr(policy, use.setting)],
+            shadow=policy.decision_shadow_mode,
+            timeout_ms=policy.decision_timeout_ms,
+            max_per_turn=policy.decision_max_per_turn,
+            emit=decision_event,
+        )
         pack_context.max_subagent_turns = policy.max_subagent_turns
         pack_context.defaults = await self._pack_defaults(request.user_token, request.profile)
         apply_downstream_policy(pack_context.http, policy)
@@ -473,6 +496,7 @@ class Container:
                 profile=request.profile,
                 limit=policy.memory_retrieval_limit,
                 incognito=request.incognito,
+                decide=pack_context.decide,
             ),
             pending=PendingLive(
                 store=self.store,
@@ -756,6 +780,16 @@ def build_container(
         mcp_servers=mcp_servers,
         blobs=Blobs(store, root=_blobs_root(settings)),
         webhooks=webhooks,
+        decider=LayaDecider(
+            outbound,
+            settings.laya_base_url,
+            api_key=settings.laya_api_key,
+            model=settings.laya_model,
+            timeout_ms=settings.laya_timeout_ms,
+            max_concurrent=settings.laya_max_concurrent,
+        )
+        if settings.laya_base_url
+        else NullDecider(),
     )
 
 

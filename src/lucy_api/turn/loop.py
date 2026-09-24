@@ -61,6 +61,7 @@ from lucy_api.turn.window import window as result_window
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
+    from lucy_api.decide.uses import Recovery
     from lucy_api.model.types import Chunk, Message, Provider, Reply, Usage
 
 MAX_PLAN_REPAIRS = 2
@@ -168,6 +169,7 @@ class Turn:
     cancelled: Callable[[], bool | Awaitable[bool]] | None = None
     clock: Callable[[], float] = time.monotonic
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
+    recovery: Recovery | None = None
     opening_notice: str = ""
     """A sentence for the first round only, decided before the turn starts.
 
@@ -356,6 +358,10 @@ async def _run_plan(
         return outcome
     cycle.repairs = 0
     cycle.repair_notice = ""
+    if turn.recovery is not None:
+        cycle.repair_notice = await turn.recovery.observe(
+            [f"{step.operation}: {step.error}" for step in executed if step.status == "error"]
+        )
     outcome.spent = Spent(
         iterations=outcome.spent.iterations,
         tokens=outcome.spent.tokens,

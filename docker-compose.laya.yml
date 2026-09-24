@@ -1,0 +1,22 @@
+# Optional overlay: docker compose -f docker-compose.yml -f docker-compose.laya.yml up -d
+services:
+  lucy:
+    environment:
+      LUCY_LAYA_BASE_URL: http://laya:8010
+      LUCY_LAYA_API_KEY: ${LAYA_API_KEY:?Set LAYA_API_KEY for the optional decision service}
+  laya:
+    build:
+      context: .
+      dockerfile: docker/laya.Dockerfile
+    environment:
+      LAYA_API_KEY: ${LAYA_API_KEY:?Set LAYA_API_KEY for the optional decision service}
+      LAYA_PRELOAD: "1"
+      LAYA_MODELS: ${LAYA_MODELS:-english}
+      LAYA_THREADS: ${LAYA_THREADS:-2}
+    volumes:
+      - laya-models:/models
+    networks:
+      - lucy
+    restart: unless-stopped
+volumes:
+  laya-models:

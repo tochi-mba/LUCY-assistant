@@ -21,7 +21,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "settings-client",
     "uvicorn[standard]>=0.30",
-    "weftai[all]==0.3.0",
+    "weftai[all]==0.4.0",
 ]
 
 [project.scripts]
@@ -63,7 +63,7 @@ src = ["src", "tests"]
 # Markdown is excluded because ruff now formats Python code blocks inside it, and the
 # snippets in our documents are illustrative: reformatting them silently edits the prose's
 # meaning, and a plan that quotes a signature wants the signature it quoted.
-extend-exclude = ["broker", "examples", "*.md"]
+extend-exclude = ["broker", "examples", "*.md", ".claude"]
 
 [tool.ruff.lint]
 select = [
