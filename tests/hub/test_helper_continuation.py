@@ -87,7 +87,7 @@ async def test_a_helper_continued_twice_still_has_its_first_run(store: SessionSt
 
 
 async def test_a_helper_already_continued_is_not_continued_again(store: SessionStore) -> None:
-    provider = ScriptedProvider([flakes(LIMIT), speaks("done")])
+    provider = ScriptedProvider([flakes(LIMIT), speaks("It says the tour starts in May.")])
     context, work, _agents = await _parent(store, provider)
     first = await _spawn(work, context, depth=0, objective="Read it", role="reader")
     await work.wait(str(first["id"]), 30)
@@ -101,7 +101,7 @@ async def test_a_helper_already_continued_is_not_continued_again(store: SessionS
 
 
 async def test_a_stopped_helper_is_listed_until_it_is_continued(store: SessionStore) -> None:
-    provider = ScriptedProvider([flakes(LIMIT), speaks("done")])
+    provider = ScriptedProvider([flakes(LIMIT), speaks("It says the tour starts in May.")])
     context, work, _agents = await _parent(store, provider)
     first = await _spawn(work, context, depth=0, objective="Read it", role="reader")
     await work.wait(str(first["id"]), 30)
