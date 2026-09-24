@@ -215,7 +215,8 @@ async def test_a_restart_marks_running_helpers_interrupted_and_releases_the_jour
     await agents.add_task(ACCOUNT, session, title="still going", agent_id=agent_id)
     interrupted = await agents.interrupt_running()
 
-    assert interrupted == (agent_id,)
+    assert [helper.id for helper in interrupted] == [agent_id]
+    assert interrupted[0].account_id == ACCOUNT
     assert (await agents.get(ACCOUNT, agent_id))["status"] == "interrupted"
     assert (await agents.tasks(ACCOUNT, session))[0].status == "pending"
 

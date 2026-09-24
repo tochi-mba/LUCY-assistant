@@ -17,9 +17,10 @@ import pytest
 
 from lucy_api.agents.runtime import ChildRuntime
 from lucy_api.agents.store import AgentStore
+from lucy_api.agents.types import CONTINUABLE, STOPPED
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, flakes, plans, speaks
-from lucy_api.packs.agents import CONTINUABLE, STOPPED, AgentsPack, _ended, _reopen, _spawn
+from lucy_api.packs.agents import AgentsPack, _ended, _reopen, _spawn
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.work import _check

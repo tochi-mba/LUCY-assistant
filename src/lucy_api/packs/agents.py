@@ -13,6 +13,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import object_schema, string_schema
 from weftai.schema.types import value
 
+from lucy_api.agents.types import CONTINUABLE, STOPPED
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work.registry import AtCapacityError, Registry
@@ -29,16 +30,6 @@ if TYPE_CHECKING:
 
 MAX_DEPTH = 3
 """How deep helpers may nest. Four levels is a system nobody can follow, including Lucy."""
-
-CONTINUABLE = "stopped before it finished; agents.reopen continues it"
-"""The front of the notice for a helper that can be picked up where it stopped.
-
-First, because the notice is clipped from the end: a long reason loses its tail, not the
-one thing the model can do about it.
-"""
-
-STOPPED = "stopped before it finished"
-"""The front of the notice for a helper that cannot usefully be continued as it is."""
 
 
 class AgentsPack:
@@ -524,4 +515,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["CONTINUABLE", "MAX_DEPTH", "STOPPED", "AgentsPack"]
+__all__ = ["MAX_DEPTH", "AgentsPack"]

@@ -9,6 +9,7 @@ account, and a miss is `absent()` — the same 404-not-403 rule as the session s
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.types import TaskSnapshot
@@ -41,6 +42,21 @@ MAIL_TOO_LONG = "mail-too-long"
 MAIL_TOO_MANY = "mail-too-many"
 TASK_FINISHED = "that task is already finished"
 TASK_HELD = "that task is already claimed; wait for the lease to expire"
+
+
+@dataclass(frozen=True, slots=True)
+class Interrupted:
+    """A helper a previous process was running when it stopped, and whose it was."""
+
+    id: str
+    account_id: str
+    session_id: str
+    role: str
+    objective: str
+    depth: int
+    started_at: float
+    last_seen: float
+    """When it last wrote to its transcript: the nearest thing on record to when it died."""
 
 
 class AgentStore:
@@ -162,16 +178,24 @@ class AgentStore:
 
         await self._sessions.transaction(apply)
 
-    async def interrupt_running(self) -> tuple[str, ...]:
-        """Mark every in-process helper dead. They cannot be resurrected from memory.
+    async def interrupt_running(self) -> tuple[Interrupted, ...]:
+        """Mark every in-process helper dead, and say whose each one was.
 
-        A restarted process has lost the child's event loop. Pretending the helper is still
-        running would make the parent wait on a notice that will never arrive. Claimed
-        journal tasks go back to pending so another helper can take them.
+        A restarted process has lost the child's event loop, so they cannot be resurrected
+        from memory. Pretending the helper is still running would make the parent wait on a
+        notice that will never arrive. Claimed journal tasks go back to pending so another
+        helper can take them.
         """
 
-        def apply(db: sqlite3.Connection) -> tuple[str, ...]:
-            rows = db.execute("SELECT id FROM agents WHERE status='running' ORDER BY id").fetchall()
+        def apply(db: sqlite3.Connection) -> tuple[Interrupted, ...]:
+            rows = db.execute(
+                "SELECT agents.id, sessions.account_id, agents.session_id, agents.role, "
+                "agents.objective, agents.depth, agents.created_at, "
+                "(SELECT MAX(items.created_at) FROM items WHERE items.agent_id=agents.id) "
+                "AS last_seen "
+                "FROM agents JOIN sessions ON sessions.id=agents.session_id "
+                "WHERE agents.status='running' ORDER BY agents.id"
+            ).fetchall()
             now = time.time()
             db.execute(
                 "UPDATE agents SET status='interrupted', interrupted_reason=?, finished_at=? "
@@ -182,7 +206,19 @@ class AgentStore:
                 "UPDATE journal SET status='pending', claimed_by=NULL, lease_until=NULL "
                 "WHERE status='in_progress'"
             )
-            return tuple(str(row["id"]) for row in rows)
+            return tuple(
+                Interrupted(
+                    id=str(row["id"]),
+                    account_id=str(row["account_id"]),
+                    session_id=str(row["session_id"]),
+                    role=str(row["role"]),
+                    objective=str(row["objective"]),
+                    depth=int(row["depth"]),
+                    started_at=float(row["created_at"]),
+                    last_seen=float(row["last_seen"] or row["created_at"]),
+                )
+                for row in rows
+            )
 
         return await self._sessions.transaction(apply)
 

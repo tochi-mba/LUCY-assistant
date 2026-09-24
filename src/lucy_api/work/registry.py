@@ -279,6 +279,45 @@ class Registry:
             self._deliveries.add(task)
             task.add_done_callback(self._deliveries.discard)
 
+    def record_lost(  # noqa: PLR0913 - the brief, and the four facts of how it ended
+        self,
+        brief: Brief,
+        *,
+        work_id: str,
+        started_at: datetime,
+        ended_at: datetime,
+        detail: str,
+        payload: object = None,
+    ) -> None:
+        """Remember work a previous process was running when it stopped, as a failed ending.
+
+        That process took the work's task with it, and every notice it would have sent. The
+        model that started the work was told a notice would come, and without this none
+        ever does: the work simply vanishes. Recorded unshown and unnoticed, so the next turn's
+        live block and `work.check` report it once, like any other ending.
+
+        No listener is told. Listeners wake idle sessions, and a restart that woke every
+        conversation it had interrupted would start them all at once. Calling this twice
+        for one id is calling it once.
+        """
+        if work_id in self._records:
+            return
+        self._records[work_id] = Record(
+            id=work_id,
+            kind=brief.kind,
+            role=_clip(brief.role, MAX_ROLE),
+            objective=_clip(brief.objective, MAX_OBJECTIVE),
+            session_id=brief.session_id,
+            started_at=started_at,
+            depth=brief.depth,
+            state=State.failed,
+            finished_at=max(ended_at, started_at),
+            payload=payload,
+            tokens=self._measure(payload) if payload is not None else 0,
+            detail=_clip(detail, MAX_PROGRESS),
+            account_id=brief.account_id,
+        )
+
     # ---------------------------------------------------------------- checking in
 
     def state_of(self, work_id: str) -> State:
