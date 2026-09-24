@@ -180,6 +180,20 @@ class PackContext:
     probes: ProbeCache | None = None
     defaults: dict[str, object] = field(default_factory=dict)
     """Sibling knobs this turn may use when the model omitted them. Never secrets."""
+    step_seconds: float = 10.0
+    """How long one step may run in the plan being executed, as weftai enforces it.
+
+    weftai applies one `stepTimeoutMs` to every step alike and has no per-operation figure.
+    So an operation that waits has to fit inside it by itself: `work.wait` was asked for
+    120 seconds inside a 30-second step and was cut off, three times in one turn, with
+    "timed out after 30000ms. Narrow the query or raise the step timeout" -- advice that
+    means nothing for a wait -- and a waiting `workspace.run` cut off that way lost the
+    handle to the command it had started.
+    """
+
+    def within_step(self, seconds: float) -> float:
+        """The longest an operation may wait inside this step, and answer before it ends."""
+        return max(0.0, min(seconds, self.step_seconds - STEP_MARGIN_SECONDS))
 
     def limit(self, service: str, *, concurrent: int = 2) -> asyncio.Semaphore:
         """The gate for one service, created the first time somebody asks for it."""
@@ -188,7 +202,12 @@ class PackContext:
         return self.limits[service]
 
 
+STEP_MARGIN_SECONDS = 2.0
+"""How long before its step ends a wait gives up, so that saying "still running" fits too."""
+
+
 __all__ = [
+    "STEP_MARGIN_SECONDS",
     "Call",
     "ChildRuntime",
     "Http",

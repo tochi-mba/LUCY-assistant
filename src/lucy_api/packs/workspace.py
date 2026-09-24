@@ -456,7 +456,9 @@ class WorkspacePack:
         wait_flag = wait if isinstance(wait, bool) else True
         raw_wait = run.input.get("wait_seconds")
         deadline = timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
-        wait_seconds = deadline if raw_wait is None else max(0.0, float(raw_wait))
+        wait_seconds = run.ctx.within_step(
+            deadline if raw_wait is None else max(0.0, float(raw_wait))
+        )
 
         tail = run.input.get("show") != "start"
 

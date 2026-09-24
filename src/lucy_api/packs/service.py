@@ -203,9 +203,11 @@ class Capabilities:
 
     def runtime_for(self, catalogue: Catalogue, session_id: str, context: PackContext) -> Any:
         bound, _deferred = self.bound_for(catalogue, session_id)
+        limits = limits_for(bound, context.policy)
+        context.step_seconds = limits["stepTimeoutMs"] / 1000
         return build_runtime(
             self.registry_for(catalogue, session_id),
-            limits=limits_for(bound, context.policy),
+            limits=limits,
             policy=context.policy,
         )
 

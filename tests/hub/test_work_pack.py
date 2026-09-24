@@ -287,6 +287,8 @@ async def test_waiting_longer_than_the_ceiling_waits_the_ceiling() -> None:
         return await real_wait(work_id, seconds)
 
     registry.wait = record  # type: ignore[method-assign]
+    context = a_context(registry)
+    context.step_seconds = 600.0
 
     await run(
         {
@@ -298,7 +300,7 @@ async def test_waiting_longer_than_the_ceiling_waits_the_ceiling() -> None:
                 }
             ]
         },
-        a_context(registry),
+        context,
     )
 
     assert asked == [120.0]
