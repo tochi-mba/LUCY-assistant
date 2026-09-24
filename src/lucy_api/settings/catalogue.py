@@ -684,7 +684,7 @@ def _decision_knobs() -> tuple[Knob, ...]:
             "decision_claims",
             True,
             "Catch a reply that claims work no step did, in any wording.",
-            "Only when decisions are enabled. Can only hold a reply back; never lets one through.",
+            "Only when decisions are enabled. Otherwise replies go out unchecked.",
         ),
     )
     return (
