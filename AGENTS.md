@@ -41,7 +41,8 @@ not "invalid input". A wrong question is an error, never an empty result.
 ## Gates
 
 `make check` is `lint type imports test`, and it does not grow a fifth gate. Anything else
-— an eval suite, a live-model smoke test — is its own verb behind a pytest marker.
+is its own verb, run on demand: conversations with a real model are `make evals
+MODEL=provider:model` (`lucy eval`), which no workflow and no pytest run ever starts.
 
 - 100% branch coverage, `fail_under = 100`, and no `pragma: no cover`.
 - mypy `strict = true`; `filterwarnings = ["error"]`.
