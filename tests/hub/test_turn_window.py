@@ -8,11 +8,11 @@ from lucy_api.turn.window import (
     UNSHOWN,
     allow_show_from,
     attach_needles,
+    executable,
     focus,
     needle_from,
     spill,
     window,
-    without_needles,
 )
 
 
@@ -177,7 +177,7 @@ def test_schema_walk_covers_lists_and_scalars() -> None:
     assert patched["anyOf"][1] == 1
 
 
-def test_without_needles_strips_lucy_fields_and_leaves_the_plan_alone() -> None:
+def test_executable_strips_lucy_fields_and_leaves_the_plan_alone() -> None:
     plan = {
         "steps": [
             {
@@ -191,10 +191,10 @@ def test_without_needles_strips_lucy_fields_and_leaves_the_plan_alone() -> None:
             {"id": "other", "op": "research.open", "input": "already-a-string"},
         ]
     }
-    cleaned = without_needles(plan)
+    cleaned = executable(plan)
     assert cleaned["steps"][0]["input"] == {"query": "tour"}
     assert "show_from" not in cleaned["steps"][0]
     assert plan["steps"][0]["show_from"] == "ERROR:"
     assert cleaned["steps"][2]["input"] == "already-a-string"
-    assert without_needles("not-a-plan") == "not-a-plan"
-    assert without_needles({"steps": None}) == {"steps": []}
+    assert executable("not-a-plan") == "not-a-plan"
+    assert executable({"steps": None}) == {"steps": []}
