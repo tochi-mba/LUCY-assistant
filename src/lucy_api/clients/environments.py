@@ -817,6 +817,40 @@ class FakeEnvironmentsClient:
         )
 
 
+UTF8_STEP_BYTES = 3
+"""How far past a byte offset the next character can start.
+
+A tail is read from a file's size less a window, a byte offset that lands wherever it lands,
+and the sandbox refuses one inside a character rather than return it half-decoded. A
+character is at most four bytes, so the next boundary is at most three further on. Without
+the step, a watch waiting for the verdict at the end of a build log with a `✓` or a progress
+bar in it failed its check, and after five of those was reported as a broken probe instead
+of firing.
+"""
+
+
+async def read_from(
+    client: EnvironmentsClient,
+    environment_id: str,
+    path: str,
+    offset: int,
+    *,
+    max_bytes: int,
+) -> FileText:
+    """The window at `offset`, or at the next character boundary when it is inside one."""
+    for step in range(UTF8_STEP_BYTES):
+        try:
+            return await client.read(
+                environment_id, path, offset=offset + step, max_bytes=max_bytes
+            )
+        except RejectedError as refused:
+            if refused.code != MID_CHARACTER:
+                raise
+    return await client.read(
+        environment_id, path, offset=offset + UTF8_STEP_BYTES, max_bytes=max_bytes
+    )
+
+
 if TYPE_CHECKING:
 
     def _satisfies(
@@ -835,6 +869,7 @@ __all__ = [
     "DEFAULT_TIMEOUT_MS",
     "MID_CHARACTER",
     "SERVICE",
+    "UTF8_STEP_BYTES",
     "Entry",
     "Environment",
     "EnvironmentsClient",
@@ -848,4 +883,5 @@ __all__ = [
     "SearchMatch",
     "SearchResult",
     "Written",
+    "read_from",
 ]
