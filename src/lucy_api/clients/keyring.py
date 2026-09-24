@@ -45,6 +45,14 @@ AUDIENCE = "keyring-api"
 ACTIVE = "active"
 """The one connection status that means a capability can be used right now."""
 
+PENDING = "pending"
+"""keyring's word for a consent that was started and has not come back.
+
+keyring writes a row in this state before it hands out the consent link
+(`Keyring-api/src/keyring_api/credentials/service.py`, `begin_authorization`), so a row
+existing is not the same as a person having consented.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Connection:
@@ -235,8 +243,19 @@ class FakeKeyringClient:
         return self.profiles.get(profile, ())
 
     async def authorize(self, profile: str, service: str) -> Authorization:
-        """Record the request and hand back the fake's fixed link."""
+        """Record the request, leave the `pending` row keyring leaves, and hand back the link.
+
+        keyring writes that row before it answers, and only where nothing but another
+        placeholder stands: a connection that works keeps working until the callback
+        replaces it. The fake used to write nothing, so the connection poll's own test
+        answered `authorization_pending` on a path the real vault never takes.
+        """
         self.authorized.append((profile, service))
+        current = self.profiles.get(profile, ())
+        existing = next((item for item in current if item.service == service), None)
+        if existing is None or existing.status == PENDING:
+            kept = tuple(item for item in current if item.service != service)
+            self.profiles[profile] = (*kept, Connection(service=service, status=PENDING))
         return Authorization(url=self.connect_url)
 
     async def disconnect(self, profile: str, service: str) -> None:
@@ -260,6 +279,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ACTIVE",
     "AUDIENCE",
+    "PENDING",
     "SERVICE",
     "Authorization",
     "Connection",
