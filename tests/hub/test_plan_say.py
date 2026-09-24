@@ -140,8 +140,8 @@ def test_words_beside_steps_say_what_is_about_to_happen_not_that_it_happened() -
     would have stood if the answer was no. The schema called them "said while they run", and
     the memory prompt said to keep a fact "and say so in a clause" in the same breath.
     """
-    assert "before they run" in SAY_DESCRIPTION
+    assert "shown only once they have" in SAY_DESCRIPTION
     assert "never that it is done" in SAY_DESCRIPTION
     prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
     assert "once it is kept say so in a clause" in prompt
-    assert "anything you said beside it has already been shown" in prompt
+    assert "nothing you wrote beside it is shown" in prompt

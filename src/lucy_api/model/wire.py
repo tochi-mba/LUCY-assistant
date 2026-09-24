@@ -157,7 +157,7 @@ def said_and_planned(text: str, *, narrated: bool = False) -> tuple[str, dict[st
     The shapes, in the order they are tried: a message that holds no object is prose, and
     is what it says. An object with `say` and no `steps` is an answer in words -- the only
     kind a provider enforcing the plan schema lets a model give. An object with steps is a
-    plan, and its `say`, if any, is shown before it runs. An object with neither is passed on
+    plan, and its `say`, if any, is shown once it has run. An object with neither is passed on
     as the plan it claims to be, so the repair path can quote it back.
 
     `narrated` reads a plan the model put a sentence in front of; see :func:`plan_object`.
