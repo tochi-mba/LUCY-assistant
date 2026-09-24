@@ -31,6 +31,16 @@ if TYPE_CHECKING:
 MAX_DEPTH = 3
 """How deep helpers may nest. Four levels is a system nobody can follow, including Lucy."""
 
+WALL_CLOCK_GRACE = 30.0
+"""How far past its own wall clock the registry lets a helper run.
+
+The runtime enforces `agent_wall_clock_seconds` itself, and a helper stopped that way ends as
+"ran out of time", continuable, with its roster row and journal task written. The registry's
+deadline is only the backstop behind it. It used to be eight rounds times thirty seconds, so it
+fired first -- at four minutes, against a setting that promises ten and allows two hours -- and
+cancelled the helper, which the roster then recorded as cancelled by somebody.
+"""
+
 
 class AgentsPack:
     """Start a helper, list the ones running, or send one a mid-run steer."""
@@ -244,6 +254,11 @@ class AgentsPack:
         )
 
 
+def _deadline(context: PackContext) -> float:
+    """The registry's backstop: the helper's own wall clock, and a grace to end by it."""
+    return float(context.policy.agent_wall_clock_seconds) + WALL_CLOCK_GRACE
+
+
 def _helpers_running(registry: Registry, session_id: str) -> int:
     return sum(1 for record in registry.running(session_id) if record.kind is Kind.helper)
 
@@ -325,7 +340,6 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             "message": "helpers cannot run in this turn; the child runtime is not attached",
         }
     name = role.strip() or "helper"
-    cap = context.max_subagent_turns
     refused = _at_helper_cap(registry, context)
     if refused is not None:
         return refused
@@ -354,7 +368,7 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
                 role=name,
                 objective=brief,
                 depth=depth + 1,
-                timeout_seconds=float(max(1, cap) * 30),
+                timeout_seconds=_deadline(context),
                 account_id=context.account_id,
                 # The main thread's helpers wake an idle session when they finish; a
                 # helper's helpers do not, because their parent is still running and is
@@ -429,7 +443,7 @@ async def _reopen(
             role=role,
             objective=objective,
             depth=depth + 1,
-            timeout_seconds=float(max(1, context.max_subagent_turns) * 30),
+            timeout_seconds=_deadline(context),
             account_id=context.account_id,
             wake=depth == 0,
         ),
@@ -515,4 +529,4 @@ async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any
     return await runtime.complete(context, handle)
 
 
-__all__ = ["MAX_DEPTH", "AgentsPack"]
+__all__ = ["MAX_DEPTH", "WALL_CLOCK_GRACE", "AgentsPack"]
