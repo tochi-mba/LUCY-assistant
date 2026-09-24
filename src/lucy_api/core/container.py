@@ -555,6 +555,7 @@ class Container:
             workspace_live = WorkspaceLive(
                 self.environment_client(request),
                 workspace,
+                profile=request.profile,
                 retention_hours=policy.workspace_retention_hours,
             )
             feeds.append(
