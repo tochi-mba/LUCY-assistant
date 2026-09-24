@@ -89,11 +89,24 @@ be paying for a service that has stopped answering. Not answering in time is the
 answer as being down."""
 
 SLOW_SERVICES = frozenset({"research", "mcp"})
-"""Built-in capabilities whose steps are allowed longer.
+"""Built-in capabilities whose steps and probes are allowed longer.
 
 A page fetch taking twelve seconds is not a bug, and failing it at ten only produces a
 retry that takes twelve too. Extensions own any additional timeout policy they need.
 """
+
+SLOW_MULTIPLE = 3
+"""What "allowed longer" is worth, for both a step and the probe in front of it.
+
+One figure, used in both places, because they answer the same question about the same
+service. Two figures drift, and the way they drift is the whole bug below: a capability
+generous enough to fetch a page but not to say that it can.
+"""
+
+
+def _ceiling(pack_id: str, seconds: float) -> float:
+    """How long this capability has to answer, before it is called down."""
+    return seconds * SLOW_MULTIPLE if pack_id in SLOW_SERVICES else seconds
 
 
 async def probe_all(
@@ -104,6 +117,13 @@ async def probe_all(
     A probe is a network call to somebody else's service, so it gets a timeout. A capability
     that does not answer in time is unavailable for this turn rather than a turn that does
     not happen.
+
+    The slow ones get the same allowance their steps get. They are slow because of what they
+    do -- research asks a browser and a model provider whether they are there -- and the
+    first such call after an idle spell measured 5.06 seconds against a ceiling of 5.00, in
+    front of a service that answered every later call in 47 milliseconds. So the capability
+    documented as needing longer was the one capability reported down, on the first turn of
+    every session, about a service that was working.
     """
 
     async def one(pack: CapabilityPack) -> Bound:
@@ -114,7 +134,7 @@ async def probe_all(
             availability = cached
         else:
             try:
-                async with asyncio.timeout(seconds):
+                async with asyncio.timeout(_ceiling(pack.id, seconds)):
                     availability = await pack.probe(context)
             except TimeoutError:
                 availability = Availability(
@@ -259,11 +279,12 @@ def limits_for(bound: Sequence[Bound], policy: TurnPolicy | None = None) -> dict
     """
     limits = policy if policy is not None else TurnPolicy()
     slow = any(item.pack.id in SLOW_SERVICES for item in bound)
+    multiple = SLOW_MULTIPLE if slow else 1
     return {
         "maxSteps": limits.max_steps,
         "maxParallel": limits.max_parallel,
-        "stepTimeoutMs": limits.step_timeout_ms * (3 if slow else 1),
-        "planTimeoutMs": limits.plan_timeout_ms * (3 if slow else 1),
+        "stepTimeoutMs": limits.step_timeout_ms * multiple,
+        "planTimeoutMs": limits.plan_timeout_ms * multiple,
     }
 
 
@@ -324,6 +345,7 @@ __all__ = [
     "ALWAYS",
     "DEFER_ABOVE",
     "KEEP_RECENT",
+    "SLOW_MULTIPLE",
     "SLOW_SERVICES",
     "apply_disabled",
     "build_registry",

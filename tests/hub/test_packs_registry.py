@@ -16,6 +16,9 @@ from lucy_api.packs.registry import (
     ALWAYS,
     DEFER_ABOVE,
     KEEP_RECENT,
+    PROBE_SECONDS,
+    SLOW_MULTIPLE,
+    _ceiling,
     build_registry,
     build_runtime,
     choose_bound,
@@ -36,6 +39,7 @@ class Gadget:
         hang: bool = False,
         boom: bool = False,
         slow: bool = False,
+        delay: float = 0.0,
     ) -> None:
         self.id = pack_id
         self.title = pack_id.title()
@@ -43,6 +47,7 @@ class Gadget:
         self._hang = hang
         self._boom = boom
         self._slow = slow
+        self._delay = delay
 
     @property
     def docs(self) -> None:
@@ -57,6 +62,8 @@ class Gadget:
     async def probe(self, _context: object) -> Availability:
         if self._hang:
             await asyncio.sleep(10)
+        if self._delay:
+            await asyncio.sleep(self._delay)
         if self._boom:
             raise RuntimeError("down")
         return Availability(state=State.ready, detail="connected")
@@ -161,3 +168,49 @@ async def test_an_always_on_capability_does_not_spend_the_recency_budget() -> No
     gadgets = sorted(name for name in names if name.startswith("g"))
     assert len(gadgets) == KEEP_RECENT, gadgets
     assert len(deferred) == DEFER_ABOVE - KEEP_RECENT
+
+
+# --- the slow ones get the same allowance to answer that they get to work ----------------------
+#
+# `SLOW_SERVICES` widened step and plan timeouts and nothing else, so the capability declared
+# to need longer was given the shortest possible leash on the one call that decides whether it
+# is bound at all. Research's probe asks web-search for its providers, which warms a browser
+# pool: the first such call after an idle spell measured 5.06s against a ceiling of 5.00, in
+# front of a service that answered every later call in 47ms. What a person saw on the first
+# turn of every session was "Research: it did not answer in time."
+
+
+async def test_a_slow_capability_is_given_longer_to_answer_than_an_ordinary_one() -> None:
+    """The defect in one line: the same delay, ready for research and down for anything else."""
+    just_over = 0.05 * 1.4
+    catalogue = await probe_all(
+        (Gadget("research", delay=just_over), Gadget("notes", delay=just_over)),
+        _context(),
+        seconds=0.05,
+    )
+    by_id = {item.pack.id: item.availability.state for item in catalogue.bound}
+    assert by_id["research"] is State.ready
+    assert by_id["notes"] is State.unavailable
+
+
+async def test_a_slow_capability_that_is_really_down_is_still_called_down() -> None:
+    """Longer, not unbounded. A person waiting on a reply is not made to wait forever for a
+    service that has stopped answering."""
+    catalogue = await probe_all((Gadget("research", hang=True),), _context(), seconds=0.02)
+    research = catalogue.get("research")
+    assert research is not None
+    assert research.availability.state is State.unavailable
+
+
+def test_a_step_and_the_probe_in_front_of_it_are_widened_by_the_same_figure() -> None:
+    """Two figures drift, and the way they drift is this bug. One constant, read twice."""
+    ordinary = limits_for((Bound(pack=HelpPack(), availability=Availability(state=State.ready)),))
+    slow = limits_for(
+        (
+            Bound(pack=HelpPack(), availability=Availability(state=State.ready)),
+            Bound(pack=Gadget("research"), availability=Availability(state=State.ready)),
+        )
+    )
+    assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * SLOW_MULTIPLE
+    assert _ceiling("research", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE
+    assert _ceiling("notes", PROBE_SECONDS) == PROBE_SECONDS
