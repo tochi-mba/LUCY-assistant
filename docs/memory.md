@@ -43,6 +43,23 @@ index pretending to be complete.
 | `notes.correct` | Supersede, keeping history. Never delete-then-add. |
 | `notes.forget` | Hidden immediately, erased after the grace period, restorable until then. |
 
+## Lessons
+
+A lesson is how this person wants the assistant to work: one imperative sentence, not a
+fact about them. Lessons are Persona-api notes of kind `lesson`, written by the assistant
+and pinned, so the persona feed carries them into every conversation as standing notes,
+each marked `lesson:` with its `[ref ...]`. `lucy.feeds_persona_notes` turns that off.
+
+| Operation | What it does |
+| --- | --- |
+| `notes.learn` | Keep a lesson. Refused past Persona-api's pinned-note cap, naming it. |
+| `notes.reviseLesson` | Reword one by its ref, rather than keeping a second. |
+| `notes.unlearn` | Stop following one. Persona-api's forget is a tombstone. |
+
+Learning and rewording are `notes.write`; unlearning is `notes.erase`, which asks even
+in `auto`. They are offered only where a Persona-api is configured, and never in an
+incognito session.
+
 `lucy.memory_write_policy` is `never`, `ask_first` (default), or `automatic`. Confirming is
 always explicit: permanence is what makes a memory store worth attacking, so untrusted
 notes are never auto-retrieved.

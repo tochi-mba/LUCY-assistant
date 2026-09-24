@@ -155,7 +155,8 @@ machine is listed as in progress, however finished it looks.
   means never. A running, queued, or `input_required` conversation is not idle.
 - **Approval floor.** `lucy.approval_policy` still asks about destructive writes in
   `auto`, and about spend when it is `spend_and_destructive_ask`. Grants skip the floor;
-  the mode does not. `notes.erase` covers `notes.forget`; `workspace.destroy` covers
+  the mode does not. `notes.erase` covers `notes.forget` and `notes.unlearn`;
+  `workspace.destroy` covers
   `workspace.delete`.
 - **Pack documentation.** Help, notes, workspace, music, research, settings, work and
   helpers ship inline markdown the model can read through `help.docs`. MCP skills cover

@@ -5,6 +5,11 @@ fields a person asked to keep in view. This pack is the one place the model read
 as "notes", because a model that has to pick between three services to answer "what do we
 know about them" will pick wrong, and a model that never sees a service cannot.
 
+Lessons are the fourth thing, and Persona's: how this person wants the assistant to work,
+kept as pinned persona notes so the persona feed carries them into every conversation.
+`notes.learn`, `notes.reviseLesson` and `notes.unlearn` are offered only where a Persona-api
+is configured, because a lesson with nowhere to go is a promise the prompt cannot keep.
+
 The three stores stay separate lists. Memory retrieval scores and account pinning are not
 the same ranking, and merging them would hide a pinned name under a bm25 that meant
 something else. `notes.search` is memory only. `notes.aboutMe` returns `blocks`, `facts`
@@ -24,7 +29,7 @@ from weftai.schema.spec import integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
-from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.errors import AbsentError, DownstreamError, RateLimitedError
 from lucy_api.clients.memory import (
     AUDIENCE,
     DEFAULT_LIMIT,
@@ -33,6 +38,8 @@ from lucy_api.clients.memory import (
     MemoryClient,
     as_dict,
 )
+from lucy_api.clients.persona import HttpPersonaClient, PersonaClient
+from lucy_api.clients.persona import as_dict as lesson_dict
 from lucy_api.clients.user import AUDIENCE as USER_AUDIENCE
 from lucy_api.clients.user import HttpUserClient
 from lucy_api.clients.user import as_dict as account_dict
@@ -51,6 +58,7 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import PackContext
 
 INCOGNITO = "this session is incognito: notes are neither read nor written"
+NO_LESSON = "no lesson has that id; each lesson's id is its [ref ...] in your standing notes"
 
 
 class NotesPack:
@@ -60,26 +68,32 @@ class NotesPack:
     title = "Notes"
     summary = "Remember, search, confirm, correct and forget facts about the person."
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- one base URL per store it fronts, and a fake for two
         self,
         base_url: str,
         *,
         audience: str = AUDIENCE,
         user_base_url: str = "",
         user_audience: str = USER_AUDIENCE,
+        persona_base_url: str = "",
         client: MemoryClient | None = None,
+        persona: PersonaClient | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
         self.user_base_url = user_base_url.rstrip("/")
         self.user_audience = user_audience
+        self.persona_base_url = persona_base_url.rstrip("/")
         self._override = client
+        self._persona = persona
 
     @property
     def docs(self) -> str | Path | None:
         return capability_doc(self.id)
 
     def permissions(self) -> Sequence[Permission]:
+        # A person reading what a permission covers is told only about what can run here.
+        lessons = self._lessons_kept()
         return (
             Permission(
                 id="notes.write",
@@ -91,6 +105,7 @@ class NotesPack:
                     "notes.remember",
                     "notes.confirm",
                     "notes.correct",
+                    *(("notes.learn", "notes.reviseLesson") if lessons else ()),
                 ),
             ),
             Permission(
@@ -101,7 +116,7 @@ class NotesPack:
                     "allowed this."
                 ),
                 risk="destructive",
-                covers=("notes.forget",),
+                covers=("notes.forget", *(("notes.unlearn",) if lessons else ())),
             ),
         )
 
@@ -284,12 +299,60 @@ class NotesPack:
                     "run": self._forget,
                 }
             ),
+            *(self._lesson_operations() if self._lessons_kept() else ()),
+        )
+
+    def _lessons_kept(self) -> bool:
+        return self._persona is not None or bool(self.persona_base_url)
+
+    def _lesson_operations(self) -> tuple[AnyOperation, ...]:
+        lesson = string_schema().describe(
+            "One sentence, in the imperative, about how to work with this person."
+        )
+        lesson_id = string_schema().describe("The lesson's ref from your standing notes.")
+        return (
+            define_operation(
+                {
+                    "name": "notes.learn",
+                    "description": (
+                        "Keep a lesson: how this person wants you to work. It comes back "
+                        "in every later conversation."
+                    ),
+                    "input": object_schema({"lesson": lesson}),
+                    "output": value(object_schema({})),
+                    "effects": "write",
+                    "run": self._learn,
+                }
+            ),
+            define_operation(
+                {
+                    "name": "notes.reviseLesson",
+                    "description": "Reword a lesson rather than keeping a second one.",
+                    "input": object_schema({"lesson_id": lesson_id, "lesson": lesson}),
+                    "output": value(object_schema({})),
+                    "effects": "write",
+                    "run": self._revise_lesson,
+                }
+            ),
+            define_operation(
+                {
+                    "name": "notes.unlearn",
+                    "description": "Stop following a lesson that is wrong or no longer wanted.",
+                    "input": object_schema({"lesson_id": lesson_id}),
+                    "output": value(object_schema({})),
+                    "effects": "write",
+                    "run": self._unlearn,
+                }
+            ),
         )
 
     def _client(self, context: PackContext) -> MemoryClient:
         return self._override or HttpMemoryClient(
             context.http, self.base_url, audience=self.audience
         )
+
+    def _lessons(self, context: PackContext) -> PersonaClient:
+        return self._persona or HttpPersonaClient(context.http, self.persona_base_url)
 
     def _account(self, context: PackContext) -> HttpUserClient | None:
         if not self.user_base_url:
@@ -411,6 +474,52 @@ class NotesPack:
             )
         )
 
+    async def _learn(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        refused = _incognito(run) or _unsaid(run)
+        if refused is not None:
+            return refused
+        try:
+            learned = await self._lessons(run.ctx).learn(_said(run), profile=run.ctx.profile)
+        except RateLimitedError as full:
+            return {
+                "status": "full",
+                "message": f"{full.detail}: revise or unlearn a lesson you no longer need",
+            }
+        return lesson_dict(learned)
+
+    async def _revise_lesson(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        refused = _incognito(run) or _unsaid(run)
+        if refused is not None:
+            return refused
+        try:
+            revised = await self._lessons(run.ctx).revise(
+                str(run.input.get("lesson_id") or ""), _said(run), profile=run.ctx.profile
+            )
+        except AbsentError:
+            return {"status": "not_found", "message": NO_LESSON}
+        return lesson_dict(revised)
+
+    async def _unlearn(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        refused = _incognito(run)
+        if refused is not None:
+            return refused
+        lesson_id = str(run.input.get("lesson_id") or "")
+        try:
+            await self._lessons(run.ctx).unlearn(lesson_id, profile=run.ctx.profile)
+        except AbsentError:
+            return {"status": "not_found", "message": NO_LESSON}
+        return {"lesson_id": lesson_id, "status": "unlearned"}
+
+
+def _said(run: RunContext[PackContext]) -> str:
+    return " ".join(str(run.input.get("lesson") or "").split())
+
+
+def _unsaid(run: RunContext[PackContext]) -> dict[str, Any] | None:
+    if _said(run):
+        return None
+    return {"status": "invalid", "message": "say the lesson, in one sentence"}
+
 
 def _incognito(run: RunContext[PackContext]) -> dict[str, Any] | None:
     if run.ctx.incognito:
@@ -424,7 +533,7 @@ async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:
         "kinds": {
             "fact": "A durable claim about the person.",
             "episode": "Something that happened in a session.",
-            "procedure": "How they like something done.",
+            "procedure": "How they like something done, as a memory about them.",
             "summary": "A distilled cluster of older notes.",
         },
         "sections": {

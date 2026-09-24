@@ -49,7 +49,7 @@ async def test_a_grant_round_trips_and_is_invisible_to_another_account(client: C
     assert {"notes.remember", "notes.confirm"} <= set(permissions["notes.write"]["covers"])
     assert "notes.forget" not in permissions["notes.write"]["covers"]
     erase = next(row for row in listed.json()["data"] if row["id"] == "notes.erase")
-    assert erase["covers"] == ["notes.forget"]
+    assert erase["covers"] == ["notes.forget", "notes.unlearn"]
     assert stranger_permissions["notes.write"]["grant"] is None
     assert forgotten.status_code == 204
     assert missing.status_code == 404

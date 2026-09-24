@@ -421,7 +421,7 @@ and a grant the model will see as "not allowed", never an exception.
 
 `auto` still asks for anything marked destructive or (when `approval_policy` is
 `spend_and_destructive_ask`) anything that spends money. A stored grant can skip that
-floor; the mode cannot. `notes.forget` is `notes.erase`. `workspace.delete` is
+floor; the mode cannot. `notes.forget` and `notes.unlearn` are `notes.erase`. `workspace.delete` is
 `workspace.destroy`. Those are separate from `notes.write` and `workspace.files` so
 allowing ordinary writes does not also allow a delete.
 

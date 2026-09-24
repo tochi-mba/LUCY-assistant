@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.clients.errors import AbsentError, DownstreamError, NotConnectedError
+from lucy_api.clients.persona import LESSON
 from lucy_api.clients.transport import Sibling, field, rows, segment, text
 from lucy_api.context.feeds import Feed, FeedEntry, FeedRequest, Volatility
 from lucy_api.context.types import Trust
@@ -335,7 +336,11 @@ def _persona_entries(payload: Any) -> tuple[FeedEntry, ...]:
         if not isinstance(item, dict):
             continue
         note_id = text(item, "note_id")
-        entries.append(_persona_entry(f"note_{index}", "notes", text(item, "body"), item, note_id))
+        body = text(item, "body")
+        # Marked, so a model can tell how to work from what is known, and has the ref to
+        # revise or unlearn it by.
+        line = f"lesson: {body}" if text(item, "kind") == LESSON else body
+        entries.append(_persona_entry(f"note_{index}", "notes", line, item, note_id))
     return tuple(entries)
 
 
