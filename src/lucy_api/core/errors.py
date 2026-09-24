@@ -21,6 +21,15 @@ def conflict(detail: str) -> LucyError:
     return LucyError("conflict", detail, 409)
 
 
+def model_unavailable(detail: str) -> LucyError:
+    """A conversation named a model this hub has no way to reach.
+
+    Refused when the conversation is created, not at its first turn: a session that can never
+    answer is worse than no session, because every message sent to it fails.
+    """
+    return LucyError("model-unavailable", detail, 422)
+
+
 def settings_unavailable(detail: str) -> LucyError:
     """A refuse key could not be confirmed, so this turn must not guess."""
     return LucyError("settings-unavailable", detail, 503)

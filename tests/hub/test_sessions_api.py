@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from asgi_lifespan import LifespanManager
-from conftest import ACCOUNT, bearer
+from conftest import ACCOUNT, bearer, build_settings
 from httpx import ASGITransport, AsyncClient
 from settings_client.testing import FakeSettingsClient
 
@@ -135,6 +135,7 @@ class TestCreating:
         assert '"tasks"' in fake.contents[(env, f"{root}/tasks.json")]
         assert any(command == "git init" for _env, command, *_rest in fake.ran)
 
+    @pytest.mark.parametrize("settings", [build_settings(model_keys={"openai": "sk-test"})])
     async def test_an_explicit_create_field_is_not_overwritten_by_settings(self, hub: Hub) -> None:
         created = await create(
             hub,

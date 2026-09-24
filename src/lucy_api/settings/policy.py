@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.settings.catalogue import DEFAULT_MODEL
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -76,7 +78,7 @@ class TurnPolicy:
     decision_recovery: bool = False
     decision_timeout_ms: int = 1000
     decision_max_per_turn: int = 8
-    model: str = "anthropic:claude-opus-5"
+    model: str = DEFAULT_MODEL
     fallback_model: str = ""
     thinking: str = "medium"
     max_thinking_tokens: int = 0
@@ -180,7 +182,7 @@ class TurnPolicy:
             decision_max_per_turn=_clamp(
                 read("decision_max_per_turn", 8), 8, minimum=1, maximum=32
             ),
-            model=_text(read("model", "anthropic:claude-opus-5"), "anthropic:claude-opus-5"),
+            model=_text(read("model", DEFAULT_MODEL), DEFAULT_MODEL),
             fallback_model=_optional_spec(read("fallback_model", "")),
             thinking=_text(
                 read("thinking", "medium"),

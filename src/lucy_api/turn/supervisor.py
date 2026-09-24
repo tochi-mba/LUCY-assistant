@@ -201,6 +201,12 @@ class TurnSupervisor:
         prepared = self._prepared.pop(claimed.id, None)
         try:
             provider = self._models.resolve(claimed.model)
+        except UnknownModelError as exc:
+            # Authored for the person -- which provider, what is missing, the command that
+            # adds it -- so it is the one exception whose message is kept. Reduced to its type,
+            # as it was, a turn on an unconfigured model failed with nothing to act on.
+            await self._finish_failure(claimed, str(exc))
+            return
         except Exception as exc:
             await self._finish_failure(
                 claimed, f"model configuration failed ({type(exc).__name__})"

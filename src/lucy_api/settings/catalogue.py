@@ -117,13 +117,24 @@ def _enum(  # noqa: PLR0913
     )
 
 
+DEFAULT_MODEL = "anthropic:claude-opus-5"
+"""The model a profile gets when nobody chose one -- which is a default, not a guarantee.
+
+A deployment may have no key for it. On a family whose only provider was clyde, every
+conversation `lucy talk` started got this model and failed in 22 milliseconds, so a session
+created without a model falls back to one the hub can actually run
+(`Container.apply_create_defaults`). Named once, because comparing against it is how that
+fallback tells "nobody chose" from "somebody chose this and it cannot run here".
+"""
+
+
 def _core() -> tuple[Knob, ...]:
     return (
         Knob(
             key="model",
             summary="Which model Lucy uses for this profile.",
             value_type=ValueType.STR,
-            default="anthropic:claude-opus-5",
+            default=DEFAULT_MODEL,
             on_unavailable=OnUnavailable.USE_DEFAULT,
             description=(
                 "Empty means the hub default. A named model must be one this deployment "

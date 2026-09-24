@@ -168,6 +168,33 @@ async def test_an_unconfigured_model_records_a_safe_failure_instead_of_leaving_w
     assert outcome["status"] == "failed"
     assert items[-1]["content"]["code"] == "model_unavailable"
     assert "credential" not in items[-1]["content"]["detail"]
+    # The registry's own sentence, not the exception's name: which provider, what is
+    # missing, and the command that adds it.
+    assert "lucy models connect openai" in items[-1]["content"]["detail"]
+    await running.aclose()
+
+
+async def test_a_provider_that_cannot_even_be_built_is_named_by_its_error_type_only(
+    store: SessionStore,
+) -> None:
+    """Any other failure keeps the old, safe shape: its message may carry what caused it."""
+
+    def broken(_model: str) -> Any:
+        message = "sk-live-do-not-log"
+        raise RuntimeError(message)
+
+    conversation = await session(store, model="broken:demo")
+    await submit_messages(
+        store, ACCOUNT, conversation, [{"type": "input.message", "content": "Hi"}], "broken"
+    )
+    running = supervisor(store, ScriptedProvider(), models=ModelRegistry({"broken": broken}))
+
+    running.wake()
+    await running.join()
+
+    items = await store.records(ACCOUNT, conversation, "items")
+    assert items[-1]["content"]["detail"] == "model configuration failed (RuntimeError)"
+    assert "sk-live" not in items[-1]["content"]["detail"]
     await running.aclose()
 
 

@@ -59,13 +59,13 @@ from lucy_api.context.build import Live
 from lucy_api.context.fields import FIELDS, feed_setting_key
 from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
 from lucy_api.context.sources import Sources
-from lucy_api.core.errors import LucyError, settings_unavailable
+from lucy_api.core.errors import LucyError, model_unavailable, settings_unavailable
 from lucy_api.decide import USES, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
 from lucy_api.memory.index import MemoryIndex
 from lucy_api.model.readiness import Readiness
-from lucy_api.model.registry import ModelRegistry, http_registry
+from lucy_api.model.registry import ModelRegistry, UnknownModelError, http_registry
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportDownstreamError
 from lucy_api.packs.http import PackHttp, apply_downstream_policy
@@ -88,6 +88,7 @@ from lucy_api.sessions.scope import (
 )
 from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
+from lucy_api.settings.catalogue import DEFAULT_MODEL
 from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, NewEvent, SqlEventLog
@@ -409,8 +410,10 @@ class Container:
         policy = TurnPolicy.from_resolved(resolved)
         sent = request.model_fields_set
         updates: dict[str, object] = {}
-        if "model" not in sent:
-            updates["model"] = policy.model
+        if "model" in sent:
+            self._require_runnable(request.model)
+        else:
+            updates["model"] = await self._runnable_default(policy.model)
         if "thinking_config" not in sent:
             updates["thinking_config"] = policy.thinking
         if "permission_mode" not in sent:
@@ -422,6 +425,47 @@ class Container:
         if not updates:
             return request
         return request.model_copy(update=updates)
+
+    def _runnable(self, spec: str) -> bool:
+        try:
+            self.models.resolve(spec)
+        except UnknownModelError:
+            return False
+        return True
+
+    def _require_runnable(self, spec: str) -> None:
+        """Refuse a named model this hub cannot reach, with the registry's own explanation.
+
+        The registry already says what is wrong and what fixes it -- "this hub can talk to
+        Anthropic, but nothing is configured for it. Run `lucy models connect anthropic`" --
+        and it used to be thrown away: the conversation was created, and its first turn failed
+        with `model configuration failed (UnknownModelError)` and nothing else.
+        """
+        try:
+            self.models.resolve(spec)
+        except UnknownModelError as exc:
+            raise model_unavailable(str(exc)) from exc
+
+    async def _runnable_default(self, chosen: str) -> str:
+        """The profile's model, unless nobody chose it and this hub cannot run it.
+
+        A model somebody chose is kept when it can run and refused, with the reason, when it
+        cannot -- switching a person's choice silently would be worse than saying no. Only the
+        catalogue's own default is replaced, by the first model a ready (then a configured)
+        provider says it has. When nothing at all is configured there is no better choice to
+        make, so the default stands and the turn will say what is missing.
+        """
+        if self._runnable(chosen):
+            return chosen
+        if chosen != DEFAULT_MODEL:
+            self._require_runnable(chosen)
+        report = await self.readiness.report(prove=True)
+        for row in (*report.ready, *report.available):
+            for model in row.models[:1]:
+                spec = f"{row.provider}:{model}"
+                if self._runnable(spec):
+                    return spec
+        return chosen
 
     async def prepare_turn(self, request: PackRequest, session: dict[str, object]) -> PreparedTurn:
         """Resolve one turn's ephemeral authority, feeds, and feed policy.
