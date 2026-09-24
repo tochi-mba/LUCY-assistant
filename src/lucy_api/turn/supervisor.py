@@ -45,6 +45,7 @@ from lucy_api.turn.prompt import (
     SessionView,
     conversation_order,
     projected_rows,
+    schema_tokens,
     system_and_messages,
     view_limits,
 )
@@ -346,6 +347,9 @@ class TurnSupervisor:
                 turn_number=turn_number,
                 live=live,
                 response_style=policy.response_style,
+                schema_tokens=schema_tokens(
+                    self._capabilities.plan_schema(catalogue, claimed.session_id, pack_ctx)
+                ),
                 **view_limits(policy),
             )
             _rows, reclaimed = projected_rows(view)

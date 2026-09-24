@@ -17,7 +17,7 @@ from lucy_api.model.registry import parse_spec
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
-from lucy_api.turn.prompt import SessionView, system_and_messages, view_limits
+from lucy_api.turn.prompt import SessionView, schema_tokens, system_and_messages, view_limits
 from lucy_api.turn.stop import RESUMABLE, Budget, Termination
 
 if TYPE_CHECKING:
@@ -443,6 +443,9 @@ class ChildRuntime:
                     # the strength of that was refused.
                     session={**session, "permission_mode": child.permission_mode},
                     response_style=parent.policy.response_style,
+                    schema_tokens=schema_tokens(
+                        self.capabilities.plan_schema(catalogue, parent.session_id, child)
+                    ),
                     **view_limits(parent.policy),
                 ),
                 notice=combined,
