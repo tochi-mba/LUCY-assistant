@@ -807,6 +807,7 @@ def build_container(
                 search_base_url=settings.web_search_base_url,
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,
+                persona_base_url=settings.persona_api_base_url,
             ),
             WatchPack(settings.environments_api_base_url, fetch=httpx_fetch(outbound)),
             McpPack(mcp_servers, httpx_call(outbound)),

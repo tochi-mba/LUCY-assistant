@@ -54,6 +54,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     search_base_url: str = "http://127.0.0.1:8006",
     settings_base_url: str = "http://127.0.0.1:8003",
     environments_base_url: str = "http://127.0.0.1:8008",
+    persona_base_url: str = "",
 ) -> tuple[CapabilityPack, ...]:
     """What this build ships. Third-party packs arrive through entry points later.
 
@@ -67,7 +68,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     """
     return (
         HelpPack(),
-        NotesPack(memory_base_url, user_base_url=user_base_url),
+        NotesPack(memory_base_url, user_base_url=user_base_url, persona_base_url=persona_base_url),
         ResearchPack(search_base_url),
         MusicPack(spotify_base_url),
         SettingsPack(settings_base_url),
