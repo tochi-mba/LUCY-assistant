@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lucy_api.clients.search import (
+    WORK_TIMEOUT_SECONDS,
     Article,
     FakeSearchClient,
     Findings,
@@ -99,3 +100,37 @@ async def test_the_in_memory_web_records_what_was_asked() -> None:
     assert summary.executive_summary == "a summary"
     assert fake.asked == ["tea", "coffee", "tea"]
     assert fake.profiles == ["work", "work", "work"]
+
+
+# --- a health check and a page fetch are not the same wait -------------------------------------
+#
+# `GET /v1/models` answers in milliseconds; a scrape drives a headless browser and then a model,
+# and a single page measured 15 seconds warm. Against the one `http_timeout_seconds` the call
+# was abandoned at ten, retried, abandoned again, and the step died at its own ceiling reporting
+# a timeout that had already happened three times underneath it.
+
+
+async def test_a_scrape_waits_longer_than_a_health_check() -> None:
+    http = FakeHttp(Answer(body={"results": [], "summary": None}))
+    await HttpSearchClient(http, "http://search.test").scrape(["https://example.invalid"])
+    assert http.last.timeout_seconds == WORK_TIMEOUT_SECONDS
+    assert WORK_TIMEOUT_SECONDS > 10
+
+
+async def test_a_search_waits_longer_too() -> None:
+    http = FakeHttp(Answer(body={"results": []}))
+    await HttpSearchClient(http, "http://search.test").search(["anything"])
+    assert http.last.timeout_seconds == WORK_TIMEOUT_SECONDS
+
+
+async def test_a_summarise_waits_longer_too() -> None:
+    http = FakeHttp(Answer(body={"summary": None}))
+    await HttpSearchClient(http, "http://search.test").summarize("a long body")
+    assert http.last.timeout_seconds == WORK_TIMEOUT_SECONDS
+
+
+async def test_the_provider_probe_keeps_the_short_wait() -> None:
+    """A provider list that has not arrived in ten seconds is one that is not coming."""
+    http = FakeHttp(Answer(body=[]))
+    await HttpSearchClient(http, "http://search.test").providers()
+    assert http.last.timeout_seconds is None
