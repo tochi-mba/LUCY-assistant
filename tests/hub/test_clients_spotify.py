@@ -165,6 +165,18 @@ async def test_a_player_command_is_waited_on_longer_than_the_service_takes_to_co
     assert CONFIRM_WAIT_SECONDS > SIBLING_CONFIRM_SECONDS
 
 
+async def test_a_lookup_may_be_sent_again_and_a_player_command_may_not() -> None:
+    """A lookup is a read sent as a POST. A player command is not a read: sent twice, a play
+    restarts the track the first one started."""
+    http = FakeHttp(Answer(body={"results": []}), Answer(body={"is_playing": True}))
+    client = HttpSpotifyClient(http, "http://music.test")
+
+    await client.find([], profile="work")
+    await client.play("work", uris=["spotify:track:1"])
+
+    assert [call.repeatable for call in http.calls] == [True, None]
+
+
 async def test_a_read_keeps_the_turn_s_ordinary_wait() -> None:
     http = FakeHttp(Answer(body={"is_playing": False}))
     await HttpSpotifyClient(http, "http://music.test").now_playing("work")

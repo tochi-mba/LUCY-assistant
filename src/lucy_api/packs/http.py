@@ -254,7 +254,7 @@ class PackHttp:
 
         A failure is retried only when sending the request again cannot do its work twice:
         any method that never left (:data:`NEVER_SENT`) or was turned away with a 429, and
-        otherwise only :data:`IDEMPOTENT_METHODS`.
+        otherwise only :data:`IDEMPOTENT_METHODS` and a call that says it is ``repeatable``.
         """
         deadline = self._clock() + self.retry_max_seconds
         attempt = 0
@@ -318,6 +318,8 @@ def apply_downstream_policy(http: object, policy: object) -> None:
 
 
 def _idempotent(call: Call) -> bool:
+    if call.repeatable is not None:
+        return call.repeatable
     return call.method.upper() in IDEMPOTENT_METHODS
 
 

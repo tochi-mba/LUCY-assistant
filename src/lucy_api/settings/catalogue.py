@@ -367,8 +367,10 @@ def _core() -> tuple[Knob, ...]:
         _int(
             "retry_attempts",
             2,
-            "How many extra tries a failed downstream call gets.",
-            "Zero means the first failure is the answer. 401 is never retried.",
+            "How many extra tries a failed downstream call gets, when trying again is safe.",
+            "Zero means the first failure is the answer. 401 is never retried. A write is "
+            "tried again only when it cannot have been acted on: it never left, or was "
+            "turned away with a 429.",
             minimum=0,
             maximum=10,
             unavailable=OnUnavailable.USE_DEFAULT,

@@ -205,6 +205,23 @@ async def test_a_summarise_waits_longer_too() -> None:
     assert http.last.timeout_seconds == WORK_TIMEOUT_SECONDS
 
 
+async def test_every_research_call_is_a_read_that_may_be_sent_again() -> None:
+    """They are POSTs because their questions do not fit a query string, and nothing else about
+    them is a write: a 503 while the browser warms up should cost a repeat, not the step."""
+    http = FakeHttp(
+        Answer(body={"results": []}),
+        Answer(body={"results": [], "summary": None}),
+        Answer(body={"summary": None}),
+    )
+    client = HttpSearchClient(http, "http://search.test")
+
+    await client.search(["anything"])
+    await client.scrape(["https://example.invalid"])
+    await client.summarize("a long body")
+
+    assert [(call.method, call.repeatable) for call in http.calls] == [("POST", True)] * 3
+
+
 async def test_the_provider_probe_keeps_the_short_wait() -> None:
     """A provider list that has not arrived in ten seconds is one that is not coming."""
     http = FakeHttp(Answer(body=[]))
