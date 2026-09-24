@@ -15,6 +15,7 @@ from lucy_api.packs.help import HelpPack
 from lucy_api.packs.registry import (
     ALWAYS,
     DEFER_ABOVE,
+    FIRST_LOADED,
     KEEP_RECENT,
     PROBE_SECONDS,
     SLOW_MULTIPLE,
@@ -168,6 +169,30 @@ async def test_an_always_on_capability_does_not_spend_the_recency_budget() -> No
     gadgets = sorted(name for name in names if name.startswith("g"))
     assert len(gadgets) == KEEP_RECENT, gadgets
     assert len(deferred) == DEFER_ABOVE - KEEP_RECENT
+
+
+async def test_a_new_conversation_keeps_the_most_useful_capabilities_first() -> None:
+    """The bug, named: with no recency, the tie was broken by id, and on a stock family the
+    capability left out of four slots was `workspace` -- last in the alphabet -- so every new
+    conversation spent a round binding it before it could touch a file."""
+    stock = ("notes", "research", "settings", "watch", "workspace", "agents", "work")
+    catalogue = await probe_all([HelpPack(), *[Gadget(name) for name in stock]], _context())
+
+    bound, deferred = choose_bound(catalogue, recent=())
+
+    names = {item.pack.id for item in bound}
+    assert {"notes", "workspace", "research", "watch"} <= names
+    assert deferred == ("settings",)
+    assert FIRST_LOADED[:KEEP_RECENT] == ("notes", "workspace", "research", "watch")
+
+
+async def test_what_the_conversation_used_still_comes_before_the_default_order() -> None:
+    stock = ("notes", "research", "settings", "watch", "workspace", "music")
+    catalogue = await probe_all([HelpPack(), *[Gadget(name) for name in stock]], _context())
+
+    _bound, deferred = choose_bound(catalogue, recent=("music", "settings"))
+
+    assert set(deferred) == {"research", "watch"}
 
 
 # --- the slow ones get the same allowance to answer that they get to work ----------------------
