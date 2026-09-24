@@ -53,3 +53,6 @@ htmlcov/
 # Token-broker development and deployment state
 /broker/node_modules/
 /broker/.wrangler/
+
+# Claude Code checks out isolated git worktrees here; they are never content.
+/.claude/worktrees/
