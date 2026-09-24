@@ -444,7 +444,7 @@ def test_the_memory_index_is_one_line_per_topic_with_a_count_and_a_recency() -> 
     assert headline(rendered, "memory") == "1 topic, 12 memories, 2 unread"
     assert entries_of(rendered, "memory") == [
         "Ingest pipeline - how the old API is shaped and who calls it"
-        " - 12 memories, 2 unread - last seen 3d00h ago"
+        " - 12 memories, 2 unread - last seen 3d00h ago - topic_id p1"
     ]
 
 
@@ -462,8 +462,15 @@ def test_unconfirmed_memories_are_said_rather_than_dropped() -> None:
     assert headline(rendered, "memory") == "2 topics, 24 memories, 3 unconfirmed"
     assert entries_of(rendered, "memory")[0] == (
         "Ingest pipeline - how the old API is shaped and who calls it"
-        " - 12 memories, 2 unconfirmed - last seen 3d00h ago"
+        " - 12 memories, 2 unconfirmed - last seen 3d00h ago - topic_id p1"
     )
+
+
+def test_each_topic_carries_the_id_opening_it_takes() -> None:
+    """`notes.openTopic` asks for "the topic id from the live memory index", and the index
+    never gave one: the model guessed, and was told the topic was not found."""
+    state = a_state(topics=(a_topic(id="top_4f2a"),))
+    assert entries_of(body_of(state), "memory")[0].endswith(" - topic_id top_4f2a")
 
 
 def test_an_index_with_nothing_unconfirmed_does_not_mention_it() -> None:
@@ -476,7 +483,7 @@ def test_a_topic_nobody_has_opened_yet_claims_no_recency_at_all() -> None:
     state = a_state(topics=(a_topic(count=1),))
 
     assert entries_of(body_of(state), "memory") == [
-        "Ingest pipeline - how the old API is shaped and who calls it - 1 memory"
+        "Ingest pipeline - how the old API is shaped and who calls it - 1 memory - topic_id p1"
     ]
     assert headline(body_of(state), "memory") == "1 topic, 1 memory"
 
@@ -524,7 +531,7 @@ def test_a_topic_built_from_untrusted_content_is_marked_as_such() -> None:
     shown = entries_of(body_of(state), "memory")
 
     assert "trust" not in shown[0]
-    assert shown[1].endswith("trust: untrusted")
+    assert shown[1].endswith("trust: untrusted - topic_id p2")
 
 
 def test_forty_topics_show_eight_and_say_how_many_more_there_are() -> None:
@@ -574,13 +581,13 @@ def test_a_crowd_in_one_group_cannot_spend_another_groups_room() -> None:
         )
     )
 
-    squeezed = body_of(state, limit=290)
+    squeezed = body_of(state, limit=300)
     assert len(entries_of(squeezed, "in_flight")) == 2
     assert len(entries_of(squeezed, "memory")) == 3
 
     # Tighter still, the index goes and the roster stays: what is already under way cannot
     # be fetched back the way a topic can. See the ranks in `QUOTAS`.
-    tighter = body_of(state, limit=260)
+    tighter = body_of(state, limit=270)
     assert not has_group(tighter, "memory")
     assert len(entries_of(tighter, "in_flight")) == 2
 

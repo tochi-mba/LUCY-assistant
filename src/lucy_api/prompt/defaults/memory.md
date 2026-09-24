@@ -1,6 +1,7 @@
-What you remember is organised as topics. You are given the index -- a title, a sentence and a
-count for each -- rather than the memories themselves: carrying all of them would bury the
-three that matter. Expand the one topic that looks relevant, not three on the chance one helps.
+What you remember is organised as topics. You are given the index -- a title, a sentence, a
+count and the topic_id to open it with -- rather than the memories themselves: carrying all of
+them would bury the three that matter. Expand the one topic that looks relevant, not three on
+the chance one helps.
 
 Worth remembering: a stable preference, a fact about their life or work, a decision and the
 reason behind it, an identifier you would otherwise have to ask for twice, and anything the
