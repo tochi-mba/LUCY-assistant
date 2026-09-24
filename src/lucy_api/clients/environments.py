@@ -23,10 +23,11 @@ and no amount of connecting an account changes that.
 
 from __future__ import annotations
 
+import codecs
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.clients.errors import UnavailableError
+from lucy_api.clients.errors import RejectedError, UnavailableError
 from lucy_api.clients.transport import (
     Sibling,
     field,
@@ -70,6 +71,14 @@ This state is the only sign of a timeout the sandbox sends. Its command record k
 `timed_out` flag but never serialises it (Environments-api app/shells/shell.py
 `CommandRecord.to_dict`), so a client that read the flag alone told the model
 `"timed_out": false` next to `"state": "timed_out"`.
+"""
+MID_CHARACTER = "validation-error"
+"""The code a read at an offset inside a UTF-8 character is refused with.
+
+Environments-api decodes a window from the byte it was asked for and will not hand back a
+character with its head cut off (`ValidationError("Read offset is inside a UTF-8
+character")`, app/files.py:132-136, code `validation_error`, app/errors.py:123-127). It
+arrives here folded to one spelling by `problem_code`.
 """
 
 
@@ -570,17 +579,31 @@ class FakeEnvironmentsClient:
     async def read(
         self, environment_id: str, path: str, *, offset: int = 0, max_bytes: int | None = None
     ) -> FileText:
-        """The seeded file, cut at `max_bytes` so a truncation notice can be tested."""
-        whole = self.contents.get((environment_id, path), "")[offset:]
-        content = whole if max_bytes is None else whole[:max_bytes]
-        truncated = content != whole
+        """The seeded file as environments-api serves it: a window of its UTF-8 bytes.
+
+        Offsets and sizes are byte counts, the window ends on a character boundary, and one
+        that starts inside a character is refused with the service's own 422 (app/files.py:
+        127-138). A fake that sliced the str could never refuse, so a tail read at a
+        computed offset passed here and failed against the sandbox whenever it landed
+        inside a `✓`.
+        """
+        data = self.contents.get((environment_id, path), "").encode()
+        window = data[offset:] if max_bytes is None else data[offset : offset + max_bytes]
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        try:
+            content = decoder.decode(window)
+        except UnicodeDecodeError as exc:
+            detail = "Read offset is inside a UTF-8 character"
+            raise RejectedError(SERVICE, 422, detail, MID_CHARACTER) from exc
+        window = window[: len(window) - len(decoder.getstate()[0])]
+        truncated = offset + len(window) < len(data)
         return FileText(
             path=path,
             content=content,
-            size=len(whole),
+            size=len(data),
             offset=offset,
             truncated=truncated,
-            notice=f"showing {len(content)} of {len(whole)} bytes" if truncated else "",
+            notice=f"showing {len(content)} of {len(data)} bytes" if truncated else "",
         )
 
     async def write(
@@ -684,6 +707,7 @@ __all__ = [
     "AUDIENCE",
     "DEFAULT_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT_MS",
+    "MID_CHARACTER",
     "SERVICE",
     "Entry",
     "Environment",
