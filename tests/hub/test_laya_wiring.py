@@ -3,7 +3,7 @@
 from conftest import build_settings
 from keyring_client.testing import FakeKeyring
 from settings_client.testing import FakeSettingsClient
-from tests.hub.test_laya_decisions import Answerer
+from test_laya_decisions import Answerer
 from weftai.decisions import noul
 from weftai.providers.laya import LayaDecider
 
@@ -67,8 +67,8 @@ class ToyPack:
 async def test_supervisor_preloads_first_round_but_still_requires_permission(tmp_path):
     import json
 
-    from tests.hub.test_laya_decisions import decisions
-    from tests.hub.test_turn_supervisor import ACCOUNT, session, supervisor
+    from test_laya_decisions import decisions
+    from test_turn_supervisor import ACCOUNT, session, supervisor
 
     from lucy_api.context.build import Live
     from lucy_api.model.scripted import ScriptedProvider, plans

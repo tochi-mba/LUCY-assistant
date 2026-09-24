@@ -6,8 +6,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from tests.hub.test_memory_index import Listing, card
-from tests.hub.test_turn_loop import PLAN, Prompts, executor, ok_result
+from test_memory_index import Listing, card
+from test_turn_loop import PLAN, Prompts, executor, ok_result
 from weftai.decisions import Answer, Answers, noul
 
 from lucy_api.context.types import Trust
@@ -248,7 +248,7 @@ def test_policy_reads_flags_and_clamps_limits():
 
 
 async def test_rendered_memory_preserves_relevance_order_and_honest_counts():
-    from tests.hub.test_context_state import Chars, a_state
+    from test_context_state import Chars, a_state
 
     from lucy_api.context.state import render_state
 

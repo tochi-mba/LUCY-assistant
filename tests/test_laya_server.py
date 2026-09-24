@@ -1,10 +1,14 @@
 """The sidecar refuses every kind of truncation before calling the model."""
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from scripts.laya_server import GuardedRouter, WindowGuard, main
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from laya_server import GuardedRouter, WindowGuard, main
 
 
 class Tokenizer:
