@@ -208,8 +208,9 @@ def _capabilities(context: PromptContext) -> str:
     if context.deferred:
         lines.append(
             "Ready but not loaded this turn, to keep this list short: "
-            f"{', '.join(context.deferred)}. You cannot call these until you ask for one by "
-            "name with capabilities.use, which binds it from the next turn onwards."
+            f"{', '.join(context.deferred)}. To use one, bind it by name with "
+            "capabilities.use; its operations are callable in your very next plan, in this "
+            "same turn."
         )
     if context.advertised:
         lines.append(

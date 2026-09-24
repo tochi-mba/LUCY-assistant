@@ -107,8 +107,8 @@ class HelpPack:
                 {
                     "name": "capabilities.use",
                     "description": (
-                        "Bind a deferred capability for the rest of this session so its "
-                        "operations are available on the next turn."
+                        "Bind a deferred capability for the rest of this session. Its "
+                        "operations are callable in your very next plan, in this same turn."
                     ),
                     "input": object_schema({"id": string_schema().describe("The capability id.")}),
                     "output": value(
@@ -243,8 +243,16 @@ async def _use(run: RunContext[PackContext]) -> dict[str, Any]:
         return {"bound": False, "id": wanted, "message": f"there is no capability '{wanted}'"}
     if not bound.availability.usable:
         return {"bound": False, "id": wanted, "message": f"{wanted} is not usable this turn"}
-    run.ctx.bound_ids.add(wanted)
-    return {"bound": True, "id": wanted, "message": f"{wanted} will be available next turn"}
+    if wanted not in run.ctx.bound_ids:
+        run.ctx.bound_ids.append(wanted)
+    return {
+        "bound": True,
+        "id": wanted,
+        "message": (
+            f"{wanted} is bound. Its operations are in your next plan, in this same turn: "
+            "carry on with the task rather than ending the turn."
+        ),
+    }
 
 
 async def _docs(run: RunContext[PackContext]) -> dict[str, Any]:

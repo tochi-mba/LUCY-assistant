@@ -283,7 +283,7 @@ def test_remembering_a_capability_twice_does_not_duplicate_it() -> None:
     capabilities.remember_use("ses_a", "help")
     capabilities.remember_use("ses_a", "help")
     capabilities.remember_use("ses_a", "gadget")
-    assert capabilities.recent("ses_a") == ("help", "gadget")
+    assert capabilities.recent("ses_a") == ("gadget", "help")
 
 
 def test_a_non_dict_loop_result_is_empty_text_rather_than_an_exception() -> None:

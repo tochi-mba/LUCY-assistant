@@ -267,9 +267,14 @@ class TurnSupervisor:
                 pack_ctx.policy = pack_ctx.policy.for_session(disabled_in(fresh))
                 catalogue = await self._capabilities.probe(pack_ctx)
                 ready = tuple(item.pack.id for item in catalogue.ready())
-                bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
-                callable_now = tuple(item.pack.id for item in bound)
                 advertised = _advertised(policy.enabled, ready, pack_ctx.policy.all_disabled)
+            # Every round, not only when a knob changed: `capabilities.use` in one plan binds
+            # a capability for the next, and the schema is rebuilt from recency every round.
+            # A prompt left at the turn's opening list told the model a capability it could
+            # now call was "not loaded" -- so it stopped and, on the weakest model, reported
+            # work it had never done.
+            bound, deferred = self._capabilities.bound_for(catalogue, claimed.session_id)
+            callable_now = tuple(item.pack.id for item in bound)
             rows = await self._store.records(claimed.account_id, claimed.session_id, "items")
             turns = await self._store.records(claimed.account_id, claimed.session_id, "turns")
             compact = await self._store.records(
