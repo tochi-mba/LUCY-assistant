@@ -11,6 +11,7 @@ this source, that turn ended "That is everything."
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -20,7 +21,9 @@ import pytest
 from lucy_api.connections.tickets import ConnectionTickets
 from lucy_api.context.sources import Sources, StateRequest, gather_live_state
 from lucy_api.context.types import BudgetSnapshot, SessionSnapshot
-from lucy_api.permissions.live import OPEN, PendingLive
+from lucy_api.permissions.approvals import PENDING
+from lucy_api.permissions.live import PendingLive
+from lucy_api.sessions.schema import SCHEMA
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,12 +46,14 @@ class _Store:
 
 @pytest.fixture
 def db() -> sqlite3.Connection:
+    """The hub's own schema, not a table written for the test.
+
+    A hand-written table agrees with the query that reads it, whoever is wrong; the real one
+    is what the query has to agree with in production.
+    """
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
-    connection.execute(
-        "CREATE TABLE approvals (id TEXT PRIMARY KEY, session_id TEXT, operation TEXT,"
-        " description TEXT, status TEXT, requested_at REAL)"
-    )
+    connection.executescript(SCHEMA)
     return connection
 
 
@@ -59,12 +64,21 @@ def _ask(
     description: str,
     *,
     session: str = "ses_a",
-    status: str = OPEN,
+    status: str = PENDING,
     at: float = 1.0,
+    arguments: object = None,
+    input_json: str | None = None,
 ) -> None:
+    """One approval row, written the way `open_approval` writes it."""
+    stored = (
+        input_json
+        if input_json is not None
+        else json.dumps({"permission": "notes.write", "arguments": arguments or {}})
+    )
     db.execute(
-        "INSERT INTO approvals VALUES (?,?,?,?,?,?)",
-        (identifier, session, operation, description, status, at),
+        "INSERT INTO approvals (id, session_id, operation, description, input_json, status,"
+        " policy, requested_at) VALUES (?,?,?,?,?,?,?,?)",
+        (identifier, session, operation, description, stored, status, "ask", at),
     )
 
 
@@ -80,6 +94,61 @@ async def test_an_approval_the_person_never_answered_is_still_reported(
     assert len(snapshot.approvals) == 2
     assert "notes.setFact" in snapshot.approvals[0]
     assert "backend engineer" in snapshot.approvals[0]
+
+
+async def test_the_line_says_what_the_ask_would_do_not_which_permission_it_needs(
+    db: sqlite3.Connection,
+) -> None:
+    """The second half of the bug. Given only the permission's sentence, Lucy said "I can't
+    see what it would record" about an ask whose arguments said exactly that."""
+    _ask(
+        db,
+        "apr_1",
+        "notes.setFact",
+        "Remember and change notes about you needs approval before it can run.",
+        arguments={"title": "Occupation", "body": "Backend engineer, mostly Python."},
+    )
+    snapshot = await PendingLive(store=_Store(db)).fetch("ses_a")
+    assert snapshot.approvals == (
+        "notes.setFact -- title: Occupation; body: Backend engineer, mostly Python.",
+    )
+
+
+async def test_only_plain_values_are_carried_from_the_arguments(db: sqlite3.Connection) -> None:
+    """A nested object would reach the model as a repr to parse, and a blank says nothing."""
+    _ask(
+        db,
+        "apr_1",
+        "workspace.run",
+        "Run commands needs approval.",
+        arguments={
+            "command": "pytest -q",
+            "timeout_ms": 60000,
+            "env": {"CI": "1"},
+            "cwd": "  ",
+            "tags": ["a"],
+        },
+    )
+    snapshot = await PendingLive(store=_Store(db)).fetch("ses_a")
+    assert snapshot.approvals == ("workspace.run -- command: pytest -q; timeout_ms: 60000",)
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "not json at all",
+        json.dumps(["a", "list"]),
+        json.dumps({"permission": "notes.write"}),
+        json.dumps({"arguments": "not an object"}),
+        json.dumps({"arguments": {"nested": {"only": True}}}),
+    ],
+)
+async def test_an_ask_with_nothing_readable_in_its_arguments_falls_back_to_its_description(
+    db: sqlite3.Connection, stored: str
+) -> None:
+    _ask(db, "apr_1", "notes.setFact", "Remember this", input_json=stored)
+    snapshot = await PendingLive(store=_Store(db)).fetch("ses_a")
+    assert snapshot.approvals == ("notes.setFact -- Remember this",)
 
 
 async def test_an_answered_approval_is_not_still_waiting(db: sqlite3.Connection) -> None:

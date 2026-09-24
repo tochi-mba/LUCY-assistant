@@ -15,6 +15,14 @@ for this query and had no reader. Connections come from the ticket registry, whi
 process-local and per person rather than per session: a consent link the person has not
 opened yet is exactly "waiting to connect", wherever it was asked for.
 
+An approval is described by what it would do, not by the permission it needs. The row's
+`description` is the gate's sentence for the permission -- "Remember and change notes about
+you needs approval before it can run" -- which is the same for every notes write there will
+ever be. Given only that, Lucy told a person "`notes.setFact` is still waiting on your
+approval, and I can't see what it would record", about an ask whose arguments said
+`title: Occupation; body: Backend engineer, mostly Python.` The arguments are what tell
+one ask from the next, so they are what the line carries.
+
 Elicitations stay empty. `input.elicitation_response` is a declared input event and nothing
 in the hub writes the request it would answer, so there is no pending elicitation to find.
 Reporting none is true; inventing a source for it here would not be.
@@ -22,19 +30,18 @@ Reporting none is true; inventing a source for it here would not be.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.types import PendingSnapshot
+from lucy_api.permissions.approvals import PENDING
 
 if TYPE_CHECKING:
     import sqlite3
 
     from lucy_api.connections.tickets import ConnectionTickets
     from lucy_api.sessions.sql_store import SessionStore
-
-OPEN = "pending"
-"""The `approvals.status` of one that has been asked and not answered."""
 
 MOST = 8
 """How many of each kind to carry.
@@ -62,11 +69,14 @@ class PendingLive:
     async def _approvals(self, session_id: str) -> tuple[str, ...]:
         def read(db: sqlite3.Connection) -> tuple[str, ...]:
             rows = db.execute(
-                "SELECT operation, description FROM approvals "
+                "SELECT operation, description, input_json FROM approvals "
                 "WHERE session_id=? AND status=? ORDER BY requested_at LIMIT ?",
-                (session_id, OPEN, MOST),
+                (session_id, PENDING, MOST),
             ).fetchall()
-            return tuple(_line(row["operation"], row["description"]) for row in rows)
+            return tuple(
+                _line(row["operation"], _asked(row["input_json"]) or row["description"])
+                for row in rows
+            )
 
         return await self.store.worker.call(read)
 
@@ -85,11 +95,32 @@ class PendingLive:
         )
 
 
-def _line(operation: object, description: object) -> str:
+def _line(operation: object, detail: object) -> str:
     """What the model reads. The operation first, because that is what it would call again."""
     name = str(operation or "").strip()
-    detail = str(description or "").strip()
-    return f"{name} -- {detail}" if name and detail else name or detail
+    said = str(detail or "").strip()
+    return f"{name} -- {said}" if name and said else name or said
 
 
-__all__ = ["MOST", "OPEN", "PendingLive"]
+def _asked(input_json: object) -> str:
+    """The ask's own arguments, as `key: value` pairs, or nothing to go on.
+
+    Only plain values: a nested object would be rendered as a repr the model has to parse,
+    and the renderer cuts the line at its detail width anyway, so what is worth carrying is
+    the short identifying fields a person would recognise -- a title, a path, a query.
+    """
+    try:
+        payload: Any = json.loads(str(input_json or ""))
+    except ValueError:
+        return ""
+    arguments = payload.get("arguments") if isinstance(payload, dict) else None
+    if not isinstance(arguments, dict):
+        return ""
+    return "; ".join(
+        f"{key}: {str(value).strip()}"
+        for key, value in arguments.items()
+        if isinstance(value, str | int | float) and str(value).strip()
+    )
+
+
+__all__ = ["MOST", "PendingLive"]
