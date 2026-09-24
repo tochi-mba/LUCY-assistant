@@ -65,6 +65,7 @@ async def test_file_and_command_calls_use_the_environments_audience() -> None:
                 "size": 4,
                 "offset": 0,
                 "truncated": True,
+                "next_offset": 2,
             }
         ),
         Answer(body={"path": "notes.md", "size": 2}),
@@ -113,7 +114,7 @@ async def test_file_and_command_calls_use_the_environments_audience() -> None:
     assert listed[0].environment_id == "env-1"
     assert folder == "sessions/s1"
     assert listing.entries[0].name == "notes.md"
-    assert read.notice == "showing 2 of 4 bytes"
+    assert read.notice == "showing bytes 0-2 of 4; continue with offset=2"
     assert written.size == 2
     assert found.skipped_binary == ("bin",)
     assert edited.diff

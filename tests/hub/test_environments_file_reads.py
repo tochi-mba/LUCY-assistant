@@ -7,6 +7,9 @@ on bytes passed against it and failed against the sandbox.
 
 A binary file is the service's verdict, not the hub's guess: it arrives base64 with
 `is_binary` set, and reaches the model as a notice rather than as the encoding.
+
+A partial read says which bytes of how many came back, and the offset to read on from,
+because that offset is the one thing the model's next call needs.
 """
 
 from __future__ import annotations
@@ -118,14 +121,9 @@ async def test_the_fake_serves_a_body_with_a_nul_base64_as_the_sandbox_does() ->
     assert read.content == base64.b64encode(b"a\0b").decode("ascii")
 
 
-def a_session(*answers: Answer) -> tuple[FakeHttp, Capabilities, PackContext]:
-    """The workspace pack over the real client, with the probe's `/ready` answered first."""
-    ready = Answer(
-        body={"status": "ready", "sandbox_tier": "container", "keyring": {"status": "ok"}}
-    )
-    http = FakeHttp(ready, *answers)
-    capabilities = Capabilities([WorkspacePack(URL, client=HttpEnvironmentsClient(http, URL))])
-    context = capabilities.context_for(
+def a_context(capabilities: Capabilities) -> PackContext:
+    """Session `sess-a`, whose workspace subtree is `sessions/sess-a`."""
+    return capabilities.context_for(
         SessionScope(
             account_id="acct-a",
             profile="personal",
@@ -134,7 +132,16 @@ def a_session(*answers: Answer) -> tuple[FakeHttp, Capabilities, PackContext]:
             permission_mode="auto",
         )
     )
-    return http, capabilities, context
+
+
+def a_session(*answers: Answer) -> tuple[FakeHttp, Capabilities, PackContext]:
+    """The workspace pack over the real client, with the probe's `/ready` answered first."""
+    ready = Answer(
+        body={"status": "ready", "sandbox_tier": "container", "keyring": {"status": "ok"}}
+    )
+    http = FakeHttp(ready, *answers)
+    capabilities = Capabilities([WorkspacePack(URL, client=HttpEnvironmentsClient(http, URL))])
+    return http, capabilities, a_context(capabilities)
 
 
 async def test_a_binary_read_reaches_the_model_as_a_notice_not_as_base64() -> None:
@@ -186,3 +193,90 @@ async def test_a_binary_file_is_refused_an_edit_before_any_match_is_tried() -> N
         "notice": BINARY_NOTICE,
     }
     assert [call.method for call in http.calls] == ["GET", "GET"]
+
+
+# --------------------------------------------------------------------------------------
+# Which bytes came back
+# --------------------------------------------------------------------------------------
+
+ACCENTED = "h\N{LATIN SMALL LETTER E WITH ACUTE}llo w\N{LATIN SMALL LETTER O WITH DIAERESIS}rld"
+"""Eleven characters and thirteen bytes: the difference is what a character count loses."""
+
+
+def a_window(offset: int, next_offset: int) -> dict[str, Any]:
+    """A window of `ACCENTED` as environments-api sends it: `FileContent`'s fields
+    (Environments-api app/files.py:33-45), `next_offset` being `offset + len(data)`
+    (app/files.py:140)."""
+    data = ACCENTED.encode()
+    return {
+        "environment_id": ENV,
+        "path": "notes.md",
+        "size": len(data),
+        "offset": offset,
+        "content": data[offset:next_offset].decode(),
+        "encoding": "utf-8",
+        "truncated": next_offset < len(data),
+        "is_binary": False,
+        "etag": '"e1"',
+        "next_offset": next_offset,
+    }
+
+
+async def test_a_partial_read_names_its_bytes_and_where_to_read_on() -> None:
+    """The bug, named: the notice said `showing 5 of 13 bytes` for a window of six bytes,
+    because it counted decoded characters, and it never said where the window began or
+    where the next one should, so the model had no offset to continue from."""
+    head = ReadRecorder(a_window(0, 6))
+    tail = ReadRecorder(a_window(6, 13))
+    client = HttpEnvironmentsClient(FakeHttp(Answer(body=head), Answer(body=tail)), URL)
+
+    first = await client.read(ENV, "notes.md", max_bytes=6)
+    rest = await client.read(ENV, "notes.md", offset=first.next_offset)
+
+    assert first.notice == "showing bytes 0-6 of 13; continue with offset=6"
+    assert rest.notice == "showing bytes 6-13 of 13"
+    assert first.content + rest.content == ACCENTED
+    assert head.absent == set()
+
+
+async def test_a_whole_file_carries_no_notice() -> None:
+    whole = a_window(0, 13)
+    client = HttpEnvironmentsClient(FakeHttp(Answer(body=whole)), URL)
+
+    read = await client.read(ENV, "notes.md")
+
+    assert read.notice == ""
+    assert read.next_offset == 13
+
+
+async def test_the_offset_the_read_tool_names_reads_on_from_where_its_window_ended() -> None:
+    """What the model is told is what it can use: the notice and `next_offset` both name
+    the byte the next window starts at, and reading from it loses nothing."""
+    fake = a_workspace(("sessions/sess-a/notes.md", ACCENTED))
+    capabilities = Capabilities([WorkspacePack(URL, client=fake)])
+    context = a_context(capabilities)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {
+                    "id": "head",
+                    "op": "workspace.read",
+                    "input": {"path": "notes.md", "max_bytes": 7},
+                },
+                {
+                    "id": "rest",
+                    "op": "workspace.read",
+                    "input": {"path": "notes.md", "offset": 7},
+                },
+            ]
+        },
+        context,
+    )
+
+    head, rest = result["steps"][0]["data"], result["steps"][1]["data"]
+    assert head["next_offset"] == 7
+    assert "showing bytes 0-7 of 13; continue with offset=7" in head["notice"]
+    assert rest["content"] == "1\tw\N{LATIN SMALL LETTER O WITH DIAERESIS}rld"
+    assert "showing bytes 7-13 of 13" in rest["notice"]
