@@ -10,13 +10,27 @@ here are built from the sandbox's own serialisers rather than from what the hub 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lucy_api.clients.environments import FakeEnvironmentsClient, HttpEnvironmentsClient, Ran
+from lucy_api.clients.environments import (
+    DEFAULT_OUTPUT_BYTES,
+    Environment,
+    FakeEnvironmentsClient,
+    HttpEnvironmentsClient,
+    Ran,
+)
 from lucy_api.clients.testing import Answer, FakeHttp, ReadRecorder
+from lucy_api.packs.service import Capabilities
 from lucy_api.packs.watch import _command_check
+from lucy_api.packs.workspace import MAX_TOOL_OUTPUT_CHARS, WorkspacePack
+from lucy_api.sessions.scope import SessionScope, WorkspaceScope
+
+if TYPE_CHECKING:
+    from lucy_api.packs.context import PackContext
+    from lucy_api.work import Registry
 
 COMMAND = "pytest -q"
+MIB = 1024 * 1024
 
 
 def exec_answer(**overrides: Any) -> dict[str, Any]:
@@ -62,15 +76,64 @@ def killed_at_its_ceiling() -> dict[str, Any]:
         state="timed_out",
         exit_code=137,
         output="collected 812 items\n....",
-        output_end=145,
-        log_bytes=25,
-        output_cursor=145,
+        output_end=144,
+        log_bytes=24,
+        output_cursor=144,
     )
+
+
+def a_megabyte_log(**overrides: Any) -> dict[str, Any]:
+    """A build that printed a megabyte, of which the sandbox returned the first 64 KiB.
+
+    `command_result` reads from `output_start` for at most `max_output_bytes`, so
+    `output_cursor` stops 64 KiB in while `output_end` is a megabyte on. The ring buffer lost
+    nothing, so `output_dropped_bytes` is zero: it never counted this cut.
+    """
+    start = 120
+    answer = exec_answer(
+        exit_code=1,
+        output="." * DEFAULT_OUTPUT_BYTES,
+        output_start=start,
+        output_end=start + MIB,
+        log_bytes=MIB,
+        output_cursor=start + DEFAULT_OUTPUT_BYTES,
+    )
+    return {**answer, **overrides}
 
 
 async def ran_from(answer: dict[str, Any]) -> Ran:
     http = FakeHttp(Answer(body=answer))
     return await HttpEnvironmentsClient(http, "http://environments.test").run("env-1", COMMAND)
+
+
+def a_workspace(
+    client: FakeEnvironmentsClient, *, work: Registry | None = None
+) -> tuple[Capabilities, PackContext]:
+    client.seed(Environment("env-1", "Conversation", profile="personal"))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=client)], work=work)
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct-a",
+            profile="personal",
+            session_id="sess-a",
+            workspace=WorkspaceScope("env-1", "sess-a", ready=True),
+            permission_mode="auto",
+        )
+    )
+    return capabilities, context
+
+
+async def run_step(
+    capabilities: Capabilities, context: PackContext, **inputs: Any
+) -> dict[str, Any]:
+    await capabilities.probe(context)
+    plan = {
+        "steps": [{"id": "run", "op": "workspace.run", "input": {"command": COMMAND, **inputs}}]
+    }
+    result = await capabilities.execute(plan, context)
+    assert not result["issues"]
+    step: dict[str, Any] = result["steps"][0]["data"]
+    return step
 
 
 # --- a command killed at its ceiling ----------------------------------------------------------
@@ -118,3 +181,76 @@ async def test_a_command_watch_waits_on_a_killed_command_rather_than_judging_its
 
     assert check.fired is False
     assert check.detail == "command timed out"
+
+
+# --- output past the sandbox's cap ------------------------------------------------------------
+
+
+async def test_output_the_sandbox_did_not_return_is_counted_from_its_byte_offsets() -> None:
+    """The bug, named: the sandbox returns the head of the output and says how much followed
+    only in `output_end` and `output_cursor`, which the client never read, so a megabyte cut
+    was counted as nothing."""
+    ran = await ran_from(a_megabyte_log())
+
+    assert ran.output_dropped_bytes == 0
+    assert ran.output_truncated_bytes == MIB - DEFAULT_OUTPUT_BYTES
+
+
+async def test_a_command_with_no_end_yet_counts_no_cut_rather_than_guessing_one() -> None:
+    assert (await ran_from(a_megabyte_log(output_end=None))).output_truncated_bytes == 0
+    no_cursor = a_megabyte_log()
+    del no_cursor["output_cursor"]
+    assert (await ran_from(no_cursor)).output_truncated_bytes == 0
+    assert (await ran_from(exec_answer())).output_truncated_bytes == 0
+
+
+async def test_the_fake_returns_the_head_of_long_output_and_counts_the_rest() -> None:
+    """Cut at a byte count and decoded with replacement, as `command_result` does it."""
+    fake = FakeEnvironmentsClient()
+    fake.script(COMMAND, Ran(command=COMMAND, exit_code=0, output="\u00e9" * 3, state="exited"))
+
+    ran = await fake.run("env-1", COMMAND, max_output_bytes=3)
+
+    assert ran.output == "\u00e9\ufffd"
+    assert ran.output_truncated_bytes == 3
+
+
+async def test_the_model_is_told_it_has_the_beginning_and_how_much_came_after_it() -> None:
+    fake = FakeEnvironmentsClient()
+    fake.script(COMMAND, Ran(command=COMMAND, exit_code=1, output="." * MIB, state="exited"))
+    capabilities, context = a_workspace(fake)
+
+    step = await run_step(capabilities, context)
+
+    later = MIB - MAX_TOOL_OUTPUT_CHARS
+    assert len(step["output"]) == MAX_TOOL_OUTPUT_CHARS
+    assert step["output_dropped_bytes"] == later
+    assert step["notice"] == (
+        f"{later} output characters or bytes omitted; "
+        f"this is the beginning of the output, and {later} of those came after it"
+    )
+
+
+async def test_output_lost_only_before_the_read_does_not_claim_a_later_cut() -> None:
+    fake = FakeEnvironmentsClient()
+    fake.script(
+        COMMAND,
+        Ran(command=COMMAND, exit_code=0, output="ok", output_dropped_bytes=7, state="exited"),
+    )
+    capabilities, context = a_workspace(fake)
+
+    step = await run_step(capabilities, context)
+
+    assert step["notice"] == "7 output characters or bytes omitted"
+
+
+async def test_a_command_watch_says_its_pattern_was_only_looked_for_in_the_head() -> None:
+    """A verdict printed after the first 64 KiB never comes back, so "no match" alone would
+    read as "not finished yet" about a build that may have finished and failed."""
+    http = FakeHttp(Answer(body=a_megabyte_log()))
+    client = HttpEnvironmentsClient(http, "http://environments.test")
+
+    check = await _command_check(client, "env-1", "sessions/s", COMMAND, re.compile("failed"))
+
+    assert check.fired is False
+    assert check.detail == "exit 1, no match; 983,040 later bytes unread"
