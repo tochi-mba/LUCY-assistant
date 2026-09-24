@@ -60,7 +60,13 @@ class Interrupted:
 
 
 class AgentStore:
-    """One account predicate on every helper, every message and every journal row."""
+    """One account predicate on every helper, every message and every journal row.
+
+    The roster is read in the order helpers were started. Ties on `created_at` -- two
+    helpers started inside one tick of the clock, which on Windows is fifteen milliseconds --
+    are broken by insertion order, never by id: ids are random, and ordering by one put
+    helpers started together in a different order on every read.
+    """
 
     def __init__(self, sessions: SessionStore) -> None:
         self._sessions = sessions
@@ -129,7 +135,7 @@ class AgentStore:
             rows = db.execute(
                 "SELECT agents.* FROM agents JOIN sessions ON sessions.id=agents.session_id "
                 "WHERE agents.session_id=? AND sessions.account_id=? AND agents.status='running' "
-                "ORDER BY agents.created_at, agents.id",
+                "ORDER BY agents.created_at, agents.rowid",
                 (session, account),
             ).fetchall()
             return [row_value(row) for row in rows]
@@ -144,7 +150,7 @@ class AgentStore:
             rows = db.execute(
                 "SELECT agents.* FROM agents JOIN sessions ON sessions.id=agents.session_id "
                 "WHERE agents.session_id=? AND sessions.account_id=? "
-                "ORDER BY agents.created_at, agents.id",
+                "ORDER BY agents.created_at, agents.rowid",
                 (session, account),
             ).fetchall()
             return [row_value(row) for row in rows]
