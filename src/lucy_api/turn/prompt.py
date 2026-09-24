@@ -7,7 +7,6 @@ apart: both ask the same function, and a bug in one is a bug in both.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -23,6 +22,7 @@ from lucy_api.context.tokens import default_counter
 from lucy_api.context.types import Band, Budget, BudgetSnapshot, SessionSnapshot, shares_for
 from lucy_api.model.types import Message, Role
 from lucy_api.prompt.sections import PromptContext, prompt_version, render_all
+from lucy_api.turn.readable import readable
 
 if TYPE_CHECKING:
     from lucy_api.context.build import Live
@@ -135,8 +135,7 @@ def items_from_rows(rows: list[dict[str, Any]]) -> tuple[Item, ...]:
     """Transcript rows as the projection wants them: a body, a role, a turn boundary."""
     converted: list[Item] = []
     for order, row in enumerate(rows):
-        body = row.get("content")
-        text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+        text = readable(str(row.get("type") or "message"), row.get("content"))
         converted.append(
             Item(
                 id=str(row["id"]),
