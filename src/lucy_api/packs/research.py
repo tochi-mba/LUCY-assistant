@@ -73,7 +73,7 @@ class ResearchPack:
 
     async def probe(self, context: PackContext) -> Availability:
         try:
-            providers = await self._client(context).providers()
+            providers = await self._client(context).providers(profile=context.profile)
         except (NoBrokerError, ExchangeError):
             return Availability(state=State.unavailable, detail="cannot act for this person yet")
         except (DownstreamError, TransportError):

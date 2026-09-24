@@ -93,7 +93,7 @@ async def test_research_operations_project_hits_pages_and_summaries() -> None:
     assert "word_count" in rendered
     assert "Short" in rendered
     assert secret_page_text not in rendered
-    assert fake.profiles == ["personal", "personal", "personal"]
+    assert fake.profiles == ["personal", "personal", "personal", "personal"]
 
 
 async def test_a_search_service_that_answers_with_an_outage_leaves_research_unavailable() -> None:
@@ -149,3 +149,18 @@ async def test_opening_a_page_that_could_not_be_fetched_names_the_reason() -> No
     assert "'status': 'error'" in rendered
     assert "'error': 'https://example.test/private disallows automated fetching.'" in rendered
     assert "could not open https://example.test/private" in rendered
+
+
+async def test_the_probe_asks_about_the_profile_the_turn_runs_under() -> None:
+    """The bug, named: research was declared ready on another profile's credential.
+
+    Every operation already sent the turn's profile; the probe alone asked about the default.
+    """
+    fake = FakeSearchClient()
+    context = Capabilities(()).context_for(
+        SessionScope(account_id="acct_a", profile="work", session_id="sess_a")
+    )
+
+    await ResearchPack("https://search.test", client=fake).probe(context)
+
+    assert fake.profiles == ["work"]

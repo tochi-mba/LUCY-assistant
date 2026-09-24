@@ -14,6 +14,7 @@ from lucy_api.clients.search import (
     _summary,
 )
 from lucy_api.clients.testing import Answer, FakeHttp
+from lucy_api.clients.transport import PROFILE_HEADER
 
 
 def test_a_missing_summary_is_none_and_a_truncated_one_says_so() -> None:
@@ -120,13 +121,46 @@ async def test_a_page_the_service_could_not_fetch_says_so_instead_of_reading_as_
     assert page.detail == f"{blocked} disallows automated fetching."
 
 
+async def test_the_provider_probe_asks_about_the_profile_the_turn_runs_under() -> None:
+    """The bug, named: the probe sent no profile, so it answered for the default one.
+
+    Web-search-api reads `X-Keyring-Profile` in `get_caller` (app/api/deps.py) and falls back
+    to the person's `default_profile` only when it is absent; the credential each provider is
+    probed with is resolved for that profile (app/services/llm/registry.py `credential_for`).
+    The body is the sibling's `ModelsResponse` with one `ProviderOut` (app/schemas/models.py).
+    """
+    http = FakeHttp(
+        Answer(
+            body={
+                "default_model": "anthropic:claude-opus-5",
+                "models": [],
+                "providers": [
+                    {
+                        "name": "anthropic",
+                        "status": "not_configured",
+                        "detail": "No credential for this caller in keyring.",
+                        "model_count": 0,
+                    }
+                ],
+            }
+        )
+    )
+
+    providers = await HttpSearchClient(http, "http://search.test").providers(profile="work")
+
+    assert http.last.method == "GET"
+    assert http.last.url == "http://search.test/v1/models"
+    assert http.last.headers == {PROFILE_HEADER: "work"}
+    assert providers[0].status == "not_configured"
+
+
 async def test_the_in_memory_web_records_what_was_asked() -> None:
     fake = FakeSearchClient()
     fake.offer((Provider(name="fake", status="available"),))
     fake.seed(Findings(query="tea", hits=(Hit("Tea", "https://tea.example", 1),)))
     fake.stock(Article(page=Page(url="https://tea.example"), text="leaf"))
 
-    assert (await fake.providers())[0].name == "fake"
+    assert (await fake.providers(profile="work"))[0].name == "fake"
     found = await fake.search(["tea", "coffee"], profile="work", max_results=1)
     reading = await fake.scrape(["https://tea.example", "https://missing.example"], profile="work")
     summary = await fake.summarize("body", topic="tea", profile="work")
@@ -141,7 +175,7 @@ async def test_the_in_memory_web_records_what_was_asked() -> None:
     assert reading.articles[1].page.detail == "https://missing.example responded 404."
     assert summary.executive_summary == "a summary"
     assert fake.asked == ["tea", "coffee", "tea"]
-    assert fake.profiles == ["work", "work", "work"]
+    assert fake.profiles == ["work", "work", "work", "work"]
 
 
 # --- a health check and a page fetch are not the same wait -------------------------------------
