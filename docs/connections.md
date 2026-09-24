@@ -23,8 +23,9 @@ name never selects an account, and another person's missing or existing resource
 4. Lucy verifies the browser subject again, consumes the ticket once, and redirects with
    `303 See Other` to the provider URL.
 5. The client polls
-   `GET /v1/connections/{service}/authorize/{ticket}`. Until Keyring reports a connection,
-   the state is `authorization_pending`; afterward it is Keyring's state.
+   `GET /v1/connections/{service}/authorize/{ticket}`. While Keyring has no connection or
+   only its `pending` placeholder, the state is `authorization_pending`; afterward it is
+   Keyring's state.
 
 Foreign, expired and unknown tickets are all 404. Reusing an opened ticket is 409. Tickets
 contain no token or credential and expired records are pruned during normal use.

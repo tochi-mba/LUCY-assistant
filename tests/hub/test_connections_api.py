@@ -105,6 +105,25 @@ async def test_connection_lifecycle_is_scoped_to_the_verified_subject() -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_poll_says_authorization_pending_while_keyring_holds_its_placeholder() -> None:
+    """The bug, named: keyring writes a `pending` row before it hands out the consent link
+    (`Keyring-api/src/keyring_api/credentials/service.py:244-258`), so the poll found a
+    connection on its first call and passed `pending` through. A client waiting on the
+    advertised RFC 8628 word, as `lucy_api.cli.device` does for sign-in, stopped there."""
+    container = StubContainer()
+    acting = _acting()
+    await authorize_connection("spotify", acting, container, _request())
+    forgotten = list(container.capabilities.forgotten)
+
+    listed = await list_connections(acting, container)
+    polled = await poll_connection_authorization("spotify", "ticket-1", acting, container)
+
+    assert [item.status for item in listed.data] == ["pending"]
+    assert polled.status == "authorization_pending"
+    assert container.capabilities.forgotten == forgotten
+
+
+@pytest.mark.asyncio
 async def test_consent_redirect_is_one_time_and_bound_to_the_subject() -> None:
     container = StubContainer()
     started = await authorize_connection("spotify", _acting(), container, _request())

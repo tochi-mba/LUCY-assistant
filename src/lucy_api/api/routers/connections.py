@@ -17,7 +17,9 @@ from lucy_api.api.schemas.connections import (
     ConnectionResource,
 )
 from lucy_api.api.schemas.problem import Problem
+from lucy_api.auth.device import AUTHORIZATION_PENDING
 from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.keyring import PENDING
 from lucy_api.core.container import PackRequest
 from lucy_api.core.errors import LucyError, absent
 
@@ -181,12 +183,17 @@ async def poll_connection_authorization(
         ),
         None,
     )
-    if connection is not None:
+    # keyring's own placeholder is not an answer: it is written before the consent link is
+    # handed out, so a poll that passed it through never said the advertised word once.
+    if connection is None or connection.status == PENDING:
+        word = AUTHORIZATION_PENDING
+    else:
+        word = connection.status
         _forget_probes(container, acting.account_id, record.profile)
     return AuthorizationStatus(
         service=service,
         profile=record.profile,
-        status=connection.status if connection is not None else "authorization_pending",
+        status=word,
         expires_at=datetime.fromtimestamp(record.expires_at, UTC),
     )
 
