@@ -680,6 +680,12 @@ def _decision_knobs() -> tuple[Knob, ...]:
             "Suggest a new approach after repeated failures.",
             "Advisory only. Existing loop limits and approvals remain in force.",
         ),
+        (
+            "decision_claims",
+            True,
+            "Catch a reply that claims work no step did, in any wording.",
+            "Only when decisions are enabled. Can only hold a reply back; never lets one through.",
+        ),
     )
     return (
         *tuple(

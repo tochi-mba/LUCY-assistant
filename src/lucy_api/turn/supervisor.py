@@ -38,6 +38,7 @@ from lucy_api.sessions.scope import disabled_in, scope_from_row
 from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
+from lucy_api.turn.claims import ClaimCheck
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.project import StreamProjector
 from lucy_api.turn.prompt import (
@@ -431,6 +432,7 @@ class TurnSupervisor:
                         fallback_model=fallback_model,
                         max_thinking_tokens=policy.max_thinking_tokens,
                         recovery=Recovery(pack_ctx.decide),
+                        claims=ClaimCheck(pack_ctx.decide),
                     )
                 )
                 await self._finish_result(claimed, result, pack_ctx, session)

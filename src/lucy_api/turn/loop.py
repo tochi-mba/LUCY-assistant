@@ -53,7 +53,7 @@ from lucy_api.context.framing import Origin, frame_result
 from lucy_api.context.scrub import scrub, scrub_tree
 from lucy_api.context.types import Trust
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
-from lucy_api.turn.claims import UNBACKED, unbacked
+from lucy_api.turn.claims import UNBACKED, ClaimCheck
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
 from lucy_api.turn.window import RESULT_TOKEN_CAP, attach_needles, needle_from, without_needles
@@ -171,6 +171,8 @@ class Turn:
     clock: Callable[[], float] = time.monotonic
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
     recovery: Recovery | None = None
+    claims: ClaimCheck = field(default_factory=ClaimCheck)
+    """Whether a final reply claims work nothing did. The phrase list, unless a decision is live."""
     opening_notice: str = ""
     opening_plan: dict[str, Any] | None = None
     """Steps to run before the model is asked anything: the calls a person just approved.
@@ -286,7 +288,11 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     spent = outcome.spent
     outcome.spent = _add(spent, reply, turn.clock() - cycle.started)
     round_ = Round(text=reply.text, reasoning=reply.reasoning, plan=reply.plan, usage=reply.usage)
-    if reply.plan is None and not cycle.claim_checked and unbacked(reply.text, outcome.rounds):
+    if (
+        reply.plan is None
+        and not cycle.claim_checked
+        and await turn.claims.unbacked(reply.text, outcome.rounds)
+    ):
         # Held back before it reaches the transcript: a false "I've saved that" read once is
         # believed. The round was paid for, so it is kept, but not what it said.
         cycle.claim_checked = True

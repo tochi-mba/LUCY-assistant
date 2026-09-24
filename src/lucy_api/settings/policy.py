@@ -76,6 +76,7 @@ class TurnPolicy:
     decision_capabilities: bool = True
     decision_memory: bool = True
     decision_recovery: bool = False
+    decision_claims: bool = True
     decision_timeout_ms: int = 1000
     decision_max_per_turn: int = 8
     model: str = DEFAULT_MODEL
@@ -176,6 +177,7 @@ class TurnPolicy:
             decision_capabilities=_flag(read("decision_capabilities", True), True),
             decision_memory=_flag(read("decision_memory", True), True),
             decision_recovery=_flag(read("decision_recovery", False), False),
+            decision_claims=_flag(read("decision_claims", True), True),
             decision_timeout_ms=_clamp(
                 read("decision_timeout_ms", 1000), 1000, minimum=50, maximum=5000
             ),
