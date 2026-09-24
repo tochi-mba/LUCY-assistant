@@ -141,8 +141,9 @@ class Listing:
 class FileText:
     """A read of one file, which may be part of one.
 
-    `notice` is empty when the whole file came back and says exactly how much of how much
-    arrived when it did not. Nothing here truncates silently.
+    `notice` is empty when the whole file came back and names the exact bytes that arrived,
+    and the offset to read on from, when it did not. Nothing here truncates silently.
+    `offset`, `next_offset` and `size` are byte positions, never character counts.
 
     `binary` is the service's verdict on the whole file, not on the window. When it is set,
     `content` is base64 and is not the file's text to anything that reads it.
@@ -152,6 +153,7 @@ class FileText:
     content: str = ""
     size: int = 0
     offset: int = 0
+    next_offset: int = 0
     truncated: bool = False
     notice: str = ""
     binary: bool = False
@@ -342,15 +344,16 @@ class HttpEnvironmentsClient:
             f"/v1/environments/{segment(environment_id)}/files/content",
             params=given(path=path, offset=offset, max_bytes=max_bytes),
         )
-        content, size = text(payload, "content"), number(payload, "size")
-        truncated = flag(payload, "truncated")
+        start, size = number(payload, "offset"), number(payload, "size")
+        end, truncated = number(payload, "next_offset", start), flag(payload, "truncated")
         return FileText(
             path=text(payload, "path", path),
-            content=content,
+            content=text(payload, "content"),
             size=size,
-            offset=number(payload, "offset"),
+            offset=start,
+            next_offset=end,
             truncated=truncated,
-            notice=f"showing {len(content)} of {size} bytes" if truncated else "",
+            notice=_window_notice(start, end, size, truncated=truncated),
             binary=flag(payload, "is_binary") or text(payload, "encoding") == BASE64,
         )
 
@@ -484,6 +487,20 @@ def _exit_code(payload: Any) -> int | None:
     return None if raw is None else number(payload, "exit_code")
 
 
+def _window_notice(start: int, end: int, size: int, *, truncated: bool) -> str:
+    """Which bytes of how many a read returned, and where the next window starts.
+
+    Byte positions only, because the model's next call takes one. The notice this replaced
+    said `showing 5 of 13 bytes` for a six-byte window of "héllo wörld": it counted decoded
+    characters, overcounted base64 by a third, and never said where the window began, so a
+    model reading on could only guess an offset.
+    """
+    if not truncated and not start:
+        return ""
+    shown = f"showing bytes {start}-{end} of {size}"
+    return f"{shown}; continue with offset={end}" if truncated else shown
+
+
 def _environment(payload: Any) -> Environment:
     """One environment, without the host workspace path. That omission is the point."""
     return Environment(
@@ -615,14 +632,16 @@ class FakeEnvironmentsClient:
                 detail = "Read offset is inside a UTF-8 character"
                 raise RejectedError(SERVICE, 422, detail, MID_CHARACTER) from exc
             window = window[: len(window) - len(decoder.getstate()[0])]
-        truncated = offset + len(window) < len(data)
+        end = offset + len(window)
+        truncated = end < len(data)
         return FileText(
             path=path,
             content=content,
             size=len(data),
             offset=offset,
+            next_offset=end,
             truncated=truncated,
-            notice=f"showing {len(content)} of {len(data)} bytes" if truncated else "",
+            notice=_window_notice(offset, end, len(data), truncated=truncated),
             binary=binary,
         )
 

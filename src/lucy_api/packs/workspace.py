@@ -324,6 +324,7 @@ class WorkspacePack:
             "content": window.numbered,
             "size": content.size,
             "offset": content.offset,
+            "next_offset": content.next_offset,
             "start_line": window.start_line,
             "end_line": window.end_line,
             "total_lines": window.total_lines,
