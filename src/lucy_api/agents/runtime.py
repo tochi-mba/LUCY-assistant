@@ -426,7 +426,11 @@ class ChildRuntime:
                     session_id=parent.session_id,
                     items=mine,
                     capabilities=tuple(item.pack.id for item in catalogue.ready()),
-                    session=dict(session),
+                    # The helper's own mode, not the conversation's. Read from the row, a
+                    # helper in an `auto` conversation was told "permission mode auto" by its
+                    # live block while its brief said read-only, and every write it tried on
+                    # the strength of that was refused.
+                    session={**session, "permission_mode": child.permission_mode},
                     response_style=parent.policy.response_style,
                     **view_limits(parent.policy),
                 ),
