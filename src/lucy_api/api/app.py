@@ -47,7 +47,7 @@ def create_app(
     """
     resolved = settings if settings is not None else load_settings()
     if resolved.log_format is LogFormat.JSON:
-        configure(level=resolved.log_level)
+        configure(level=resolved.log_level, file=resolved.log_file)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:

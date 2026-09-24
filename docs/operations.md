@@ -23,6 +23,7 @@ start a process that looks healthy until the first token needs verifying.
 | `LUCY_HOST` / `LUCY_PORT` | `127.0.0.1` / `8000` | Where to listen. The default expects a TLS-terminating proxy in front. |
 | `LUCY_ENVIRONMENT` | `local` | Reported by both health routes. |
 | `LUCY_LOG_LEVEL` / `LUCY_LOG_FORMAT` | `INFO` / `json` | `console` is for a terminal; `json` is for anything that collects logs. |
+| `LUCY_LOG_FILE` | *(empty)* | Also write the JSON log to this file, rotated at 20 MB with five kept. The family's compose file sets it, so the log lands in `var/log/lucy.jsonl` on the host; read it with `lucy logs`. A file that cannot be opened is said on stdout and never stops the hub. |
 | `LUCY_AUDIENCE` | `lucy-api` | The `aud` this hub accepts, exactly. Must equal its name in keyring's `KEYRING_SERVICE_TOKENS` **and** its `audience_prefix` in settings-api's `SETTINGS_API_SERVICES`. |
 | `LUCY_KEYRING_BASE_URL` | `http://127.0.0.1:8001` | Keyring. |
 | `LUCY_KEYRING_JWKS_URL` | `.../.well-known/jwks.json` | Where the verifying keys come from. |

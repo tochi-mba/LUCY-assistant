@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     environment: str = "local"
     log_level: str = "INFO"
     log_format: LogFormat = LogFormat.JSON
+    log_file: str = ""
+    """A file to write the JSON log to as well as stdout, rotated by the hub. Empty: none."""
     host: str = "127.0.0.1"
     port: PositiveInt = 8000
 
