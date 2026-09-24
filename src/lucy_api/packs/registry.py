@@ -83,6 +83,15 @@ make deferral a one-way door. `work` and `agents` are the check-in path for ever
 that outlives a step, so hiding them when the system is busy hides the one capability
 that exists specifically for that case."""
 
+FIRST_LOADED = ("notes", "workspace", "research", "watch", "settings")
+"""The order capabilities a conversation has not used yet are kept in, most useful first.
+
+Without it the tie was broken by id, alphabetically, and on a stock family the one left out of
+four slots was `workspace` -- last in the alphabet, and the capability anything built needs --
+so every new conversation spent a `capabilities.use` round before it could touch a file. What
+the conversation has used always comes first; anything not named here comes after, by id.
+"""
+
 PROBE_SECONDS = 5.0
 """How long a capability has to say whether it is usable.
 
@@ -180,7 +189,14 @@ def choose_bound(
         return ready, ()
 
     order = {pack_id: index for index, pack_id in enumerate(recent)}
-    ranked = sorted(ready, key=lambda item: (order.get(item.pack.id, len(order)), item.pack.id))
+    ranked = sorted(
+        ready,
+        key=lambda item: (
+            order.get(item.pack.id, len(order)),
+            _first_loaded(item.pack.id),
+            item.pack.id,
+        ),
+    )
     kept: list[Bound] = []
     deferred: list[str] = []
     spent = 0
@@ -203,6 +219,10 @@ def choose_bound(
     # ends the prompt cache for no reason at all.
     keep_ids = {item.pack.id for item in kept}
     return tuple(item for item in ready if item.pack.id in keep_ids), tuple(sorted(deferred))
+
+
+def _first_loaded(pack_id: str) -> int:
+    return FIRST_LOADED.index(pack_id) if pack_id in FIRST_LOADED else len(FIRST_LOADED)
 
 
 def apply_disabled(catalogue: Catalogue, disabled: Sequence[str]) -> Catalogue:
@@ -377,6 +397,7 @@ def _ids_said_once(schema: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "ALWAYS",
     "DEFER_ABOVE",
+    "FIRST_LOADED",
     "KEEP_RECENT",
     "SLOW_MULTIPLE",
     "SLOW_SERVICES",
