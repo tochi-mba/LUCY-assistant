@@ -344,7 +344,7 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
-    return _with_words(allow_show_from(schema))
+    return _with_words(_ids_said_once(allow_show_from(schema)))
 
 
 def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
@@ -359,6 +359,19 @@ def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
     }
     required = [name for name in schema.get("required", []) if name != "steps"]
     return {**schema, "properties": properties, "required": required}
+
+
+def _ids_said_once(schema: dict[str, Any]) -> dict[str, Any]:
+    """Every operation's `id` without the sentence explaining ids, which is said elsewhere.
+
+    weftai puts "Short name for this step's result; later steps reference it as $id." on the `id`
+    of every operation, and a family with fifty operations sent it fifty times a round. The
+    steps array and the prompt's tools section already say how `$id` works.
+    """
+    steps = schema.get("properties", {}).get("steps", {})
+    for variant in steps.get("items", {}).get("anyOf", ()):
+        variant.get("properties", {}).get("id", {}).pop("description", None)
+    return schema
 
 
 __all__ = [
