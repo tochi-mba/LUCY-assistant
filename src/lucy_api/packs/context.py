@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from lucy_api.permissions.gate import Grant
     from lucy_api.work import Registry
 
+from lucy_api.decide import Decisions
 from lucy_api.settings.policy import TurnPolicy
 
 
@@ -152,6 +153,7 @@ class PackContext:
     incognito: bool = False
     max_subagent_turns: int = 8
     policy: TurnPolicy = field(default_factory=TurnPolicy)
+    decide: Decisions = field(default_factory=Decisions)
     catalogue: Catalogue | None = None
     work: Registry | None = None
     child: ChildRuntime | None = None

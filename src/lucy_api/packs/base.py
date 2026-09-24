@@ -222,6 +222,7 @@ class Catalogue:
     """Every pack this deployment has, probed for one person."""
 
     bound: tuple[Bound, ...] = field(default_factory=tuple)
+    suggested: tuple[str, ...] = ()
 
     def ready(self) -> tuple[Bound, ...]:
         return tuple(item for item in self.bound if item.visible_to_model)

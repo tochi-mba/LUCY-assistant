@@ -9,18 +9,20 @@ standing up a sibling.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 from lucy_api.context.types import Trust
-from lucy_api.memory.topics import Topic, select_topics
+from lucy_api.decide.uses import rank_relevant
+from lucy_api.memory.topics import Selection, Topic, rank_topics, select_topics
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from lucy_api.clients.memory import TopicCard
     from lucy_api.context.types import TopicSnapshot
+    from lucy_api.decide import Decisions
     from lucy_api.memory.topics import TopicSource
 
 
@@ -50,18 +52,47 @@ class MemoryIndex:
     profile: str
     limit: int = 8
     incognito: bool = False
+    decide: Decisions | None = None
 
     async def fetch(self, session_id: str) -> Sequence[TopicSnapshot]:  # noqa: ARG002
         """The ranked, trusted prefix. Incognito is empty rather than a differently shaped miss."""
         if self.incognito:
             return ()
         cards = await self.client.topics(profile=self.profile)
+        topics = tuple(_topic_from_card(card) for card in cards)
+        now = datetime.now(UTC)
         selection = select_topics(
-            [_topic_from_card(card) for card in cards],
+            topics,
             limit=max(1, self.limit),
             counter=_OnePerTopic(),
-            now=datetime.now(UTC),
+            now=now,
         )
+        if self.decide is not None and self.limit > 0:
+            eligible = tuple(
+                r.topic
+                for r in rank_topics(
+                    [topic for topic in topics if topic.trusted],
+                    now=now,
+                )
+            )
+            ordered = await rank_relevant(self.decide, eligible)
+            selection = Selection(
+                topics=ordered[: self.limit],
+                omitted=max(0, len(ordered) - self.limit),
+                withheld=len(cards) - len(eligible),
+                tokens=min(self.limit, len(ordered)),
+            )
+            if ordered != eligible:
+                return tuple(
+                    replace(
+                        snapshot,
+                        relevance_order=i,
+                        index_notice=(selection.notice + "; more via notes.search")
+                        if selection.omitted or selection.withheld
+                        else "",
+                    )
+                    for i, snapshot in enumerate(selection.snapshots())
+                )
         return selection.snapshots()
 
 

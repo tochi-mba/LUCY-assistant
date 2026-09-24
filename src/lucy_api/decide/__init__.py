@@ -1,26 +1,23 @@
-"""`Decisions`: the one place a judgement is asked for, and the only one that can raise.
+"""Per-turn decision budgets, caching, safe telemetry, and deterministic fallback.
 
-It cannot, in fact, raise. :meth:`Decisions.ask` swallows everything a decider can do wrong --
-a timeout, a malformed payload, an exception from a third-party client -- and answers with
-empty :class:`~weftai.decisions.Answers`, which every reader in this package treats as "decide
-exactly as the code did before". That is the whole contract, and `tests/hub` pins it by
-running a turn with a decider and without one and comparing the items byte for byte.
-
-This package is a leaf. It imports `weftai` and `lucy_api.settings.policy` and nothing else of
-Lucy's; the event emitter arrives as an injected callable, so the import-linter contracts hold
-without amendment and a test can watch what was emitted without a container.
+The transport implements Weft's Decider contract. Lucy owns eligibility and application;
+no probabilistic answer changes permissions. Cancellation propagates normally.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from weftai.decisions import Answers, AnyQuestion, Decider, NullDecider
 
-from lucy_api.decide.types import TOPIC, USES, Direction, Skip, Use
+from lucy_api.context.scrub import scrub
+from lucy_api.core.logging import scrub as redact_credentials
+from lucy_api.decide.types import USES, Direction, Skip, Use
 
 Emit = Callable[[str, dict[str, Any]], Awaitable[None]]
 """How a decision reaches the stream: an event name and its fields, never the state text."""
@@ -37,9 +34,9 @@ async def _silent(name: str, fields: dict[str, Any]) -> None:
 
 
 class Decisions:
-    """Held on the container and on `PackContext.decide`, exactly as `work` is.
+    """One main turn's decisions, held on `PackContext.decide`.
 
-    `enabled` is the set of use ids whose own setting is on; `shadow` is the set whose answers
+    `enabled` is the set of use ids whose own setting is on; `shadow` determines whether answers
     must be discarded after being measured. Both are computed once at turn start from
     `TurnPolicy` and held for the life of the turn, like every other knob a turn reads.
     """
@@ -61,6 +58,8 @@ class Decisions:
         self.max_per_turn = max_per_turn
         self._emit = emit or _silent
         self._spent = 0
+        self.request_text = ""
+        self._cache: dict[str, Answers] = {}
 
     @property
     def spent(self) -> int:
@@ -71,7 +70,9 @@ class Decisions:
         """Whether this use's answer may be acted on: enabled, and not in shadow."""
         return use.id in self.enabled and not self.shadow
 
-    async def ask(self, use: Use, state: str, questions: Sequence[AnyQuestion]) -> Answers:
+    async def ask(  # noqa: PLR0911 - each refusal has a distinct telemetry reason
+        self, use: Use, state: str, questions: Sequence[AnyQuestion]
+    ) -> Answers:
         """Ask, and answer with nothing rather than raising, whatever happens.
 
         Returns empty answers when the use is off, the budget is spent, there is no decider,
@@ -83,6 +84,33 @@ class Decisions:
             await self._skip(use, refusal)
             return Answers()
 
+        state = redact_credentials(scrub(state).text)
+        key = hashlib.sha256(
+            json.dumps(
+                [
+                    use.id,
+                    state,
+                    [
+                        [
+                            q.id,
+                            q.kind,
+                            q.prompt,
+                            q.criteria,
+                            getattr(q, "options", ()),
+                            getattr(q, "levels", ()),
+                            getattr(q, "abstain", None),
+                        ]
+                        for q in questions
+                    ],
+                ],
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        if key in self._cache:
+            return self._cache[key]
+        if self.max_per_turn and self._spent >= self.max_per_turn:
+            await self._skip(use, Skip.TURN_BUDGET)
+            return Answers()
         self._spent += 1
         started = time.monotonic()
         try:
@@ -117,7 +145,12 @@ class Decisions:
                 ],
             },
         )
+        self._cache[key] = answers
         return answers
+
+    async def skipped(self, use: Use, reason: str) -> None:
+        """Report a bounded-input refusal without recording input text."""
+        await self._emit(SKIPPED, {"use": use.id, "reason": reason})
 
     def _why_not(self, use: Use) -> Skip | None:
         """Why this use will not be asked, or `None` when it will.
@@ -129,8 +162,6 @@ class Decisions:
             return Skip.OFF
         if isinstance(self.decider, NullDecider):
             return Skip.NO_DECIDER
-        if self.max_per_turn and self._spent >= self.max_per_turn:
-            return Skip.TURN_BUDGET
         return None
 
     async def disagreed(self, use: Use, *, decided: str, fallback: str) -> None:
@@ -158,7 +189,6 @@ __all__ = [
     "DISAGREED",
     "MADE",
     "SKIPPED",
-    "TOPIC",
     "USES",
     "Decisions",
     "Direction",

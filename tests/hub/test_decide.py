@@ -14,14 +14,9 @@ import pytest
 from weftai.decisions import Answer, Answers, AnyQuestion, NullDecider, noul
 
 from lucy_api.decide import DISAGREED, MADE, Decisions
-from lucy_api.decide.memory import (
-    ABSTAIN,
-    MAX_TOPICS,
-    decided_key,
-    topic_batch,
-    topic_question,
-)
-from lucy_api.decide.types import TOPIC, USES, Skip
+from lucy_api.decide.types import USES, Skip, Use
+
+TOPIC = Use("topic", "decision_topic", "tighten", "test fallback", "test use")
 
 
 class Recorder:
@@ -103,7 +98,7 @@ async def test_a_decider_that_misbehaves_is_indistinguishable_from_none(decider:
     """The whole contract. A caller cannot tell these apart, so it never has to."""
     result = await live(decider).ask(TOPIC, "state", [noul("a", "Is it?")])
     assert result.empty
-    assert decided_key(result, ["home", "work"]) == ""
+    assert result.choice("topic") == ""
 
 
 async def test_a_timeout_falls_open_and_is_named() -> None:
@@ -173,7 +168,7 @@ async def test_the_turn_budget_falls_open_for_the_rest_of_the_turn() -> None:
     decider = Scripted(answers(("topic", "home", 0.9)))
     decisions = Decisions(decider, enabled=[TOPIC.id], shadow=False, max_per_turn=1, emit=emit)
     assert not (await decisions.ask(TOPIC, "state", [])).empty
-    assert (await decisions.ask(TOPIC, "state", [])).empty
+    assert (await decisions.ask(TOPIC, "different", [])).empty
     assert decider.calls == 1
     assert decisions.spent == 1
     assert emit.reasons()[-1] == Skip.TURN_BUDGET
@@ -182,8 +177,8 @@ async def test_the_turn_budget_falls_open_for_the_rest_of_the_turn() -> None:
 async def test_a_budget_of_zero_means_unlimited() -> None:
     decider = Scripted(answers(("topic", "home", 0.9)))
     decisions = Decisions(decider, enabled=[TOPIC.id], shadow=False, max_per_turn=0)
-    for _ in range(3):
-        await decisions.ask(TOPIC, "state", [])
+    for i in range(3):
+        await decisions.ask(TOPIC, f"state {i}", [])
     assert decider.calls == 3
 
 
@@ -229,49 +224,6 @@ async def test_the_default_emitter_is_silent_rather_than_absent() -> None:
             TOPIC, "state", []
         )
     ).empty
-
-
-# --- the topic use ------------------------------------------------------------------------
-
-
-def test_the_question_carries_no_content_only_the_options() -> None:
-    question = topic_question("a note about the wifi password", ["home", "work"])
-    assert question.options == ("home", "work")
-    assert question.abstain == ABSTAIN
-    assert "wifi" not in question.prompt
-
-
-def test_a_confident_choice_is_taken() -> None:
-    assert decided_key(answers(("topic", "home", 0.9)), ["home", "work"]) == "home"
-
-
-def test_an_unconfident_choice_leaves_it_to_overlap() -> None:
-    assert decided_key(answers(("topic", "home", 0.3)), ["home", "work"]) == ""
-
-
-def test_abstaining_leaves_it_to_overlap() -> None:
-    """Which is where a genuinely new subject belongs, and the overlap pass agrees."""
-    assert decided_key(answers(("topic", ABSTAIN, 0.99)), ["home", "work"]) == ""
-
-
-def test_a_key_outside_the_option_set_is_refused() -> None:
-    """A key the model invented is not a key, however confident it was."""
-    assert decided_key(answers(("topic", "invented", 0.99)), ["home", "work"]) == ""
-
-
-def test_no_answer_leaves_it_to_overlap() -> None:
-    assert decided_key(Answers(), ["home", "work"]) == ""
-
-
-@pytest.mark.parametrize("keys", [[], ["only"], [f"t{i}" for i in range(MAX_TOPICS + 1)]])
-def test_there_is_nothing_to_ask_below_two_topics_or_above_the_cap(keys: list[str]) -> None:
-    assert topic_batch("a note", keys) is None
-
-
-def test_a_workable_topic_set_produces_one_question() -> None:
-    batch = topic_batch("a note", ["home", "work"])
-    assert batch is not None
-    assert [q.id for q in batch.questions] == ["topic"]
 
 
 # --- the declarations ---------------------------------------------------------------------

@@ -273,6 +273,8 @@ class TopicSnapshot:
     trust: str = "stated"
     unread: int = 0
     unconfirmed: int = 0
+    relevance_order: int | None = None
+    index_notice: str = ""
 
 
 @dataclass(frozen=True, slots=True)

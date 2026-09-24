@@ -15,7 +15,7 @@ import genenv  # noqa: E402
 
 
 def test_build_env_tokens_meet_the_floor() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     for key, value in env.items():
         if key == "KEYRING_MASTER_KEY":
             continue

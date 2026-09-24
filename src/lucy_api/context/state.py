@@ -542,13 +542,22 @@ def _memory_group(topics: Sequence[TopicSnapshot], now: datetime) -> _Group:
     carrying none leaves the model unable to know that it knows anything. A title, a
     sentence and a count are enough for it to decide that one topic is worth expanding.
     """
-    ordered = sorted(topics, key=lambda topic: _topic_order(topic, now))
+    relevance = any(topic.relevance_order is not None for topic in topics)
+    ordered = sorted(
+        topics,
+        key=lambda topic: (
+            topic.relevance_order if topic.relevance_order is not None else len(topics),
+            _topic_order(topic, now),
+        ),
+    )
     unread = sum(topic.unread for topic in ordered)
     unconfirmed = sum(topic.unconfirmed for topic in ordered)
     headline = (
         f"{_plural(len(ordered), 'topic', 'topics')}, "
         f"{_plural(sum(topic.count for topic in ordered), 'memory', 'memories')}"
     )
+    if ordered[0].index_notice:
+        headline += "; " + ordered[0].index_notice
     if unread:
         headline += f", {unread} unread"
     if unconfirmed:
@@ -565,7 +574,7 @@ def _memory_group(topics: Sequence[TopicSnapshot], now: datetime) -> _Group:
         # on its title. Where even one topic is undated the group gives up the claim and
         # confesses with a plain count, because a cut made partly on alphabetical order that
         # calls itself recency is worse than one that admits it is just a count.
-        recent=all(_touched(topic, now) is not None for topic in ordered),
+        recent=not relevance and all(_touched(topic, now) is not None for topic in ordered),
     )
 
 

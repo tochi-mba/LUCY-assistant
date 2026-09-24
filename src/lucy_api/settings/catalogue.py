@@ -633,7 +633,66 @@ def _feed_knobs() -> tuple[Knob, ...]:
     return caps + fields
 
 
-KNOBS: tuple[Knob, ...] = (*_core(), *_feed_knobs())
+def _decision_knobs() -> tuple[Knob, ...]:
+    flags = (
+        (
+            "decisions",
+            False,
+            "Enable Laya-assisted decisions.",
+            "Off makes no decision calls. On uses the configured decision service.",
+        ),
+        (
+            "decision_shadow_mode",
+            True,
+            "Measure decisions without applying them.",
+            "On records suggestions while preserving ordinary behavior.",
+        ),
+        (
+            "decision_capabilities",
+            True,
+            "Preload relevant available capabilities.",
+            "Only when decisions are enabled. Never executes tools or grants permission.",
+        ),
+        (
+            "decision_memory",
+            True,
+            "Rank trusted memory topics by relevance.",
+            "Only when decisions are enabled. Incognito sends no memories.",
+        ),
+        (
+            "decision_recovery",
+            False,
+            "Suggest a new approach after repeated failures.",
+            "Advisory only. Existing loop limits and approvals remain in force.",
+        ),
+    )
+    return (
+        *tuple(
+            _bool(key, default, summary, description, unavailable=OnUnavailable.USE_DEFAULT)
+            for key, default, summary, description in flags
+        ),
+        _int(
+            "decision_timeout_ms",
+            1000,
+            "Maximum wait for one decision in milliseconds.",
+            "Timeout uses ordinary behavior.",
+            minimum=50,
+            maximum=5000,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "decision_max_per_turn",
+            8,
+            "Maximum decision calls in one turn.",
+            "Helpers use ordinary behavior; a new main turn gets a fresh budget.",
+            minimum=1,
+            maximum=32,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+    )
+
+
+KNOBS: tuple[Knob, ...] = (*_core(), *_feed_knobs(), *_decision_knobs())
 
 
 def knob(key: str) -> Knob | None:
