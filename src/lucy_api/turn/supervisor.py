@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.agents.restart import announce_interrupted
 from lucy_api.context.build import Live
 from lucy_api.context.scrub import scrub
 from lucy_api.context.sources import Sources
@@ -156,7 +157,8 @@ class TurnSupervisor:
         """Fail turns a previous process left running, then drain what is still queued."""
         await self._store.interrupt_abandoned_turns()
         if self._agents is not None:
-            await self._agents.interrupt_running()
+            stopped = await self._agents.interrupt_running()
+            announce_interrupted(self._capabilities.work, stopped)
         self.wake()
 
     @property

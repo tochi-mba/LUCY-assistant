@@ -22,6 +22,19 @@ tokens is a summary plus references; the rest stays behind the child's own items
 RESULT_CHAR_CAP = RESULT_TOKEN_CAP * 4
 """Four characters to a token, same rule as the work registry. Close enough to gate on."""
 
+CONTINUABLE = "stopped before it finished; agents.reopen continues it"
+"""The front of the notice for a helper that can be picked up where it stopped.
+
+First, because the notice is clipped from the end: a long reason loses its tail, not the
+one thing the model can do about it.
+"""
+
+STOPPED = "stopped before it finished"
+"""The front of the notice for a helper that cannot usefully be continued as it is."""
+
+RESTARTED = "the hub restarted while it was running"
+"""Why a helper a previous process was running has stopped."""
+
 
 @dataclass(frozen=True, slots=True)
 class Delegation:
@@ -67,8 +80,11 @@ def declared_return(text: str, schema: str) -> tuple[object | None, str]:
 
 
 __all__ = [
+    "CONTINUABLE",
+    "RESTARTED",
     "RESULT_CHAR_CAP",
     "RESULT_TOKEN_CAP",
+    "STOPPED",
     "Delegation",
     "capped_summary",
     "declared_return",
