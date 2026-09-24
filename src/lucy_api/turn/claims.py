@@ -8,8 +8,13 @@ said "Done. Your calculator website is ready" after binding a capability and not
 A structural check, not a prompt: a model that makes the claim has already read the prompt.
 When a turn's final reply claims a completed change and no step this turn did anything --
 nothing succeeded outside the bookkeeping capabilities -- the reply is held back and the model
-is asked once to either do it or say it was not done. Once, because the phrase list is English
-and a heuristic: a false match costs one round, and a second answer is taken as given.
+is asked once to either do it or say it was not done (the loop in `turn/loop.py` does the
+holding back; this module only answers "is this an unbacked claim?").
+
+Two layers answer it. `CLAIMED`, a phrase list, is English and names the shapes seen, so it is
+a tripwire rather than a guarantee: a false match costs one round, and a second answer is taken
+as given. Where the `claims` Laya decision is enabled, it can catch the wordings the list does
+not know -- see :class:`ClaimCheck`.
 """
 
 from __future__ import annotations
@@ -69,11 +74,6 @@ def did_work(rounds: Iterable[Round]) -> bool:
     )
 
 
-def unbacked(text: str, rounds: Iterable[Round]) -> bool:
-    """Whether `text` claims, in words the phrase list knows, a change nothing this turn made."""
-    return not did_work(rounds) and CLAIMED.search(text) is not None
-
-
 class ClaimCheck:
     """The phrase list, with a decision in front of it where one is live.
 
@@ -89,6 +89,11 @@ class ClaimCheck:
         self.decide = decide
 
     async def unbacked(self, text: str, rounds: Iterable[Round]) -> bool:
+        """Whether `text` claims a change nothing this turn made. Three checks, in order:
+
+        a step did real work, so nothing is held back; the phrase list matches, so it is; or
+        else a live decision, confident the reply claims completed work, holds it back.
+        """
         if did_work(rounds):
             return False
         if CLAIMED.search(text) is not None:
@@ -114,5 +119,4 @@ __all__ = [
     "UNBACKED",
     "ClaimCheck",
     "did_work",
-    "unbacked",
 ]

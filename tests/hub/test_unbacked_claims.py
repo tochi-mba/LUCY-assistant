@@ -12,7 +12,7 @@ import pytest
 from test_turn_loop import Prompts, Transcript, executor, ok_result
 
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
-from lucy_api.turn.claims import CLAIMED, UNBACKED, unbacked
+from lucy_api.turn.claims import CLAIMED, UNBACKED, ClaimCheck
 from lucy_api.turn.loop import Round, Step, Turn, run_turn
 from lucy_api.turn.stop import Termination
 
@@ -107,6 +107,6 @@ def test_what_counts_as_a_claim(text: str, claims: bool) -> None:
     assert (CLAIMED.search(text) is not None) is claims
 
 
-def test_a_failed_step_backs_no_claim() -> None:
+async def test_a_failed_step_backs_no_claim() -> None:
     failed = Round(text="", steps=(Step(id="tea", operation="notes.remember", status="error"),))
-    assert unbacked(FALSE, [failed]) is True
+    assert await ClaimCheck().unbacked(FALSE, [failed]) is True
