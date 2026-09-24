@@ -31,7 +31,6 @@ from lucy_api.workspace.text import (
     DEFAULT_LINE_LIMIT,
     apply_edit,
     digest,
-    is_binary,
     numbered_window,
     stale_if_changed,
     validate_text,
@@ -304,7 +303,7 @@ class WorkspacePack:
             max_bytes=_optional_int(run.input.get("max_bytes")),
         )
         relative = _relative(run.ctx, content.path)
-        if is_binary(content.content):
+        if content.binary:
             return {
                 "path": relative,
                 "binary": True,
@@ -363,7 +362,7 @@ class WorkspacePack:
         client = self._client(run.ctx)
         current = await client.read(env_id, path)
         relative = _relative(run.ctx, path)
-        if is_binary(current.content):
+        if current.binary:
             return {"path": relative, "replaced": False, "notice": BINARY_NOTICE}
         expected = str(run.input.get("if_match") or "")
         stale = stale_if_changed(current.content, expected)

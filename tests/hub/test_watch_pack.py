@@ -30,7 +30,14 @@ from lucy_api.packs.base import State as PackState
 from lucy_api.packs.context import PackContext, SilentTokens
 from lucy_api.packs.http import NullHttp
 from lucy_api.packs.registry import build_registry, build_runtime
-from lucy_api.packs.watch import MAX_BODY, NO_WORKSPACE, WatchPack, _file_check, httpx_fetch
+from lucy_api.packs.watch import (
+    BINARY_FILE,
+    MAX_BODY,
+    NO_WORKSPACE,
+    WatchPack,
+    _file_check,
+    httpx_fetch,
+)
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import Brief, Kind, Registry, State
 from lucy_api.work.watch import MAX_EVERY_SECONDS, MIN_EVERY_SECONDS
@@ -369,6 +376,39 @@ async def test_a_file_watch_with_a_pattern_waits_while_there_is_no_match() -> No
     registry.cancel(started["id"])
     await settled()
     assert registry.result(started["id"]).state is State.cancelled
+
+
+ELF = "\x7fELF\0\0"
+"""The start of a compiled binary. The sandbox sends it as `f0VMRgAA`."""
+
+
+async def test_a_pattern_is_never_matched_against_a_binary_file() -> None:
+    """The bug, named: the sandbox sends a binary file base64, and the check searched that,
+    so a pattern that only occurs in the encoding fired on a file that never contained it."""
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/out/app", ELF),),
+    )
+
+    check = await _file_check(fake, ENV, f"{ROOT}/out/app", re.compile("VMRg"))
+
+    assert check.fired is False
+    assert check.detail == BINARY_FILE
+
+
+async def test_a_binary_file_can_still_be_waited_for_without_a_pattern() -> None:
+    """It exists, which is all that was asked; the base64 is no excerpt of anything."""
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/out/app", ELF),),
+    )
+
+    check = await _file_check(fake, ENV, f"{ROOT}/out/app", None)
+
+    assert check.fired is True
+    assert check.excerpt == ""
 
 
 class Offsets(Workspace):

@@ -23,6 +23,7 @@ and no amount of connecting an account changes that.
 
 from __future__ import annotations
 
+import base64
 import codecs
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
@@ -80,6 +81,14 @@ character with its head cut off (`ValidationError("Read offset is inside a UTF-8
 character")`, app/files.py:132-136, code `validation_error`, app/errors.py:123-127). It
 arrives here folded to one spelling by `problem_code`.
 """
+BASE64 = "base64"
+"""The encoding a binary file's content arrives in.
+
+Environments-api calls a file binary when it holds a NUL or is not valid UTF-8, and sends
+it base64 with `is_binary` set (app/file_safety.py:82-102, app/files.py:129-130). Base64
+never contains a NUL, so a hub that looked for one in the content never saw a binary file,
+and handed the model a `.pyc` as line-numbered base64.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +143,9 @@ class FileText:
 
     `notice` is empty when the whole file came back and says exactly how much of how much
     arrived when it did not. Nothing here truncates silently.
+
+    `binary` is the service's verdict on the whole file, not on the window. When it is set,
+    `content` is base64 and is not the file's text to anything that reads it.
     """
 
     path: str
@@ -142,6 +154,7 @@ class FileText:
     offset: int = 0
     truncated: bool = False
     notice: str = ""
+    binary: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +351,7 @@ class HttpEnvironmentsClient:
             offset=number(payload, "offset"),
             truncated=truncated,
             notice=f"showing {len(content)} of {size} bytes" if truncated else "",
+            binary=flag(payload, "is_binary") or text(payload, "encoding") == BASE64,
         )
 
     async def write(
@@ -585,17 +599,22 @@ class FakeEnvironmentsClient:
         that starts inside a character is refused with the service's own 422 (app/files.py:
         127-138). A fake that sliced the str could never refuse, so a tail read at a
         computed offset passed here and failed against the sandbox whenever it landed
-        inside a `✓`.
+        inside a `✓`. A body with a NUL in it is binary, as it is to the service, and its
+        window comes back base64.
         """
         data = self.contents.get((environment_id, path), "").encode()
         window = data[offset:] if max_bytes is None else data[offset : offset + max_bytes]
-        decoder = codecs.getincrementaldecoder("utf-8")()
-        try:
-            content = decoder.decode(window)
-        except UnicodeDecodeError as exc:
-            detail = "Read offset is inside a UTF-8 character"
-            raise RejectedError(SERVICE, 422, detail, MID_CHARACTER) from exc
-        window = window[: len(window) - len(decoder.getstate()[0])]
+        binary = b"\0" in data
+        if binary:
+            content = base64.b64encode(window).decode("ascii")
+        else:
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            try:
+                content = decoder.decode(window)
+            except UnicodeDecodeError as exc:
+                detail = "Read offset is inside a UTF-8 character"
+                raise RejectedError(SERVICE, 422, detail, MID_CHARACTER) from exc
+            window = window[: len(window) - len(decoder.getstate()[0])]
         truncated = offset + len(window) < len(data)
         return FileText(
             path=path,
@@ -604,6 +623,7 @@ class FakeEnvironmentsClient:
             offset=offset,
             truncated=truncated,
             notice=f"showing {len(content)} of {len(data)} bytes" if truncated else "",
+            binary=binary,
         )
 
     async def write(
@@ -705,6 +725,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AUDIENCE",
+    "BASE64",
     "DEFAULT_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT_MS",
     "MID_CHARACTER",
