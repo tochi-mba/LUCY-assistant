@@ -69,6 +69,26 @@ async def client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[Asyn
 
 
 @pytest.fixture
+async def workspace_client(settings: Settings, keyring: FakeKeyring) -> AsyncIterator[AsyncClient]:
+    """`client`, with the workspace capability on the same fake sandbox that provisions each
+    session -- so a session has a workspace its tools can really read and write."""
+    app = create_app(settings, transport=keyring.transport())
+    async with (
+        LifespanManager(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http,
+    ):
+        container = app.state.container
+        await container.preferences.aclose()
+        container.preferences = FakeSettingsClient()
+        sandbox = FakeEnvironmentsClient()
+        container.environment_override = sandbox
+        for pack in container.capabilities.packs:
+            if pack.id == "workspace":
+                pack._override = sandbox
+        yield http
+
+
+@pytest.fixture
 async def sessions_store(tmp_path: Path) -> AsyncIterator[SessionStore]:
     """A real database on disk, for the domain tests that have no HTTP in them.
 
