@@ -402,7 +402,13 @@ class HttpEnvironmentsClient:
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
     ) -> Ran:
-        """Run one command through the one-call shape: open, run, return, close."""
+        """Run one command through the one-call shape: open, run, return, close.
+
+        The command that comes back is the one sent, never the sandbox's echo of it. The
+        sandbox runs `( command\\n)` in a subshell and echoes that string (Environments-api
+        app/api/routes/exec.py), so the model was shown `"( ls -la\\n)"` for every `ls -la`
+        it ran. The hub knows what it asked for, and the echo adds nothing to that.
+        """
         body = {
             "environment_id": environment_id,
             "command": command,
@@ -420,7 +426,7 @@ class HttpEnvironmentsClient:
         )
         state = text(payload, "state")
         return Ran(
-            command=text(payload, "command", command),
+            command=command,
             exit_code=_exit_code(payload),
             output=text(payload, "output"),
             output_dropped_bytes=number(payload, "output_dropped_bytes"),
@@ -646,7 +652,8 @@ class FakeEnvironmentsClient:
         A scripted `timed_out` state reads as a timeout whether or not the script also set
         the flag, because that is what the real client makes of the same answer. Scripted
         output longer than `max_output_bytes` comes back as its head and a count of the
-        rest, because that is what the sandbox does with it.
+        rest, because that is what the sandbox does with it. And the command is the one
+        asked for, whatever the script called it, as the real client reports it.
         """
         del cwd
         self.ran.append((environment_id, command, timeout_ms, max_output_bytes))
@@ -659,7 +666,9 @@ class FakeEnvironmentsClient:
                 output=printed[:max_output_bytes].decode("utf-8", "replace"),
                 output_truncated_bytes=result.output_truncated_bytes + cut,
             )
-        return replace(result, timed_out=result.timed_out or result.state == TIMED_OUT)
+        return replace(
+            result, command=command, timed_out=result.timed_out or result.state == TIMED_OUT
+        )
 
 
 if TYPE_CHECKING:
