@@ -178,7 +178,8 @@ unread steers count as one.
 → Each spawn returns a handle immediately. The parent keeps talking. When a helper
 finishes, a notice arrives at the next tool boundary; `work.result` is how the parent
 reads the capped summary. Mid-run, `agents.message` queues a steer that the helper sees
-before its next round, never mid-tool.
+before its next round, never mid-tool; `agents.read` shows what it has done so far, and
+`work.cancel` stops it. What a stopped helper did stays readable.
 
 A helper cannot spawn another helper past the configured depth (default three), cannot
 write, and cannot raise its own permission mode. Those are refusals in the tool result,
