@@ -26,7 +26,7 @@ from lucy_api.permissions.live import PendingLive
 from lucy_api.sessions.schema import SCHEMA
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 
 class _Worker:
@@ -45,16 +45,19 @@ class _Store:
 
 
 @pytest.fixture
-def db() -> sqlite3.Connection:
+def db() -> Iterator[sqlite3.Connection]:
     """The hub's own schema, not a table written for the test.
 
     A hand-written table agrees with the query that reads it, whoever is wrong; the real one
-    is what the query has to agree with in production.
+    is what the query has to agree with in production. Closed afterwards: Python 3.13 reports
+    a connection left to the garbage collector, and pytest turns the report into an error on
+    whichever test is running when the collector gets to it.
     """
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA)
-    return connection
+    yield connection
+    connection.close()
 
 
 def _ask(
