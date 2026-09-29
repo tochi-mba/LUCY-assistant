@@ -279,7 +279,7 @@ that no capability claimed, and there would be nowhere to look up what it was al
 | `agents/store.py` | durable roster, inbox, journal claims; every lookup takes the account |
 | `agents/runtime.py` | the child loop: clean items, `plan` mode, mail at assemble, capped return |
 | `agents/journal.py` | the journal as a live-state source |
-| `packs/agents.py` | `agents.spawn`, `agents.reopen`, `agents.list`, `agents.message`, `journal.read`, `journal.claim`, `journal.complete` |
+| `packs/agents.py` | `agents.spawn`, `agents.reopen`, `agents.list`, `agents.read`, `agents.message`, `journal.read`, `journal.claim`, `journal.complete` |
 
 Spawn is refused with a sentence when the brief is empty, the depth cap is hit, the
 runtime is missing, or the session is already at capacity. A helper is not offered spawn
@@ -290,3 +290,10 @@ size-capped at four thousand characters, and identical unread steers from the sa
 are one message. `agents.reopen` starts a new helper that sees the previous items and last
 report. A caller may pass `return_schema`; the child is told to return that JSON object
 as its whole answer, and a miss is named in the notice rather than parsed as prose.
+
+A helper writes each item as it happens, so its work survives the moment it breaks.
+`agents.read` returns a helper's items in order -- its brief, each step and what came back,
+what it said -- for a helper of this conversation that is running, finished, stopped or
+cancelled, including the runs it continued from. It changes nothing. `work.cancel` with the
+helper's id stops it mid-run. The person reads the same items at
+`GET /v1/sessions/{id}/subagents/{agent_id}/items`.

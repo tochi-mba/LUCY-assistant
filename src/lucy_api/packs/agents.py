@@ -111,6 +111,9 @@ class AgentsPack:
                 return_schema=str(run.input.get("return_schema") or ""),
             )
 
+        async def run_read(run: RunContext[Any]) -> dict[str, Any]:
+            return await _read(context, str(run.input.get("id") or ""))
+
         async def run_journal_read(_run: RunContext[Any]) -> dict[str, Any]:
             return await _journal_read(context)
 
@@ -152,6 +155,21 @@ class AgentsPack:
                 "output": value(object_schema({})),
                 "effects": "read",
                 "run": run_message,
+            }
+        )
+        read = define_operation(
+            {
+                "name": "agents.read",
+                "description": (
+                    "What a helper has done so far, in order: its brief, each step and what "
+                    "came back, and what it said. Works while it runs and after it "
+                    "finished, stopped or was cancelled, and changes nothing (transcript, "
+                    "progress, partial, inspect)."
+                ),
+                "input": object_schema({"id": string_schema().describe("The helper's handle.")}),
+                "output": value(object_schema({})),
+                "effects": "read",
+                "run": run_read,
             }
         )
         journal_read = define_operation(
@@ -197,7 +215,7 @@ class AgentsPack:
                 "run": run_journal_complete,
             }
         )
-        shared = (listed, message, journal_read, journal_claim, journal_complete)
+        shared = (listed, read, message, journal_read, journal_claim, journal_complete)
         if context.agent_id:
             return shared
         return (
@@ -303,6 +321,20 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
         return {"status": "at_capacity", "message": str(exc)}
 
 
+def _not_attached() -> dict[str, Any]:
+    """The answer every helper operation gives in a turn that has no helper runtime."""
+    return {
+        "status": "not_configured",
+        "message": "helpers cannot run in this turn; the child runtime is not attached",
+    }
+
+
+async def _read(context: PackContext, agent_id: str) -> dict[str, Any]:
+    if context.child is None:
+        return _not_attached()
+    return await context.child.transcript(context, agent_id)
+
+
 async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
     running = [
         record for record in registry.running(context.session_id) if record.kind is Kind.helper
@@ -324,7 +356,10 @@ async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
     if stopped:
         listed["stopped"] = stopped[-MAX_STOPPED_LISTED:]
         listed["stopped_count"] = len(stopped)
-        listed["advice"] = "agents.reopen continues a stopped helper from its own transcript."
+        listed["advice"] = (
+            "agents.read shows what a stopped helper did; agents.reopen continues it from "
+            "its own transcript."
+        )
     return listed
 
 
@@ -396,7 +431,10 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
         "id": handle.id,
         "role": handle.role,
         "state": "running",
-        "advice": "It is running. A notice arrives when it finishes; then read work.result.",
+        "advice": (
+            "It is running. A notice arrives when it finishes; then read work.result. "
+            "agents.read shows what it has done so far, and work.cancel stops it."
+        ),
     }
 
 

@@ -12,3 +12,8 @@ A helper can stop before it finishes: its model out of reach, out of rounds, out
 notice says `failed`, why, and whether `agents.reopen` can continue it. Continuing starts a
 new helper on the old one's transcript, so nothing it already found is lost. Tell the person
 it stopped and why. If its model was out of reach, continuing at once stops the same way.
+
+Everything a helper does is written down as it happens. `agents.read` shows it, in order, for
+a helper that is running, finished, stopped or cancelled, and changes nothing: read a stopped
+helper before deciding whether to continue it, use what it found, or do the rest yourself.
+`work.cancel` with a helper's id stops it mid-run; what it had done by then stays readable.

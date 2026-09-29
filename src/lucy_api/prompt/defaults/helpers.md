@@ -48,6 +48,7 @@ Do not wait in a loop. Carry on, or finish and say what is still running.
 
 ### When one goes wrong
 
-A helper that fails comes back as a report saying so, not as an error that stops you. Decide
-whether to do the thing yourself, ask a narrower question, or tell the person it could not be
-done. A helper that has been running far too long is one to stop.
+A helper that fails comes back as a report saying so, not as an error that stops you. What
+it did before it failed is not lost: read it, then decide whether to continue it, do the rest
+yourself, ask a narrower question, or tell the person it could not be done. A helper that has
+been running far too long is one to stop, and stopping it keeps what it had found.

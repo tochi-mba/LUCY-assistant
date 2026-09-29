@@ -18,6 +18,7 @@ from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.prompt import SessionView, schema_tokens, system_and_messages, view_limits
+from lucy_api.turn.readable import readable
 from lucy_api.turn.stop import RESUMABLE, Budget, Termination
 
 if TYPE_CHECKING:
@@ -34,6 +35,8 @@ RESTART_REASON = "process_restarted"
 
 STOPPED_STATUSES = frozenset({"failed", "interrupted"})
 """Roster states of a helper that ended without finishing."""
+
+NO_SUCH_HELPER = "no helper of this conversation has that id; agents.list shows them"
 
 
 def _resumes(row: dict[str, Any]) -> str:
@@ -357,6 +360,39 @@ class ChildRuntime:
             and row.get("parent_agent_id") == mine
             and str(row["id"]) not in continued
         ]
+
+    async def transcript(self, parent: PackContext, agent_id: str) -> dict[str, Any]:
+        """What one of this conversation's helpers did, in order, however it ended.
+
+        A helper writes each item as it happens, so everything up to the moment it stopped,
+        failed or was cancelled is here, and so is a running helper's work so far. Reading
+        changes nothing: `reopen` was the only way to see inside a stopped helper, and it
+        starts a new run to do it. A helper that continued earlier runs includes theirs,
+        oldest first.
+        """
+        roster = await self.agents.for_session(parent.account_id, parent.session_id)
+        row = next((item for item in roster if str(item["id"]) == agent_id), None)
+        if row is None:
+            return {"status": "not_found", "message": NO_SUCH_HELPER}
+        family = _earlier_runs(roster, agent_id)
+        rows = await self.store.records(parent.account_id, parent.session_id, "items")
+        items = [
+            {
+                "said_by": str(item["role"]),
+                "text": readable(str(item.get("type") or "message"), item.get("content")),
+            }
+            for item in rows
+            if str(item.get("agent_id") or "") in family
+        ]
+        return {
+            "id": agent_id,
+            "role": str(row["role"]),
+            "objective": str(row["objective"]),
+            "state": str(row["status"]),
+            "runs": len(family),
+            "count": len(items),
+            "items": items,
+        }
 
     async def read_journal(self, parent: PackContext) -> dict[str, Any]:
         tasks = await self.agents.tasks(parent.account_id, parent.session_id)
