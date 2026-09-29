@@ -45,12 +45,13 @@ a model that cannot produce a valid plan twice will not produce one on the tenth
 from __future__ import annotations
 
 import inspect
+import logging
 import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.context.framing import Origin, as_trust, frame_result
-from lucy_api.context.scrub import scrub, scrub_tree
+from lucy_api.context.scrub import SECURITY_EVENT, scrub, scrub_tree
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
 from lucy_api.turn.claims import UNBACKED, ClaimCheck
 from lucy_api.turn.repetition import Repetition
@@ -77,6 +78,8 @@ MAX_PLAN_REPAIRS = 2
 Two, because the first repair usually works and the third never does. A model that cannot
 answer the schema after two tries has misunderstood the task, not the format, and spending
 the rest of the turn on it helps nobody."""
+
+logger = logging.getLogger(__name__)
 
 EMPTY_REPLY = (
     "Your previous reply was empty: nothing reached the person, and no plan was sent. "
@@ -724,6 +727,13 @@ def _summarise(raw: Any, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str
         return "", ()
     cleaned = scrub(body) if isinstance(body, str) else scrub_tree(body)
     operation = str(raw.get("operation", ""))
+    if cleaned.changed:
+        # Which shapes, never the text: what was neutralised is somebody's attempt at an
+        # instruction, and a log is the last place it should be repeated.
+        logger.warning(
+            cleaned.log_line,
+            extra={"event": SECURITY_EVENT, "operation": operation, "outcome": "scrubbed"},
+        )
     origin = Origin(capability=operation.split(".", 1)[0] or "a tool")
     viewed = result_window(cleaned.text, needle_from(raw), cap=cap)
     framed = frame_result(viewed.text, origin, trust=as_trust(raw.get("trust")))
