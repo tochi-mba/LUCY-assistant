@@ -14,6 +14,7 @@ from weftai.schema.spec import object_schema, string_schema
 from weftai.schema.types import value
 
 from lucy_api.agents.types import CONTINUABLE, STOPPED
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work.registry import AtCapacityError, Registry
@@ -45,6 +46,10 @@ cancelled the helper, which the roster then recorded as cancelled by somebody.
 """
 
 
+WRITTEN_BY_HELPERS = frozenset({"agents.read"})
+"""Operations that hand back a helper's own words and what it read."""
+
+
 class AgentsPack:
     """Start a helper, list the ones running, or send one a mid-run steer."""
 
@@ -66,6 +71,11 @@ class AgentsPack:
                 covers=("agents.spawn", "agents.reopen", "journal.claim", "journal.complete"),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Lucy's own roster and journal, except what a helper itself wrote."""
+        del data
+        return Trust.untrusted if operation in WRITTEN_BY_HELPERS else Trust.observed
 
     def setup(self) -> SetupPlan | None:
         return None

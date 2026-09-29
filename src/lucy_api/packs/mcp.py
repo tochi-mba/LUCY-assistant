@@ -14,6 +14,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import any_schema, object_schema
 from weftai.schema.types import value
 
+from lucy_api.context.types import Trust
 from lucy_api.core.errors import LucyError
 from lucy_api.mcp.outbound import CALL_FAILED
 from lucy_api.mcp.servers import READY
@@ -64,6 +65,11 @@ class McpPack:
                 outward=True,
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Whatever another server answered."""
+        del operation, data
+        return Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         return SetupPlan(

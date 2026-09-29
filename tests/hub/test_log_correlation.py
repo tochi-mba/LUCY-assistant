@@ -22,6 +22,7 @@ from weftai.schema.types import value
 
 from lucy_api.agents.runtime import ChildRuntime
 from lucy_api.agents.store import AgentStore
+from lucy_api.context.types import Trust
 from lucy_api.core.logging import JsonFormatter, bind
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
@@ -59,6 +60,12 @@ class Broken:
 
     def permissions(self) -> tuple[()]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self) -> None:
         return None

@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from weftai.operation import AnyOperation
 
+    from lucy_api.context.types import Trust
     from lucy_api.packs.context import PackContext
 
 
@@ -169,6 +170,17 @@ class CapabilityPack(Protocol):
     async def probe(self, context: PackContext) -> Availability: ...
 
     def setup(self) -> SetupPlan | None: ...
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """How far the result of one of this pack's operations can be trusted.
+
+        Decided by where the result came from, never by what it says. `observed` is what
+        Lucy's own machinery wrote, where no outsider chose a word of it. Anything a page, a
+        file, a command, a service or a helper produced is `untrusted`, and is framed to the
+        model as something to weigh and not obey. The pack decides, because the pack is what
+        knows where its results come from.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)

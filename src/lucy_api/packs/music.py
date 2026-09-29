@@ -23,6 +23,7 @@ from lucy_api.clients.spotify import (
     UnconfirmedError,
     Wanted,
 )
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, SetupStep, State
 from lucy_api.packs.collections import TRACK
 from lucy_api.packs.context import NoBrokerError
@@ -83,6 +84,11 @@ class MusicPack:
                 outward=True,
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Track and playlist names are chosen by other people."""
+        del operation, data
+        return Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         return SetupPlan(

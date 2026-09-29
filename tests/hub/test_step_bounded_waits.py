@@ -19,6 +19,7 @@ from weftai.schema.spec import object_schema
 from weftai.schema.types import value
 
 from lucy_api.clients.environments import Environment, FakeEnvironmentsClient, Ran
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, State
 from lucy_api.packs.context import STEP_MARGIN_SECONDS
 from lucy_api.packs.registry import SLOW_MULTIPLE
@@ -124,6 +125,12 @@ class Research:
 
     def permissions(self) -> tuple[()]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self) -> None:
         return None

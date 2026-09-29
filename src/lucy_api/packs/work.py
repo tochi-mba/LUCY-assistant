@@ -30,6 +30,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import number_schema, object_schema, string_schema
 from weftai.schema.types import value
 
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import State as WorkState
@@ -73,6 +74,11 @@ def _line(record: Record) -> dict[str, Any]:
     }
 
 
+PRODUCED = frozenset({"work.result"})
+"""Operations that hand back what a piece of work produced -- a helper's report, a command's
+output -- which is downstream of whatever that work read."""
+
+
 class WorkPack:
     """Everything in flight for this session, as one capability.
 
@@ -100,6 +106,11 @@ class WorkPack:
                 covers=("work.cancel",),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Lucy's own bookkeeping, except what a finished piece of work produced."""
+        del data
+        return Trust.untrusted if operation in PRODUCED else Trust.observed
 
     def setup(self) -> SetupPlan | None:
         return None

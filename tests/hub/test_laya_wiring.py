@@ -8,6 +8,7 @@ from weftai.decisions import noul
 from weftai.providers.laya import LayaDecider
 
 from lucy_api.auth.verifier import VerifiedCaller
+from lucy_api.context.types import Trust
 from lucy_api.core.container import PackRequest, build_container
 from lucy_api.decide.types import CAPABILITIES, MEMORY
 from lucy_api.sessions.models import CreateSession
@@ -20,6 +21,12 @@ class ToyPack:
         self.id = f"cap{number}"
         self.title = self.id
         self.summary = f"Use capability {number}"
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self):
         return None

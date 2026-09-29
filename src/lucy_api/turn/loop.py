@@ -49,7 +49,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.context.framing import Origin, frame_result, result_trust
+from lucy_api.context.framing import Origin, as_trust, frame_result
 from lucy_api.context.scrub import scrub, scrub_tree
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
 from lucy_api.turn.claims import UNBACKED, ClaimCheck
@@ -723,7 +723,7 @@ def _summarise(raw: Any, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str
     operation = str(raw.get("operation", ""))
     origin = Origin(capability=operation.split(".", 1)[0] or "a tool")
     viewed = result_window(cleaned.text, needle_from(raw), cap=cap)
-    framed = frame_result(viewed.text, origin, trust=result_trust(operation, body))
+    framed = frame_result(viewed.text, origin, trust=as_trust(raw.get("trust")))
     return framed, viewed.notices
 
 

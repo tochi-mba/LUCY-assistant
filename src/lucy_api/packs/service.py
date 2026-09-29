@@ -269,7 +269,7 @@ class Capabilities:
         for pack_id in context.bound_ids:
             self.remember_use(context.session_id, pack_id)
         context.bound_ids.clear()
-        return as_loop_result(result)
+        return as_loop_result(_with_trust(result, catalogue))
 
     async def invoke(
         self, name: str, arguments: dict[str, Any], context: PackContext
@@ -320,6 +320,23 @@ def _packs_run(plan: dict[str, Any], catalogue: Catalogue) -> tuple[str, ...]:
         if pack_id is not None and pack_id not in found:
             found.append(pack_id)
     return tuple(found)
+
+
+def _with_trust(result: Any, catalogue: Catalogue) -> Any:
+    """Each step's result, marked with how far the pack that produced it says to trust it.
+
+    The turn loop frames a result for the model by this mark and knows nothing about packs.
+    A step no pack owns -- one of the operations generated over a stored result -- is left
+    unmarked, which the loop reads as untrusted.
+    """
+    owners = {
+        operation.name: item.pack for item in catalogue.ready() for operation in item.operations
+    }
+    for step in result.get("steps") or ():
+        pack = owners.get(str(step.get("operation") or ""))
+        if pack is not None and step.get("status") == "ok":
+            step["trust"] = pack.result_trust(step["operation"], step.get("data")).value
+    return result
 
 
 def as_loop_result(result: Any) -> dict[str, Any]:

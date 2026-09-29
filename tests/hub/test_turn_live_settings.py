@@ -16,6 +16,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import object_schema
 from weftai.schema.types import value
 
+from lucy_api.context.types import Trust
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.base import Availability, State
@@ -60,6 +61,12 @@ class Toy:
 
     def permissions(self) -> tuple[object, ...]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self) -> None:
         return None
