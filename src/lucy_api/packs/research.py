@@ -17,6 +17,7 @@ from lucy_api.clients.search import (
     NOT_CONFIGURED,
     HttpSearchClient,
 )
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, SetupStep, State
 from lucy_api.packs.collections import HIT
 from lucy_api.packs.context import NoBrokerError
@@ -57,6 +58,11 @@ class ResearchPack:
 
     def permissions(self) -> Sequence[Permission]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Pages and search results: anyone can write one."""
+        del operation, data
+        return Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         return SetupPlan(

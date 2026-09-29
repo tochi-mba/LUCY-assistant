@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Catalogue, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.registry import apply_disabled, probe_all
@@ -36,6 +37,12 @@ class _Toy:
 
     def permissions(self) -> tuple[object, ...]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self) -> None:
         return None

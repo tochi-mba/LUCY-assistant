@@ -43,6 +43,8 @@ from lucy_api.clients.persona import as_dict as lesson_dict
 from lucy_api.clients.user import AUDIENCE as USER_AUDIENCE
 from lucy_api.clients.user import HttpUserClient
 from lucy_api.clients.user import as_dict as account_dict
+from lucy_api.context.framing import as_trust
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import NOTE
 from lucy_api.packs.context import NoBrokerError
@@ -58,6 +60,8 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import PackContext
 
 INCOGNITO = "this session is incognito: notes are neither read nor written"
+
+LEAST_TRUSTED_LAST = (Trust.stated, Trust.observed, Trust.inferred, Trust.untrusted)
 NO_LESSON = "no lesson has that id; each lesson's id is its [ref ...] in your standing notes"
 
 
@@ -119,6 +123,17 @@ class NotesPack:
                 covers=("notes.forget", *(("notes.unlearn",) if lessons else ())),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """As trusted as the least trusted memory in the result, by each memory's own word.
+
+        A memory says where it came from: the person stated it, Lucy observed or inferred it,
+        or it was distilled from a page. A result with no memory in it, such as a lesson just
+        kept, is Lucy's own record.
+        """
+        del operation
+        found = [as_trust(value) for value in _trust_values(data)]
+        return max(found, key=LEAST_TRUSTED_LAST.index, default=Trust.observed)
 
     def setup(self) -> SetupPlan | None:
         return None
@@ -509,6 +524,16 @@ class NotesPack:
         except AbsentError:
             return {"status": "not_found", "message": NO_LESSON}
         return {"lesson_id": lesson_id, "status": "unlearned"}
+
+
+def _trust_values(data: object) -> list[object]:
+    """Every `trust` a result's memories carry, however deeply they are nested."""
+    if isinstance(data, dict):
+        own = [data["trust"]] if "trust" in data else []
+        return [*own, *(found for value in data.values() for found in _trust_values(value))]
+    if isinstance(data, list):
+        return [found for item in data for found in _trust_values(item)]
+    return []
 
 
 def _said(run: RunContext[PackContext]) -> str:

@@ -46,6 +46,7 @@ from lucy_api.clients.environments import (
     read_from,
 )
 from lucy_api.clients.errors import AbsentError
+from lucy_api.context.types import Trust
 from lucy_api.core.errors import LucyError
 from lucy_api.net.ssrf import REFUSED as ADDRESS_REFUSED
 from lucy_api.net.ssrf import assert_public_https
@@ -169,6 +170,11 @@ class WatchPack:
                 covers=("watch.command",),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """What a watch saw in a file, a page or a command."""
+        del operation, data
+        return Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         return None

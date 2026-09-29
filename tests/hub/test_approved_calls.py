@@ -25,6 +25,7 @@ from weftai.schema.types import value
 
 from lucy_api.clients.testing import Answer, FakeHttp
 from lucy_api.context.build import Live
+from lucy_api.context.types import Trust
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.base import Availability, Bound, Catalogue, Permission, State
@@ -84,6 +85,12 @@ class Gadget:
                 covers=("gadget.write",),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+
+        del operation, data
+
+        return Trust.untrusted
 
     def setup(self) -> None:
         return None

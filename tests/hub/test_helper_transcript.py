@@ -138,3 +138,20 @@ def test_the_model_is_told_it_can_read_and_stop_a_helper() -> None:
     prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
     assert "What it did before it failed is not lost" in prompt
     assert "stopping it keeps what it had found" in prompt
+
+
+async def test_it_is_an_operation_a_plan_can_run(sessions_store: SessionStore) -> None:
+    provider = ScriptedProvider([speaks("Found it.")])
+    context, work, _agents = await _parent(sessions_store, provider)
+    started = await _spawn(work, context, depth=0, objective="Find it", role="reader")
+    await work.wait(str(started["id"]), 30)
+
+    capabilities = context.child.capabilities
+    await capabilities.probe(context)
+    result = await capabilities.execute(
+        {"steps": [{"id": "r", "op": "agents.read", "input": {"id": started["id"]}}]}, context
+    )
+
+    [step] = result["steps"]
+    assert step["data"]["items"][-1] == {"said_by": "assistant", "text": "Found it."}
+    assert step["trust"] == "untrusted", "a helper's words are downstream of what it read"

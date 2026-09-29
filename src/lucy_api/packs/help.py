@@ -18,6 +18,7 @@ from weftai.operation import define_operation
 from weftai.schema.spec import array_schema, integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
+from lucy_api.context.types import Trust
 from lucy_api.mcp.skills import CATALOGUE, listed, resolve
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State, connection_required
 from lucy_api.prompt.docs import capability_doc, read_capability_doc
@@ -52,6 +53,11 @@ class HelpPack:
 
     def permissions(self) -> Sequence[Permission]:
         return ()
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Lucy's own catalogue and manuals."""
+        del operation, data
+        return Trust.observed
 
     def setup(self) -> SetupPlan | None:
         return None

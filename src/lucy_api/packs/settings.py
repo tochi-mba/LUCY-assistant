@@ -11,6 +11,7 @@ from weftai.schema.types import value
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.settings import AUDIENCE, HttpSettingsPackClient
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
@@ -56,6 +57,11 @@ class SettingsPack:
                 covers=("settings.set",),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """The person's own settings, read from their store."""
+        del operation, data
+        return Trust.observed
 
     def setup(self) -> SetupPlan | None:
         return None

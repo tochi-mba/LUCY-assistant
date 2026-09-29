@@ -24,6 +24,7 @@ from lucy_api.clients.environments import (
     HttpEnvironmentsClient,
 )
 from lucy_api.clients.errors import DownstreamError
+from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import FILE
 from lucy_api.packs.context import NoBrokerError
@@ -123,6 +124,11 @@ class WorkspacePack:
                 covers=("workspace.run",),
             ),
         )
+
+    def result_trust(self, operation: str, data: object) -> Trust:
+        """Files and command output: anything can be in them."""
+        del operation, data
+        return Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         # Session creation provisions this capability. There is deliberately no manual

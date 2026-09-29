@@ -457,6 +457,16 @@ Three identical calls with identical arguments is a model that has lost track, n
 thorough. It is told what it already tried and what came back, which is usually enough; only
 if it ignores that is the operation withdrawn for the rest of the turn.
 
+## A result is framed by where it came from
+
+Every result reaches the model inside a frame that says how much weight it deserves. The pack
+that produced it decides, through `result_trust(operation, data)`: Lucy's own catalogue,
+settings, roster and bookkeeping are `observed`; a note is as trusted as the least trusted
+memory in it, by each memory's own `trust`; a page, a file, a command's output, another
+server's answer and a helper's own words are `untrusted`, whatever they say about themselves.
+A result nothing marked is untrusted. The turn loop frames by the mark and knows nothing about
+packs.
+
 ## Not connected is a result, not an error
 
 A capability without a credential returns a fixed, machine-readable body: the service, the
@@ -472,7 +482,7 @@ Different audience, different answer.
 
 | | |
 | --- | --- |
-| `packs/base.py` | what a capability is: states, availability, permissions, setup |
+| `packs/base.py` | what a capability is: states, availability, permissions, setup, and how far its results can be trusted |
 | `packs/collections.py` | every collection, in one place |
 | `packs/registry.py` | probing, deferral, the registry and runtime, the budgets |
 | `packs/context.py` | what a handler is handed, and why no secret is reachable from it |
