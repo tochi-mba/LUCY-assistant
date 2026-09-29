@@ -382,10 +382,7 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
         }
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     name = role.strip() or "helper"
     refused = _at_helper_cap(registry, context)
     if refused is not None:
@@ -459,10 +456,7 @@ async def _reopen(
         }
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     prepared = await runtime.reopen(context, handle, return_schema=return_schema)
     new_id = str(prepared.get("agent_id") or "")
     if not new_id:
@@ -530,10 +524,7 @@ def _ended(result: dict[str, Any]) -> dict[str, Any]:
 async def _message(context: PackContext, *, agent_id: str, body: str) -> dict[str, Any]:
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     handle = agent_id.strip()
     if not handle:
         return {
@@ -546,20 +537,14 @@ async def _message(context: PackContext, *, agent_id: str, body: str) -> dict[st
 async def _journal_read(context: PackContext) -> dict[str, Any]:
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     return await runtime.read_journal(context)
 
 
 async def _journal_claim(context: PackContext, task_id: str) -> dict[str, Any]:
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     handle = task_id.strip()
     if not handle:
         return {"status": "invalid", "message": "name the task by the id journal.read returned"}
@@ -569,10 +554,7 @@ async def _journal_claim(context: PackContext, task_id: str) -> dict[str, Any]:
 async def _journal_complete(context: PackContext, task_id: str) -> dict[str, Any]:
     runtime = context.child
     if runtime is None:
-        return {
-            "status": "not_configured",
-            "message": "helpers cannot run in this turn; the child runtime is not attached",
-        }
+        return _not_attached()
     handle = task_id.strip()
     if not handle:
         return {"status": "invalid", "message": "name the task by the id journal.read returned"}
