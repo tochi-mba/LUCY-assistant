@@ -127,6 +127,21 @@ def notes_of(plan: Any) -> dict[str, str]:
     }
 
 
+def inputs_of(plan: Any) -> dict[str, Any]:
+    """Each step's arguments, by step id, from the plan the model wrote.
+
+    A step's result does not carry what it was called with, so whoever needs to know whether
+    two calls were the same call reads it here.
+    """
+    if not isinstance(plan, dict):
+        return {}
+    return {
+        str(step.get("id") or ""): step.get("input")
+        for step in _steps_of(plan)
+        if isinstance(step, dict)
+    }
+
+
 def focus(text: str, needle: str) -> View:
     """Slice from a unique match, or refuse to dump the body when the match is not unique."""
     fingerprint = needle.strip()
@@ -289,6 +304,7 @@ __all__ = [
     "attach_needles",
     "executable",
     "focus",
+    "inputs_of",
     "needle_from",
     "notes_of",
     "spill",

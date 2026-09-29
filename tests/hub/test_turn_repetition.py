@@ -1,108 +1,98 @@
-"""Noticing a model going in circles, and saying something useful about it.
+"""A model going in circles is told so, and work that only looks like a circle is left alone.
 
-The behaviour worth defending is the restraint: a notice before a block. Polling a job,
-re-reading a file another step just wrote, and retrying something genuinely transient all
-look identical to a loop from outside, and the only thing that tells them apart is whether
-the answer is changing.
+The module that notices a repeated call was written with the loop and never connected to it.
+The loop recorded every call and said nothing: `notice_for` had no caller, and because a step's
+result carries no arguments, every call to one operation was recorded as the same call. Seen on
+the weakest model, which read the same file four times in one turn and was never told.
 """
 
 from __future__ import annotations
 
-from lucy_api.turn.repetition import DROP_AT, NOTICE_AT, Repetition, fingerprint
+from typing import Any
+
+from test_turn_loop import Prompts, Transcript, executor, ok_result
+
+from lucy_api.model.scripted import ScriptedProvider, plans, speaks
+from lucy_api.turn.loop import Turn, run_turn
+from lucy_api.turn.repetition import NOTICE_AT, Repetition, fingerprint
+
+READ = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
+OTHER = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "venues"}}]}
 
 
 def test_the_same_call_written_two_different_ways_is_the_same_call() -> None:
-    """A model that reorders its own JSON keys between attempts is still repeating itself."""
-    first = fingerprint("research.search", {"query": "tea", "limit": 5})
-    second = fingerprint("research.search", {"limit": 5, "query": "tea"})
+    first = fingerprint("notes.search", {"q": "tea", "limit": 5})
+    second = fingerprint("notes.search", {"limit": 5, "q": "tea"})
     assert first == second
 
 
-def test_different_arguments_are_a_different_call() -> None:
-    assert fingerprint("research.search", {"query": "tea"}) != fingerprint(
-        "research.search", {"query": "coffee"}
-    )
-
-
-def test_the_same_arguments_to_a_different_operation_are_a_different_call() -> None:
-    assert fingerprint("research.search", {"q": 1}) != fingerprint("notes.search", {"q": 1})
+def test_different_arguments_or_a_different_operation_are_a_different_call() -> None:
+    assert fingerprint("notes.search", {"q": "tea"}) != fingerprint("notes.search", {"q": "milk"})
+    assert fingerprint("notes.search", {"q": "tea"}) != fingerprint("research.search", {"q": "tea"})
 
 
 def test_a_value_that_is_not_json_still_fingerprints_rather_than_raising() -> None:
-    assert fingerprint("workspace.write", {"when": object()})
+    assert fingerprint("workspace.write", {"data": object()})
 
 
 def test_nothing_is_said_the_first_time() -> None:
-    """Calling something once is not a pattern, and a notice on the first call is noise."""
-    seen = Repetition()
-    seen.record("research.search", {"q": "tea"}, "three results")
-
-    assert seen.notice_for("research.search", {"q": "tea"}) == ""
+    assert Repetition().record("notes.search", {"q": "tea"}, "three notes") == ""
 
 
-def test_the_second_identical_call_gets_a_sentence_naming_what_came_back() -> None:
-    """ "You already did this" without "and it said X" leaves the model no wiser than before."""
-    seen = Repetition()
-    for _ in range(NOTICE_AT):
-        seen.record("research.search", {"q": "tea"}, "no results for tea")
+def test_the_same_answer_again_gets_a_sentence_that_leaves_the_answer_out() -> None:
+    repetition = Repetition()
+    for _ in range(NOTICE_AT - 1):
+        repetition.record("notes.search", {"q": "tea"}, "three notes")
+    said = repetition.record("notes.search", {"q": "tea"}, "three notes")
 
-    notice = seen.notice_for("research.search", {"q": "tea"})
-
-    assert "already called research.search" in notice
-    assert "no results for tea" in notice
-    assert "change the arguments" in notice, "it says what to do instead"
+    assert said.startswith(f"You have called notes.search with the same arguments {NOTICE_AT}")
+    assert "three notes" not in said
 
 
-def test_a_notice_comes_well_before_a_withdrawal() -> None:
-    """The notice should have room to work; dropping a tool the model needs is worse."""
-    assert NOTICE_AT < DROP_AT
-
-    seen = Repetition()
-    for _ in range(NOTICE_AT):
-        seen.record("research.search", {"q": "tea"}, "nothing")
-
-    assert seen.notice_for("research.search", {"q": "tea"}) != ""
-    assert seen.should_drop("research.search", {"q": "tea"}) is False
+def test_a_call_whose_answer_keeps_changing_is_work_not_a_loop() -> None:
+    """Polling a job makes the same call every time, and is told apart by its answer."""
+    repetition = Repetition()
+    said = [repetition.record("work.check", {}, f"{done} of 5 done") for done in range(1, 5)]
+    assert said == ["", "", "", ""]
 
 
-def test_an_operation_that_ignores_the_notice_is_withdrawn_for_the_turn() -> None:
-    seen = Repetition()
-    for _ in range(DROP_AT):
-        seen.record("research.search", {"q": "tea"}, "nothing")
-
-    assert seen.should_drop("research.search", {"q": "tea"}) is True
-
-    seen.drop("research.search")
-    assert seen.is_dropped("research.search") is True
-    assert seen.is_dropped("notes.search") is False
+def test_an_answer_that_changed_starts_the_count_again() -> None:
+    repetition = Repetition()
+    repetition.record("workspace.read", {"path": "a.txt"}, "one")
+    repetition.record("workspace.read", {"path": "a.txt"}, "two")
+    assert repetition.record("workspace.read", {"path": "a.txt"}, "two").startswith("You have")
+    assert "3 times" in repetition.record("workspace.read", {"path": "a.txt"}, "two")
 
 
-def test_what_was_withdrawn_is_reported_rather_than_silently_missing() -> None:
-    seen = Repetition()
-    assert seen.summary() == ""
-
-    seen.drop("research.search")
-    seen.drop("music.play")
-    summary = seen.summary()
-
-    assert "music.play, research.search" in summary, "named, and in a stable order"
-    assert "repeated identical calls" in summary
+# --- in the loop -------------------------------------------------------------------------------
 
 
-def test_how_many_times_something_was_tried_is_answerable() -> None:
-    seen = Repetition()
-    seen.record("notes.search", {"q": "tea"}, "one")
-    seen.record("notes.search", {"q": "tea"}, "one")
+async def _notices(*plans_made: dict[str, Any]) -> list[list[str]]:
+    """Each executed step's notices, in the order the steps ran."""
+    transcript = Transcript()
+    provider = ScriptedProvider([*(plans(plan) for plan in plans_made), speaks("Done.")])
+    await run_turn(
+        Turn(
+            provider=provider,
+            assemble=Prompts().assemble,
+            append=transcript.append,
+            execute=executor(ok_result()),
+        )
+    )
+    return [
+        content["notices"] for kind, _role, content in transcript.items if kind == "tool_result"
+    ]
 
-    assert seen.seen("notes.search", {"q": "tea"}) == 2
-    assert seen.seen("notes.search", {"q": "coffee"}) == 0
+
+async def test_the_model_is_told_when_it_repeats_a_call_and_gets_the_same_answer() -> None:
+    """The bug, named: three identical searches, and nothing was ever said about it."""
+    first, second, third = await _notices(READ, READ, READ)
+
+    assert first == []
+    assert second[0].startswith("You have called research.search with the same arguments 2")
+    assert "3 times" in third[0]
 
 
-def test_the_latest_outcome_is_the_one_reported() -> None:
-    """A call whose answer changed is not a loop, and the notice must not claim it is."""
-    seen = Repetition()
-    seen.record("jobs.status", {"job": "1"}, "queued")
-    seen.record("jobs.status", {"job": "1"}, "running")
-
-    assert "running" in seen.notice_for("jobs.status", {"job": "1"})
-    assert "queued" not in seen.notice_for("jobs.status", {"job": "1"})
+async def test_the_same_operation_with_other_arguments_is_another_call() -> None:
+    """The bug, named: a step's result carries no arguments, so these were one call."""
+    assert await _notices(READ, OTHER) == [[], []]

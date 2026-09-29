@@ -25,9 +25,9 @@ two takes step one's output by reference", and the data never becomes tokens at 
 eighty percent, not at a hundred, because a model with one round left will use it to write
 down where it got to and a model that discovers the limit by hitting it writes nothing.
 
-**It notices repetition and says something.** Three identical calls is a model that has
-lost track, not a model being thorough. It gets told what it already tried and what came
-back, which is usually enough.
+**It notices repetition and says something.** The same call returning the same answer, again,
+is a model that has lost track, not a model being thorough. The result arrives with a notice
+saying so, which is usually enough; the turn's budget stops a model that ignores it.
 
 **It never lets a tool result in unframed.** Everything a tool returns crosses a trust
 boundary: it is scrubbed, then framed as a reported claim with its origin. A result that
@@ -59,6 +59,7 @@ from lucy_api.turn.window import (
     RESULT_TOKEN_CAP,
     attach_needles,
     executable,
+    inputs_of,
     needle_from,
     notes_of,
 )
@@ -390,7 +391,7 @@ async def _run_plan(
             result,
             repetition=cycle.repetition,
             cap=turn.result_token_cap,
-            notes=notes_of(reply.plan),
+            plan=reply.plan,
         )
     if turn.append is not None:
         for step in executed:
@@ -657,26 +658,28 @@ def _record(
     *,
     repetition: Repetition,
     cap: int = RESULT_TOKEN_CAP,
-    notes: dict[str, str] | None = None,
+    plan: Any = None,
 ) -> tuple[Step, ...]:
     """Turn executed steps into items, scrubbed and framed on the way in.
 
-    `notes` is each step's sentence from the plan the model wrote, by step id: the executor
-    never sees it, so the result cannot carry it back.
+    `plan` is the plan the model wrote. Each step's sentence and its arguments are read from
+    it by step id, because the executor never sees the first and a result does not carry the
+    second. A call that came back the same as the last time it was made says so in a notice.
     """
-    written = notes or {}
+    written, called_with = notes_of(plan), inputs_of(plan)
     steps: list[Step] = []
     for raw in result.get("steps", ()):
-        operation = str(raw.get("operation", ""))
+        operation, step_id = str(raw.get("operation", "")), str(raw.get("id", ""))
         summary, extra = _summarise(raw, cap=cap)
-        notices = tuple(raw.get("notices") or ()) + extra
-        repetition.record(operation, raw.get("input"), summary or raw.get("error") or "no result")
+        outcome = summary or str(raw.get("error") or "")
+        repeated = repetition.record(operation, called_with.get(step_id), outcome)
+        notices = (*(raw.get("notices") or ()), *extra, *((repeated,) if repeated else ()))
         steps.append(
             Step(
-                id=str(raw.get("id", "")),
+                id=step_id,
                 operation=operation,
                 status=str(raw.get("status", "ok")),
-                note=written.get(str(raw.get("id", ""))) or str(raw.get("note") or ""),
+                note=written.get(step_id) or str(raw.get("note") or ""),
                 summary=summary,
                 notices=notices,
                 error=str(raw.get("error") or ""),
