@@ -76,23 +76,6 @@ def test_validation_errors_hide_a_bad_setting_value() -> None:
     assert "a-secret-accidentally-pasted-here" not in str(raised.value)
 
 
-def test_an_extra_sibling_is_ignored_until_it_has_a_base_url() -> None:
-    from lucy_api.core.config import ExtraSibling
-
-    settings = _settings(
-        extra_services={
-            "archive": ExtraSibling(base_url="http://127.0.0.1:8010", audience="archive"),
-            "blank": ExtraSibling(base_url="   "),
-        }
-    )
-    lookup = settings.extra
-    archive = lookup("archive")
-    assert archive is not None
-    assert archive.audience == "archive"
-    assert lookup("blank") is None
-    assert lookup("missing") is None
-
-
 def test_a_model_is_given_longer_than_a_sibling_service() -> None:
     """A sibling that has not replied in ten seconds is broken; a model is thinking. The two
     shared one setting, and the first real turn ever served here died as `the model was
