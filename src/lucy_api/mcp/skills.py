@@ -210,7 +210,83 @@ looked — it names the size, never the payload. `work.result` reads one.
 `work.cancel` is safe to call twice.
 
 `agents.spawn` starts a helper with a clean transcript and no write permission.
-Prefer finishing your answer and saying what is still running over waiting.
+Past the person's cap it is queued and starts on its own. Prefer finishing your
+answer and saying what is still running over waiting.
+""",
+    ),
+    Skill(
+        name="helper-team",
+        title="Check a draft with a team of helpers",
+        summary=(
+            "Researchers fill gaps, reviewers read through one lens each, skeptics try to "
+            "refute each finding; fold in only what survives."
+        ),
+        body="""# A team of helpers
+
+Worth it when a draft -- a plan, an answer, a design -- is going to be acted on and a
+wrong line in it is expensive. Not for a lookup: one helper, or none, does that.
+
+## Stage it
+
+1. Researchers, one question each, for the gaps the draft cannot fill yet.
+2. Reviewers, one lens each: protocol, platform, onboarding, cost, whatever the
+   draft is exposed to. Each reads the draft and nothing any other reviewer found.
+3. Skeptics, one per finding worth acting on, briefed to refute it.
+
+Start researchers and reviewers together in one plan, each group under its own
+`group` name. Skeptics come after, once findings exist.
+
+    {"steps": [
+      {"id": "r1", "op": "agents.spawn", "input": {"role": "researcher",
+        "group": "researchers", "objective": "Find what the spec requires for retries",
+        "return_schema": "<facts schema>"}},
+      {"id": "v1", "op": "agents.spawn", "input": {"role": "reviewer",
+        "group": "reviewers", "objective": "Review the draft for protocol risk only",
+        "return_schema": "<findings schema>"}}
+    ]}
+
+## Briefs
+
+A helper sees none of this conversation. Put the draft, or the part it needs, in the
+brief. Say its one question or lens, what is already decided and why, where to look,
+and what to return. A reviewer is not told the other lenses. A skeptic gets the
+finding and the text it is about, never the reviewer's reasoning, and is told its job
+is to show the finding is wrong; it says confirmed only when it could not.
+
+## Return shapes
+
+Facts: {"type": "object", "properties": {"facts": {"type": "array", "items":
+{"type": "object", "properties": {"claim": {"type": "string"}, "source":
+{"type": "string"}}}}}}
+
+Findings: {"type": "object", "properties": {"findings": {"type": "array", "items":
+{"type": "object", "properties": {"id": {"type": "string"}, "claim": {"type":
+"string"}, "evidence": {"type": "string"}, "severity": {"enum": ["high", "medium",
+"low"]}}}}}}
+
+Verdict: {"type": "object", "properties": {"finding": {"type": "string"}, "verdict":
+{"enum": ["confirmed", "refuted", "unsure"]}, "why": {"type": "string"}}}
+
+## Sizing
+
+Every helper spends the person's money at once. The person's cap (five unless they
+changed it) is how many run together; past it a spawn is queued, as many again, and
+starts on its own. Two researchers and three reviewers fill the cap; the skeptics
+queue behind them. Past the queue a spawn is refused: stage the rest later. In ask
+mode the helpers one plan starts are one approval card. Plan mode starts none.
+
+## Waiting
+
+Do not wait in a loop, and do not poll. Finish the turn saying who is working. A group
+ends with one notice naming each member and how it ended, and wakes the conversation
+if nobody is talking. Then read each result you need with `work.result`.
+
+## Folding
+
+Keep facts with a source. Keep findings a skeptic confirmed. Drop refuted ones, and
+name unsure ones as open questions rather than facts. Change the draft only where a
+kept item says to, then tell the person what changed, what was dropped and why, and
+ask before acting on any of it.
 """,
     ),
     Skill(
