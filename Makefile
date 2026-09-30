@@ -103,11 +103,15 @@ lock-check: ## Check the sibling checkouts against repos.lock
 github-ci: ## Install lucy-assistant family CI on the family repositories
 	$(UV) run python scripts/connect_github.py
 
+# A private service lives in gitignored docker-compose.local.yml (ADR-0011); when the file
+# is there, every compose verb merges it over the public file.
+COMPOSE := docker compose$(if $(wildcard docker-compose.local.yml), -f docker-compose.yml -f docker-compose.local.yml)
+
 images: ## Build every image with your gh sign-in
-	@$(UV) run python scripts/compose.py build
+	@GITHUB_TOKEN="$$(gh auth token)" $(COMPOSE) build
 
 up: images ## Build and start the default compose services
-	$(UV) run python scripts/compose.py up
+	$(COMPOSE) up -d --no-build
 
 down: ## Stop the family, keeping its data volumes
-	$(UV) run python scripts/compose.py down
+	$(COMPOSE) down
