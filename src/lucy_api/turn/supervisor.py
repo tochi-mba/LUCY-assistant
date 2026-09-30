@@ -28,6 +28,7 @@ from lucy_api.permissions.approvals import (
     approved_calls,
     mark_executed,
     open_approval,
+    reopen,
     resumed_notice,
 )
 from lucy_api.permissions.gate import Floors, PermissionGate, once_key
@@ -54,7 +55,7 @@ from lucy_api.turn.stop import Budget, Termination
 from lucy_api.work.live import WorkInFlight
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from lucy_api.agents.store import AgentStore
     from lucy_api.model.registry import ModelRegistry
@@ -274,11 +275,12 @@ class TurnSupervisor:
         # the only durable record that the model already asked, so they are what the first
         # round is told about.
         approved = await approved_calls(self._store, claimed.id)
-        await mark_executed(self._store, approved)
         # Each approved call runs with the steps it reads from, as the plan that asked for it
         # would have; one that reads from something the person refused does not, and the
         # model is told which and why rather than finding a result missing.
         replayed = replay(approved)
+        held = tuple(call for call, _why in replayed.held)
+        await mark_executed(self._store, (*held, *replayed.ran))
         opening = " ".join(
             filter(
                 None,
@@ -295,7 +297,12 @@ class TurnSupervisor:
         # A one-time approval is spent by the run it approved. The grants were read above,
         # before the calls were marked, so the opening plan finds them; they are removed once
         # it has run, so the same call planned again is asked about again, not run twice.
-        spent = {once_key(call.operation, call.arguments) for call in approved}
+        # A held call's is removed now: nothing of the hub's will run it, and the model's
+        # next plan must not find it allowed either.
+        for call in held:
+            pack_ctx.grants.pop(once_key(call.operation, call.arguments), None)
+        spent = {once_key(call.operation, call.arguments) for call in replayed.ran}
+        opening_calls = list(replayed.ran)
         live = _announced(prepared.live if prepared is not None else None, self._capabilities.work)
         # The profile's policy, narrowed by this conversation's own list. Re-read at every
         # round below, because a person may change it while the turn runs and asked for
@@ -408,6 +415,14 @@ class TurnSupervisor:
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             executed = await self._capabilities.execute(plan, pack_ctx)
+            if opening_calls:
+                # The first plan is the one the approvals were replayed in. If it parked
+                # again -- a mode or a policy changed since the person answered -- nothing
+                # ran, and the calls it carried are given back rather than lost.
+                asked = _asked_steps(executed)
+                if asked:
+                    await reopen(self._store, opening_calls, plan, parked=asked)
+                opening_calls.clear()
             for key in spent:
                 pack_ctx.grants.pop(key, None)
             spent.clear()
@@ -504,7 +519,7 @@ class TurnSupervisor:
                     "description": result.description,
                 },
             )
-            parked = tuple(str(ask.get("step") or "") for ask in asks)
+            parked = (*(str(ask.get("step") or "") for ask in asks), *result.refused)
             for ask in asks:
                 arguments = ask.get("arguments")
                 step = str(ask.get("step") or "")
@@ -697,6 +712,16 @@ def _announced(live: Live | None, work: Any) -> Live | None:
     return replace(
         current,
         sources=replace(sources, in_flight=WorkInFlight(work, announce=True)),
+    )
+
+
+def _asked_steps(executed: Mapping[str, Any]) -> tuple[str, ...]:
+    """The steps a plan's result says a person must approve, or nothing when it ran."""
+    issues = executed.get("issues") or ()
+    return tuple(
+        str(item.get("step") or "")
+        for item in issues
+        if isinstance(item, dict) and item.get("code") == "permission_required"
     )
 
 

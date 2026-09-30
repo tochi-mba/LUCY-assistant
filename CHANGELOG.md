@@ -13,7 +13,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   the approved call used to run on its own, with a reference such as `$found` left
   unresolved. Each approval now records its call's step and every step it reads from, and
   the resumed turn runs them together under their own ids; a call reading from a step the
-  person refused does not run, and the model is told why.
+  person refused does not run, the model is told why, and its one-time grant goes with it.
+  A resumed plan that parks again, because the mode changed after the answer, gives its
+  approved calls back to run with the next answer.
 - **A plan the executor would refuse is never asked about.** The permission gate saw a plan
   before the executor checked it, so a plan with a repeated step id, a reference to nothing
   or a step without an `op` could be asked about and approved, then refused or replayed as
