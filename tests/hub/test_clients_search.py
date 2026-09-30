@@ -41,7 +41,14 @@ async def test_search_scrape_and_summarize_use_the_search_audience() -> None:
                 "results": [
                     {
                         "query": "tea",
-                        "results": [{"title": "Tea", "url": "https://tea.example", "rank": 1}],
+                        "results": [
+                            {
+                                "title": "Tea",
+                                "url": "https://tea.example",
+                                "snippet": "A drink.",
+                                "rank": 1,
+                            }
+                        ],
                         "summary": {"executive_summary": "tea is a drink"},
                     }
                 ]
@@ -76,6 +83,7 @@ async def test_search_scrape_and_summarize_use_the_search_audience() -> None:
 
     assert providers[0].usable is True
     assert found[0].hits[0].title == "Tea"
+    assert found[0].hits[0].snippet == "A drink."
     assert reading.articles[0].text == "full page"
     assert summarised.executive_summary == "short"
     assert empty.executive_summary == ""

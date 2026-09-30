@@ -14,6 +14,7 @@ from lucy_api.clients.search import (
 )
 from lucy_api.clients.testing import FakeHttp, problem
 from lucy_api.packs.base import State
+from lucy_api.packs.collections import HIT
 from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.prompt.docs import capability_doc
@@ -164,3 +165,35 @@ async def test_the_probe_asks_about_the_profile_the_turn_runs_under() -> None:
     await ResearchPack("https://search.test", client=fake).probe(context)
 
     assert fake.profiles == ["work"]
+
+
+async def test_every_field_a_hit_declares_is_one_a_search_fills() -> None:
+    """The bug, named: hits declared `site` and `snippet` and no search ever set either.
+
+    `hit.filter` on a snippet matched nothing and `hit.pick` handed back empty strings, which
+    reads as "the engine said nothing about this page". The service sends each result's
+    snippet; it has no per-result site, so the host name in `source` is the only one there is.
+    """
+    fake = FakeSearchClient()
+    fake.seed(
+        Findings(
+            query="tea",
+            hits=(Hit("Tea", "https://tea.example/leaf", 1, "Leaves steeped in hot water."),),
+        )
+    )
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "search", "op": "research.search", "input": {"query": "tea"}}]},
+        context,
+    )
+
+    (hit,) = result["steps"][0]["items"]
+    assert HIT.fields is not None
+    declared = [spec.name for spec in HIT.fields(None)]
+    assert declared == ["title", "source", "snippet"]
+    assert all(hit[name] for name in declared)
+    assert hit["snippet"] == "Leaves steeped in hot water."
+    assert HIT.label(hit) == "Tea (tea.example)"

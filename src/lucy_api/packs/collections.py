@@ -107,12 +107,10 @@ NOTE: CollectionType[Any, Any] = collection(
 HIT: CollectionType[Any, Any] = collection(
     "hit",
     dict,
-    label=lambda item: _clip(
-        f"{_get(item, 'title')} ({_get(item, 'site') or _get(item, 'source')})"
-    ),
+    label=lambda item: _clip(f"{_get(item, 'title')} ({_get(item, 'source')})"),
     key=lambda item: _get(item, "id") or _get(item, "link"),
     description="One result from a search, before anything has been opened.",
-    fields=_fields("title", "site", "source", "snippet"),
+    fields=_fields("title", "source", "snippet"),
 )
 
 TRACK: CollectionType[Any, Any] = collection(
