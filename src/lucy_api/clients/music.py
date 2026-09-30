@@ -20,11 +20,13 @@ readiness endpoint for a person's music, and a device list answers `502
 credential-unavailable` when nobody has connected an account. That status is what flips the
 capability into `not_connected`, which is how a person gets a link rather than an apology.
 
-Every write here confirms itself downstream -- Spotify's own 204 means "command accepted",
-not "audio is playing" -- so each one answers with the player state in which the effect was
+Play and pause confirm themselves downstream -- Spotify's own 204 means "command accepted",
+not "audio is playing" -- so each answers with the player state in which the effect was
 observed, and that state comes back through the same projection as a read. A write the
 service could not see take effect in time raises `UnconfirmedError`, carrying the last state
-it did see.
+it did see. A queue changes nothing the player state reports, so the service answers it with
+the state it reads once the provider has accepted the command; that state says nothing about
+the queue.
 """
 
 from __future__ import annotations

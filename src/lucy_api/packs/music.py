@@ -12,10 +12,11 @@ writes -- find, then play what was found -- sent the literal text ``$found`` as 
 ``uri`` is still accepted for a track the model already holds.
 
 A queue of several tracks answers per track. The service takes one track per queue command
-and answers each once it is seen in the queue, so a six-track queue is six commands in a
-row; one refused part way used to end the step with one failure that hid what had already
-been queued, and six slow ones ran past the step's ceiling, so the step timed out and
-nothing was reported. Each track now says whether it was queued and, if not, why; the loop
+and answers each once the provider has accepted it -- a queue changes nothing the player
+state reports, so there is nothing to confirm it against -- so a six-track queue is six
+commands in a row; one refused part way used to end the step with one failure that hid what
+had already been queued, and six slow ones ran past the step's ceiling, so the step timed
+out and nothing was reported. Each track now says whether it was queued and, if not, why; the loop
 stops before the next command would run past the ceiling and says how many were left.
 """
 
@@ -333,8 +334,8 @@ class MusicPack:
     async def _queue(self, run: RunContext[PackContext]) -> dict[str, Any]:
         """Queue each track in turn and answer for every one of them.
 
-        One at a time, in order: each queue answers once it is seen in the queue, and the next
-        must go behind it. The loop stops when the next command, taking as long as the slowest
+        One at a time, in order: each queue answers once the provider has accepted it, and the
+        next must go behind it. The loop stops when the next command, taking as long as the slowest
         so far, would run past the step's ceiling; the report says what was left.
         """
         named = _named(run)

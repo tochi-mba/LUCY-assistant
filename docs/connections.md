@@ -37,10 +37,16 @@ granted scopes, expiry and a credential-free last error. `DELETE` is idempotent.
 
 The music capability speaks one HTTP contract: `POST /v1/lookup`, `GET /v1/player`,
 `GET /v1/player/devices`, `GET /v1/player/recently-played`, and `POST /v1/player/play`,
-`/queue` and `/pause`, each answering with the player state in which the command was seen
-to take effect, or `504 confirmation-timeout` when it was not. Spotify-api is the family's
-implementation and the reference for the shapes (`lucy_api.clients.music` names every field
-the hub reads). Any implementation of that contract can stand behind the capability: point
+`/queue` and `/pause`. Play and pause answer with the player state in which the command was
+seen to take effect, or `504 confirmation-timeout`, carrying the last state seen, when it was
+not; the model is then told the command was accepted but not confirmed, and to read
+`music.nowPlaying` before sending it again. A queue is not confirmed: queueing does not
+change anything the player state reports, so the service answers with the player state it
+reads once the provider has accepted the command, and the hub reports each track as queued
+on that acceptance. (A `504` on a queue would still be read as accepted and unconfirmed.)
+
+Spotify-api is the family's implementation and the reference for the shapes
+(`lucy_api.clients.music` names every field the hub reads). Any implementation of that contract can stand behind the capability: point
 `LUCY_MUSIC_API_BASE_URL` at it and set `LUCY_MUSIC_API_AUDIENCE` to its own name. The
 audience is the service's, not the contract's: keyring reads an audience as one service's
 name and refuses a credential read whose token was minted for anybody else, so two
@@ -51,13 +57,32 @@ is added to Lucy's allowlist under `exchange_audiences` in the gitignored
 
 ## Capability gating
 
-The music pack is the first real gated pack. Its seven operations appear in the model tool
-registry only when the Spotify connection is active and carries the required scopes. Read
-results are projected to track, artist, album and device metadata. Playback operations are
-declared writes. Connecting Spotify makes those tools available on the next registry build;
-disconnecting removes them again. Probe answers are cached per person, profile and pack
-for fifteen seconds so a conversation that never mentions music does not wait on a devices
-list every turn. A connect, a disconnect, a settings write, or a 502 that names a missing
-credential drops the cache. Outbound calls to one provider for one person are serialised:
-two turns refreshing the same grant at once are indistinguishable from replay, and RFC 9700
-tells the authorization server to revoke the chain.
+Music is gated by a probe, not by keyring's connection record and not by scopes. At the top
+of a turn the probe asks the music service for this person's devices under the turn's
+profile, with a token minted for the music audience:
+
+- a `502` naming a missing credential (`credential-unavailable` or `credential-missing`)
+  makes music `not_connected`, and the person is offered the connect link;
+- a token the hub cannot mint, a service it cannot reach, or any other error makes music
+  `unavailable`;
+- any device list, an empty one included, makes music `ready`.
+
+The hub checks no scopes. A grant that lacks one a command needs is refused by the service
+when that command runs, and the refusal reaches the model as that step's error, or for a
+queue as that track's reason.
+
+Only a ready music capability puts its seven operations in the model's tool registry, and
+then only when the person has not turned music off in settings and, once more than six
+capabilities are ready, when music is one of the four kept bound (most recently used first;
+on a fresh session music is not among them) or the model binds it with `capabilities.use`.
+Read results are projected to track, artist, album and device metadata. Play, queue and
+pause are declared writes, covered by the `music.control` permission, which asks before any
+of them runs unless the person already allowed it.
+
+Probe answers are cached per person, profile and capability for fifteen seconds, so a
+conversation that never mentions music does not wait on a devices list every turn. Starting
+a connection, opening its link, a poll that sees it settle, a disconnect, a settings write,
+or a `502` naming a missing credential drops the cache, so connecting or disconnecting shows
+on the next turn. Outbound calls for one person and profile to one service audience are
+serialised: two turns refreshing the same grant at once are indistinguishable from replay,
+and RFC 9700 tells the authorization server to revoke the chain.
