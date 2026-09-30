@@ -331,3 +331,35 @@ trip, so the call succeeded), then answered "No running work. Ready." with the o
 and only said "it landed" when asked again; and on turn 5 it spent five approvals on two
 edits. Both are the model's, and both are in the captured requests for the next model to be
 measured against.
+
+### Rung 2: memory over days, and lessons that must stick
+
+Four sessions on one fresh profile. In the first, the person volunteered things in passing
+while asking for other work: their role and language, a rule ("never touch anything under
+archive/, move it to trash/ instead"), how they like answers shaped, and a fact they then
+corrected; nothing was said about memory. The second session, a day later in the story, asked
+what Lucy knew and how the person liked it to work, asked for a delete under archive/, and
+withdrew the answer-shape rule. The third corrected a fact in passing ("the team is called
+infra now") and asked which notes Lucy was least sure of. An incognito session in between
+asked Lucy to remember something.
+
+What held: the archive/ rule and the answer-shape preference were kept as lessons without
+being asked (`notes.learn`), the language as a fact (`notes.setFact`); the second session
+recalled all three; the delete under archive/ went through `workspace.move` to trash/ with
+no reminder; "forget the rule" was `notes.unlearn`; the correction was `notes.correct` rather
+than a second note, and the index line changed from "Platform team uses Rust" to "Infra team
+uses Rust"; the incognito session wrote nothing and said so. Three defects came out of the
+captured requests and one reply.
+
+| Seen | Cause | Fix |
+| --- | --- | --- |
+| A kept lesson reached the model as `[inferred] recorded as stated by assistant, written by persona, confirmed 2026-09-30: "lesson: …"` | `asserted_by` is the name of the service that wrote the row, which the model has no use for and the person never sees; "confirmed" was only the day it was written; Lucy had not "stated" anything | A claim's provenance says who said it (you said it, Lucy kept it, Lucy inferred it, Lucy observed it, or names an unknown source as it came) and `recorded <date>`; no service is named |
+| Asked which of its notes it was least sure about, the model chose the person's own rule about archive/: "marked as inferred, not something you told me directly, and I don't know if it still holds" | A lesson is a Persona-api note with source `assistant`, because Lucy writes it, and the feed turned that source into the trust label `inferred` | A lesson is learned from the person, said or corrected into; only its words are Lucy's. It comes back `[stated]`; an observation Lucy wrote stays `inferred` |
+| "remember that my favourite editor is helix" in an incognito session parked for approval on `notes.setFact`, was approved, and then met the handler's refusal | Incognito was checked inside the write handlers, after the permission gate had asked | Incognito is a floor the gate reads beside `memory_write_policy`: `notes.write` and `notes.erase` are denied outright, the model routes around the denial in the same round, and `POST /v1/tools/{name}/invoke` answers 409 with the reason. The handlers no longer repeat the check |
+
+One thing no fix addresses: on the first turn of the first session the model kept nothing of
+the role and language the person had volunteered in passing, and only kept the language when
+it came up again. The keeping decision (`decision_keeping`) is the safety net for exactly
+that turn, and it needs Laya, which this family does not run (`LAYA_API_KEY` unset). The
+usage zeros seen on this rung are the Rung 1 fix not yet deployed; the rung is re-run on the
+rebuilt image below.
