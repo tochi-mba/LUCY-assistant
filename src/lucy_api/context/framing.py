@@ -106,6 +106,23 @@ UNTRUSTED_INLINE = "UNTRUSTED, from somewhere anyone could have written"
 SOURCE_UNKNOWN = "source not recorded"
 DATE_UNKNOWN = "date not recorded"
 
+ORIGINS = {
+    "you": "you said it",
+    "owner": "you said it",
+    "person": "you said it",
+    "conversation": "you said it",
+    "stated": "you said it",
+    "assistant": "Lucy kept it",
+    "lucy": "Lucy kept it",
+    "inferred": "Lucy inferred it",
+    "observed": "Lucy observed it",
+    "service": "Lucy observed it",
+}
+"""How a claim's `source` reads on its line. Read in a sent request: a lesson Lucy had kept
+came back as "recorded as stated by assistant, written by persona, confirmed 2026-09-30" --
+a service named to the model, "confirmed" for the day it was written, and "stated" for a
+sentence Lucy wrote. A source not named here reads as "from <source>"."""
+
 KNOWN_TRUST = frozenset(member.value for member in Trust)
 """The trust words that may be rendered. Anything else is rendered as untrusted; see `_known`."""
 
@@ -215,14 +232,17 @@ def _provenance(claim: Claim) -> str:
     simply missing from the line is indistinguishable from a date nobody bothered to render.
     """
     parts = [UNTRUSTED_INLINE] if _is_untrusted(claim.trust) else []
-    parts.append(
-        f"recorded as stated by {_inline(claim.source)}" if claim.source else SOURCE_UNKNOWN
-    )
-    if claim.asserted_by:
-        parts.append(f"written by {_inline(claim.asserted_by)}")
+    parts.append(_origin(claim.source))
+    # `asserted_by` is which service wrote the row, and a service is never named to the model.
     date = claim.recorded_at
-    parts.append(f"confirmed {date.date().isoformat()}" if date else DATE_UNKNOWN)
+    parts.append(f"recorded {date.date().isoformat()}" if date else DATE_UNKNOWN)
     return ", ".join(parts)
+
+
+def _origin(source: str) -> str:
+    if not source:
+        return SOURCE_UNKNOWN
+    return ORIGINS.get(source.strip().lower()) or f"from {_inline(source)}"
 
 
 def _showing(shown: int, omitted: int) -> str:
@@ -296,6 +316,7 @@ __all__ = [
     "CLAIMS_CLOSING",
     "DATE_UNKNOWN",
     "INDENT",
+    "ORIGINS",
     "RESULT_CLOSING",
     "SOURCE_UNKNOWN",
     "UNTRUSTED_CLOSING",
