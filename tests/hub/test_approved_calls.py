@@ -315,8 +315,9 @@ def test_the_notice_says_the_calls_already_ran() -> None:
     two = resumed_notice(("notes.remember", "workspace.write"))
     assert "notes.remember was approved just now and has already run" in one
     assert "with the steps it read from; its result is above" in one
+    assert "above, including any failure" in one
     assert "were approved just now and have already run" in two
-    assert "their results are above" in two
+    assert "with the steps they read from; their results are above" in two
     assert resumed_notice(()) == ""
 
 
