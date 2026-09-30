@@ -306,7 +306,7 @@ verified, what remains unresolved, and the artifacts produced.
 
 | Service | Purpose | Port | Env prefix | Health |
 | --- | --- | ---: | --- | --- |
-| **Lucy** (this repository) | The assistant hub: health, readiness and caller identity; conversation support is in development. | 8000 | `LUCY_` | `/healthy`, `/ready` |
+| **Lucy** (this repository) | The assistant hub: sessions, capabilities, memory and helpers over one HTTP surface. | 8000 | `LUCY_` | `/healthy`, `/ready` |
 | [Keyring-api](https://github.com/tochi-mba/Keyring-api) | Accounts, profiles, and the credential vault. Issues the tokens everyone else verifies. | 8001 | `KEYRING_` | `/healthy`, `/ready` |
 | [User-api](https://github.com/tochi-mba/User-api) | Structured facts about the **person** the assistant is talking to. | 8002 | `USER_API_` | `/healthy`, `/ready` |
 | [Settings-api](https://github.com/tochi-mba/Settings-api) | Per-person knobs that used to live as process-wide env vars. | 8003 | `SETTINGS_API_` | `/healthy`, `/ready` |
@@ -365,6 +365,7 @@ flowchart LR
   Keyring -->|"JWKS + /v1/internal"| Search
   Keyring -->|"JWKS + /v1/internal"| Spotify
   Keyring -->|"JWKS + /v1/internal"| Environments
+  Keyring -->|"JWKS"| Memory
   Person([assistant / MCP]) --> Keyring
   Person --> User
   Person --> Settings
@@ -372,16 +373,17 @@ flowchart LR
   Person --> Search
   Person --> Spotify
   Person --> Environments
+  Person --> Memory
 ```
 
-User-api, Persona-api, and Settings-api never call keyring at request time except to
-fetch public keys. They have **no** entry in `KEYRING_SERVICE_TOKENS`. Spotify-api,
+User-api, Persona-api, Settings-api and Memory-api never call keyring at request time
+except to fetch public keys. They have **no** entry in `KEYRING_SERVICE_TOKENS`. Spotify-api,
 Web-search-api, and Environments-api do: they resolve credentials per request.
 Settings grants exist for credential consumers so wiring a settings client is a
 deployment choice, not a settings-api release.
 
-Nothing in this family calls User, Persona, Search, Spotify, or Environments except
-the assistant sitting in front.
+Nothing in this family calls User, Persona, Search, Spotify, Environments or Memory
+except the assistant sitting in front.
 
 ## Your first hour
 
@@ -407,9 +409,10 @@ lucy doctor                     # independent checks and fixes
 lucy connect                    # discover capability setup support from your hub
 ```
 
-Signing into Lucy currently means providing a Keyring-issued JWT with audience
-`lucy-api`, using the hidden setup prompt, `LUCY_TOKEN`, or `--token-stdin`. Browser and
-device sign-in are not implemented yet. You can skip the token and finish later.
+Interactive `lucy setup` signs you in through the browser: it shows a short code, opens the
+hub's verification page and waits for an already signed-in Lucy client to approve it. It
+never asks for a password. Without a browser, supply a Keyring-issued JWT with audience
+`lucy-api` through `--token-stdin` or `LUCY_TOKEN`. You can skip the token and finish later.
 [The CLI guide](docs/cli.md) covers remote setup, automation and diagnostics.
 
 For family service development:
@@ -437,7 +440,7 @@ follows one message through the code and says where to start when something brea
 make install
 make run                          # http://127.0.0.1:8000/docs
 curl localhost:8000/healthy       # liveness: no I/O, never fails
-curl localhost:8000/ready         # readiness: 503 until keyring is up, and it says so
+curl localhost:8000/ready         # readiness: 503 until keyring is up and a model is configured
 make check                        # lint, types, imports, tests at 100% branch coverage
 ```
 
@@ -581,14 +584,26 @@ private; its callers continue using the canonical public workflow. The
 | | |
 | --- | --- |
 | Family standard | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| The hub, from the inside | [docs/hub.md](docs/hub.md) |
+| The hub's HTTP surface | [docs/api.md](docs/api.md) |
+| Running the hub | [docs/operations.md](docs/operations.md) |
+| Testing the hub | [docs/testing.md](docs/testing.md) |
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
 | Conversation regressions (`lucy eval`) | [docs/evals.md](docs/evals.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
+| The tool layer: plans, references, approvals | [docs/tools.md](docs/tools.md) |
+| Helpers, jobs and watches | [docs/agents.md](docs/agents.md) |
 | How Lucy's context is built | [docs/context.md](docs/context.md) |
 | Model providers and keys | [docs/models.md](docs/models.md) |
 | Sessions and the one write path | [docs/sessions.md](docs/sessions.md) |
 | Prompt sections | [docs/prompts.md](docs/prompts.md) |
 | Memory as the model sees it | [docs/memory.md](docs/memory.md) |
+| Settings, through Lucy | [docs/settings.md](docs/settings.md) |
+| Connections and consent | [docs/connections.md](docs/connections.md) |
+| MCP, both directions | [docs/mcp.md](docs/mcp.md) |
+| Optional Laya decisions | [docs/decisions.md](docs/decisions.md) |
+| Implementation status | [docs/implementation-status.md](docs/implementation-status.md) |
+| The first composed run | [docs/baseline.md](docs/baseline.md) |
 | Security | [docs/security.md](docs/security.md) |
 | CI caller | [docs/ci.md](docs/ci.md) |
 | GitHub sign-in and private copies | [docs/private-repos.md](docs/private-repos.md) |
