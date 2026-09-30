@@ -481,7 +481,7 @@ def test_docker_secret_accepts_json_run_with_other_flags(tmp_path: Path) -> None
 
 # --- private-names: every spelling of a private service ------------------------------------
 
-PRIVATE_MANIFEST = "Secret-Tool https://example.invalid" + NL
+PRIVATE_MANIFEST = "# Private checkouts." + NL + "Secret-Tool https://example.invalid" + NL
 
 
 def mention(root: Path, text: str) -> None:
@@ -575,3 +575,14 @@ def test_a_build_file_comment_that_names_a_private_service_is_caught(
     result = outcome_for(root, "private-names")
     assert result.status == parity.FAIL
     assert result.detail == f"{name} names Secret-Tool"
+
+
+def test_a_private_checkout_whose_pyproject_does_not_parse_fails_saying_so(
+    tmp_path: Path,
+) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    private_checkout(tmp_path, "[tool.lucy\n")
+    result = outcome_for(root, "private-names")
+    assert result.status == parity.FAIL
+    assert result.detail.startswith("Secret-Tool's pyproject.toml is not valid TOML: ")
