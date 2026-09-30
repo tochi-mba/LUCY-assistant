@@ -47,8 +47,8 @@ fail is not a check; `tests/test_parity.py` refuses one.
 
 - **Makefile verbs:** `help install fmt lint type imports test cov check run docker clean`.
   `make check` runs exactly `lint type imports test`.
-- **Python:** `.python-version` and CI pin 3.12 because `weftai` needs it. Python 3.13
-  is declared supported; it is an optional local check, not a CI gate. See
+- **Python:** `.python-version` pins 3.12 because `weftai` needs it. CI's test matrix
+  gates both 3.12 and 3.13; `make matrix` runs the same two locally. See
   [ADR-0008](docs/adr/0008-python-3-12-floor.md).
 - **Tools:** ruff line-length 100, target `py312`; mypy `strict = true`; coverage
   `fail_under = 100` with branch coverage; pytest `filterwarnings = ["error"]`;
