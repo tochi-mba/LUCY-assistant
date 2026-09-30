@@ -44,13 +44,25 @@ def _tool_result(content: dict[str, Any]) -> str:
 
 
 def _approval_request(content: dict[str, Any]) -> str:
-    arguments = content.get("arguments")
+    steps = content.get("steps")
+    if isinstance(steps, list):
+        # One card for several calls of one permission: the sentence, then every call.
+        calls = "; ".join(
+            _call(step.get("operation"), step.get("arguments"))
+            for step in steps
+            if isinstance(step, dict)
+        )
+        return f"[asked the person to approve, on one card, {content.get('description')}: {calls}]"
+    call = _call(content.get("tool"), content.get("arguments"))
+    return f"[asked the person to approve {call}: {content.get('description')}]"
+
+
+def _call(operation: object, arguments: object) -> str:
     shown = ", ".join(
         f"{name}={json.dumps(value, ensure_ascii=False)}"
         for name, value in (arguments.items() if isinstance(arguments, dict) else ())
     )
-    call = f"{content.get('tool')}({shown})"
-    return f"[asked the person to approve {call}: {content.get('description')}]"
+    return f"{operation}({shown})"
 
 
 def _approval_response(content: dict[str, Any]) -> str:

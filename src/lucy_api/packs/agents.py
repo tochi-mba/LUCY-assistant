@@ -75,6 +75,7 @@ class AgentsPack:
                 description="Spin up a helper on this conversation with a written brief.",
                 risk="write",
                 covers=("agents.spawn", "agents.reopen", "journal.claim", "journal.complete"),
+                tally="role",
             ),
         )
 

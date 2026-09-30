@@ -85,7 +85,7 @@ def exchange_for(items: list[dict[str, Any]], turn_id: str) -> Exchange:
         elif kind == TOOL_RESULT:
             results.append(_result(_object(content)))
         elif kind == APPROVAL_REQUEST:
-            asks.append(_ask(_object(content), answers))
+            asks.extend(_asks(_object(content), answers))
         elif kind == ERROR:
             errors.append(_error(content))
     return Exchange(
@@ -98,8 +98,12 @@ def exchange_for(items: list[dict[str, Any]], turn_id: str) -> Exchange:
 
 
 def pending_approvals(items: list[dict[str, Any]], turn_id: str) -> tuple[str, ...]:
-    """The approvals this turn asked for that nobody has answered yet, oldest first."""
-    return tuple(ask.approval_id for ask in exchange_for(items, turn_id).asks if not ask.answer)
+    """The approvals this turn asked for that nobody has answered yet, oldest first, once each.
+
+    Once each: a card covering several calls is several asks here and one answer there.
+    """
+    waiting = (ask.approval_id for ask in exchange_for(items, turn_id).asks if not ask.answer)
+    return tuple(dict.fromkeys(waiting))
 
 
 def _answers(items: list[dict[str, Any]]) -> dict[str, str]:
@@ -124,10 +128,18 @@ def _result(content: dict[str, Any]) -> ToolResult:
     )
 
 
-def _ask(content: dict[str, Any], answers: dict[str, str]) -> Ask:
+def _asks(content: dict[str, Any], answers: dict[str, str]) -> tuple[Ask, ...]:
+    """One ask per call: a card that covers several calls asked about each of them."""
+    steps = content.get("steps")
+    if not isinstance(steps, list):
+        return (_ask(content, content, answers),)
+    return tuple(_ask(content, _object(step), answers) for step in steps)
+
+
+def _ask(content: dict[str, Any], call: dict[str, Any], answers: dict[str, str]) -> Ask:
     approval_id = str(content.get("approval_id") or "")
-    operation = str(content.get("tool") or content.get("permission") or "")
-    arguments = _object(content.get("arguments"))
+    operation = str(call.get("operation") or call.get("tool") or content.get("permission") or "")
+    arguments = _object(call.get("arguments"))
     return Ask(
         approval_id=approval_id,
         operation=operation,

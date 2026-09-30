@@ -122,6 +122,10 @@ class Permission:
     covers: tuple[str, ...]
     outward: bool = False
     """True when other people will see the effect. auto cannot skip asking about those."""
+    tally: str = ""
+    """The input field that tells one call of this permission from another -- `role` for a
+    helper -- so a card asking about several in one plan can count them: "researcher x2,
+    reviewer x3". Empty, the card counts the calls and names none."""
 
 
 @dataclass(frozen=True, slots=True)
