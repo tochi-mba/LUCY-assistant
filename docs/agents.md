@@ -290,9 +290,10 @@ Spawn is refused with a sentence when the brief is empty, the depth cap is hit, 
 runtime is missing, or the session is already at capacity. A helper is not offered spawn
 or reopen.
 
-Mail is hop-counted (a fifth copy is refused), burst-capped at eight unread messages,
-size-capped at four thousand characters, and identical unread steers from the same sender
-are one message. `agents.reopen` starts a new helper that sees the previous items and last
+Mail is hop-counted (a fifth hop is refused), burst-capped at five unread messages by
+default (`lucy.agent_message_burst`), size-capped at four thousand characters
+(`lucy.agent_message_max_chars`), and identical unread steers from the same sender are one
+message. `agents.reopen` starts a new helper that sees the previous items and last
 report. A caller may pass `return_schema`; the child is told to return that JSON object
 as its whole answer, and a miss is named in the notice rather than parsed as prose.
 
