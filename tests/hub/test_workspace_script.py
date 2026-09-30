@@ -236,6 +236,9 @@ async def test_a_plain_name_of_up_to_sixty_four_characters_is_taken_as_it_is(nam
 
 
 async def test_python_that_does_not_parse_is_refused_and_the_last_good_script_is_kept() -> None:
+    """The bug, named: the refusal said "the result is not valid Python", the words an edit
+    uses for the file it would have left behind. A script that never ran has no result, and
+    a model read that as its output having failed to parse. It is the script."""
     sandbox, capabilities, context = a_workspace()
     await script(capabilities, context, language="python", code=SUM, name="total")
 
@@ -244,7 +247,7 @@ async def test_python_that_does_not_parse_is_refused_and_the_last_good_script_is
     assert refused == {
         "script": ".scratch/total.py",
         "written": False,
-        "notice": "the result is not valid Python (syntax error at line 1); "
+        "notice": "the script is not valid Python (syntax error at line 1); "
         "nothing was written or run",
     }
     assert sandbox.contents[(ENV, f"{SESSION}/.scratch/total.py")] == SUM

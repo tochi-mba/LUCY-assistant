@@ -548,7 +548,7 @@ class WorkspacePack:
             return {"name": name, "written": False, "notice": script.notice}
         ignore = confined_path(run.ctx, IGNORE_FILE)
         path = confined_path(run.ctx, script.path)
-        problem = validate_text(path, code)
+        problem = validate_text(path, code, subject="the script")
         if problem:
             return {"script": script.path, "written": False, "notice": f"{problem}; {NOTHING_DONE}"}
         client = self._client(run.ctx)

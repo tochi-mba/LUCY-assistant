@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lucy_api.workspace.text import (
     DEFAULT_LINE_LIMIT,
     EXACT,
@@ -153,6 +155,21 @@ def test_json_toml_and_python_are_validated_and_other_suffixes_are_not() -> None
     assert validate_text("ok.py", "x = 1\n") == ""
     assert "Python" in validate_text("bad.py", "def (\n")
     assert validate_text("notes.md", "not code") == ""
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "said"),
+    [
+        ("bad.json", "{", "the script is not valid JSON"),
+        ("bad.toml", "[[[", "the script is not valid TOML"),
+        ("bad.py", "def (\n", "the script is not valid Python"),
+    ],
+)
+def test_a_caller_names_what_it_is_that_did_not_parse(path: str, body: str, said: str) -> None:
+    """The bug, named: every notice began "the result", which is right after an edit and
+    wrong for a script that has not run yet, and there was no way to say otherwise."""
+    assert validate_text(path, body).startswith("the result is not valid")
+    assert validate_text(path, body, subject="the script").startswith(said)
 
 
 def test_a_newline_only_needle_that_does_not_occur_falls_through_the_ladder() -> None:
