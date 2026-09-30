@@ -53,11 +53,13 @@ class InvocationRecord:
 class BeforeRecord:
     """One step the harness took before a turn was sent, and how it ended.
 
-    ``kind`` is the key that named the step -- ``op`` or ``wait_seconds`` -- and ``step`` is
-    what it asked for: the operation, or how long to wait. ``status`` is how it ended: an
-    operation's own status, as :class:`InvocationRecord` has it, or ``ok`` for a wait.
-    ``passed`` is whether that is how the scenario said it would end; the first step that did
-    not is the last one taken, and the turn is not sent.
+    ``kind`` is the key that named the step -- ``op``, ``host`` or ``wait_seconds`` -- and
+    ``step`` is what it asked for: the operation, the command, or how long to wait.
+    ``status`` is how it ended: an operation's own status, as :class:`InvocationRecord` has
+    it; ``ok``, ``exit <code>``, ``timed out`` or ``refused`` for a command, whose ``output``
+    is the end of what it printed; ``ok`` for a wait. ``passed`` is whether that is how the
+    scenario said it would end; the first step that did not is the last one taken, and the
+    turn is not sent.
     """
 
     kind: str

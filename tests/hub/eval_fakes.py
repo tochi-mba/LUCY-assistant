@@ -6,6 +6,9 @@ is scripted by a `Play` -- what the model does with one message -- and moves for
 step each time it is polled, the way a real one does between two polls: running, then
 parked on an approval if the play asks for one, then finished with its tool results and
 reply written as transcript items.
+
+`FakeShell` stands in for this machine's shell in the same way, for a scenario's `host`
+steps: it starts nothing, and each command ends as its `Ends` says.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from urllib.parse import unquote
 import httpx
 
 from lucy_api.cli.evals_hub import HttpHub
+from lucy_api.evals.host import Finished
 
 REAL_CLIENT = httpx.Client
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -422,3 +426,29 @@ class Clock:
     def sleep(self, seconds: float) -> None:
         self.slept.append(seconds)
         self.now += seconds
+
+
+@dataclass
+class Ends:
+    """How the fake shell's command ends, and how long it takes on the fake clock."""
+
+    exit_code: int | None = 0
+    """``None`` is a command still running at its timeout: the clock moves by the timeout."""
+    output: str = ""
+    seconds: float = 0.0
+
+
+class FakeShell:
+    """This machine's shell, in memory: nothing is started, and each command ends as told."""
+
+    def __init__(self, clock: Clock | None = None) -> None:
+        self.clock = clock
+        self.endings: dict[str, Ends] = {}
+        self.ran: list[tuple[str, float]] = []
+
+    def __call__(self, command: str, timeout: float) -> Finished:
+        self.ran.append((command, timeout))
+        ends = self.endings.get(command, Ends())
+        if self.clock is not None:
+            self.clock.now += timeout if ends.exit_code is None else ends.seconds
+        return Finished(exit_code=ends.exit_code, output=ends.output)

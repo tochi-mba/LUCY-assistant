@@ -2,7 +2,8 @@
 
 The command is driven through `lucy`'s own `main`, with `httpx.Client` swapped for one on
 `FakeLucy`, so the flags, the output streams and the exit codes are the ones a person gets.
-Nothing sleeps and nothing leaves `tmp_path`.
+Nothing sleeps, nothing leaves `tmp_path`, and no process starts: the shell a run's `host`
+steps reach is a `FakeShell` in every test.
 """
 
 from __future__ import annotations
@@ -17,12 +18,13 @@ from typing import Any
 
 import httpx
 import pytest
-from eval_fakes import Clock, FakeLucy, Play
+from eval_fakes import Clock, FakeLucy, FakeShell, Play
 
 from lucy_api.cli import evals as command
 from lucy_api.cli.base import OK, REFUSED, TOKEN_VAR, UNREACHABLE, USAGE
 from lucy_api.cli.main import main as cli_main
 from lucy_api.evals.conversation import Pace
+from lucy_api.evals.host import run_in_shell
 from lucy_api.evals.report import JSON_NAME, MARKDOWN_NAME
 
 INTERRUPTED = 130
@@ -38,6 +40,15 @@ SUITE = {
 
 REAL_UTC_NOW = command.utc_now
 REAL_PACE = command.pace
+REAL_SHELL = command.shell
+
+STOP = "docker stop lucy-family-memory-1"
+OUTAGE = (
+    'summary = "Memory goes down between two turns."\n'
+    '[[turns]]\nsay = "Hello?"\n'
+    '[[turns]]\nsay = "Remember tea."\n'
+    f'[[turns.before]]\nhost = "{STOP}"\ntimeout_seconds = 60\n'
+)
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +60,14 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     clock = Clock()
     monkeypatch.setattr(command, "pace", lambda: Pace(clock=clock, sleep=clock.sleep))
     monkeypatch.setattr(command, "utc_now", lambda: datetime(2026, 9, 24, 10, 15, tzinfo=UTC))
+
+
+@pytest.fixture(autouse=True)
+def machine(monkeypatch: pytest.MonkeyPatch) -> FakeShell:
+    """This machine's shell, faked in every test here, so none of them starts a process."""
+    shell = FakeShell()
+    monkeypatch.setattr(command, "shell", lambda: shell)
+    return shell
 
 
 @pytest.fixture
@@ -66,6 +85,14 @@ def suite(tmp_path: Path) -> Path:
     folder.mkdir()
     for name, text in SUITE.items():
         (folder / name).write_text(text, encoding="utf-8")
+    return folder
+
+
+@pytest.fixture
+def outage(tmp_path: Path) -> Path:
+    folder = tmp_path / "explore"
+    folder.mkdir()
+    (folder / "outage.toml").write_text(OUTAGE, encoding="utf-8")
     return folder
 
 
@@ -378,6 +405,7 @@ def test_a_dry_run_speaks_json(fake: FakeLucy) -> None:
         "repeat": 1,
         "conversations": 1,
         "prompts": 1,
+        "allow_host": False,
         "scenarios": [
             {
                 "scenario": "default/what-can-you-do",
@@ -385,10 +413,71 @@ def test_a_dry_run_speaks_json(fake: FakeLucy) -> None:
                 "seeds": 0,
                 "requires": [],
                 "skip": None,
+                "commands": [],
             }
         ],
     }
     assert not any(request.url.path == "/v1/capabilities" for request in fake.requests)
+
+
+# --------------------------------------------------------------------------------------
+# Commands on this machine
+# --------------------------------------------------------------------------------------
+
+
+def test_a_run_whose_scenarios_run_commands_here_refuses_to_start_without_allow_host(
+    fake: FakeLucy, suite: Path, outage: Path, machine: FakeShell
+) -> None:
+    code, out, err = run("--suite", str(suite), "--suite", str(outage))
+    assert code == USAGE
+    assert out == ""
+    assert "explore/outage would run commands on this machine, which needs --allow-host" in err
+    assert "mine/" not in err
+    assert "--dry-run lists every command a run would execute" in err
+    assert fake.requests == []
+    assert machine.ran == []
+
+
+def test_allow_host_lets_a_run_run_its_commands_here(
+    fake: FakeLucy, outage: Path, machine: FakeShell, tmp_path: Path
+) -> None:
+    code, _, err = run("--suite", str(outage), "--allow-host")
+    assert code == OK
+    assert machine.ran == [(STOP, 60.0)]
+    assert (
+        "    turn 1: completed in 1.0s, 1 round(s), 0 step(s)  ok\n"
+        f"      > $ {STOP} -> ok in 0.0s\n"
+        "      · notes.setFact -> ok\n"
+        "    turn 2: completed in 1.0s, 1 round(s), 1 step(s)  ok\n"
+    ) in err
+    [folder] = reports(tmp_path)
+    saved = json.loads((folder / JSON_NAME).read_text(encoding="utf-8"))
+    [stop] = saved["runs"][0]["turns"][1]["before"]
+    assert (stop["kind"], stop["step"], stop["status"]) == ("host", STOP, "ok")
+
+
+def test_a_dry_run_lists_every_command_a_run_would_execute_and_runs_none(
+    fake: FakeLucy, outage: Path, machine: FakeShell
+) -> None:
+    code, out, _ = run("--suite", str(outage), "--dry-run")
+    assert code == OK
+    assert (
+        "\n\nCommands it would run on this machine, in each conversation of the scenario named:\n"
+        f"  explore/outage, before turn 2: {STOP}  (timeout 60s)\n"
+        "Without --allow-host, the run refuses to start.\n\n"
+        "Nothing was created: this was a dry run."
+    ) in out
+    code, out, _ = run("--suite", str(outage), "--dry-run", "--allow-host")
+    assert code == OK
+    assert "(timeout 60s)\n--allow-host lets them run.\n" in out
+    code, out, _ = run("--suite", str(outage), "--dry-run", "--json")
+    payload = json.loads(out)
+    assert payload["allow_host"] is False
+    assert payload["scenarios"][0]["commands"] == [
+        {"turn": 2, "command": STOP, "timeout_seconds": 60.0}
+    ]
+    assert machine.ran == []
+    assert fake.sessions == {}
 
 
 # --------------------------------------------------------------------------------------
@@ -569,9 +658,10 @@ def test_a_chosen_timeout_is_recorded_in_the_plan(
     assert saved["plan"]["timeout_seconds"] == 45.0
 
 
-def test_the_real_seams_use_the_wall_clock() -> None:
+def test_the_real_seams_use_the_wall_clock_and_this_machine_s_shell() -> None:
     now = REAL_UTC_NOW()
     assert now.tzinfo is UTC
     waits = REAL_PACE()
     assert waits.poll_seconds == 1.0
     assert waits.clock() <= waits.clock()
+    assert REAL_SHELL() is run_in_shell

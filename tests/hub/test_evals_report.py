@@ -377,6 +377,26 @@ def test_a_report_written_before_steps_between_turns_existed_still_reads() -> No
     assert "#### Turn 1: completed in 12.0s, 2 round(s), 0 step(s)\n\nPerson:" in text
 
 
+def test_a_command_that_failed_is_reported_with_its_exit_status_and_its_output() -> None:
+    printed = "Error response from daemon: No such container | lucy-family-memory-1\n"
+    stopped = BeforeRecord(
+        kind="host",
+        step="docker stop lucy-family-memory-1",
+        status="exit 1",
+        passed=False,
+        seconds=0.3,
+        output=printed,
+    )
+    why = f"before 1 `docker stop lucy-family-memory-1`: exited 1: {printed.strip()}"
+    unsent = turn(turn_id="", status="", reply="", before=(stopped,), unsent=why)
+    text = render(report([record("alpha", unsent, reason=f"turn 1 was not sent: {why}")]))
+    assert (
+        "| host | docker stop lucy-family-memory-1 | exit 1 | 0.3s | "
+        "Error response from daemon: No such container \\| lucy-family-memory-1 |"
+    ) in text
+    assert f"Why: turn 1 was not sent: {why}" in text
+
+
 def test_a_turn_with_no_reply_says_so() -> None:
     silent = turn(("turn 1: reply is not empty", False), reply="")
     text = render(report([record("alpha", silent)]))

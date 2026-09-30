@@ -5,7 +5,9 @@ run`` holds each one as a real conversation with the model it is given and write
 It is never run by CI or by ``make check`` -- it spends somebody's model budget and needs a
 hub that is up -- which is why it refuses a hub that is not on this machine unless told
 otherwise, checks the model is usable before creating anything, and says exactly how many
-conversations it is about to hold before it holds the first one.
+conversations it is about to hold before it holds the first one. A scenario's ``host``
+steps run commands on this machine, so a run with any refuses to start without
+``--allow-host``; ``--dry-run`` lists them first.
 
 Exit codes follow the ``lucy`` contract, with ``1`` kept for the one answer this command
 exists to give: ``0`` every check passed; ``1`` a check failed, or a scenario could not be
@@ -29,6 +31,7 @@ from lucy_api import __version__
 from lucy_api.cli.base import OK, REFUSED, TIMEOUT_SECONDS, USAGE, CliError, unreachable
 from lucy_api.evals.compare import CompareError, compare, load_previous
 from lucy_api.evals.conversation import Pace
+from lucy_api.evals.host import run_in_shell
 from lucy_api.evals.hub import HubError, HubUnreachable
 from lucy_api.evals.loader import DEFAULT_SUITE, ScenarioError, load_suite, shipped_suites
 from lucy_api.evals.markdown import LABELS, render
@@ -38,6 +41,7 @@ from lucy_api.evals.runner import DEFAULT_TIMEOUT, Plan, Runner, unmet
 
 if TYPE_CHECKING:
     from lucy_api.cli.base import Context
+    from lucy_api.evals.host import Shell
     from lucy_api.evals.hub import Hub
     from lucy_api.evals.results import ScenarioRecord, TurnRecord
     from lucy_api.evals.runner import Job
@@ -66,6 +70,7 @@ examples:
   lucy eval run --model clyde:haiku --repeat 3              flaky checks show as pass rates
   lucy eval run --model clyde:haiku --compare var/evals/20260924T101500Z
   lucy eval run --model clyde:haiku --suite ./my-scenarios --dry-run
+  lucy eval run --model clyde:haiku --suite ./outage --profile explore --allow-host
 
 docs: docs/evals.md"""
 
@@ -74,7 +79,8 @@ _SUITE_HELP = "a shipped suite, or a folder of .toml files; repeatable"
 RUN_EPILOG = """\
 exit codes:
   0 every check passed      1 a check failed, or a scenario could not be held
-  2 nothing was run: a bad flag, scenario file, token or model spec
+  2 nothing was run: a bad flag, scenario file, token or model spec, or a host
+    command without --allow-host
   3 the hub could not be reached      130 Ctrl-C (the report so far is still written)"""
 
 
@@ -149,6 +155,11 @@ def add_parser(sub: Any, after: argparse.ArgumentParser) -> None:
         "--allow-remote", action="store_true", help="allow a hub that is not on this machine"
     )
     run.add_argument(
+        "--allow-host",
+        action="store_true",
+        help="let scenarios run their `host` commands on this machine (--dry-run lists them)",
+    )
+    run.add_argument(
         "--dry-run", action="store_true", help="check everything and print the plan; create nothing"
     )
 
@@ -172,6 +183,11 @@ def utc_now() -> datetime:
 def pace() -> Pace:
     """How a run waits between polls: the wall clock. A seam, so a test never sleeps."""
     return Pace()
+
+
+def shell() -> Shell:
+    """How a run's ``host`` steps reach this machine. A seam, so a test never starts a process."""
+    return run_in_shell
 
 
 # --------------------------------------------------------------------------------------
@@ -239,6 +255,7 @@ def _run(ctx: Context) -> int:
     )
     previous = _previous(args.compare)
     _require_loopback(ctx.url, allowed=args.allow_remote)
+    _require_host_allowed(plan.scenarios, allowed=args.allow_host or args.dry_run)
     if not ctx.token:
         message = "not signed in"
         raise CliError(message, USAGE, hint="run `lucy setup`, or set LUCY_TOKEN")
@@ -342,6 +359,20 @@ def _require_loopback(url: str, *, allowed: bool) -> None:
     raise CliError(message, USAGE, hint=hint)
 
 
+def _require_host_allowed(scenarios: tuple[Scenario, ...], *, allowed: bool) -> None:
+    """A scenario file is not a script: running its commands on this machine takes a flag.
+
+    A dry run executes nothing, so it is allowed without one -- it is how the commands are
+    read before they are allowed.
+    """
+    running = [scenario.qualified for scenario in scenarios if scenario.commands]
+    if allowed or not running:
+        return
+    message = f"{', '.join(running)} would run commands on this machine, which needs --allow-host"
+    hint = "--dry-run lists every command a run would execute; read them, then add --allow-host"
+    raise CliError(message, USAGE, hint=hint)
+
+
 def _is_loopback(host: str) -> bool:
     if host == "localhost" or host.endswith(".localhost"):
         return True
@@ -422,6 +453,7 @@ def _usable(listing: dict[str, Any], models: tuple[str, ...]) -> list[str]:
 
 
 def _dry_run(ctx: Context, plan: Plan, hub_info: dict[str, Any]) -> int:
+    allow_host = ctx.args.allow_host
     rows = [
         {
             "scenario": scenario.qualified,
@@ -429,6 +461,10 @@ def _dry_run(ctx: Context, plan: Plan, hub_info: dict[str, Any]) -> int:
             "seeds": len(scenario.seed),
             "requires": list(scenario.requires),
             "skip": hub_info["skips"].get(scenario.qualified) or None,
+            "commands": [
+                {"turn": turn, "command": step.command, "timeout_seconds": step.timeout_seconds}
+                for turn, step in scenario.commands
+            ],
         }
         for scenario in plan.scenarios
     ]
@@ -440,6 +476,7 @@ def _dry_run(ctx: Context, plan: Plan, hub_info: dict[str, Any]) -> int:
         "repeat": plan.repeat,
         "conversations": len(plan.jobs()),
         "prompts": plan.prompts,
+        "allow_host": allow_host,
         "scenarios": rows,
     }
     width = max(len(scenario.qualified) for scenario in plan.scenarios)
@@ -448,9 +485,29 @@ def _dry_run(ctx: Context, plan: Plan, hub_info: dict[str, Any]) -> int:
         reason = hub_info["skips"].get(scenario.qualified)
         skip = f"  would skip: {reason}" if reason else ""
         lines.append(f"  {scenario.qualified:<{width}}  {len(scenario.turns)} turn(s){skip}")
+    lines.extend(_commands(plan, allow_host=allow_host))
     lines.extend(["", "Nothing was created: this was a dry run."])
     ctx.emit(payload, "\n".join(lines))
     return OK
+
+
+def _commands(plan: Plan, *, allow_host: bool) -> list[str]:
+    """Every command the run would execute on this machine, and whether it may."""
+    listed = [
+        f"  {scenario.qualified}, before turn {turn}: {step.command}  "
+        f"(timeout {step.timeout_seconds:g}s)"
+        for scenario in plan.scenarios
+        for turn, step in scenario.commands
+    ]
+    if not listed:
+        return []
+    heading = "Commands it would run on this machine, in each conversation of the scenario named:"
+    verdict = (
+        "--allow-host lets them run."
+        if allow_host
+        else "Without --allow-host, the run refuses to start."
+    )
+    return ["", heading, *listed, verdict]
 
 
 def _plan_line(plan: Plan, hub_info: dict[str, Any]) -> str:
@@ -522,7 +579,8 @@ class _Held:
         ctx.say(f"Holding {_plan_line(self._plan, self._hub_info)}.")
         ctx.say(f"The report will be in {self._directory}")
         started = utc_now()
-        runner = Runner(hub, pace=pace(), observer=Progress(ctx, self._plan))
+        machine = shell() if ctx.args.allow_host else None
+        runner = Runner(hub, pace=pace(), observer=Progress(ctx, self._plan), shell=machine)
         try:
             stopped = runner.run(self._plan, self._records.append)
         except KeyboardInterrupt:
@@ -681,4 +739,4 @@ def _seconds(text: str) -> float:
     return value
 
 
-__all__ = ["Progress", "add_parser", "cmd_eval", "pace", "utc_now"]
+__all__ = ["Progress", "add_parser", "cmd_eval", "pace", "shell", "utc_now"]

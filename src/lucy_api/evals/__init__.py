@@ -18,6 +18,7 @@ internals -- an import contract holds that line. The layout, from the file to th
 * :mod:`~lucy_api.evals.conversation` -- one session: steps before each turn, turns,
   waiting, approvals.
 * :mod:`~lucy_api.evals.direct` -- seed, before and verify operations, run without a model.
+* :mod:`~lucy_api.evals.host` -- commands a scenario runs on this machine, only when allowed.
 * :mod:`~lucy_api.evals.transcript` -- what one turn did, read off the transcript.
 * :mod:`~lucy_api.evals.checks` -- every kind of expectation, with evidence.
 * :mod:`~lucy_api.evals.runner` -- the plan, the jobs, and their outcomes.
