@@ -21,6 +21,7 @@ start a process that looks healthy until the first token needs verifying.
 | Variable | Default | What it is |
 | --- | --- | --- |
 | `LUCY_HOST` / `LUCY_PORT` | `127.0.0.1` / `8000` | Where to listen. The default expects a TLS-terminating proxy in front. |
+| `LUCY_APP_NAME` | `lucy` | The name the protected-resource metadata and the MCP server report. |
 | `LUCY_ENVIRONMENT` | `local` | Reported by both health routes. |
 | `LUCY_LOG_LEVEL` / `LUCY_LOG_FORMAT` | `INFO` / `json` | `console` is for a terminal; `json` is for anything that collects logs. |
 | `LUCY_LOG_FILE` | *(empty)* | Also write the JSON log to this file, rotated at 20 MB with five kept. The family's compose file sets it, so the log lands in `var/log/lucy.jsonl` on the host; read it with `lucy logs`. A file that cannot be opened is said on stdout and never stops the hub. |
@@ -29,7 +30,14 @@ start a process that looks healthy until the first token needs verifying.
 | `LUCY_KEYRING_JWKS_URL` | `.../.well-known/jwks.json` | Where the verifying keys come from. |
 | `LUCY_KEYRING_ISSUER` | `http://127.0.0.1:8001` | Pinned `iss`. Must match what keyring mints. |
 | `LUCY_KEYRING_SERVICE_TOKEN` | *(empty)* | This hub's entry in `KEYRING_SERVICE_TOKENS`, for two-credential calls. |
+| `LUCY_MODEL_KEYS` | `{}` | One model-provider key per provider id, as JSON. A local runtime is switched on by naming it. See [models.md](models.md). |
+| `LUCY_MODEL_BASE_URLS` | `{}` | A provider's endpoint, overridden: a cloud tenant, a runtime on another port, a proxy. Required for `azure-openai` and `bedrock`. |
+| `LUCY_OPENAI_API_KEY` / `LUCY_ANTHROPIC_API_KEY` | *(empty)* | Older than `LUCY_MODEL_KEYS` and folded into it; the mapping wins on a clash. |
+| `LUCY_MODEL_TIMEOUT_SECONDS` | `120` | How long one model call may take. A model that is thinking is not a sibling that is down. |
 | `LUCY_USER_API_BASE_URL` … `LUCY_MEMORY_API_BASE_URL` | the family ports | One base URL per sibling. |
+| `LUCY_MUSIC_API_AUDIENCE` | `spotify-api` | The audience of whatever answers at `LUCY_MUSIC_API_BASE_URL`. See [connections.md](connections.md#music-is-a-contract-not-a-service). |
+| `LUCY_EXTRA_SERVICES` | `{}` | Operator-local services, keyed by capability id, as JSON; each adds a card to `GET /v1/setup`. See [private-repos.md](private-repos.md). |
+| `LUCY_LAYA_BASE_URL`, `LUCY_LAYA_API_KEY`, `LUCY_LAYA_MODEL`, `LUCY_LAYA_TIMEOUT_MS`, `LUCY_LAYA_MAX_CONCURRENT` | *(empty)*, `5000`, `2` | The optional Laya decision service. See [decisions.md](decisions.md). |
 | `LUCY_SETTINGS_API_TOKEN` | *(empty)* | The hub's service token for settings-api. |
 | `LUCY_MEMORY_API_TOKEN` | *(empty)* | The hub's entry in Memory-api's `MEMORY_SERVICE_TOKENS`. Notes calls use the two-credential `/v1/internal/memory` surface; empty refuses them. |
 | `LUCY_JWKS_CACHE_SECONDS` | `3600` | How long verifying keys are cached. |
@@ -48,7 +56,9 @@ settings-api under the `lucy` namespace.
 An orchestrator restarts a container whose liveness check fails, and restarting a process
 does not fix the service it depends on.
 
-`GET /ready` reports each dependency and answers 503 when one is unusable. Neither route is
+`GET /ready` reports three checks -- `keyring` (its signing keys can be fetched), `database`
+and `model` (at least one model provider is configured) -- and answers 503 when one is
+unusable. A fresh checkout with no model key is therefore alive and not ready. Neither route is
 authenticated, and neither reports a name, an account, or a count that moves when one
 person acts — a counter that moves when one person acts is an oracle.
 
