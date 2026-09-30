@@ -215,7 +215,7 @@ async def test_a_git_outage_omits_the_branch_rather_than_the_whole_workspace_fee
     client = NoGit()
     client.seed(Environment("wanted", "Project", profile="personal", state="ready"))
     feed = (await WorkspaceFeeds(client, "wanted", workspace_rel="sess-a").fetch(REQUEST))[0]
-    assert feed.lines == ("0 shells running", "sandbox isolation: unknown")
+    assert feed.lines == ("sandbox isolation: unknown",), "no shell is not news"
     assert all("git branch" not in line for line in feed.lines)
 
 

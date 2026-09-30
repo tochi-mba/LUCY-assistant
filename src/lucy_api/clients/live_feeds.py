@@ -217,18 +217,23 @@ class WorkspaceFeeds:
         # group already says both, and said here they reached the model twice.
         entries: list[FeedEntry] = [
             FeedEntry(
-                key="shells_running",
-                line=f"{current.shells_running} shells running",
-                trust=Trust.observed,
-                source="workspace",
-            ),
-            FeedEntry(
                 key="sandbox",
                 line=f"sandbox isolation: {current.sandbox_tier or 'unknown'}",
                 trust=Trust.observed,
                 source="workspace",
             ),
         ]
+        if current.shells_running:
+            # Said only when there is one: "0 shells running" on every turn is not news.
+            entries.insert(
+                0,
+                FeedEntry(
+                    key="shells_running",
+                    line=f"{current.shells_running} shells running",
+                    trust=Trust.observed,
+                    source="workspace",
+                ),
+            )
         branch = await _git_branch(self.client, self.environment_id, self.workspace_rel)
         if branch:
             entries.append(
