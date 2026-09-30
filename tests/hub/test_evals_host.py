@@ -1,21 +1,37 @@
 """The shell a scenario's `host` steps run through: bounded in time, and in what it keeps.
 
-Every test here but one works on the pieces without starting anything. The one that does
-runs a harmless command -- this interpreter printing "ok" -- through the real system shell,
-because that is the only way to know the seam holds on the machine it runs on, `cmd.exe` on
-Windows and `/bin/sh` everywhere else.
+Every test here but two works on the pieces without starting anything. The two that do run
+harmless commands -- this interpreter printing "ok", and this interpreter sleeping past its
+timeout -- through the real system shell, because that is the only way to know the seam
+holds on the machine it runs on, `cmd.exe` on Windows and `/bin/sh` everywhere else.
 """
 
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import sys
+import time
 from typing import Any
 
 import pytest
 
 from lucy_api.evals.host import OUTPUT_LIMIT, SHOWN, Finished, failure, run_in_shell, tail
+
+SLEEPS = 10
+"""Seconds the command that outlives its timeout sleeps for, left alone."""
+
+TIMEOUT = 2.0
+"""Seconds it is given."""
+
+SLEEPER = (
+    f"echo going && ping -n {SLEEPS + 1} 127.0.0.1 >nul"
+    if os.name == "nt"
+    else f"echo going && sleep {SLEEPS}"
+)
+"""A command that prints, then sleeps past its timeout, in the words of this machine's
+shell: it starts its sleeper as a child of its own, which the shell's death need not end."""
 
 
 def test_a_harmless_command_runs_through_this_machine_s_shell() -> None:
@@ -23,6 +39,22 @@ def test_a_harmless_command_runs_through_this_machine_s_shell() -> None:
     assert finished.exit_code == 0
     assert finished.status == "ok"
     assert finished.output.strip() == "ok"
+
+
+def test_a_real_command_still_running_at_its_timeout_is_stopped_at_its_timeout() -> None:
+    """The gap, named: the other timeout test mocks ``subprocess.run``, so nothing proved
+    the harness comes back at the timeout on this machine's real shell. It comes back
+    because the output goes to a file, not a pipe: killing the shell can leave the sleeper
+    it started running, and a pipe that process still held open would keep the harness
+    waiting the whole sleep. What was printed is not asserted: on a machine where the
+    shell itself takes seconds to start, nothing has been printed by the timeout.
+    """
+    started = time.monotonic()
+    finished = run_in_shell(SLEEPER, TIMEOUT)
+    elapsed = time.monotonic() - started
+    assert finished.exit_code is None
+    assert finished.status == "timed out"
+    assert TIMEOUT <= elapsed < SLEEPS - TIMEOUT, elapsed
 
 
 def test_a_command_still_running_at_its_timeout_is_stopped_and_what_it_printed_is_kept(
