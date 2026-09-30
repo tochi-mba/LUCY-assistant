@@ -64,8 +64,9 @@ class LogFormat(StrEnum):
 class ExtraSibling(BaseModel):
     """One operator-local service the published family does not name.
 
-    Capability packs look these up by product id (for example ``archive``), not a
-    repository name.
+    Keyed by product id (for example ``archive``), not a repository name. The first-run
+    flow reads these for their setup cards; no capability pack reads them, because the hub
+    does not load packs from outside its own list yet (ADR-0011, seam 3).
     An empty ``base_url`` is the same as omitting the entry.
     """
 
@@ -210,13 +211,6 @@ class Settings(BaseSettings):
         merged = {"openai": self.openai_api_key, "anthropic": self.anthropic_api_key}
         merged.update(self.model_keys)
         return {provider: key for provider, key in merged.items() if key}
-
-    def extra(self, capability: str) -> ExtraSibling | None:
-        """The configured sibling for a capability, or none when it is not wired."""
-        row = self.extra_services.get(capability)
-        if row is None or not row.base_url.strip():
-            return None
-        return row
 
 
 def check_for_unknown_env_vars(
