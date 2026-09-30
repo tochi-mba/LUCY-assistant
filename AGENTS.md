@@ -56,7 +56,7 @@ changing anything the family standard cares about.
 
 ## Dependencies
 
-`weftai` comes from PyPI, pinned exactly (`weftai[all]==0.5.0`), never as a path
+`weftai` comes from PyPI, pinned exactly (`weftai[all]==0.5.2`), never as a path
 dependency to a checkout. Improving weftai means releasing weftai — to npm and PyPI in
 lockstep — and then bumping the pin here.
 
