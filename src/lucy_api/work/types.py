@@ -37,6 +37,9 @@ Short on purpose. It is read as the first field of a line and it is a name -- "r
 "download" -- rather than a description, which is what `objective` is for.
 """
 
+MAX_GROUP = 40
+"""How long the name of a group of work may be. A name, like `role`: "reviewers"."""
+
 DEFAULT_DEPTH = 1
 """How deep a piece of work started by the main thread is.
 
@@ -73,8 +76,13 @@ class State(StrEnum):
 
     `cancelled` is likewise never inferred: a client disconnecting is not a cancellation,
     and the only thing that produces this state is somebody explicitly asking for it.
+
+    `queued` is work that was accepted and has not started, because as many of its kind as
+    the person allows are already running. It is in flight -- it has a handle, it shows in
+    the live block, it can be cancelled -- and nothing of it has run yet.
     """
 
+    queued = "queued"
     running = "running"
     succeeded = "succeeded"
     failed = "failed"
@@ -83,7 +91,7 @@ class State(StrEnum):
 
     @property
     def finished(self) -> bool:
-        return self is not State.running
+        return self not in {State.running, State.queued}
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +113,10 @@ class Brief:
     the person to ask. It needs `account_id`, because opening a turn is done on somebody's
     behalf; a brief that asks to wake without saying whose session it is cannot be honoured
     and is not.
+
+    `group` names a team this work belongs to -- "reviewers" -- so the model can start
+    several pieces of work as one unit and be told once when the last of them ends. A member
+    of a group does not wake the session on its own ending; the group's ending does.
     """
 
     session_id: str
@@ -116,6 +128,7 @@ class Brief:
     tags: Mapping[str, str] = field(default_factory=dict)
     account_id: str = ""
     wake: bool = False
+    group: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,10 +167,13 @@ class Notice:
     elapsed_seconds: float
     tokens: int = 0
     detail: str = ""
+    group: str = ""
 
     def line(self) -> str:
         """One line, for the tool-boundary notice the model actually reads."""
-        parts = [f"{self.role} ({self.kind})", self.objective, self.state.value]
+        kind = f"{self.kind}, {self.group}" if self.group else str(self.kind)
+        who = f"{self.role} ({kind})"
+        parts = [who, self.objective, self.state.value]
         if self.state is State.succeeded and self.tokens:
             parts.append(f"about {self.tokens:,} tokens of result, fetch it to read it")
         if self.detail:
@@ -212,8 +228,12 @@ class Record:
     tags: dict[str, str] = field(default_factory=dict)
     account_id: str = ""
     wake: bool = False
+    group: str = ""
+    teamed: bool = False
+    """Whether this record's group ending has been told. A group ends once per team."""
 
     def elapsed(self, now: datetime) -> float:
+        """How long it has run, or -- while it is queued -- how long it has waited."""
         end = self.finished_at or now
         return max(0.0, (end - self.started_at).total_seconds())
 
@@ -228,7 +248,57 @@ class Record:
             elapsed_seconds=self.elapsed(now),
             tokens=self.tokens,
             detail=self.detail,
+            group=self.group,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Team:
+    """A group of work whose last member has just ended: one notice for all of them.
+
+    Five reviewers started as one team are one question for the model -- "are the reviews
+    in?" -- and five separate wakes would open five turns to answer it one fifth at a time.
+    So a member of a group wakes nothing on its own, and its group's ending is told once,
+    naming every member and how each ended. Reading the results is still one fetch per
+    member, by id: this says they ended, never what they found.
+    """
+
+    session_id: str
+    group: str
+    members: tuple[Record, ...]
+
+    @property
+    def account_id(self) -> str:
+        return next((member.account_id for member in self.members if member.account_id), "")
+
+    @property
+    def wake(self) -> bool:
+        """Whether any member asked to be woken for; the group wakes in their place."""
+        return any(member.wake for member in self.members)
+
+    @property
+    def fetched(self) -> bool:
+        """Whether every member's result has already been read, so there is no news left."""
+        return all(member.fetched for member in self.members)
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(member.id for member in self.members)
+
+    def line(self) -> str:
+        """One line naming the group and each member's ending, never a result."""
+        counted = f"{len(self.members)} member" + ("" if len(self.members) == 1 else "s")
+        each = "; ".join(_member_line(member) for member in self.members)
+        return f"group {self.group} ({counted}) has ended: {each}"
+
+
+def _member_line(member: Record) -> str:
+    parts = [f"{member.role} {member.id}", member.state.value]
+    if member.state is State.succeeded and member.tokens:
+        parts.append(f"about {member.tokens:,} tokens of result")
+    if member.detail and member.state is not State.succeeded:
+        parts.append(member.detail)
+    return " - ".join(parts)
 
 
 class WorkError(Exception):
@@ -250,6 +320,7 @@ class WorkError(Exception):
 
 __all__ = [
     "DEFAULT_DEPTH",
+    "MAX_GROUP",
     "MAX_OBJECTIVE",
     "MAX_PROGRESS",
     "MAX_ROLE",
@@ -260,5 +331,6 @@ __all__ = [
     "Record",
     "Result",
     "State",
+    "Team",
     "WorkError",
 ]

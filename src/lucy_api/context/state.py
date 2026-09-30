@@ -505,12 +505,15 @@ def _groups(state: LiveState) -> tuple[_Group, ...]:
 def _in_flight_group(running: Sequence[WorkSnapshot]) -> _Group:
     """Everything still going, in one group: helpers, jobs and commands together.
 
-    Newest first, because the ones the model has not yet reasoned about are the news.
+    Newest first, because the ones the model has not yet reasoned about are the news. Work
+    waiting behind a cap is here too, marked queued: it is in flight, only not started.
     """
+    queued = sum(1 for work in running if work.status == "queued")
+    headline = _plural(len(running) - queued, "thing running", "things running")
     return _Group(
         name="in_flight",
         quota=QUOTAS["in_flight"],
-        headline=_plural(len(running), "thing running", "things running"),
+        headline=f"{headline}, {queued} queued" if queued else headline,
         entries=tuple(_work_line(work) for work in running),
         recent=True,
     )
@@ -704,20 +707,28 @@ def _trouble_group(failures: Sequence[FailureSnapshot]) -> _Group:
 
 
 def _work_line(work: WorkSnapshot) -> str:
-    role = _clean(work.role, NAME_CHARS)
+    role = _who(work)
     if work.depth > 1:
         role += f" (depth {work.depth})"
+    waited = work.status == "queued"
     return INDENT + _joined(
         role,
         _clean(work.objective, OBJECTIVE_CHARS),
-        _duration(work.elapsed_seconds),
+        f"queued {_duration(work.elapsed_seconds)}" if waited else _duration(work.elapsed_seconds),
         _clean(work.progress, PROGRESS_CHARS),
     )
 
 
+def _who(work: WorkSnapshot) -> str:
+    """The role, and the group it was started in when there is one: `reviewer in reviewers`."""
+    role = _clean(work.role, NAME_CHARS)
+    group = _clean(work.group, NAME_CHARS)
+    return f"{role} in {group}" if group else role
+
+
 def _finished_line(work: WorkSnapshot) -> str:
     return INDENT + _joined(
-        _clean(work.role, NAME_CHARS),
+        _who(work),
         _clean(work.objective, OBJECTIVE_CHARS),
         f"{_clean(work.status, STATUS_CHARS)} after {_duration(work.elapsed_seconds)}",
         _clean(work.progress, PROGRESS_CHARS),
