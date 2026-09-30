@@ -49,7 +49,7 @@ def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
         "memory-api",
         "environments-api",
         "web-search-api",
-        "spotify-api",
+        "music-api",
         "settings",
     } <= set(allowlists["lucy-api"])
 

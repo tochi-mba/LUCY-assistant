@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import Http
 
 SERVICE = "spotify"
-AUDIENCE = "spotify-api"
+AUDIENCE = "music-api"
 
 DEFAULT_RECENT = 10
 """How many plays a history read asks for. Small on purpose: the service ceiling is 50."""

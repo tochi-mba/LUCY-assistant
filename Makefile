@@ -28,7 +28,7 @@ help: ## Show available targets
 	@echo "  images     Build every image with your gh sign-in (browser or token)"
 	@echo "  up         Build and start the default compose services"
 	@echo "  down       Stop the family, keeping its data volumes"
-	@echo "             Set COMPOSE_PROFILES=local to include local-only compose services"
+	@echo "             A docker-compose.local.yml overlay is included automatically when present"
 
 install: ## Create the virtualenv and install everything
 	$(UV) sync --all-extras --group dev
@@ -104,10 +104,10 @@ github-ci: ## Install lucy-assistant family CI on the family repositories
 	$(UV) run python scripts/connect_github.py
 
 images: ## Build every image with your gh sign-in
-	@GITHUB_TOKEN="$$(gh auth token)" docker compose build
+	@$(UV) run python scripts/compose.py build
 
 up: images ## Build and start the default compose services
-	docker compose up -d --no-build
+	$(UV) run python scripts/compose.py up
 
 down: ## Stop the family, keeping its data volumes
-	docker compose down
+	$(UV) run python scripts/compose.py down

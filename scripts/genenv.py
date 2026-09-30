@@ -73,7 +73,7 @@ LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
     # service refusing every token it is sent -- which it did, on every turn, in its own log.
     "persona",
     "settings",
-    "spotify-api",
+    "music-api",
     "user",
     "user.family",
     "user.finance",
@@ -94,7 +94,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("lucy-api", "lucy-api", ("lucy", "search", "spotify"), "LUCY_SETTINGS_API_TOKEN"),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
-    ("spotify-api", "spotify-api", ("spotify",), None),
+    ("spotify-api", "music-api", ("spotify",), None),
     ("web-search-api", "web-search-api", ("search",), None),
     ("keyring-api", "keyring", ("keyring",), None),
     ("environments-api", "environments-api", ("environments",), None),
