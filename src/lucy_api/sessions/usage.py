@@ -1,8 +1,8 @@
-"""Session usage as a read of the row, not a second ledger.
+"""Session usage as a read of what the turn loop wrote, not a second ledger.
 
-The session already sums tokens as turns finish. A separate counter that can drift from
-those columns is how a usage page starts lying. This module only reads what the turn loop
-already wrote.
+Every run of the loop adds what it used to its turn's row and to the session's row in one
+transaction (`SessionStore.record_spend`). The session's totals and the sum over its turns
+are therefore the same numbers, and this module only reads them.
 """
 
 from __future__ import annotations

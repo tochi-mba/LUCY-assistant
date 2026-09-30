@@ -59,6 +59,7 @@ class Budget:
 
     max_iterations: int = 12
     max_tokens: int = 0
+    """Tokens this run may spend: what the conversation's budget has left, or 0 for no cap."""
     max_seconds: float = 0.0
     max_tool_calls: int = 60
 
@@ -114,7 +115,7 @@ def should_stop(budget: Budget, spent: Spent) -> Verdict:
         return Verdict(
             stop=True,
             termination=Termination.max_budget,
-            detail=f"stopped after {spent.tokens:,} tokens, the limit for one turn",
+            detail=f"stopped after {spent.tokens:,} tokens, all this conversation had left",
         )
     if spent.tool_calls >= budget.max_tool_calls:
         return Verdict(
@@ -146,7 +147,7 @@ def warning_for(budget: Budget, spent: Spent, *, at: float = 0.8) -> str:
         )
     if not budget.unlimited_tokens and spent.tokens >= budget.max_tokens * at:
         left = budget.max_tokens - spent.tokens
-        return f"{left:,} tokens left in this turn's budget"
+        return f"{left:,} tokens left in this conversation's budget"
     return ""
 
 

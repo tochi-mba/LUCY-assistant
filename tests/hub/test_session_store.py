@@ -42,6 +42,7 @@ from lucy_api.sessions.sql_store import (
     IdempotentWrite,
     NewItem,
     SessionStore,
+    TurnSpend,
     digest,
     encoded,
     identifier,
@@ -176,6 +177,7 @@ async def test_no_lookup_in_the_store_answers_for_an_account_that_does_not_own_t
         ("item", lambda: store.item(STRANGER, str(item["id"]))),
         ("turn", lambda: store.turn(STRANGER, turn)),
         ("finish_turn", lambda: store.finish_turn(STRANGER, turn, "cancelled")),
+        ("record_spend", lambda: store.record_spend(STRANGER, turn, TurnSpend())),
         ("delete", lambda: store.delete(STRANGER, session)),
         (
             "record_audit",

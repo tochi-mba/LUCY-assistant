@@ -106,10 +106,26 @@ MODEL_UNAVAILABLE = "model_unavailable"
 """The error code of a turn whose model could not be reached, before or during it."""
 
 TURN_FAILED = "turn_failed"
+SESSION_BUDGET = "session_budget"
+"""The conversation has spent `lucy.session_token_budget`; nothing more is asked of a model."""
 """The error code of any other turn that failed."""
 
 NO_REASON = "the turn stopped without saying why"
 """What a failed turn's error says when nothing recorded a reason."""
+
+
+def _remaining(budget: Budget, session: dict[str, Any]) -> Budget | None:
+    """The turn's budget with the conversation's spend so far taken off, or None when spent.
+
+    `lucy.session_token_budget` is "a hard cap on tokens one session may spend". It was
+    handed to the loop as the cap on one turn, so a conversation could spend it again on
+    every turn, and nothing summed the session to compare against anyway.
+    """
+    if budget.unlimited_tokens:
+        return budget
+    used = int(session.get("input_tokens") or 0) + int(session.get("output_tokens") or 0)
+    left = budget.max_tokens - used
+    return replace(budget, max_tokens=left) if left > 0 else None
 
 
 def _spend(result: Any) -> TurnSpend:
@@ -260,6 +276,10 @@ class TurnSupervisor:
         approved = await approved_calls(self._store, claimed.id)
         await mark_executed(self._store, approved)
         opening = resumed_notice(tuple(call.operation for call in approved))
+        budget = _remaining(prepared.budget if prepared is not None else Budget(), session)
+        if budget is None:
+            await self._finish_over_budget(claimed, pack_ctx.policy.session_token_budget)
+            return
         # A one-time approval is spent by the run it approved. The grants were read above,
         # before the calls were marked, so the opening plan finds them; they are removed once
         # it has run, so the same call planned again is asked about again, not run twice.
@@ -421,7 +441,7 @@ class TurnSupervisor:
                         # asks every provider for a model named after itself. Nothing caught
                         # it until a real one answered `unrecognized_model`.
                         model=parse_spec(claimed.model).model,
-                        budget=prepared.budget if prepared is not None else None,
+                        budget=budget,
                         max_output_tokens=pack_ctx.policy.max_output_tokens,
                         temperature=pack_ctx.policy.temperature,
                         thinking=pack_ctx.policy.thinking,
@@ -491,6 +511,7 @@ class TurnSupervisor:
                         stop_reason=result.stop_reason.value,
                     ),
                 )
+            await self._store.record_spend(claimed.account_id, claimed.id, _spend(result))
             await self._signal(claimed, "input_required")
             return
         status = _status_for(result.termination)
@@ -521,6 +542,23 @@ class TurnSupervisor:
         if status == "completed":
             await _maybe_title(self._store, claimed, pack_ctx, session)
         await self._signal(claimed, status)
+
+    async def _finish_over_budget(self, claimed: ClaimedTurn, budget: int) -> None:
+        """A conversation that has spent its budget gets no model round, and is told why."""
+        await self._said_failure(
+            claimed,
+            SESSION_BUDGET,
+            f"this conversation has spent its budget of {budget:,} tokens; start a new one, "
+            "or raise lucy.session_token_budget",
+        )
+        await self._store.finish_turn(
+            claimed.account_id,
+            claimed.id,
+            "failed",
+            Termination.max_budget.value,
+            error_code=SESSION_BUDGET,
+        )
+        await self._signal(claimed, "failed")
 
     async def _finish_failure(self, claimed: ClaimedTurn, detail: str) -> None:
         await self._said_failure(claimed, MODEL_UNAVAILABLE, detail)
@@ -691,6 +729,7 @@ def _status_for(termination: Termination) -> str:
 __all__ = [
     "MODEL_UNAVAILABLE",
     "NO_REASON",
+    "SESSION_BUDGET",
     "TURN_FAILED",
     "ClaimedTurn",
     "PreparedTurn",
