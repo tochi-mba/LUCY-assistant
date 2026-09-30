@@ -48,10 +48,23 @@ is hiding has already leaked it. Without this a private repository checked out b
 others is merely *untracked*, and the next `git add -A` stages the whole thing.
 
 `python scripts/parity.py` reads `.repos.local.txt` and fails any public repository whose
-source, tests, scripts, clients, docs or top-level prose contains a private name — matched
-case-insensitively and with `-` and `_` treated alike, because `Example_Tool` is the
-spelling a grep for `example-tool` would miss. An operator with no private checkouts has
-nothing to leak and the check passes silently.
+source, tests, scripts, clients, docs or top-level prose contains a private name — as a
+whole word, case-insensitively, and however its parts are joined: `Example-Tool`,
+`example_tool`, `Example Tool` and `EXAMPLETOOL` are one name, because each is the spelling
+a grep for another would miss. An operator with no private checkouts has nothing to leak and
+the check passes silently.
+
+A repository's name is rarely the only way it gets written: a URI scheme, a product name, a
+module. The private repository lists those in its own `pyproject.toml`, which is the only
+place allowed to say them, and the check reads them from its checkout:
+
+```toml
+[tool.lucy]
+# Other names this service goes by. A public repository must never use any of them.
+also-known-as = ["example", "Example Cloud"]
+```
+
+A failure names only the repository, never the spelling it found.
 
 And when you need an illustration, **use an obviously fictional name**. Reaching for another
 real service is exactly how the first leak happened: `example-tool` in prose,

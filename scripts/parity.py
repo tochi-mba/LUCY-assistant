@@ -552,10 +552,8 @@ def _private_names(root: Path) -> tuple[str, ...]:
     that names the thing it is hiding has already published it, which is the whole reason
     ADR-0011 exists.
 
-    Names are matched case-insensitively and with ``-`` and ``_`` treated alike, because a
-    leak is a leak whether somebody wrote ``Example-Tool``, ``example_tool`` or
-    ``EXAMPLE_TOOL`` -- and the second spelling is exactly the one a grep for the first
-    would miss.
+    How each name is matched, and the other spellings a private repository adds, are
+    `_private_patterns`' and `_also_known_as`'s business.
     """
     manifest = root / ".repos.local.txt"
     if not manifest.is_file():
@@ -570,9 +568,54 @@ def _private_names(root: Path) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _private_patterns(names: tuple[str, ...]) -> tuple[tuple[str, re.Pattern[str]], ...]:
+ALSO_KNOWN_AS = ("tool", "lucy", "also-known-as")
+"""Where a private repository's own pyproject.toml lists the other names it goes by."""
+
+
+def _also_known_as(root: Path, name: str) -> tuple[str, ...]:
+    """The other spellings a private repository says it goes by, read from its own checkout.
+
+    A repository's name is rarely the only way anybody writes it: a service called
+    ``Example-api`` turns up as ``example:`` in a URI or as its product's name in prose. Only
+    the private repository knows those, and only it may say them, so it lists them under
+    ``[tool.lucy] also-known-as`` in its own pyproject.toml. A public file listing them would
+    be the leak the list exists to catch. A checkout that is not here adds nothing.
+    """
+    path = checkout_path(root, name)
+    if not path.is_dir():
+        return ()
+    data: Any = Repo(name, path).pyproject or {}
+    for key in ALSO_KNOWN_AS:
+        data = data.get(key) if isinstance(data, dict) else None
+    if data is None:
+        return ()
+    if not isinstance(data, list) or not all(isinstance(item, str) and item for item in data):
+        message = f"{name}'s pyproject.toml: tool.lucy.also-known-as must be a list of names"
+        raise ParityError(message)
+    return tuple(data)
+
+
+def _spelling(text: str) -> re.Pattern[str]:
+    """One name, however it is joined and cased, and only as a whole word.
+
+    ``Example-Tool``, ``example_tool``, ``Example Tool``, ``EXAMPLETOOL``: a leak is a leak
+    whichever separator somebody reached for, and each is the spelling a grep for another
+    would miss. A letter or digit either side means a different word, so a name that happens
+    to sit inside a longer one is left alone.
+    """
+    parts = [re.escape(part) for part in re.split(r"[-_ ]+", text.strip()) if part]
+    body = "[-_ ]?".join(parts)
+    return re.compile(rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.IGNORECASE)
+
+
+def _private_patterns(
+    root: Path, names: tuple[str, ...]
+) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """Each private name and every spelling its repository declares, labelled by the name."""
     return tuple(
-        (name, re.compile(re.escape(name).replace(r"\-", "[-_]"), re.IGNORECASE)) for name in names
+        (name, _spelling(spelling))
+        for name in names
+        for spelling in (name, *_also_known_as(root, name))
     )
 
 
@@ -611,17 +654,14 @@ def check_private_names(repo: Repo) -> Result:
     names = _private_names(root)
     if repo.name in names:
         return not_applicable("this repository is one of the private ones")
-    patterns = _private_patterns(names)
+    patterns = _private_patterns(root, names)
     if not patterns:
         return passed()
     hits: list[str] = []
     for file in _searchable(repo):
         text = file.read_text(encoding="utf-8", errors="replace")
-        hits.extend(
-            f"{repo.relative(file)} names {name}"
-            for name, pattern in patterns
-            if pattern.search(text)
-        )
+        named = dict.fromkeys(name for name, pattern in patterns if pattern.search(text))
+        hits.extend(f"{repo.relative(file)} names {name}" for name in named)
     if hits:
         more = f" and {len(hits) - 2} more" if len(hits) > 2 else ""
         return failed(f"{hits[0]}{'; ' + hits[1] if len(hits) > 1 else ''}{more}")
