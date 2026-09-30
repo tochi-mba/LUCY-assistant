@@ -273,7 +273,7 @@ class EventEmitter:
         self._lock = asyncio.Lock()
 
     def subscriber_count(self, session_id: str) -> int:
-        """How many live connections a session has. For readiness and for tests."""
+        """How many live connections a session has. A test waits on it to know one is attached."""
         return len(self._subscribers.get(session_id, ()))
 
     async def emit(self, session_id: str, event: NewEvent) -> Event:

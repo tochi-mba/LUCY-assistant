@@ -62,7 +62,7 @@ are data messages: third-person reported claims with provenance inline, inside a
 block. Concatenating a remembered note into the system prompt is how a web page from last
 Tuesday becomes a standing order.
 
-Live state (now playing, cwd, the memory topic index, work in flight) is rebuilt every
+Live state (now playing, the workspace, the memory topic index, work in flight) is rebuilt every
 turn. A prompt preview must not consume the "just finished" flag a real turn still needs
 to see.
 

@@ -1,5 +1,11 @@
 # LUCY — the assistant you talk to
 
+> **This is the original plan, kept for its reasoning.** It was written before the code, and
+> the code has moved on: names, module paths and operation spellings here are the plan's, not
+> necessarily what shipped. To learn the system as it is, start with [hub.md](hub.md) and the
+> page for the part you are changing. [implementation-status.md](implementation-status.md)
+> records what of this plan is built.
+>
 > Replaces the completed "family works as private repositories" plan.
 
 ## Context

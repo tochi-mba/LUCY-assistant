@@ -40,10 +40,10 @@ A pack does not invent a second mapping. Prompt-feed toggles are stored on `lucy
 Lucy decides what the model sees; they are *shown* with the capability they describe, so
 "hide now playing" sits next to "default speaker".
 
-Two namespaces can legitimately hold the same key — `common.timezone` and `user.timezone` are
-a deliberate collision, not a mistake. Lucy shows which one is in force and why, because a
-person who sets a timezone and sees the old one still in use needs the answer to be visible
-rather than something they have to infer.
+Two namespaces can legitimately hold the same key, so a setting is always named by both:
+`common.timezone` is the `timezone` key in the `common` namespace. `settings.get` says
+where the value in force came from, because a person who sets something and sees the old
+value still in use needs the answer to be visible rather than something they have to infer.
 
 ## Account-wide vs profile-wide
 
@@ -75,7 +75,7 @@ named `feeds_<capability>_<field>`. There is also a switch for the whole capabil
 - `prompt_allow_unknown_feed_fields` — a sibling may invent keys Lucy does not know (default off, and an assistant may never turn it on)
 
 Defaults hide the easy leaks (next track, last shell command, search backend, download
-progress) and keep the lines that stop the model guessing (now playing, cwd, active job).
+progress) and keep the lines that stop the model guessing (now playing, git branch, active job).
 Unknown keys are dropped unless that last switch is on.
 
 Turn execution is bounded by the lucy knobs the hub actually consumes. They are
@@ -204,16 +204,16 @@ acceptable is one of them silently disappearing.
 Three operations, and they are deliberately few:
 
     settings.describe(capability?)   what can be changed, what each one does, and whether it is account-wide or for this profile
-    settings.get(name)               what it is now, where that came from, and which scope it has
-    settings.set(name, value)        change it; the session's profile is used, never one the model invents
+    settings.get(namespace, key)         what it is now, where that came from, and which scope it has
+    settings.set(namespace, key, value)  change it; the session's profile is used, never one the model invents
 
 `settings.set` is a write, so it goes through the permission gate like any other. A model
 changing a person's configuration without being asked is exactly the kind of thing that
 should require a moment's consent, and the plain-language note that comes with every tool
 call is what the person is shown: *"Turn off automatic memory writing"*, not a JSON patch.
 
-The model never sees a namespace in a name it has to type. It writes `memory.write_policy`
-because that is the capability and the knob; the mapping to a service is Lucy's problem.
+The model names a setting by the namespace and key `settings.describe` listed, such as
+`lucy` and `memory_write_policy`. It never names a service, a host or a profile.
 
 ## Events
 
