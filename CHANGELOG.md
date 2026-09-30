@@ -8,6 +8,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A search hit carries its snippet.** The hit collection declared `site` and `snippet`
+  and `research.search` filled neither, so filtering or picking by them read empty text.
+  Each hit now has the snippet the search service sends; `site`, which the service never
+  sends per result, is gone, and a hit's label names the host from `source`.
+- **`lucy --help` matches the client.** Its examples now include `config`, `version` and
+  `logs`, no longer say `lucy setup --mode family` bootstraps the family (it installs the
+  CI GitHub App and prints the steps), and the exit codes include 130. A test parses every
+  example and requires one per subcommand.
+- **`make lock` and `make lock-check` are phony targets**, and the `matrix` target no longer
+  says CI gates only 3.12.
 - **The parity check catches a private service however it is written.** It matched a
   private repository's name only with `-` and `_` treated alike, so `Example Tool`,
   `exampletool` and any other name the service goes by -- a URI scheme, a product name --
@@ -57,6 +67,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The example service's Makefile runs mypy, pytest and import-linter through the
+  interpreter**, as the hub's does, so a service copied from it does not fail `make check`
+  where a Windows policy refuses the `.venv` shims.
+- `Settings.extra()`, which nothing called, is removed; operator-local services in
+  `LUCY_EXTRA_SERVICES` still get their setup cards.
 - **The music audience is configuration.** `LUCY_MUSIC_API_AUDIENCE` sits beside
   `LUCY_MUSIC_API_BASE_URL`, defaulting to `spotify-api`. An audience names exactly one
   service -- keyring refuses a credential read whose token was minted for anybody else -- so
