@@ -10,10 +10,18 @@ resolved by the runtime to the tracks that step returned. The documentation alwa
 play that way and the operation took only a ``uri`` string, so the plan a model naturally
 writes -- find, then play what was found -- sent the literal text ``$found`` as a URI. A
 ``uri`` is still accepted for a track the model already holds.
+
+A queue of several tracks answers per track. The service takes one track per queue command
+and answers each once it is seen in the queue, so a six-track queue is six commands in a
+row; one refused part way used to end the step with one failure that hid what had already
+been queued, and six slow ones ran past the step's ceiling, so the step timed out and
+nothing was reported. Each track now says whether it was queued and, if not, why; the loop
+stops before the next command would run past the ceiling and says how many were left.
 """
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from weftai.operation import define_operation
@@ -38,7 +46,7 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation, RunContext
@@ -67,6 +75,19 @@ NOT_A_REFERENCE = (
 EITHER = "Give `track` or `uri`, not both."
 NOTHING_FOUND = "The referenced step found no track to play; find one first."
 QUEUE_WHAT = "Name what to queue: `track` for a track found earlier, or `uri`."
+OUT_OF_TIME_NOTE = (
+    "Queuing stopped after {done} of {total} so this step could answer before its time ran "
+    "out; {left} left unqueued. Queue those in a new step."
+)
+"""Why a long queue was cut short, and what to do about the rest.
+
+The step's ceiling is one figure for every step alike, and each queue command may wait as
+long as the service takes to confirm it. Running past the ceiling ended the step with a
+timeout and no report, so the model could not tell the person which tracks were queued.
+"""
+NOT_TRIED = "not tried: the step was out of time"
+UNREACHABLE = "music could not be reached"
+NOT_REACHED = f"not tried: {UNREACHABLE}"
 
 
 class MusicInputError(ValueError):
@@ -86,10 +107,12 @@ class MusicPack:
         *,
         audience: str = AUDIENCE,
         client: MusicClient | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
         self._override = client
+        self._clock = clock or time.monotonic
 
     @property
     def docs(self) -> str | Path | None:
@@ -288,22 +311,50 @@ class MusicPack:
         ]
 
     async def _play(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        uris = tuple(uri for uri, _name in _named(run))
         return await _commanded(
-            self._client(run.ctx).play(run.ctx.profile, uris=_uris(run), device_id=_device_id(run))
+            self._client(run.ctx).play(run.ctx.profile, uris=uris, device_id=_device_id(run))
         )
 
     async def _queue(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        uris = _uris(run)
-        if not uris:
+        """Queue each track in turn and answer for every one of them.
+
+        One at a time, in order: each queue answers once it is seen in the queue, and the next
+        must go behind it. The loop stops when the next command, taking as long as the slowest
+        so far, would run past the step's ceiling; the report says what was left.
+        """
+        named = _named(run)
+        if not named:
             raise MusicInputError(QUEUE_WHAT)
         client = self._client(run.ctx)
         device = _device_id(run)
-        answer: dict[str, Any] = {}
-        # One at a time, in order: each queue answers once it is seen in the queue, and the
-        # next must go behind it.
-        for uri in uris:
-            answer = await _commanded(client.queue(run.ctx.profile, uri, device_id=device))
-        return answer
+        budget = run.ctx.within_step(run.ctx.step_seconds)
+        started = self._clock()
+        longest = 0.0
+        seen: NowPlaying | None = None
+        report: list[dict[str, Any]] = []
+        for index, (uri, name) in enumerate(named):
+            if index and self._clock() - started + longest > budget:
+                report.extend(_untried(named[index:], NOT_TRIED))
+                break
+            began = self._clock()
+            try:
+                seen = await client.queue(run.ctx.profile, uri, device_id=device)
+            except UnconfirmedError as unconfirmed:
+                seen = unconfirmed.observed
+                report.append({"track": name, "uri": uri, "queued": True, "confirmed": False})
+            except DownstreamError as refused:
+                report.append(_not_queued(uri, name, refused.detail or str(refused)))
+            except TransportError:
+                report.append(_not_queued(uri, name, UNREACHABLE))
+                report.extend(_untried(named[index + 1 :], NOT_REACHED))
+                break
+            else:
+                report.append({"track": name, "uri": uri, "queued": True})
+            longest = max(longest, self._clock() - began)
+        if seen is None:
+            seen = await client.now_playing(run.ctx.profile)
+        return {**_playing(seen), "queued": report, **_queue_notes(report, len(named))}
 
     async def _pause(self, run: RunContext[PackContext]) -> dict[str, Any]:
         return await _commanded(
@@ -338,8 +389,32 @@ def _playing(state: NowPlaying) -> dict[str, Any]:
     }
 
 
-def _uris(run: RunContext[PackContext]) -> tuple[str, ...]:
-    """The uris a play or queue names: every track the reference resolved to, or the one uri."""
+def _queue_notes(report: list[dict[str, Any]], total: int) -> dict[str, Any]:
+    """What a queue's answer says beyond its per-track report: unconfirmed, or cut short."""
+    unconfirmed = any(item.get("confirmed") is False for item in report)
+    notes = [UNCONFIRMED_NOTE] if unconfirmed else []
+    left = sum(1 for item in report if item.get("reason") == NOT_TRIED)
+    if left:
+        notes.append(OUT_OF_TIME_NOTE.format(done=total - left, total=total, left=left))
+    answer: dict[str, Any] = {}
+    if unconfirmed:
+        answer["confirmed"] = False
+    if notes:
+        answer["note"] = " ".join(notes)
+    return answer
+
+
+def _untried(rest: tuple[tuple[str, str], ...], reason: str) -> list[dict[str, Any]]:
+    return [_not_queued(uri, name, reason) for uri, name in rest]
+
+
+def _not_queued(uri: str, name: str, reason: str) -> dict[str, Any]:
+    return {"track": name, "uri": uri, "queued": False, "reason": reason}
+
+
+def _named(run: RunContext[PackContext]) -> tuple[tuple[str, str], ...]:
+    """The tracks a play or queue names, as (uri, name): every one the reference resolved
+    to, or the one uri, which is its own name."""
     uri = str(run.input.get("uri") or "")
     picked = run.input.get("track")
     if picked is not None and uri:
@@ -347,13 +422,15 @@ def _uris(run: RunContext[PackContext]) -> tuple[str, ...]:
     if uri.startswith("$"):
         raise MusicInputError(NOT_A_REFERENCE.format(uri=uri))
     if picked is None:
-        return (uri,) if uri else ()
-    uris = tuple(
-        str(item.get("uri")) for item in picked.items if isinstance(item, dict) and item.get("uri")
+        return ((uri, uri),) if uri else ()
+    named = tuple(
+        (str(item["uri"]), str(item.get("name") or item["uri"]))
+        for item in picked.items
+        if isinstance(item, dict) and item.get("uri")
     )
-    if not uris:
+    if not named:
         raise MusicInputError(NOTHING_FOUND)
-    return uris
+    return named
 
 
 def _device_id(run: RunContext[PackContext]) -> str:

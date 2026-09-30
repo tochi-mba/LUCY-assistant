@@ -27,6 +27,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   sent the literal text `$found` as a URI. They now take `track`, a reference to
   `music.find`'s result, as the tools guide always showed; a `$` reference given as a `uri`
   is refused with the fix, and the capability page shows find and play in one plan.
+- **A queue of several tracks answers per track, inside the step's ceiling.** The service
+  takes one track per queue command, so a six-track queue is six commands in a row; one
+  refused part way ended the step with that one failure and hid which tracks had been
+  queued, and six slow ones ran past the step's ceiling, so the step timed out and nothing
+  was reported. `music.queue` now says for every track whether it was queued and, if not,
+  why; it stops before the next command would run past the ceiling and says how many were
+  left to queue in a new step. A command accepted but not confirmed is noted as before.
 
 ### Changed
 
