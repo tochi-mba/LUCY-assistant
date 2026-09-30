@@ -47,8 +47,9 @@ curl -sH "Authorization: Bearer $TOKEN" http://127.0.0.1:8090/v1/whoami
 1. Copy this folder beside the meta-repo as `Your-api/` (or create a new GitHub
    repository and push the copy).
 2. Rename the package (`hello_api` → `your_api`), env prefix (`HELLO_` → `YOUR_API_`),
-   audience (`hello` → your audience), and port (pick the next free family port or keep
-   a private one until you join compose).
+   audience (`hello` → your audience), and port. Every number in the family block
+   (8000–8009) is taken or reserved, so keep 8090 or another private one until an ADR gives
+   the service its own ([adding-a-service.md](../../docs/adding-a-service.md#3-join-the-family-desk)).
 3. Append a line to the meta-repo `repos.txt`, re-run bootstrap, and add the repository
    to the family GitHub App installation.
 4. From the meta-repo: `python scripts/parity.py --repo Your-api`.
