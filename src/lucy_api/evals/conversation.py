@@ -2,9 +2,10 @@
 
 Before a turn is sent, the steps its scenario lists under ``before`` are taken in order,
 once the previous turn has come to rest: an operation through the invoke route, exactly as
-a seed or verify step runs, or a pause. The first that does not end as the scenario says
-leaves the turn unsent, because the conversation after it would not be the one written
-down; the turn's record says why.
+a seed or verify step runs; a command on this machine, through the shell the conversation
+was handed (:mod:`lucy_api.evals.host`; with none, every command is refused); or a pause.
+The first that does not end as the scenario says leaves the turn unsent, because the
+conversation after it would not be the one written down; the turn's record says why.
 
 Waiting is polling ``GET /v1/turns/{id}`` -- the route the hub documents for exactly this --
 until the turn comes to rest: finished, parked on a person, or out of time. The event
@@ -36,11 +37,13 @@ from lucy_api.evals.checks import (
     invocation_failures,
 )
 from lucy_api.evals.direct import invoke
+from lucy_api.evals.host import NOT_ALLOWED, REFUSED, failure
 from lucy_api.evals.hub import HubError
 from lucy_api.evals.results import BeforeRecord, TurnRecord
 from lucy_api.evals.scenario import (
     AUTH_REQUIRED,
     FAILED,
+    HOST_STEP,
     IGNORE,
     INPUT_REQUIRED,
     LIFETIMES,
@@ -49,6 +52,7 @@ from lucy_api.evals.scenario import (
     OP_STEP,
     TERMINAL_STATUSES,
     WAIT_STEP,
+    HostCommand,
     Wait,
 )
 from lucy_api.evals.transcript import exchange_for, pending_approvals
@@ -57,6 +61,7 @@ from lucy_api.evals.watch import Watcher
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from lucy_api.evals.host import Shell
     from lucy_api.evals.hub import Hub
     from lucy_api.evals.results import Check, InvocationRecord
     from lucy_api.evals.scenario import BeforeStep, Invocation, TurnSpec
@@ -103,11 +108,19 @@ class Transcript:
 class Conversation:
     """A live session, and the turns this scenario left open in it."""
 
-    def __init__(self, hub: Hub, session: dict[str, Any], *, pace: Pace | None = None) -> None:
+    def __init__(
+        self,
+        hub: Hub,
+        session: dict[str, Any],
+        *,
+        pace: Pace | None = None,
+        shell: Shell | None = None,
+    ) -> None:
         self.hub = hub
         self.session_id = str(session.get("id") or "")
         self.profile = str(session.get("profile") or "")
         self.pace = pace or Pace()
+        self.shell = shell
         self.log = Transcript(hub, self.session_id)
         self.usage: dict[str, Any] = {}
         self._open: set[str] = set()
@@ -237,6 +250,8 @@ class Conversation:
             self.pace.sleep(step.seconds)
             waited = BeforeRecord(kind=WAIT_STEP, step=f"{step.seconds:g}s", status=OK, passed=True)
             return waited, ""
+        if isinstance(step, HostCommand):
+            return self._command(number, step)
         ran = self.invoke(step)
         why = invocation_failures(step, ran, prefix=f"before {number} {step.op}: ")
         record = BeforeRecord(
@@ -249,6 +264,25 @@ class Conversation:
             error=ran.error,
         )
         return record, why
+
+    def _command(self, number: int, step: HostCommand) -> tuple[BeforeRecord, str]:
+        """A command on this machine: it must exit 0 before its timeout."""
+        label = f"before {number} `{step.command}`"
+        if self.shell is None:
+            refused = BeforeRecord(
+                kind=HOST_STEP, step=step.command, status=REFUSED, passed=False, error=NOT_ALLOWED
+            )
+            return refused, f"{label}: {NOT_ALLOWED}"
+        finished = self.shell(step.command, step.timeout_seconds)
+        passed = finished.status == OK
+        record = BeforeRecord(
+            kind=HOST_STEP,
+            step=step.command,
+            status=finished.status,
+            passed=passed,
+            output=finished.output,
+        )
+        return record, "" if passed else f"{label}: {failure(finished, step.timeout_seconds)}"
 
     def _settle(
         self,
@@ -306,9 +340,14 @@ class Conversation:
 
 
 def describe_before(record: BeforeRecord) -> str:
-    """``> workspace.write -> ok``, or ``> waited 5s``: a step the harness took, not the model."""
+    """``> workspace.write -> ok``, ``> $ docker stop x -> ok in 10.4s``, ``> waited 5s``.
+
+    Marked ``>``, because the harness took the step, not the model.
+    """
     if record.kind == WAIT_STEP:
         return f"> waited {record.step}"
+    if record.kind == HOST_STEP:
+        return f"> $ {record.step} -> {record.status} in {record.seconds:.1f}s"
     return f"> {record.step} -> {record.status}"
 
 

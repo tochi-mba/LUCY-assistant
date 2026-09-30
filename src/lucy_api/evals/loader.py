@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 from lucy_api.evals.scenario import (
     APPROVE_VALUES,
     COMPLETED,
+    HOST_STEP,
+    HOST_TIMEOUT,
     IGNORE,
     INPUT_REQUIRED,
     OK,
@@ -42,6 +44,7 @@ from lucy_api.evals.scenario import (
     WAIT_STEP,
     YES,
     Expect,
+    HostCommand,
     Invocation,
     OpMatch,
     Pattern,
@@ -92,8 +95,13 @@ EXPECT_KEYS = (
 RESULT_KEYS = ("matches", "avoids")
 OP_KEY = OP_STEP
 INVOCATION_KEYS = (OP_KEY, "input", "status", "output_matches", "output_avoids")
+TIMEOUT_KEY = "timeout_seconds"
 
-STEP_KEYS = {OP_STEP: INVOCATION_KEYS, WAIT_STEP: (WAIT_STEP,)}
+STEP_KEYS = {
+    OP_STEP: INVOCATION_KEYS,
+    HOST_STEP: (HOST_STEP, TIMEOUT_KEY),
+    WAIT_STEP: (WAIT_STEP,),
+}
 """What each kind of ``before`` step takes. The key that names the kind comes first: a step
 is exactly one kind, and it is the key that says which."""
 
@@ -232,7 +240,22 @@ def _before(table: _Table) -> BeforeStep:
             raise table.error(key, f"not a key of this `{kind}` step, which takes {listed}")
     if kind == WAIT_STEP:
         return Wait(seconds=table.duration(WAIT_STEP))
+    if kind == HOST_STEP:
+        return _command(table)
     return _invocation(table)
+
+
+def _command(table: _Table) -> HostCommand:
+    """One line for the shell. A line break means something different to each shell."""
+    command = table.text(HOST_STEP, required=True)
+    if "\n" in command or "\r" in command:
+        message = (
+            "must be one line: cmd.exe runs only the first and /bin/sh runs every one, "
+            "so join commands with `&&`"
+        )
+        raise table.error(HOST_STEP, message)
+    timeout = table.seconds(TIMEOUT_KEY)
+    return HostCommand(command=command, timeout_seconds=timeout or HOST_TIMEOUT)
 
 
 def _defaults(approve: str) -> Expect:

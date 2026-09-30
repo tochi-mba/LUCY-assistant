@@ -18,7 +18,9 @@ report records every scenario it did not get to as ``error`` rather than droppin
 
 **Nothing of the person's is changed.** Sessions are created with the scenario's own
 permission mode, archived afterwards, and grants the harness needs are scoped to the one
-session they are for (see :mod:`lucy_api.evals.direct`).
+session they are for (see :mod:`lucy_api.evals.direct`). A scenario's ``host`` commands run
+on this machine only through a shell the runner was handed, and ``lucy eval run`` hands it
+one only under ``--allow-host`` (see :mod:`lucy_api.evals.host`).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from lucy_api.evals.results import ERROR, SKIPPED, ScenarioRecord, outcome_for
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from lucy_api.evals.host import Shell
     from lucy_api.evals.hub import Hub
     from lucy_api.evals.results import InvocationRecord, TurnRecord
     from lucy_api.evals.scenario import Scenario
@@ -121,14 +124,24 @@ class Quiet:
 
 
 class Runner:
-    """Holds each job's conversation and records what happened."""
+    """Holds each job's conversation and records what happened.
+
+    ``shell`` runs the scenarios' ``host`` commands. Without one, every command is refused
+    and its scenario is an ``error``: a runner nobody allowed to touch this machine cannot.
+    """
 
     def __init__(
-        self, hub: Hub, *, pace: Pace | None = None, observer: Observer | None = None
+        self,
+        hub: Hub,
+        *,
+        pace: Pace | None = None,
+        observer: Observer | None = None,
+        shell: Shell | None = None,
     ) -> None:
         self._hub = hub
         self._pace = pace or Pace()
         self._observer: Observer = observer or Quiet()
+        self._shell = shell
         self._stopped: HubError | None = None
 
     def run(self, plan: Plan, sink: Callable[[ScenarioRecord], None]) -> HubError | None:
@@ -159,7 +172,7 @@ class Runner:
             session = self._hub.create_session(_session_body(job, plan))
         except HubError as exc:
             return _record(job, ERROR, reason=self._failure(exc, "before a session existed"))
-        conversation = Conversation(self._hub, session, pace=self._pace)
+        conversation = Conversation(self._hub, session, pace=self._pace, shell=self._shell)
         seeds: list[InvocationRecord] = []
         turns: list[TurnRecord] = []
         try:

@@ -50,9 +50,13 @@ LIFETIMES = {YES: "once", NO: "once", YES_SESSION: "session"}
 """The approval lifetime each answer is sent with."""
 
 OP_STEP = "op"
+HOST_STEP = "host"
 WAIT_STEP = "wait_seconds"
 """The kinds of ``before`` step. Each is named by the key that gives it in a scenario file,
 and its record in the report carries the same name."""
+
+HOST_TIMEOUT = 120.0
+"""Seconds a ``host`` command may run before it is stopped, unless its step says otherwise."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,15 +135,29 @@ class Invocation:
 
 
 @dataclass(frozen=True, slots=True)
+class HostCommand:
+    """A command run on this machine, through its shell, between two turns.
+
+    It is how a scenario changes what the hub cannot and should not: a sibling service
+    stopped to see how Lucy copes with the outage, then started again. A scenario file would
+    otherwise be a way to run anything on the operator's machine, so ``lucy eval run``
+    refuses to start a run that has one unless it was given ``--allow-host``.
+    """
+
+    command: str
+    timeout_seconds: float = HOST_TIMEOUT
+
+
+@dataclass(frozen=True, slots=True)
 class Wait:
     """A pause between two turns, for something outside the conversation to settle."""
 
     seconds: float
 
 
-type BeforeStep = Invocation | Wait
+type BeforeStep = Invocation | HostCommand | Wait
 """One thing the harness does after the previous turn comes to rest and before a turn is
-sent: an operation run through the hub, or a pause."""
+sent: an operation run through the hub, a command run on this machine, or a pause."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +198,16 @@ class Scenario:
         """``suite/name``: unique across every suite a run loads."""
         return f"{self.suite}/{self.name}"
 
+    @property
+    def commands(self) -> tuple[tuple[int, HostCommand], ...]:
+        """Every command it runs on this machine, with the number of the turn it comes before."""
+        return tuple(
+            (index, step)
+            for index, turn in enumerate(self.turns, start=1)
+            for step in turn.before
+            if isinstance(step, HostCommand)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Suite:
@@ -195,6 +223,8 @@ __all__ = [
     "AUTH_REQUIRED",
     "COMPLETED",
     "FAILED",
+    "HOST_STEP",
+    "HOST_TIMEOUT",
     "IGNORE",
     "INPUT_REQUIRED",
     "LIFETIMES",
@@ -210,6 +240,7 @@ __all__ = [
     "YES_SESSION",
     "BeforeStep",
     "Expect",
+    "HostCommand",
     "Invocation",
     "OpMatch",
     "Pattern",

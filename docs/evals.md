@@ -66,16 +66,18 @@ not list is a warning, not a refusal.
 | `--compare REPORT` | A previous `report.json`, or its folder. Read before the run, so a typo costs nothing. |
 | `--keep-sessions` | Leave each session as it is instead of archiving it, to read it in a client. |
 | `--allow-remote` | Allow a hub that is not on this machine. |
-| `--dry-run` | Read the hub's version, models and readiness, print the plan, create nothing. |
+| `--allow-host` | Let scenarios run their [`host` steps](#steps-before-a-turn): commands on this machine, through the shell. Without it, a run whose selected scenarios have any refuses to start and names them. |
+| `--dry-run` | Read the hub's version, models and readiness, print the plan -- every `host` command included, with or without `--allow-host` -- and create and run nothing. |
 
 `--json`, `--quiet` and `--no-color` work as on every `lucy` command. Progress goes to
 stderr; stdout carries only the summary (or its JSON), so a pipe gets the answer.
 
 **Exit codes.** `0` every check passed. `1` a check failed, or a scenario could not be held
 (`error`). `2` nothing was run: a bad flag, a scenario file that does not validate, a model
-spec the hub cannot use, a refused token, or a hub that is not on loopback without
-`--allow-remote`. `3` the hub could not be reached -- the same code every `lucy` command
-uses for that. `130` Ctrl-C; the report of everything finished so far is still written.
+spec the hub cannot use, a refused token, a hub that is not on loopback without
+`--allow-remote`, or a scenario with `host` steps without `--allow-host`. `3` the hub could
+not be reached -- the same code every `lucy` command uses for that. `130` Ctrl-C; the
+report of everything finished so far is still written.
 
 `make evals` takes `MODEL` (required), `SUITE`, and `EVAL_ARGS` for anything else:
 
@@ -179,6 +181,10 @@ While a turn runs, stderr shows it as it goes:
   so nothing it writes reaches your notes and nothing you or an earlier run wrote is read back
   as though it were remembered. `--profile` names one to reuse, knowing that it will.
 - **Sessions are archived, not deleted**, so every conversation can be read afterwards.
+- **This machine, only when you say so.** A `host` step runs a command here, as you, with
+  your environment, through the shell. A run whose scenarios have one refuses to start
+  without `--allow-host`, and `--dry-run` lists every command first. Nothing else the
+  harness does touches this machine beyond its own report folder.
 
 ## The default suite
 
@@ -377,25 +383,24 @@ Both fail a `status = "ok"` expectation, with that evidence.
 ### Steps before a turn
 
 Some conversations need something to change between two things the person says: a file
-edited from outside, to see whether a watch Lucy set up notices; a pause for something to
-settle. A turn's `[[turns.before]]` tables are taken in order once the previous turn has come
-to rest -- finished, or parked on an ask it was told to ignore -- and before the turn is
-said. Before the first turn they come after the seeds.
+edited from outside, to see whether a watch Lucy set up notices; a sibling service stopped,
+to see how Lucy copes with the outage, and started again later; a pause for something to
+settle. A turn's `[[turns.before]]` tables are taken in order once the previous turn has
+come to rest -- finished, or parked on an ask it was told to ignore -- and before the turn
+is said. Before the first turn they come after the seeds.
 
 Each step is exactly one kind, named by the key that says what it does:
 
 | Kind | Keys | What it does |
 | --- | --- | --- |
 | `op` | `op`, and the other [operation keys](#operations-seed-and-verify): `input`, `status`, `output_matches`, `output_avoids` | Runs one operation through the invoke route, in the scenario's session, exactly as a seed does. It must end as its keys say: `status = "ok"` unless the step says otherwise. |
+| `host` | `host`: one command line; `timeout_seconds`: default 120 | Runs the command on this machine through the system shell -- `/bin/sh` on Linux and macOS, `cmd.exe` on Windows -- as you, with your environment and nothing on its input. It must exit 0 before its timeout; at the timeout the shell is killed, and anything it started in the background may outlive it. **A run with any refuses to start without `--allow-host`.** |
 | `wait_seconds` | `wait_seconds` alone: a number of seconds, more than zero | Pauses. |
 
 A step with none of those keys, two of them, or a key its kind does not take is refused
-when the file is read, naming the key.
-
-**The first step that does not end as written is the last one taken.** The turn is not
-sent, the turns after it are not sent either, and the scenario is an `error`, as it is when
-a seed fails: the conversation that would follow is not the one written down. The report
-shows that turn as *not sent*, with every step up to the one that stopped it.
+when the file is read, naming the key. So is a `host` command with a line break in it:
+`cmd.exe` runs only the first line and `/bin/sh` runs every one, so join commands with
+`&&`.
 
 ```toml
 [[turns]]
@@ -404,6 +409,10 @@ say = "Anything happen to review.md?"
 [[turns.before]]
 op = "workspace.write"
 input = { path = "review.md", content = "edited from outside\n", mode = "append" }
+
+[[turns.before]]
+host = "docker stop lucy-family-memory-1"
+timeout_seconds = 60
 
 [[turns.before]]
 wait_seconds = 5
@@ -415,10 +424,27 @@ model, and before the turn's own lines:
 ```
     turn 1: completed in 14.2s, 2 round(s), 1 step(s)  ok
       > workspace.write -> ok
+      > $ docker stop lucy-family-memory-1 -> ok in 10.4s
       > waited 5s
       · workspace.read -> ok
     turn 2: completed in 9.1s, 1 round(s), 1 step(s)  ok
 ```
+
+**The first step that does not end as written is the last one taken.** The turn is not
+sent, the turns after it are not sent either, and the scenario is an `error`, as it is when
+a seed fails: the conversation that would follow is not the one written down. For a command,
+the reason is its exit status, or its timeout, and the end of what it printed, on one line:
+
+```
+    ERROR: turn 2 was not sent: before 2 `docker stop lucy-family-memory-1`: exited 1: Error response from daemon: No such container: lucy-family-memory-1
+```
+
+The report shows that turn as *not sent*, with every step up to the one that stopped it.
+
+A command's output and errors are kept together, in the order they were written, and only
+the last 4,000 bytes of them, behind a notice of exactly how many came before: the end is
+where a failure says why. **What a command prints is written into the report**, so a
+command should not print a secret.
 
 A turn's time is its own: the steps before it are timed separately, in the report.
 

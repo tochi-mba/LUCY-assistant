@@ -23,8 +23,10 @@ from lucy_api.evals.loader import (
 )
 from lucy_api.evals.scenario import (
     COMPLETED,
+    HOST_TIMEOUT,
     INPUT_REQUIRED,
     TERMINAL_STATUSES,
+    HostCommand,
     Invocation,
     OpMatch,
     Wait,
@@ -286,10 +288,17 @@ status = "error"
 
 [[turns.before]]
 wait_seconds = 0.5
+
+[[turns.before]]
+host = "docker stop lucy-family-memory-1"
+timeout_seconds = 60
+
+[[turns.before]]
+host = "docker start lucy-family-memory-1"
 """
     ).turns[0]
 
-    write, pause, read, blink = turn.before
+    write, pause, read, blink, stop, start = turn.before
     assert isinstance(write, Invocation)
     assert write.op == "workspace.write"
     assert write.input == {
@@ -303,6 +312,26 @@ wait_seconds = 0.5
     assert isinstance(pause.seconds, float)
     assert read == Invocation(op="workspace.read", input={"path": "gone.md"}, status="error")
     assert blink == Wait(seconds=0.5)
+    assert stop == HostCommand(command="docker stop lucy-family-memory-1", timeout_seconds=60.0)
+    assert start == HostCommand(command="docker start lucy-family-memory-1")
+    assert start.timeout_seconds == HOST_TIMEOUT == 120.0
+
+
+def test_a_scenario_names_every_command_it_would_run_and_the_turn_it_comes_before() -> None:
+    scenario = parse(
+        'summary = "Memory goes down, and comes back."\n'
+        '[[turns]]\nsay = "Remember that I prefer tea."\n'
+        '[[turns]]\nsay = "What do I drink?"\n'
+        '[[turns.before]]\nhost = "docker stop lucy-family-memory-1"\ntimeout_seconds = 60\n'
+        "[[turns.before]]\nwait_seconds = 5\n"
+        '[[turns]]\nsay = "And now?"\n'
+        '[[turns.before]]\nhost = "docker start lucy-family-memory-1"\n'
+    )
+    assert scenario.commands == (
+        (2, HostCommand(command="docker stop lucy-family-memory-1", timeout_seconds=60.0)),
+        (3, HostCommand(command="docker start lucy-family-memory-1")),
+    )
+    assert parse(MINIMAL).commands == ()
 
 
 def test_an_ignored_ask_expects_a_parked_turn_and_no_reply_by_default() -> None:
@@ -475,7 +504,12 @@ STEP = MINIMAL + "[[turns.before]]\n"
     [
         (MINIMAL + "before = 'x'\n", "turns[1].before", "must be written as [[before]] tables"),
         (MINIMAL + "before = [1]\n", "turns[1].before", "must be written as [[before]] tables"),
-        (STEP, "turns[1].before[1]", "say what the step does with one of `op` or `wait_seconds`"),
+        (
+            STEP,
+            "turns[1].before[1]",
+            "say what the step does with one of `op`, `host` or `wait_seconds`",
+        ),
+        (STEP + "timeout_seconds = 60\n", "turns[1].before[1]", "say what the step does"),
         (STEP + "input = { path = 'a.md' }\n", "turns[1].before[1]", "say what the step does"),
         (STEP + "opp = 'workspace.read'\n", "turns[1].before[1].opp", "did you mean `op`?"),
         (
@@ -484,6 +518,52 @@ STEP = MINIMAL + "[[turns.before]]\n"
             "did you mean `wait_seconds`?",
         ),
         (STEP + "pause = 5\n", "turns[1].before[1].pause", "unknown key. This table takes `op`"),
+        (
+            STEP + "host = 'x'\ntimeout = 60\n",
+            "turns[1].before[1].timeout",
+            "did you mean `timeout_seconds`?",
+        ),
+        (
+            STEP + "op = 'workspace.read'\nhost = 'docker stop a'\n",
+            "turns[1].before[1].host",
+            "this step already has `op`",
+        ),
+        (
+            STEP + "host = 'docker stop a'\nwait_seconds = 1\n",
+            "turns[1].before[1].wait_seconds",
+            "this step already has `host`",
+        ),
+        (
+            STEP + "op = 'workspace.read'\ntimeout_seconds = 5\n",
+            "turns[1].before[1].timeout_seconds",
+            "not a key of this `op` step, which takes `op`, `input`, `status`, `output_matches`, "
+            "`output_avoids`",
+        ),
+        (
+            STEP + "host = 'docker stop a'\ninput = { path = 'a.md' }\n",
+            "turns[1].before[1].input",
+            "not a key of this `host` step, which takes `host`, `timeout_seconds`",
+        ),
+        (STEP + "host = ''\n", "turns[1].before[1].host", "must be a non-empty string"),
+        (STEP + "host = '   '\n", "turns[1].before[1].host", "must be a non-empty string"),
+        (STEP + "host = 5\n", "turns[1].before[1].host", "must be a non-empty string"),
+        (
+            STEP + 'host = "docker stop a\\ndocker stop b"\n',
+            "turns[1].before[1].host",
+            "must be one line: cmd.exe runs only the first and /bin/sh runs every one, so join "
+            "commands with `&&`",
+        ),
+        (STEP + 'host = "docker stop a\\r"\n', "turns[1].before[1].host", "must be one line"),
+        (
+            STEP + "host = 'docker stop a'\ntimeout_seconds = 0\n",
+            "turns[1].before[1].timeout_seconds",
+            "more than zero",
+        ),
+        (
+            STEP + "host = 'docker stop a'\ntimeout_seconds = '60'\n",
+            "turns[1].before[1].timeout_seconds",
+            "a number of seconds",
+        ),
         (
             STEP + "op = 'workspace.read'\nwait_seconds = 1\n",
             "turns[1].before[1].wait_seconds",

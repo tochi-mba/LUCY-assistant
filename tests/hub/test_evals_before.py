@@ -1,20 +1,22 @@
 """Steps between turns: what the harness changes after one turn rests and before the next.
 
 An exploratory conversation often needs the world to move between two things the person
-says: a file edited from outside, a pause for something to settle. Each kind of step is held
-here in a whole scenario, through the real runner and `HttpHub`, against `FakeLucy`. So is
-the rule that makes them safe to lean on: a step that does not end as written leaves its
-turn unsent and the scenario an `error`, because the conversation after it would not be the
-one written down. Nothing sleeps: the clock only moves when the harness waits.
+says: a file edited from outside, a sibling service stopped, a pause for something to
+settle. Each kind of step is held here in a whole scenario, through the real runner and
+`HttpHub`, against `FakeLucy` and `FakeShell`. So is the rule that makes them safe to lean
+on: a step that does not end as written leaves its turn unsent and the scenario an `error`,
+because the conversation after it would not be the one written down. Nothing sleeps and no
+process starts: the clock only moves when the harness waits or a fake command takes time.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from eval_fakes import Clock, FakeLucy, Play
+from eval_fakes import Clock, Ends, FakeLucy, FakeShell, Play
 
 from lucy_api.evals.conversation import Conversation, Pace, describe_before
+from lucy_api.evals.host import NOT_ALLOWED
 from lucy_api.evals.loader import parse_scenario
 from lucy_api.evals.results import ERROR, PASSED, BeforeRecord, ScenarioRecord
 from lucy_api.evals.runner import Plan, Runner
@@ -66,10 +68,24 @@ class Watching:
 
 
 class Held:
-    """One scenario held against a fake hub, and what a test wants to look at afterwards."""
+    """One scenario held against a fake hub, and what a test wants to look at afterwards.
 
-    def __init__(self, fake: FakeLucy, text: str) -> None:
+    Its commands end as ``endings`` says, through a fake shell on the same clock. Held with
+    ``allowed=False``, the runner is given no shell at all, as a run without
+    ``--allow-host`` is.
+    """
+
+    def __init__(
+        self,
+        fake: FakeLucy,
+        text: str,
+        *,
+        endings: dict[str, Ends] | None = None,
+        allowed: bool = True,
+    ) -> None:
         self.clock = Clock()
+        self.shell = FakeShell(self.clock)
+        self.shell.endings.update(endings or {})
         self.watching = Watching()
         scenario = parse_scenario(
             text.encode(), name="sample", suite="tests", path="tests/sample.toml"
@@ -78,6 +94,7 @@ class Held:
             fake.hub(),
             pace=Pace(clock=self.clock, sleep=self.clock.sleep),
             observer=self.watching,
+            shell=self.shell if allowed else None,
         )
         records: list[ScenarioRecord] = []
         runner.run(Plan(scenarios=(scenario,), models=(MODEL,)), records.append)
@@ -249,3 +266,104 @@ def test_a_conversation_nobody_is_listening_to_still_takes_its_steps() -> None:
     assert turn.status == "completed"
     assert [(record.kind, record.step) for record in turn.before] == [("wait_seconds", "2s")]
     assert clock.slept == [2.0, 1.0]
+
+
+# --------------------------------------------------------------------------------------
+# Commands on this machine
+# --------------------------------------------------------------------------------------
+
+STOP = "docker stop lucy-family-memory-1"
+START = "docker start lucy-family-memory-1"
+OUTAGE = f"""\
+summary = "Memory goes down between two turns, and comes back before the third."
+
+[[turns]]
+say = "Remember that I prefer tea."
+
+[[turns]]
+say = "What do I drink?"
+
+[[turns.before]]
+host = "{STOP}"
+timeout_seconds = 60
+
+[[turns]]
+say = "And now?"
+
+[[turns.before]]
+host = "{START}"
+"""
+
+
+def test_a_command_runs_on_this_machine_between_two_turns() -> None:
+    fake = FakeLucy()
+    stopped = Ends(output="lucy-family-memory-1\n", seconds=10.4)
+    held = Held(fake, OUTAGE, endings={STOP: stopped})
+
+    record = held.record
+    assert record.outcome == PASSED
+    assert held.shell.ran == [(STOP, 60.0), (START, 120.0)]
+    assert record.turns[1].before == (
+        BeforeRecord(
+            kind="host",
+            step=STOP,
+            status="ok",
+            passed=True,
+            seconds=10.4,
+            output="lucy-family-memory-1\n",
+        ),
+    )
+    assert held.watching.lines == [
+        (2, f"> $ {STOP} -> ok in 10.4s"),
+        (3, f"> $ {START} -> ok in 0.0s"),
+    ]
+    assert record.turns[1].seconds == 1.0, "the turn's own time does not include the command"
+
+
+def test_a_command_that_fails_leaves_its_turn_unsent_with_its_exit_status_and_output() -> None:
+    fake = FakeLucy()
+    said = "Error response from daemon: No such container: lucy-family-memory-1\n"
+    held = Held(fake, OUTAGE, endings={STOP: Ends(exit_code=1, output=said, seconds=0.3)})
+
+    record = held.record
+    why = f"before 1 `{STOP}`: exited 1: {said.strip()}"
+    assert record.outcome == ERROR
+    assert record.reason == f"turn 2 was not sent: {why}; 1 later turn(s) were not sent either"
+    first, second = record.turns
+    assert (first.unsent, second.unsent) == ("", why)
+    assert second.before == (
+        BeforeRecord(
+            kind="host", step=STOP, status="exit 1", passed=False, seconds=0.3, output=said
+        ),
+    )
+    assert held.shell.ran == [(STOP, 60.0)], "the start before turn 3 never ran"
+    assert list(fake.turns) == ["trn_1"]
+    assert held.watching.lines == [(2, f"> $ {STOP} -> exit 1 in 0.3s")]
+
+
+def test_a_command_still_running_at_its_timeout_leaves_its_turn_unsent() -> None:
+    fake = FakeLucy()
+    held = Held(fake, OUTAGE, endings={STOP: Ends(exit_code=None, output="Stopping...\n")})
+
+    record = held.record
+    why = f"before 1 `{STOP}`: timed out after 60s: Stopping..."
+    assert record.outcome == ERROR
+    assert record.turns[1].unsent == why
+    [stop] = record.turns[1].before
+    assert (stop.status, stop.passed, stop.seconds) == ("timed out", False, 60.0)
+    assert held.watching.lines == [(2, f"> $ {STOP} -> timed out in 60.0s")]
+
+
+def test_a_runner_given_no_shell_refuses_every_command() -> None:
+    fake = FakeLucy()
+    held = Held(fake, OUTAGE, allowed=False)
+
+    record = held.record
+    why = f"before 1 `{STOP}`: {NOT_ALLOWED}"
+    assert record.outcome == ERROR
+    assert record.reason == f"turn 2 was not sent: {why}; 1 later turn(s) were not sent either"
+    assert record.turns[1].before == (
+        BeforeRecord(kind="host", step=STOP, status="refused", passed=False, error=NOT_ALLOWED),
+    )
+    assert held.shell.ran == []
+    assert held.watching.lines == [(2, f"> $ {STOP} -> refused in 0.0s")]
