@@ -696,6 +696,7 @@ async def _audit_bypasses(
         catalogue=pack_ctx.catalogue,
         memory_write_policy=pack_ctx.policy.memory_write_policy,
         confirm_outward=pack_ctx.policy.confirm_outward_actions,
+        incognito=pack_ctx.incognito,
     )
     for permission in verdict.auto_bypassed:
         await store.record_audit(

@@ -22,7 +22,7 @@ from lucy_api.context.feeds import FeedRequest
 from lucy_api.context.types import Trust
 from lucy_api.packs.notes import NO_LESSON, NotesPack
 from lucy_api.packs.service import Capabilities, installed_packs
-from lucy_api.permissions.gate import Grant
+from lucy_api.permissions.gate import INCOGNITO, Grant
 from lucy_api.prompt.sections import PromptContext, render_all
 from lucy_api.sessions.scope import SessionScope
 
@@ -166,7 +166,8 @@ async def test_an_incognito_session_keeps_no_lessons(op: str, inputs: dict[str, 
     capabilities, context = _hub(persona, incognito=True)
     result = await _run(capabilities, context, op, **inputs)
 
-    assert result["steps"][0]["data"]["status"] == "incognito"
+    assert result["issues"][0]["code"] == "permission_denied"
+    assert result["issues"][0]["message"] == INCOGNITO
     assert persona.lessons == {}
 
 
