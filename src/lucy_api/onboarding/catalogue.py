@@ -160,7 +160,7 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
         SetupManifest(
             id="music",
             title="Spotify music",
-            base_url=settings.spotify_api_base_url,
+            base_url=settings.music_api_base_url,
             documentation=REPOSITORIES + "Spotify-api#connecting-a-spotify-account",
             instructions=(
                 "Optional: connect music in the browser through Lucy (lucy connect music). "

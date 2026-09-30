@@ -51,7 +51,7 @@ services:
       LUCY_SETTINGS_API_BASE_URL: http://settings:8003
       LUCY_PERSONA_API_BASE_URL: http://persona:8004
       LUCY_WEB_SEARCH_BASE_URL: http://web-search:8006
-      LUCY_SPOTIFY_API_BASE_URL: http://spotify:8007
+      LUCY_MUSIC_API_BASE_URL: http://spotify:8007
       LUCY_ENVIRONMENTS_API_BASE_URL: http://environments:8008
       LUCY_MEMORY_API_BASE_URL: http://memory:8009
       LUCY_LOG_FORMAT: json

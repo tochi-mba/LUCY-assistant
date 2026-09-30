@@ -1,5 +1,9 @@
 """Music, reduced to the seven fields a person would say out loud.
 
+This is the hub's side of the music contract: the HTTP shape Spotify-api, the family's
+implementation, defines, and which any other implementation pointed at with
+`LUCY_MUSIC_API_BASE_URL` has to answer to, for the audience `music-api`.
+
 A Spotify player read is one of the largest documents any sibling returns: a track carries
 its available markets, its external ids, its images in three sizes, its album's artists and
 their own ids, and the whole thing again under `context`. None of that helps a model say
@@ -37,7 +41,7 @@ if TYPE_CHECKING:
 
     from lucy_api.packs.context import Http
 
-SERVICE = "spotify"
+SERVICE = "music"
 AUDIENCE = "music-api"
 
 DEFAULT_RECENT = 10
@@ -148,7 +152,7 @@ class UnconfirmedError(DownstreamError):
         self.observed = observed
 
 
-class SpotifyClient(Protocol):
+class MusicClient(Protocol):
     """The music operations Lucy binds, and nothing that would need a second round trip."""
 
     async def connected(self, profile: str) -> bool:
@@ -188,7 +192,7 @@ class SpotifyClient(Protocol):
         ...
 
 
-class HttpSpotifyClient:
+class HttpMusicClient:
     """The real client. Every method answers with a projection, never with a payload."""
 
     def __init__(self, http: Http, base_url: str, *, audience: str = AUDIENCE) -> None:
@@ -365,7 +369,7 @@ def _found(row: Any) -> Found:
     )
 
 
-class FakeSpotifyClient:
+class FakeMusicClient:
     """An in-memory player, so a music pack's tests need no account and no network.
 
     `is_connected` is a flag rather than a consequence of the seeded data: "the person has
@@ -469,7 +473,7 @@ class FakeSpotifyClient:
 
 if TYPE_CHECKING:
 
-    def _satisfies(real: HttpSpotifyClient, fake: FakeSpotifyClient) -> tuple[SpotifyClient, ...]:
+    def _satisfies(real: HttpMusicClient, fake: FakeMusicClient) -> tuple[MusicClient, ...]:
         """Static proof that both implementations satisfy the seam."""
         return (real, fake)
 
@@ -480,12 +484,12 @@ __all__ = [
     "DEFAULT_RECENT",
     "SERVICE",
     "Device",
-    "FakeSpotifyClient",
+    "FakeMusicClient",
     "Found",
-    "HttpSpotifyClient",
+    "HttpMusicClient",
+    "MusicClient",
     "NowPlaying",
     "Play",
-    "SpotifyClient",
     "Track",
     "UnconfirmedError",
     "Wanted",

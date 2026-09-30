@@ -14,7 +14,7 @@ from lucy_api.clients.live_feeds import (
     UserFeeds,
     WorkspaceFeeds,
 )
-from lucy_api.clients.spotify import Device, FakeSpotifyClient, NowPlaying, Track
+from lucy_api.clients.music import Device, FakeMusicClient, NowPlaying, Track
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 from lucy_api.clients.user import HttpUserClient
 from lucy_api.context.feeds import FeedRequest, Volatility
@@ -111,7 +111,7 @@ async def test_long_persona_values_name_the_omission_and_keep_a_reference() -> N
 
 
 async def test_music_feed_reports_only_loaded_track_and_active_device() -> None:
-    client = FakeSpotifyClient()
+    client = FakeMusicClient()
     client.state = NowPlaying(
         track=Track(
             name="Prelude", artists=("Debussy",), uri="spotify:track:1", duration_ms=180_000
@@ -137,7 +137,7 @@ async def test_music_feed_reports_only_loaded_track_and_active_device() -> None:
 
 
 async def test_music_feed_publishes_shuffle_and_repeat_when_the_player_reports_them() -> None:
-    client = FakeSpotifyClient()
+    client = FakeMusicClient()
     client.state = NowPlaying(
         track=Track(
             name="Prelude", artists=("Debussy",), uri="spotify:track:1", duration_ms=60_000
@@ -153,7 +153,7 @@ async def test_music_feed_publishes_shuffle_and_repeat_when_the_player_reports_t
 
 
 async def test_empty_player_and_no_active_device_publish_nothing() -> None:
-    client = FakeSpotifyClient()
+    client = FakeMusicClient()
     client.seed(devices=(Device("d1", "Kitchen"),))
     assert await MusicFeeds(client).fetch(REQUEST) == ()
 

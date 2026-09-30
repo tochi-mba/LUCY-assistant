@@ -16,10 +16,10 @@ from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.spotify import (
+from lucy_api.clients.music import (
     AUDIENCE,
     DEFAULT_RECENT,
-    HttpSpotifyClient,
+    HttpMusicClient,
     UnconfirmedError,
     Wanted,
 )
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
     from weftai.operation import AnyOperation, RunContext
 
-    from lucy_api.clients.spotify import NowPlaying, SpotifyClient, Track
+    from lucy_api.clients.music import MusicClient, NowPlaying, Track
     from lucy_api.packs.context import PackContext
 
 UNCONFIRMED_NOTE = (
@@ -63,7 +63,7 @@ class MusicPack:
         base_url: str,
         *,
         audience: str = AUDIENCE,
-        client: SpotifyClient | None = None,
+        client: MusicClient | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
@@ -209,8 +209,8 @@ class MusicPack:
             ),
         )
 
-    def _client(self, context: PackContext) -> SpotifyClient:
-        return self._override or HttpSpotifyClient(
+    def _client(self, context: PackContext) -> MusicClient:
+        return self._override or HttpMusicClient(
             context.http, self.base_url, audience=self.audience
         )
 

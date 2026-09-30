@@ -16,8 +16,8 @@ from lucy_api.auth.verifier import VerifiedCaller
 from lucy_api.clients.environments import FakeEnvironmentsClient
 from lucy_api.clients.errors import DownstreamError, NotConnectedError, UnavailableError
 from lucy_api.clients.keyring import DelegatedKeyringClient
+from lucy_api.clients.music import FakeMusicClient, HttpMusicClient, Play, Track, Wanted
 from lucy_api.clients.search import FakeSearchClient, Findings, Hit, Provider
-from lucy_api.clients.spotify import FakeSpotifyClient, HttpSpotifyClient, Play, Track, Wanted
 from lucy_api.clients.testing import Answer, FakeHttp
 from lucy_api.context.feeds import MAX_ENTRIES, claims_from, parse_document
 from lucy_api.core.container import PackRequest, _feed_flags, build_container
@@ -176,7 +176,7 @@ async def test_research_search_surfaces_a_provider_notice() -> None:
 
 
 async def test_music_recent_plays_are_projected() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     track = Track(name="Clair de lune", artists=("Debussy",), uri="spotify:track:1")
     fake.seed(plays=(Play(track, played_at=datetime(2026, 1, 1, tzinfo=UTC)),))
     capabilities = Capabilities((HelpPack(), MusicPack("http://music.test", client=fake)))
@@ -199,7 +199,7 @@ async def test_http_music_lookups_omit_optional_fields_when_they_were_not_asked(
         Answer(body={"results": [{"index": 0, "status": "found", "track": {"name": "A"}}]}),
         Answer(body={"item": {"name": "A"}, "is_playing": True}),
     )
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
     await client.find([Wanted(name="A")], profile="work")
     await client.queue("work", "spotify:track:1")
     assert "market" not in (http.calls[0].json or {})

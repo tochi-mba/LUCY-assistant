@@ -52,7 +52,7 @@ from lucy_api.clients.live_feeds import (
 )
 from lucy_api.clients.memory import AUDIENCE as MEMORY_AUDIENCE
 from lucy_api.clients.memory import HttpMemoryClient
-from lucy_api.clients.spotify import HttpSpotifyClient
+from lucy_api.clients.music import HttpMusicClient
 from lucy_api.clients.user import HttpUserClient
 from lucy_api.connections.tickets import ConnectionTickets
 from lucy_api.context.build import Live
@@ -543,7 +543,7 @@ class Container:
         feeds: list[FeedSource] = [
             PersonaFeeds(pack_context.http, self.settings.persona_api_base_url),
             UserFeeds(HttpUserClient(pack_context.http, self.settings.user_api_base_url)),
-            MusicFeeds(HttpSpotifyClient(pack_context.http, self.settings.spotify_api_base_url)),
+            MusicFeeds(HttpMusicClient(pack_context.http, self.settings.music_api_base_url)),
             ResearchFeeds(str(pack_context.defaults.get("research.backend") or "")),
         ]
         environment_id = str(session.get("workspace_environment_id") or "")
@@ -787,7 +787,7 @@ def build_container(
             *installed_packs(
                 memory_base_url=settings.memory_api_base_url,
                 user_base_url=settings.user_api_base_url,
-                spotify_base_url=settings.spotify_api_base_url,
+                music_base_url=settings.music_api_base_url,
                 search_base_url=settings.web_search_base_url,
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,
