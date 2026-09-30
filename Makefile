@@ -1,5 +1,5 @@
 .PHONY: help install fmt lint type imports test cov check run docker clean \
-        parity github-ci images up down matrix evals
+        parity lock lock-check github-ci images up down matrix evals
 .DEFAULT_GOAL := help
 
 UV ?= uv
@@ -14,7 +14,7 @@ help: ## Show available targets
 	@echo "  test       Run the suite with 100% branch coverage enforced"
 	@echo "  cov        Write an HTML coverage report to htmlcov/"
 	@echo "  check      Everything CI runs: lint type imports test"
-	@echo "  matrix     Optional tests on Python 3.12 and 3.13"
+	@echo "  matrix     Optional: the tests on 3.12 and 3.13, the two CI gates"
 	@echo "  evals      Hold the regression conversations: make evals MODEL=clyde:haiku"
 	@echo "             Optional: SUITE=default|path  EVAL_ARGS='--repeat 3 --dry-run'"
 	@echo "  run        Serve the hub on :8000 with reload"
@@ -66,7 +66,7 @@ cov: ## Write an HTML coverage report to htmlcov/
 
 check: lint type imports test ## Everything CI runs, on one interpreter
 
-matrix: ## Optional tests on both supported interpreters (CI gates 3.12)
+matrix: ## Optional: the tests on both interpreters CI gates (3.12 and 3.13)
 	$(UV) run --python 3.12 python -P -m pytest -q
 	$(UV) run --python 3.13 python -P -m pytest -q
 
