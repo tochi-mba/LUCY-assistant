@@ -477,3 +477,85 @@ def test_docker_secret_accepts_json_run_with_other_flags(tmp_path: Path) -> None
         ),
     )
     assert outcome_for(root, "docker-secret").status == parity.PASS
+
+
+# --- private-names: every spelling of a private service ------------------------------------
+
+PRIVATE_MANIFEST = "Secret-Tool https://example.invalid" + NL
+
+
+def mention(root: Path, text: str) -> None:
+    write_text(root / "src/demo/core/config.py", GOLDEN_CONFIG + NL + f"EXAMPLE = {text!r}" + NL)
+
+
+def private_checkout(parent: Path, pyproject: str, *, nested: bool = False) -> None:
+    home = parent / parity.PRIVATE_DIR / "Secret-Tool" if nested else parent / "Secret-Tool"
+    write_text(home / "pyproject.toml", pyproject)
+
+
+@pytest.mark.parametrize("written", ["secret tool", "SECRETTOOL", "Secret_Tool", "secret-tool"])
+def test_a_private_name_is_caught_however_it_is_joined(tmp_path: Path, written: str) -> None:
+    """The bug, named: only ``-`` and ``_`` were treated alike, so the same name written with
+    a space, or with nothing between its words, went through."""
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    mention(root, f"see {written} for this")
+    result = outcome_for(root, "private-names")
+    assert result.status == parity.FAIL
+    assert result.detail == "src/demo/core/config.py names Secret-Tool"
+
+
+@pytest.mark.parametrize("written", ["secret_toolkit", "topsecret-tool", "Secret-Tools"])
+def test_a_private_name_inside_a_longer_word_is_not_a_mention(tmp_path: Path, written: str) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    mention(root, written)
+    assert outcome_for(root, "private-names").status == parity.PASS
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_a_spelling_the_private_repository_declares_is_caught(
+    tmp_path: Path, *, nested: bool
+) -> None:
+    """The bug, named: a public test used a private music service's URI scheme, which is not
+    its repository's name, so nothing could catch it. The private repository lists the other
+    names it goes by in its own pyproject.toml, which no public file repeats; the report
+    names only the repository."""
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    private_checkout(tmp_path, '[tool.lucy]\nalso-known-as = ["hush box"]\n', nested=nested)
+    mention(root, "hushbox:track:1")
+    result = outcome_for(root, "private-names")
+    assert result.status == parity.FAIL
+    assert result.detail == "src/demo/core/config.py names Secret-Tool"
+    assert "hush" not in result.detail
+
+
+def test_a_private_checkout_that_declares_nothing_adds_nothing(tmp_path: Path) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    private_checkout(tmp_path, '[project]\nname = "secret-tool"\n')
+    mention(root, "hushbox:track:1")
+    assert outcome_for(root, "private-names").status == parity.PASS
+
+
+@pytest.mark.parametrize("declared", ['"hushbox"', '["hushbox", 3]', '[""]'])
+def test_other_names_that_are_not_a_list_of_names_fail_saying_so(
+    tmp_path: Path, declared: str
+) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    private_checkout(tmp_path, f"[tool.lucy]\nalso-known-as = {declared}\n")
+    result = outcome_for(root, "private-names")
+    assert result.status == parity.FAIL
+    assert result.detail == (
+        "Secret-Tool's pyproject.toml: tool.lucy.also-known-as must be a list of names"
+    )
+
+
+def test_a_file_that_names_a_private_service_twice_is_reported_once(tmp_path: Path) -> None:
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    private_checkout(tmp_path, '[tool.lucy]\nalso-known-as = ["hushbox"]\n')
+    mention(root, "Secret-Tool, also hushbox")
+    assert outcome_for(root, "private-names").detail == "src/demo/core/config.py names Secret-Tool"
