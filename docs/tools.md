@@ -145,16 +145,20 @@ refused rather than resolved (see [References](#references)).
 ```json
 {"steps": [
   {"id": "left", "op": "agents.spawn",
-   "input": {"role": "reviewer",
+   "input": {"role": "reviewer", "group": "reviewers",
              "objective": "Read the left branch and say whether it is ready to merge."},
    "note": "Review the left branch in a clean context"},
 
   {"id": "right", "op": "agents.spawn",
-   "input": {"role": "reviewer",
+   "input": {"role": "reviewer", "group": "reviewers",
              "objective": "Read the right branch and say whether it is ready to merge."},
    "note": "Review the right branch in a clean context"}
 ]}
 ```
+
+`group` is optional. Helpers started under one group name are a team: when the last of them
+ends, one notice names each and how it ended, `work.check` lists the group under `groups`,
+and an idle session is woken once for the group rather than once a helper.
 
 A later turn can continue a finished helper without copying the whole brief, by the handle
 its spawn returned:
@@ -179,7 +183,10 @@ before its next round, never mid-tool; `agents.read` shows what it has done so f
 
 A helper cannot spawn another helper past the configured depth (default three), cannot
 write, and cannot raise its own permission mode. Those are refusals in the tool result,
-not crashes. `lucy.agent_max_concurrent` caps how many may run at once.
+not crashes. `lucy.agent_max_concurrent` caps how many may run at once; a spawn past it
+comes back `state: "queued"` with its handle and starts on its own as helpers end, and only a
+spawn past a queue as long again is refused. In ask mode, the helpers one plan starts are one
+approval card.
 
 ### A long command, without holding the turn open
 

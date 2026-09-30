@@ -145,8 +145,35 @@ Build the clean-context verifier first. It needs almost no infrastructure and it
 cheapest quality win available: a second model that has not seen the reasoning is far better
 at spotting that the reasoning was wrong.
 
-The lead's prompt carries an explicit rubric — one helper and a handful of calls for a
-lookup, two to four for a comparison — because without one, leads over-delegate.
+The lead's prompt carries an explicit rubric — one helper for a lookup, a few for a
+comparison, more only when the work has that many separate parts — because without one,
+leads over-delegate.
+
+## A team
+
+A team is several helpers started in one plan, in groups that each do a different thing:
+two researchers on the gaps in a draft, three reviewers each reading it through one lens,
+then skeptics that each try to refute one finding. `agents.spawn` takes an optional
+`group` ("researchers"); the live block, `agents.list`, `work.check`, the `/agents` route
+and the roster all show it.
+
+A member of a group wakes nothing on its own ending. When the last member of a group ends
+-- finished, failed or cancelled -- the group ends once: a `lucy.work.group.finished` event
+naming each member and how it ended, an entry under `groups` in `work.check`, and, if the
+session is idle, one wake whose harness line names every member. Five reviewers are one
+piece of news, and five wakes opened turns that each knew a fifth of it. The per-member
+endings still arrive as `work.check` notices and live-block lines, because each member's
+result is still read by its own id. A group name used again after its group ended starts
+a new team. Helpers without a group behave exactly as before.
+
+In ask mode, the helpers one plan starts are one approval card (see
+[the approvals section of the API page](api.md)), so a team is one question for the person.
+Plan mode still refuses helpers.
+
+The recipe -- briefs for each role, return shapes for facts, findings and verdicts, staging
+inside the cap, waiting on the group notice rather than polling, folding in only what
+survives -- is the `helper-team` skill, read with `help.skill`. The always-on section says
+only enough for Lucy to know it is there.
 
 ## Caps, and how they are enforced
 
@@ -157,6 +184,25 @@ Depth three (`lucy.agent_max_depth`). Five children at once by default, twenty a
 Every cap is surfaced **to the model as a tool result** rather than raised as an error, so
 it adapts instead of crashing: "you are at the depth limit, do this inline" is something a
 model can act on.
+
+The concurrency cap **queues** rather than refuses. A spawn past it returns its handle at
+once with `state: "queued"`; the helper waits in the order it was started and begins on its
+own when one of this conversation's helpers ends, never more running at once than the cap.
+Its wall clock starts when it starts, not when it was queued, and nothing of it -- not its
+brief item, not its model call -- exists before then. The queue holds as many as the cap
+(five and five by default), and only a spawn past that is refused, as a tool result naming
+both numbers. A queued helper is in flight: `agents.list`, `work.list`, the live block and
+`GET /v1/sessions/{id}/agents` show it as queued, it takes mail (read before its first
+round), and `work.cancel` takes it out of the queue, recorded like a helper cancelled
+mid-run. So a team larger than the cap is started in one plan and staged by the hub, not by
+a model counting free slots.
+
+A restart stops a queued helper the way it stops a running one: its roster row is marked
+interrupted by the restart and its conversation is told, once, that it stopped before it
+started, continuable with `agents.reopen`. It is not started again by the new process,
+because the queue was process memory like the helper's own loop, starting it would run a
+model for a turn that has ended without that turn's authority, and a restart that started
+every conversation's queue at once is the stampede `record_lost` exists to avoid.
 
 Start fan-out at three to five. Three focused helpers routinely outperform five scattered
 ones, and every one of them is spending somebody's money at the same time.
@@ -240,16 +286,17 @@ block, and if it did not read the result by the time it finished, the held wake 
 then. A result the turn already fetched is never announced twice. A helper's own helpers do
 not wake anything; their parent is still running and is the one that will read them.
 
-Every ending is a `lucy.work.finished` event. A wake is `lucy.work.woke`.
+Every ending is a `lucy.work.finished` event. A wake is `lucy.work.woke`. The end of a
+group is `lucy.work.group.finished`, and the group, not its members, wakes the session.
 
 ### Where that lives
 
 | | |
 | --- | --- |
 | `work/types.py` | the nouns: `Brief`, `Handle`, `Notice`, `Result`, `Record`, and the states |
-| `work/registry.py` | the verbs: start, check in, fetch, wait, cancel, reap; listeners per ending |
+| `work/registry.py` | the verbs: start, queue behind a cap, check in, fetch, wait, cancel, reap; listeners per ending and per group |
 | `work/watch.py` | the loop behind a watch: interval, tolerance, bounded excerpt |
-| `work/wake.py` | the waker: an event per ending, a turn per wake, a hold while a turn runs |
+| `work/wake.py` | the waker: an event per ending and per group, a turn per wake, a hold while a turn runs |
 | `packs/work.py` | the same five verbs as operations the model can call |
 | `packs/watch.py` | `watch.start` and `watch.command`, and the four kinds of check |
 
@@ -287,8 +334,8 @@ that no capability claimed, and there would be nowhere to look up what it was al
 | `packs/agents.py` | `agents.spawn`, `agents.reopen`, `agents.list`, `agents.read`, `agents.message`, `journal.read`, `journal.claim`, `journal.complete` |
 
 Spawn is refused with a sentence when the brief is empty, the depth cap is hit, the
-runtime is missing, or the session is already at capacity. A helper is not offered spawn
-or reopen.
+runtime is missing, or the queue behind the concurrency cap is full; at the cap itself it is
+queued. A helper is not offered spawn or reopen.
 
 Mail is hop-counted (a fifth hop is refused), burst-capped at five unread messages by
 default (`lucy.agent_message_burst`), size-capped at four thousand characters

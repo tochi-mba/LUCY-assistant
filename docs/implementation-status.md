@@ -113,8 +113,9 @@ machine is listed as in progress, however finished it looks.
   reuse that environment and directory instead of consuming the five-environment profile
   quota.
 - **M7 approvals and audit.** A gated write parks the turn, survives restart, and resumes
-  through `input.approval`. Several writes in one plan become several asks; a subset
-  answer leaves the rest pending. `POST /v1/tools/{name}/invoke` is the no-token path
+  through `input.approval`. A plan's writes under one permission are one card that counts
+  them and is answered once, for exactly those calls; writes under different permissions
+  are different cards, and answering one leaves the rest pending. `POST /v1/tools/{name}/invoke` is the no-token path
   with the same gate. Grants, refusals, asks, revokes and auto-mode bypasses are
   append-only audit rows.
 - **M6 child helpers.** `agents.spawn` starts a real child run of the same loop: a durable
@@ -144,6 +145,16 @@ machine is listed as in progress, however finished it looks.
   carries a hop counter, a burst cap, a size cap and dedupe of identical unread steers.
   A caller may declare a JSON Schema; the helper is told to return that object, and a
   miss is named rather than parsed as prose.
+- **Helper teams.** A spawn past `agent_max_concurrent` is queued with its handle and
+  starts on its own, in order, as this conversation's helpers end; its wall clock starts
+  when it starts, the queue holds as many as the cap, and only past that is a spawn
+  refused. A queued helper shows as queued in `agents.list`, the live block and `/agents`,
+  takes mail, is cancelled by `work.cancel`, and is stopped by a restart as continuable.
+  `agents.spawn` takes an optional `group`; a group's last ending is one
+  `lucy.work.group.finished` event, one `work.check` entry and at most one wake. In ask
+  mode the helpers one plan starts are one approval card. The recipe for researchers,
+  reviewers and skeptics is the `helper-team` skill. Documented in
+  [docs/agents.md](agents.md).
 - **Remaining session HTTP.** `GET /v1/sessions/{id}/memory` returns the trusted topic
   index (empty when incognito, a notice when Memory-api is down). Workspace GET/POST/reset
   expose the confined directory without a host path. Durable helpers are

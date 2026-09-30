@@ -91,6 +91,33 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A team of helpers runs at once, groups doing different things.** A spawn past
+  `lucy.agent_max_concurrent` used to be refused with `at_capacity`, so a plan starting two
+  researchers and three reviewers and then skeptics left the model counting free slots. It
+  is now queued: the handle comes back at once with `state: "queued"`, the helper starts on
+  its own in the order it was queued when one of the conversation's helpers ends, never past
+  the cap, and its wall clock starts when it starts. The queue holds as many as the cap; only
+  past that is a spawn refused. A queued helper is shown as queued by `agents.list`, the live
+  block and `GET /v1/sessions/{id}/agents`, takes mail, is cancelled by `work.cancel`, and a
+  restart stops it as continuable, "before it started". `agents.spawn` takes an optional
+  `group`: when a group's last member ends, the parent gets one `lucy.work.group.finished`
+  event, one `groups` entry in `work.check` and at most one wake, naming each member and how
+  it ended; members no longer wake the session one by one. See [docs/agents.md](docs/agents.md).
+- **A plan's calls under one permission are one approval card.** In ask mode a plan that
+  started five helpers put five cards in front of the person. The calls a plan parks under
+  one permission are now one card that names the permission once, counts the calls by role
+  where the permission says how ("Start a helper, 5 calls in this plan: researcher x2,
+  reviewer x3") and lists each call under `steps`. A one-time yes approves exactly those
+  calls, each by its own arguments, and replays each with the steps it reads from; nothing in
+  a later plan. Different permissions stay different cards. See [docs/api.md](docs/api.md).
+- **Lucy knows how to run a review team.** The always-on helpers section sizes a team to the
+  job rather than saying "start with one or two", and says in a few lines how a team works:
+  distinct briefs per group, reviewers with one lens each who do not see each other's
+  findings, a skeptic per finding briefed to refute it, only what survives folded in. The
+  full recipe -- briefs, return shapes for facts, findings and verdicts, staging inside the
+  cap, waiting on the group notice, folding -- is the `helper-team` skill, read with
+  `help.skill`.
+
 - **An eval scenario can change things between turns.** Exploratory conversations, held
   with `lucy eval run --suite <folder>`, often need the world to move between two things
   the person says. A turn's `[[turns.before]]` steps run once the previous turn has come to

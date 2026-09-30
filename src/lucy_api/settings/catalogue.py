@@ -460,7 +460,7 @@ def _core() -> tuple[Knob, ...]:
             "agent_max_concurrent",
             5,
             "How many child agents may run at once.",
-            "Each child is a full context window.",
+            "Each child is a full context window. More wait in a queue as long again.",
             minimum=1,
             maximum=20,
             unavailable=OnUnavailable.USE_DEFAULT,
