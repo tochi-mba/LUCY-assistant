@@ -6,9 +6,12 @@ reads, and what a script can depend on — the exit code, the stream, and the JS
 
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
+import re
+import shlex
 
 import httpx
 import pytest
@@ -17,6 +20,7 @@ from lucy_api import __version__
 from lucy_api.cli import main as cli_main
 from lucy_api.cli.base import (
     DEFAULT_URL,
+    INTERRUPTED,
     OK,
     REFUSED,
     TOKEN_VAR,
@@ -29,7 +33,7 @@ from lucy_api.cli.base import (
     resolve_url,
     wants_colour,
 )
-from lucy_api.cli.main import build_parser
+from lucy_api.cli.main import EPILOG, build_parser
 
 
 @pytest.fixture(autouse=True)
@@ -278,6 +282,32 @@ def test_an_address_without_a_scheme_is_refused_before_the_socket(bad) -> None:
 def test_the_token_never_appears_in_the_help_or_in_a_flag() -> None:
     text = build_parser().format_help()
     assert "--token" not in text
+
+
+def test_the_help_examples_are_commands_the_parser_takes_and_name_every_one() -> None:
+    """The bug, named: `lucy --help` showed no `config`, `version` or `logs`, and no 130.
+
+    Every example must parse, every subcommand must have one, and the exit codes listed
+    must be the ones the client returns.
+    """
+    parser = build_parser()
+    (commands,) = (
+        action.choices
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    examples = EPILOG.split("\n\n")[0].splitlines()[1:]
+    shown: set[str] = set()
+    for line in examples:
+        words = shlex.split(re.split(r"\s{2,}", line.strip())[0])
+        argv = words[words.index("lucy") + 1 :]
+        parser.parse_args(argv)
+        shown.add(argv[0])
+    assert shown == set(commands)
+
+    exits = EPILOG.split("exit codes:")[1].split("\n\n")[0]
+    listed = {int(code) for code in re.findall(r"(\d+) [a-z]", exits)}
+    assert listed == {OK, REFUSED, USAGE, UNREACHABLE, INTERRUPTED}
 
 
 def test_a_token_is_sent_as_a_bearer_header_and_an_absent_one_is_not() -> None:

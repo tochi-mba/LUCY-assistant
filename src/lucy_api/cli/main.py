@@ -65,10 +65,12 @@ if TYPE_CHECKING:
 EPILOG = f"""\
 examples:
   lucy setup                     first run: choose how Lucy runs, and sign in
-  lucy setup --mode family       bootstrap the family and install the CI GitHub App
+  lucy setup --mode family       family mode: installs the CI GitHub App, then says what to run
   lucy status                    is the hub alive, ready, and who am I
   lucy status --json             the same, for a script
   lucy doctor                    why isn't this working
+  lucy config                    what is configured, and from where
+  lucy version                   the client's version, and the hub's
   lucy connect music             set up one capability, or change it later
   lucy models                    every model provider: ready, configured, or how to set it up
   lucy models connect groq       save a provider key; the key is prompted, never a flag
@@ -76,6 +78,7 @@ examples:
   lucy talk                      type interactively, or pipe a message
   lucy eval run --model clyde:haiku   hold the regression conversations (docs/evals.md)
   lucy serve                     run the hub here, in the foreground
+  lucy logs --session ID         the hub's log lines about one conversation
   LUCY_URL=http://box:8000 lucy status    ask a hub somewhere else
 
 environment:
@@ -86,7 +89,7 @@ environment:
   NO_COLOR     set to anything to turn colour off
 
 exit codes:
-  0 it worked   1 the answer was no   2 bad command   3 hub unreachable
+  0 it worked   1 the answer was no   2 bad command   3 hub unreachable   130 interrupted
 
 docs: {DOCS}
 """
