@@ -261,6 +261,8 @@ class Capabilities:
                         "arguments": item.arguments,
                         "description": item.description,
                         "step": item.step,
+                        "title": item.title,
+                        "label": item.label,
                     }
                     for item in verdict.blocked
                 ],

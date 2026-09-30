@@ -4,6 +4,13 @@ The gate decides that a write may not run yet. This module is the other half: a 
 approval row, an item a client can show, and the one input event that unblocks the turn.
 The client's `approved: true` is an input, not an authorization — the grant is recorded
 here, and the next claim of the turn re-runs the gate against it.
+
+One card per permission per plan. A plan that starts five helpers used to put five cards in
+front of the person, each asking the same question about one call. The calls a plan parks
+under one permission are now one card that names the permission once and lists every call
+(`cards`). Answered "yes, once", it approves exactly those calls, each by its own arguments,
+and each replays with the steps it reads from; nothing else, and no later plan. Different
+permissions stay different cards, because they are different questions.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 from lucy_api.core.errors import absent, conflict
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant
 from lucy_api.permissions.replay import needs as needs_of_plan
-from lucy_api.permissions.store import SESSION_PROFILE_PREFIX
+from lucy_api.permissions.store import SESSION_PROFILE_PREFIX, calls_of
 from lucy_api.sessions.sql_store import (
     IdempotentWrite,
     NewItem,
@@ -48,6 +55,16 @@ NOT_WAITING = "This approval is not waiting on an answer."
 
 
 @dataclass(frozen=True, slots=True)
+class AskedCall:
+    """One call on a card that asks about several of one permission."""
+
+    operation: str
+    arguments: dict[str, Any]
+    description: str = ""
+    needs: Needs | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Ask:
     """What the model wanted to do, named so a person can answer it."""
 
@@ -61,6 +78,9 @@ class Ask:
     needs: Needs | None = None
     """What the call needs from its plan to run as planned (:mod:`.replay`); none recorded
     for an ask that came without a plan step."""
+    calls: tuple[AskedCall, ...] = ()
+    """Every call this card covers, when it covers more than one; each is approved, recorded
+    and replayed by its own arguments. Empty for the card that asks about one call."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +124,7 @@ async def open_approval(
                         "permission": ask.permission,
                         "arguments": ask.arguments,
                         **_needs_payload(ask.needs),
+                        **_calls_payload(ask.calls),
                     }
                 ),
                 PENDING,
@@ -125,6 +146,17 @@ async def open_approval(
             "is_automatic": False,
             "permission": ask.permission,
         }
+        if ask.calls:
+            body["count"] = len(ask.calls)
+            body["steps"] = [
+                {
+                    "step": call.needs.step if call.needs is not None else "",
+                    "operation": call.operation,
+                    "arguments": call.arguments,
+                    "description": call.description,
+                }
+                for call in ask.calls
+            ]
         item_row(db, session_id, NewItem("approval_request", "assistant", body, turn=turn_id))
         event_row(db, session_id, APPROVAL_REQUESTED, body, turn_id)
         event_row(db, session_id, "lucy.turn.input_required", {"approval_id": approval_id}, turn_id)
@@ -352,14 +384,14 @@ async def approved_calls(store: SessionStore, turn_id: str) -> tuple[ApprovedCal
         found: list[ApprovedCall] = []
         for row in rows:
             payload = _payload(row["input_json"])
-            arguments = payload.get("arguments")
-            found.append(
+            found.extend(
                 ApprovedCall(
                     approval_id=str(row["id"]),
-                    operation=str(row["operation"]),
-                    arguments=arguments if isinstance(arguments, dict) else {},
-                    **_needs_of(payload),
+                    operation=operation,
+                    arguments=arguments,
+                    **_needs_of(each),
                 )
+                for operation, arguments, each in calls_of(str(row["operation"]), payload)
             )
         return tuple(found)
 
@@ -399,21 +431,28 @@ async def reopen(
     from that plan, and which of those steps were parked beside it, so it is replayed
     together with whatever the person answers next -- or held, if they refuse.
     """
-    rewritten = [
-        (
-            _needs_payload(needs_of_plan(plan, call.step, parked=parked)),
-            call.approval_id,
-        )
+    rewritten = {
+        (call.approval_id, call.step): _needs_payload(needs_of_plan(plan, call.step, parked=parked))
         for call in calls
-    ]
+    }
+    rows = tuple(dict.fromkeys(call.approval_id for call in calls))
 
     def write(db: sqlite3.Connection) -> None:
-        for fields, approval_id in rewritten:
+        for approval_id in rows:
             row = db.execute(
                 "SELECT input_json FROM approvals WHERE id=?", (approval_id,)
             ).fetchone()
             payload = _payload(row["input_json"]) if row is not None else {}
-            payload.update(fields)
+            entries = payload.get("calls")
+            if isinstance(entries, list):
+                # A card of several calls: each is recorded again by its own step.
+                for entry in entries:
+                    step = str(entry.get("step") or "") if isinstance(entry, dict) else ""
+                    if (approval_id, step) in rewritten:
+                        entry.update(rewritten[(approval_id, step)])
+            else:
+                step = str(payload.get("step") or "")
+                payload.update(rewritten.get((approval_id, step), {}))
             db.execute(
                 "UPDATE approvals SET executed_at=NULL, input_json=? WHERE id=?",
                 (json.dumps(payload), approval_id),
@@ -432,6 +471,47 @@ def _needs_payload(needs: Needs | None) -> dict[str, Any]:
         "gated": list(needs.gated),
         "plan": needs.plan,
     }
+
+
+def _calls_payload(calls: Sequence[AskedCall]) -> dict[str, Any]:
+    """The stored calls of a card that covers several, or nothing for a card of one."""
+    if not calls:
+        return {}
+    return {
+        "calls": [
+            {
+                "operation": call.operation,
+                "arguments": call.arguments,
+                "description": call.description,
+                **_needs_payload(call.needs),
+            }
+            for call in calls
+        ]
+    }
+
+
+def cards(asks: Sequence[Mapping[str, Any]]) -> tuple[tuple[Mapping[str, Any], ...], ...]:
+    """The asks of one parked plan, one card per permission, in the order first asked."""
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for ask in asks:
+        grouped.setdefault(str(ask.get("permission") or ""), []).append(ask)
+    return tuple(tuple(group) for group in grouped.values())
+
+
+def card_sentence(asks: Sequence[Mapping[str, Any]]) -> str:
+    """What a card of several calls says: the permission once, and how many of each.
+
+    "Start a helper, 5 calls in this plan: researcher x2, reviewer x3". Counted by the
+    permission's tally when it has one, so the person reads a team, not five sentences.
+    """
+    first = asks[0]
+    title = str(first.get("title") or first.get("permission") or first.get("operation") or "")
+    labels = [str(ask.get("label") or "") for ask in asks]
+    head = f"{title}, {len(asks)} calls in this plan"
+    if not all(labels):
+        return head
+    counted = ", ".join(f"{label} x{labels.count(label)}" for label in dict.fromkeys(labels))
+    return f"{head}: {counted}"
 
 
 def _needs_of(payload: dict[str, Any]) -> dict[str, Any]:
@@ -485,9 +565,12 @@ __all__ = [
     "RESUMED_NOTICE",
     "ApprovedCall",
     "Ask",
+    "AskedCall",
     "Decision",
     "answer_approval",
     "approved_calls",
+    "card_sentence",
+    "cards",
     "mark_executed",
     "open_approval",
     "reopen",

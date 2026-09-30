@@ -48,6 +48,10 @@ class Blocked:
     description: str = ""
     step: str = ""
     """The blocked step's id in the plan, so an approval can find what the step reads from."""
+    title: str = ""
+    """The permission as a person names it: "Start a helper"."""
+    label: str = ""
+    """What tells this call from another of the same permission, by the permission's `tally`."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +172,8 @@ class PermissionGate:
                     arguments=arguments,
                     description=str(step.get("note") or verdict.message),
                     step=str(step.get("id") or ""),
+                    title=permission.title,
+                    label=_label(permission, arguments),
                 )
                 blocked.append(item)
                 if first is None:
@@ -189,6 +195,12 @@ def once_key(operation: str, arguments: Mapping[str, object]) -> str:
     canonical = json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
     digest = sha256(canonical.encode("utf-8")).hexdigest()[:32]
     return f"{ONCE_PREFIX}{operation}:{digest}"
+
+
+def _label(permission: Permission, arguments: Mapping[str, object]) -> str:
+    """The value of the permission's tally field in this call, when it is a plain word."""
+    value = arguments.get(permission.tally) if permission.tally else None
+    return " ".join(value.split())[:40] if isinstance(value, str) else ""
 
 
 def _is_gated(permission: Permission, name: str, catalogue: Catalogue | None) -> bool:

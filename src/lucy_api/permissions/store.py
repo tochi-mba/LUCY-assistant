@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lucy_api.core.errors import absent
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant, once_key
@@ -21,6 +21,7 @@ SESSION_PROFILE_PREFIX = "session:"
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Mapping
 
     from lucy_api.sessions.sql_store import SessionStore
 
@@ -83,19 +84,41 @@ def _oneshots(db: sqlite3.Connection, turn_id: str, profile: str) -> dict[str, G
     ).fetchall()
     found: dict[str, Grant] = {}
     for row in rows:
-        payload = json.loads(row["input_json"]) if row["input_json"] else {}
-        raw = payload.get("permission") if isinstance(payload, dict) else None
-        permission = str(raw or row["operation"])
-        asked = payload.get("arguments") if isinstance(payload, dict) else None
-        arguments = asked if isinstance(asked, dict) else {}
-        found[once_key(str(row["operation"]), arguments)] = Grant(
-            permission=permission,
-            decision="allow" if str(row["status"]) == "granted" else "deny",
-            profile=profile,
-            instruction=str(row["instruction"] or ""),
-            source="person",
-        )
+        loaded = json.loads(row["input_json"]) if row["input_json"] else {}
+        payload = loaded if isinstance(loaded, dict) else {}
+        permission = str(payload.get("permission") or row["operation"])
+        # One key per call the card covered, and only those: a card of five helpers
+        # answers for those five calls, by their own arguments, and nothing else.
+        for operation, arguments, _stored in calls_of(str(row["operation"]), payload):
+            found[once_key(operation, arguments)] = Grant(
+                permission=permission,
+                decision="allow" if str(row["status"]) == "granted" else "deny",
+                profile=profile,
+                instruction=str(row["instruction"] or ""),
+                source="person",
+            )
     return found
+
+
+def calls_of(
+    operation: str, payload: Mapping[str, Any]
+) -> tuple[tuple[str, dict[str, Any], dict[str, Any]], ...]:
+    """Every call one approval covers: its operation, its arguments, and its stored fields.
+
+    A card of one call is the row itself, as every approval was before cards covered several.
+    A card of several lists them; an entry that is not the shape it was written in is
+    skipped rather than guessed at, so nothing runs that the card did not show.
+    """
+    entries = payload.get("calls")
+    if not isinstance(entries, list):
+        arguments = payload.get("arguments")
+        return ((operation, arguments if isinstance(arguments, dict) else {}, dict(payload)),)
+    found: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("arguments"), dict):
+            continue
+        found.append((str(entry.get("operation") or operation), entry["arguments"], entry))
+    return tuple(found)
 
 
 async def list_grants(store: SessionStore, account: str) -> list[dict[str, object]]:
@@ -167,4 +190,11 @@ async def delete_grant(store: SessionStore, account: str, permission: str, *, pr
     await store.transaction(apply)
 
 
-__all__ = ["SESSION_PROFILE_PREFIX", "delete_grant", "grants_for", "list_grants", "put_grant"]
+__all__ = [
+    "SESSION_PROFILE_PREFIX",
+    "calls_of",
+    "delete_grant",
+    "grants_for",
+    "list_grants",
+    "put_grant",
+]

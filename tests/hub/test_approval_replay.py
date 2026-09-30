@@ -417,7 +417,16 @@ class Shelf:
                 title="Play from the shelf",
                 description="Plays records.",
                 risk="write",
-                covers=("shelf.play", "shelf.fetch"),
+                covers=("shelf.play",),
+            ),
+            # Its own permission, so a person can refuse the fetch and approve the play: one
+            # plan's calls under one permission are one card, answered once.
+            Permission(
+                id="shelf.stock",
+                title="Fetch from storage",
+                description="Fetches records.",
+                risk="write",
+                covers=("shelf.fetch",),
             ),
         )
 

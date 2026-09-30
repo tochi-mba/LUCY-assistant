@@ -25,7 +25,10 @@ from lucy_api.decide.uses import Recovery, suggest_capabilities
 from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
     Ask,
+    AskedCall,
     approved_calls,
+    card_sentence,
+    cards,
     mark_executed,
     open_approval,
     reopen,
@@ -520,25 +523,39 @@ class TurnSupervisor:
                 },
             )
             parked = (*(str(ask.get("step") or "") for ask in asks), *result.refused)
-            for ask in asks:
+
+            def asked(ask: Mapping[str, Any]) -> AskedCall:
                 arguments = ask.get("arguments")
                 step = str(ask.get("step") or "")
+                return AskedCall(
+                    operation=str(ask.get("operation") or ""),
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                    description=str(ask.get("description") or ask.get("message") or result.detail),
+                    needs=needs(result.parked_plan, step, parked=parked) if step else None,
+                )
+
+            # One card per permission: the calls a plan parked under one permission are
+            # one question, answered once, covering exactly those calls.
+            for card in cards(asks):
+                calls = tuple(asked(ask) for ask in card)
+                operations = {call.operation for call in calls}
                 await open_approval(
                     self._store,
                     account=claimed.account_id,
                     session_id=claimed.session_id,
                     turn_id=claimed.id,
                     ask=Ask(
-                        permission=str(ask.get("permission") or ""),
-                        operation=str(ask.get("operation") or ""),
-                        description=str(
-                            ask.get("description") or ask.get("message") or result.detail
-                        ),
-                        arguments=arguments if isinstance(arguments, dict) else {},
+                        permission=str(card[0].get("permission") or ""),
+                        operation=calls[0].operation if len(operations) == 1 else "",
+                        description=calls[0].description
+                        if len(calls) == 1
+                        else card_sentence(card),
+                        arguments=calls[0].arguments if len(calls) == 1 else {},
                         policy=pack_ctx.permission_mode,
                         termination=result.termination.value,
                         stop_reason=result.stop_reason.value,
-                        needs=needs(result.parked_plan, step, parked=parked) if step else None,
+                        needs=calls[0].needs if len(calls) == 1 else None,
+                        calls=calls if len(calls) > 1 else (),
                     ),
                 )
             await self._store.record_spend(claimed.account_id, claimed.id, _spend(result))

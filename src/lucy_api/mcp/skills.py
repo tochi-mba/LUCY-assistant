@@ -219,8 +219,9 @@ Prefer finishing your answer and saying what is still running over waiting.
         summary="A gated write parks the turn. The person's yes is an input, not an authorization.",
         body="""# Approvals
 
-A write the person has not allowed parks the turn as `input_required`. Several
-writes in one plan become several asks; a subset answer leaves the rest pending.
+A write the person has not allowed parks the turn as `input_required`. A plan's
+writes under one permission are one card that counts them, answered once for exactly
+those calls; writes under different permissions are different cards, answered apart.
 
 The client's `approved: true` is an input, not an authorization. Lucy records a
 grant (once, this session, this profile, or the whole account) and re-checks the
