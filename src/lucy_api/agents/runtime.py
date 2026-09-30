@@ -10,7 +10,14 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.agents.types import RESTARTED, Delegation, capped_summary, declared_return
+from lucy_api.agents.store import QUEUED
+from lucy_api.agents.types import (
+    RESTARTED,
+    RESTARTED_QUEUED,
+    Delegation,
+    capped_summary,
+    declared_return,
+)
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import bind
 from lucy_api.model.registry import parse_spec
@@ -69,7 +76,10 @@ def _stopped_line(row: dict[str, Any]) -> dict[str, Any]:
         why = str(result.get("summary") or row["status"])
         resumable = bool(result.get("resumable"))
     else:
-        why = RESTARTED if restarted else str(row["status"])
+        never_started = row.get("started_at") is None
+        why = (
+            (RESTARTED_QUEUED if never_started else RESTARTED) if restarted else str(row["status"])
+        )
         resumable = restarted
     return {
         "id": str(row["id"]),
@@ -149,6 +159,10 @@ class ChildRuntime:
             objective=delegation.objective,
             depth=parent.depth + 1,
             parent_agent_id=parent.agent_id or None,
+            # Queued until it starts: a helper past the cap waits in the registry, and until
+            # `run` begins it nothing of it has run. One that starts at once is begun
+            # moments later by the same `run`.
+            status=QUEUED,
             delegation={
                 "objective": delegation.objective,
                 "role": delegation.role,
@@ -198,6 +212,7 @@ class ChildRuntime:
             agent_id, task_id = await self.prepare(
                 parent, objective=delegation.objective, role=delegation.role
             )
+        await self.agents.begin(parent.account_id, agent_id)
         try:
             # Do not write the brief until Registry has accepted the helper.  If the
             # per-session capacity check rejects it, discard_setup can then remove the
@@ -270,10 +285,24 @@ class ChildRuntime:
         """Compensate when the in-memory registry cannot accept a prepared helper."""
         await self.agents.discard_setup(parent.account_id, parent.session_id, agent_id, task_id)
 
+    async def withdraw(self, parent: PackContext, agent_id: str, task_id: int) -> None:
+        """A queued helper was cancelled before it started: record it as a cancelled one is.
+
+        Its roster row and journal task stay, marked the way `run` marks a helper cancelled
+        mid-run, so `agents.read` still finds it and nothing offers to continue it.
+        """
+        await self.agents.finish(
+            parent.account_id, agent_id, status="interrupted", interrupted_reason="cancelled"
+        )
+        await self.agents.finish_task(
+            parent.account_id, parent.session_id, task_id, status="cancelled"
+        )
+
     async def send(self, parent: PackContext, agent_id: str, body: str) -> dict[str, Any]:
         """Deliver a parent message to a running helper's inbox."""
         row = await self.agents.get(parent.account_id, agent_id)
-        if row["status"] != "running":
+        if row["status"] not in {"running", QUEUED}:
+            # A queued helper takes mail too: it reads it before its first round.
             return {
                 "status": "finished",
                 "message": "that helper has finished; read work.result or start another",
@@ -301,10 +330,10 @@ class ChildRuntime:
             row = await self.agents.get(parent.account_id, agent_id)
         except LucyError as exc:
             return {"status": exc.code, "message": str(exc)}
-        if row["status"] == "running":
+        if row["status"] in {"running", QUEUED}:
             return {
-                "status": "running",
-                "message": "that helper is still running; steer it with agents.message",
+                "status": str(row["status"]),
+                "message": (f"that helper is still {row['status']}; steer it with agents.message"),
             }
         roster = await self.agents.for_session(parent.account_id, parent.session_id)
         newer = next((str(item["id"]) for item in roster if _resumes(item) == agent_id), "")

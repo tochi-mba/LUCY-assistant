@@ -324,8 +324,7 @@ def test_a_finished_member_of_a_group_is_named_with_its_group() -> None:
     )
 
     assert entries_of(body_of(state), "finished") == [
-        "researcher in reviewers - find every caller of the old ingest API - "
-        "succeeded after 2m14s"
+        "researcher in reviewers - find every caller of the old ingest API - succeeded after 2m14s"
     ]
 
 
