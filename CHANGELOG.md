@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ## [Unreleased]
 
+### Changed
+
+- Music user tokens now use the provider-neutral `music-api` audience. The provider's
+  deployment name no longer leaks into the hub-to-music authentication contract.
+
 ### Added
 
 - **`lucy eval`: conversation regressions, on demand.** Every defect found by talking to
