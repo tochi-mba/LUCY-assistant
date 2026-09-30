@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 
 from lucy_api.clients.errors import NotConnectedError, UnavailableError
-from lucy_api.clients.spotify import (
+from lucy_api.clients.music import (
     CONFIRM_WAIT_SECONDS,
     Device,
-    FakeSpotifyClient,
-    HttpSpotifyClient,
+    FakeMusicClient,
+    HttpMusicClient,
     NowPlaying,
     Play,
     Track,
@@ -46,7 +46,7 @@ async def test_connected_is_false_when_the_credential_is_missing() -> None:
         problem(502, code="credential-unavailable", detail="not linked"),
         problem(502, code="credential-unavailable", detail="not linked"),
     )
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
 
     assert await client.connected("personal") is False
     with pytest.raises(NotConnectedError):
@@ -88,7 +88,7 @@ async def test_player_calls_project_and_use_the_music_audience() -> None:
         Answer(body={"item": track, "is_playing": False}),
         Answer(body={"item": track, "is_playing": True}),
     )
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
 
     assert await client.connected("work") is True
     devices = await client.devices("work")
@@ -116,7 +116,7 @@ async def test_player_calls_project_and_use_the_music_audience() -> None:
 
 
 async def test_the_in_memory_player_records_the_profile_on_every_call() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     track = Track(name="Prelude", uri="spotify:track:1")
     fake.stock("Prelude", track)
     fake.seed(devices=(Device("d1", "Kitchen", "speaker", True),), plays=(Play(track=track),))
@@ -155,7 +155,7 @@ async def test_a_player_command_is_waited_on_longer_than_the_service_takes_to_co
     """The bug, named: play, queue and pause carried no timeout of their own, so a device that
     took twelve seconds to confirm was given up on at ten while its track was starting."""
     http = FakeHttp(*(Answer(body={"is_playing": True}) for _ in range(3)))
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
 
     await client.play("work", uris=["spotify:track:1"])
     await client.queue("work", "spotify:track:1")
@@ -169,7 +169,7 @@ async def test_a_lookup_may_be_sent_again_and_a_player_command_may_not() -> None
     """A lookup is a read sent as a POST. A player command is not a read: sent twice, a play
     restarts the track the first one started."""
     http = FakeHttp(Answer(body={"results": []}), Answer(body={"is_playing": True}))
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
 
     await client.find([], profile="work")
     await client.play("work", uris=["spotify:track:1"])
@@ -179,7 +179,7 @@ async def test_a_lookup_may_be_sent_again_and_a_player_command_may_not() -> None
 
 async def test_a_read_keeps_the_turn_s_ordinary_wait() -> None:
     http = FakeHttp(Answer(body={"is_playing": False}))
-    await HttpSpotifyClient(http, "http://music.test").now_playing("work")
+    await HttpMusicClient(http, "http://music.test").now_playing("work")
     assert http.last.timeout_seconds is None
 
 
@@ -232,7 +232,7 @@ async def test_a_command_accepted_but_not_confirmed_says_so_and_carries_what_was
     Spotify had accepted -- the track possibly already starting -- reached the model as a
     failure, the state in `details.observed` was dropped, and the model played it again."""
     http = FakeHttp(unconfirmed(STILL_ON_THE_LAST_TRACK))
-    client = HttpSpotifyClient(http, "http://music.test")
+    client = HttpMusicClient(http, "http://music.test")
     commands = {
         "play": lambda: client.play("work", uris=["spotify:track:1"]),
         "queue": lambda: client.queue("work", "spotify:track:1"),
@@ -254,12 +254,12 @@ async def test_a_command_accepted_but_not_confirmed_says_so_and_carries_what_was
 async def test_any_other_504_is_still_an_outage() -> None:
     http = FakeHttp(problem(504, code="gateway-timeout", detail="upstream stalled"))
     with pytest.raises(UnavailableError) as caught:
-        await HttpSpotifyClient(http, "http://music.test").play("work")
+        await HttpMusicClient(http, "http://music.test").play("work")
     assert not isinstance(caught.value, UnconfirmedError)
 
 
 async def test_the_in_memory_player_can_accept_a_command_it_never_sees_take_effect() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     before = NowPlaying(track=Track(name="Reverie", uri="spotify:track:0"), is_playing=True)
     fake.state = before
     fake.confirms = False

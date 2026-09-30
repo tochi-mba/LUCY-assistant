@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from lucy_api import __version__
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.spotify import SERVICE as MUSIC_SERVICE
+from lucy_api.clients.music import SERVICE as MUSIC_SERVICE
 from lucy_api.core.container import PackRequest
 from lucy_api.core.errors import LucyError
 from lucy_api.mcp.catalog import cache_hint, listed

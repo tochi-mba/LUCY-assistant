@@ -578,7 +578,7 @@ async def test_connect_returns_a_lucy_origin_url(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from lucy_api.clients.keyring import FakeKeyringClient
-    from lucy_api.clients.spotify import SERVICE as MUSIC_SERVICE
+    from lucy_api.clients.music import SERVICE as MUSIC_SERVICE
     from lucy_api.core.container import Container
 
     fake = FakeKeyringClient()

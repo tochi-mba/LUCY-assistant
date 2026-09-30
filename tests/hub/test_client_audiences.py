@@ -22,9 +22,9 @@ from lucy_api.clients.environments import AUDIENCE as ENVIRONMENTS
 from lucy_api.clients.keyring import AUDIENCE as KEYRING
 from lucy_api.clients.live_feeds import PERSONA_AUDIENCE
 from lucy_api.clients.memory import AUDIENCE as MEMORY
+from lucy_api.clients.music import AUDIENCE as MUSIC
 from lucy_api.clients.search import AUDIENCE as SEARCH
 from lucy_api.clients.settings import AUDIENCE as SETTINGS
-from lucy_api.clients.spotify import AUDIENCE as SPOTIFY
 from lucy_api.clients.user import AUDIENCE as USER
 
 META_ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +35,7 @@ ASKED_FOR = {
     "persona": PERSONA_AUDIENCE,
     "search": SEARCH,
     "settings": SETTINGS,
-    "spotify": SPOTIFY,
+    "music": MUSIC,
     "user": USER,
 }
 """Every audience a client asks keyring to mint, by the sibling it is for.

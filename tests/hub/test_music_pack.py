@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.spotify import CONFIRM_WAIT_SECONDS, Device, FakeSpotifyClient, Play, Track
+from lucy_api.clients.music import CONFIRM_WAIT_SECONDS, Device, FakeMusicClient, Play, Track
 from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
@@ -15,7 +15,7 @@ from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
-def setup(fake: FakeSpotifyClient) -> tuple[Capabilities, object]:
+def setup(fake: FakeMusicClient) -> tuple[Capabilities, object]:
     capabilities = Capabilities((HelpPack(), MusicPack("http://music.test", client=fake)))
     context = capabilities.context_for(
         SessionScope(
@@ -29,7 +29,7 @@ def setup(fake: FakeSpotifyClient) -> tuple[Capabilities, object]:
 
 
 async def test_unconnected_music_is_listed_but_has_no_model_tools() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     fake.is_connected = False
     capabilities, context = setup(fake)
 
@@ -45,7 +45,7 @@ async def test_unconnected_music_is_listed_but_has_no_model_tools() -> None:
 
 
 async def test_connecting_music_makes_its_operations_appear_on_the_next_probe() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     capabilities, context = setup(fake)
 
     catalogue = await capabilities.probe(context)
@@ -56,7 +56,7 @@ async def test_connecting_music_makes_its_operations_appear_on_the_next_probe() 
 
 
 async def test_music_reads_and_writes_use_the_session_profile_and_small_projections() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     track = Track(
         name="Clair de lune",
         artists=("Claude Debussy",),
@@ -97,7 +97,7 @@ async def test_music_reads_and_writes_use_the_session_profile_and_small_projecti
 
 
 async def test_omitted_device_id_uses_the_person_s_default_speaker() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     capabilities, context = setup(fake)
     context.defaults["music.device_id"] = "kitchen"
     await capabilities.probe(context)
@@ -116,7 +116,7 @@ async def test_omitted_device_id_uses_the_person_s_default_speaker() -> None:
 
 
 def test_music_declares_setup_and_write_permission() -> None:
-    pack = MusicPack("http://music.test", client=FakeSpotifyClient())
+    pack = MusicPack("http://music.test", client=FakeMusicClient())
 
     assert pack.docs == capability_doc("music")
     assert pack.setup() is not None
@@ -176,7 +176,7 @@ async def test_music_probe_names_a_transport_outage() -> None:
 
 
 async def test_pause_and_queue_project_playback_the_same_way_play_does() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     track = Track(
         name="Clair de lune",
         artists=("Claude Debussy",),
@@ -204,7 +204,7 @@ async def test_a_command_accepted_but_not_confirmed_is_an_answer_rather_than_a_f
     """The bug, named: a play the service had accepted but not yet seen take effect came back
     as a failed step, so the model told the person playback had failed while the track may
     already have been starting, and sent the command again."""
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     track = Track(name="Reverie", artists=("Claude Debussy",), uri="spotify:track:0")
     fake.state = fake.state.__class__(track=track, progress_ms=64_000, is_playing=True)
     fake.confirms = False
@@ -233,7 +233,7 @@ async def test_a_command_accepted_but_not_confirmed_is_an_answer_rather_than_a_f
 
 
 async def test_a_confirmed_command_carries_no_note() -> None:
-    fake = FakeSpotifyClient()
+    fake = FakeMusicClient()
     capabilities, context = setup(fake)
     await capabilities.probe(context)
 
@@ -247,7 +247,7 @@ async def test_a_confirmed_command_carries_no_note() -> None:
 def test_a_music_step_outlasts_the_wait_for_a_confirmed_command() -> None:
     """The bug, named: the client can wait as long as it likes, but the step around it gave up
     at ten seconds, so a play still being confirmed was reported to the model as a failure."""
-    pack = MusicPack("http://music.test", client=FakeSpotifyClient())
+    pack = MusicPack("http://music.test", client=FakeMusicClient())
     limits = limits_for((Bound(pack=pack, availability=Availability(state=State.ready)),))
     assert limits["stepTimeoutMs"] > CONFIRM_WAIT_SECONDS * 1_000
 

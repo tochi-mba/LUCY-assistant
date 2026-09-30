@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from lucy_api.clients.environments import EnvironmentsClient
-    from lucy_api.clients.spotify import SpotifyClient
+    from lucy_api.clients.music import MusicClient
     from lucy_api.clients.user import UserClient
     from lucy_api.packs.context import Http
 
@@ -127,7 +127,7 @@ class UserFeeds:
 class MusicFeeds:
     """Now-playing and active-device state, fetched together each turn."""
 
-    client: SpotifyClient
+    client: MusicClient
     name: str = "music"
 
     async def fetch(self, request: FeedRequest) -> tuple[Feed, ...]:
