@@ -619,6 +619,22 @@ def _private_patterns(
     )
 
 
+TOP_LEVEL_READ = (
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "docker-compose.yml",
+    "pyproject.toml",
+    "Makefile",
+    "Dockerfile",
+    ".env.example",
+)
+"""Top-level files people read and every clone ships: prose, and the build files whose
+comments explain a choice -- which is where a comparison with a sibling gets written."""
+
+
 def _searchable(repo: Repo) -> Iterator[Path]:
     """Everything a person reads or a tool ships: code, tests, scripts, docs, top-level prose.
 
@@ -633,7 +649,7 @@ def _searchable(repo: Repo) -> Iterator[Path]:
             for file in sorted(directory.rglob("*")):
                 if file.is_file() and file.suffix in {".md", ".yml", ".yaml"}:
                     yield file
-    for name in ("README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "docker-compose.yml"):
+    for name in TOP_LEVEL_READ:
         top = repo.path / name
         if top.is_file():
             yield top

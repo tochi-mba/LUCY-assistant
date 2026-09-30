@@ -13,8 +13,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   `exampletool` and any other name the service goes by -- a URI scheme, a product name --
   passed. Names now match as whole words however their parts are joined, and a private
   repository lists its other names under `[tool.lucy] also-known-as` in its own
-  pyproject.toml, which the check reads from the local checkout. See
-  [docs/private-repos.md](docs/private-repos.md).
+  pyproject.toml, which the check reads from the local checkout. It also reads the
+  top-level build files, `pyproject.toml`, `Makefile`, `Dockerfile` and `.env.example`,
+  whose comments it used to skip. See [docs/private-repos.md](docs/private-repos.md).
 - **An approved call runs with the steps it reads from.** A plan is checked whole before
   any step runs, so a plan whose write needs a person parks before its reads have run, and
   the approved call used to run on its own, with a reference such as `$found` left
