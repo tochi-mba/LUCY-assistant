@@ -11,14 +11,14 @@ model see capabilities, never services.**
 ## Lucy proxies; settings-api decides
 
 Lucy does not keep its own copy of anybody's settings. It reads the catalogue and the values
-from settings-api, presents them grouped the way a person thinks about them, and writes back.
-The catalogue it holds is a cache with a short life, and it is never the authority.
+from settings-api on each call, presents them grouped the way a person thinks about them, and
+writes back.
 
-That split matters when a value is rejected. Lucy validates first, against the catalogue it
-fetched, so a bad value comes back immediately with the bounds in the message instead of
-after a round trip. Then settings-api validates again, because Lucy's copy may be stale and
-because a client that talks to settings-api directly must get the same answer. **A validation
-that only happens in the proxy is a validation that can be skipped.**
+That split matters when a value is rejected. Settings-api validates every write, whoever
+sends it, and its refusal -- with the bounds in the message -- is what the model reads. Lucy
+does not validate first: a client that talks to settings-api directly must get the same
+answer, and **a validation that only happens in the proxy is a validation that can be
+skipped.**
 
 ## Grouped by capability, not by service
 
@@ -62,7 +62,7 @@ promise made on the account.
 credential set is in use. `spotify.default_market`, `lucy.model`, `lucy.permission_mode`,
 `search.safe_search`, prompt-feed toggles, which shell a workspace starts.
 
-`describe_settings` reports `scope` on every entry. The model is told whether a change
+`settings.describe` reports `scope` on every entry. The model is told whether a change
 is for this conversation's profile or for the person everywhere.
 
 ## Prompt feeds, as settings
@@ -117,12 +117,29 @@ setting never moves the ceilings of a turn that is already running.
 | `history_turns_kept` | 4 | Newest exchanges auto-compact may not summarise away |
 | `tool_results_kept` | 3 | Newest unprotected tool results reclamation may not drop |
 | `session_token_budget` | 0 | Tokens one conversation may spend; zero means no cap |
+| `max_parallel_steps` | 4 | How many steps of one plan may run at once |
+| `step_timeout_seconds` | 10 | How long one step may take before it is marked timed out |
+| `plan_timeout_seconds` | 60 | How long a whole plan may take |
+| `render_read_tokens` | 2000 | How much of a stored result the formatter may read |
+| `render_preview_tokens` | 400 | How much of each result is shown as a preview |
+| `render_total_tokens` | 8000 | How much of one plan's rendered results may become tokens |
+| `agent_result_token_cap` | 2000 | How much a helper may hand back when it is finished |
+| `memory_retrieval_limit` | 12 | How many memory topics the live index may show |
+| `workspace_retention_hours` | 24 | How long an idle workspace is assumed to last when the sandbox does not say |
+| `session_idle_archive_days` | 30 | Idle days before an unused conversation is archived; zero never archives |
 | `stream_thinking` | false | Whether reasoning events are forwarded to the client as they arrive |
 | `log_message_content` | false | Whether this person's message bodies may appear on process log lines for the turn |
 | `incognito` | false | Default for a new session when the create request omits it |
 
-A new session that omits `model`, `thinking_config`, `permission_mode`, `input_policy` or
-`incognito` takes those from this person's settings. An explicit field on the create
+The rest of the namespace is the person's standing choices rather than ceilings: `model`
+(`anthropic:claude-opus-5`), `thinking` (`medium`), `response_style` (`natural`),
+`temperature` (`100`, in hundredths), `approval_policy` (`destructive_always_asks`),
+`disabled_capabilities` (empty), `vision_enabled` (true), the three prompt-feed masters
+below, one `feeds_*` toggle per feed field, and the optional Laya switches
+(`decisions` and `decision_*`, see [decisions.md](decisions.md)).
+
+A new session that omits `model`, `thinking_config` (from the `thinking` setting),
+`permission_mode`, `input_policy` or `incognito` takes those from this person's settings. An explicit field on the create
 request wins. The session row is the live override after that.
 
 `help`, `work` and `agents` cannot be listed in `disabled_capabilities`. Without help the
@@ -134,15 +151,18 @@ toggle.
 
 ## What a setting looks like when Lucy shows it
 
-Not a value. A value, its bounds, where it came from, and whether the person may change it:
+Not a value. A value, where it came from, its scope, and -- from `settings.describe` -- its
+bounds and what it does:
 
 | | |
 | --- | --- |
+| **capability** | where it is shown, from `lucy_api.settings.groups` |
 | **value** | what is in force right now |
-| **source** | their choice, an operator's policy, or the catalogue default |
-| **bounds** | the range or choices — narrowed by operator policy where one applies, never the catalogue's wider range |
-| **writable** | some settings are deliberately not theirs to change, and the reason is shown |
-| **effect** | what changing it actually does, taken from the catalogue's own description |
+| **set** / **source** | whether the person chose it, and where the value in force came from |
+| **pinned** | an operator's policy fixed it, so it is not the person's to change |
+| **scope** | account-wide or for this profile |
+| **bounds** | the range or choices, as settings-api reports them (`settings.describe` only) |
+| **summary** / **description** | what changing it actually does, taken from the catalogue (`settings.describe` only) |
 
 The last one is the reason this is worth building rather than rendering a form from a JSON
 schema. Every entry in the catalogue carries a description written for somebody deciding,
@@ -168,6 +188,10 @@ An outage is visible, not silent: the person sees the 503 rather than discoverin
 behaviour.
 
 ## Edge cases, and the answer to each
+
+These are the intended answers. Lucy enforces the profile rule itself today, because
+`settings.set` has no profile field; the others depend on what settings-api returns, and
+nothing Lucy returns yet marks a setting as needing attention, read-only or deprecated.
 
 **A namespace Lucy has no grant for** is not listed. That is an operator's deployment choice,
 not an error, and showing a person a setting they cannot reach is worse than not showing it.
@@ -204,7 +228,7 @@ acceptable is one of them silently disappearing.
 
 Three operations, and they are deliberately few:
 
-    settings.describe(capability?)   what can be changed, what each one does, and whether it is account-wide or for this profile
+    settings.describe()                  what can be changed, grouped by capability, what each one does, and whether it is account-wide or for this profile
     settings.get(namespace, key)         what it is now, where that came from, and which scope it has
     settings.set(namespace, key, value)  change it; the session's profile is used, never one the model invents
 
@@ -219,7 +243,7 @@ The model names a setting by the namespace and key `settings.describe` listed, s
 ## Events
 
 Changing configuration is exactly the kind of thing somebody needs to be able to audit
-afterwards, so it is noisy on purpose:
+afterwards. None of these events is emitted yet; they are the planned set:
 
     lucy.settings.catalogue.refreshed   the cache was reloaded, with what changed
     lucy.settings.read                  which settings a turn depended on
