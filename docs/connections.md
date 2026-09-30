@@ -33,6 +33,19 @@ contain no token or credential and expired records are pruned during normal use.
 `GET /v1/connections` and `GET /v1/connections/{service}` return only service, state,
 granted scopes, expiry and a credential-free last error. `DELETE` is idempotent.
 
+## Music is a contract, not a service
+
+The music capability speaks one HTTP contract: `POST /v1/lookup`, `GET /v1/player`,
+`GET /v1/player/devices`, `GET /v1/player/recently-played`, and `POST /v1/player/play`,
+`/queue` and `/pause`, each answering with the player state in which the command was seen
+to take effect, or `504 confirmation-timeout` when it was not. Spotify-api is the family's
+implementation and the reference for the shapes (`lucy_api.clients.music` names every field
+the hub reads). Any implementation of that contract can stand behind the capability: point
+`LUCY_MUSIC_API_BASE_URL` at it, and have it verify tokens for the audience `music-api`,
+which is minted for the contract rather than for a service. A private implementation attaches
+the way every private service does: through a gitignored `docker-compose.local.yml` that
+sets the variable, and is never named in a public repository (ADR-0011).
+
 ## Capability gating
 
 The music pack is the first real gated pack. Its seven operations appear in the model tool
