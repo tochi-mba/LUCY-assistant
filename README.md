@@ -6,11 +6,12 @@ repository. `scripts/bootstrap.sh` clones those checkouts beside this file. Oper
 services attach through the documented extension points and a private Compose overlay.
 
 The hub currently provides health, readiness, identity, session management, a durable
-single-agent conversation runner, resumable event streaming, capability packs, child
-helpers, MCP in both directions, and a command-line setup flow. Configure an OpenAI or
-Anthropic API key to run a basic conversation. Memory, persona and pinned account facts
-reach the model as separate sections; their retrieval scores are never merged.
-Installing the client does not yet provide a chat command.
+conversation runner, resumable event streaming, capability packs, child helpers, watches,
+MCP in both directions, and a command-line client. Configure a key for any of the
+catalogued model providers, or point it at a local runtime, to hold a conversation
+([docs/models.md](docs/models.md)); `lucy talk` holds one from a terminal. Memory, persona
+and pinned account facts reach the model as separate sections; their retrieval scores are
+never merged.
 
 `make check` is the same four gates everywhere it exists: lint, types, imports, tests at
 100% branch coverage. `python scripts/parity.py` is how we notice when a checkout has
@@ -29,11 +30,13 @@ an earlier result through a reference such as `$hits`, rather than asking the mo
 copy the result into another tool call. Lucy can inspect a result and generate another
 plan when the next decision depends on what it found.
 
-**Implementation status:** the examples below describe the intended conversation
-workflows. The durable `/inputs` path can run plain assistant turns when a model provider is
-configured; the concrete capability packs used by these examples are still being connected.
-Argument names below illustrate the proposed pack contracts. The per-step `note` field is planned upstream work (W12), not a feature
-of the currently pinned weftai release. See [implementation status](docs/implementation-status.md).
+**Implementation status:** the capability packs these examples use -- research, music,
+workspace, notes and helpers -- are built, and every step may carry a `note`. The JSON plans
+below use the operations' real fields; the `text` blocks sketch a flow in shorthand rather
+than spell out each plan, and [docs/tools.md](docs/tools.md) has real plans for each
+capability. Some of what the sketches describe is not built yet: a workspace checkpoint
+before a bulk write, and resuming a crashed step rather than failing it. See
+[implementation status](docs/implementation-status.md).
 
 Each example separates the person's request, the plan, and what happens around execution.
 A plan describes work; it does not grant permission to perform it. References remain
@@ -64,42 +67,52 @@ The model receives a concise projection: titles, URLs, short summaries and a han
 stored results. It compares the sources before deciding which to open. It should not
 assume the first search hit supports the requested conclusion.
 
-The next plan opens selected sources and saves a briefing. In this illustrative shape,
-`from` accepts a stored reference and `workspace.write` knows how to save that result:
+The next plan opens the sources it chose, by the addresses the search returned. Both are
+reads and independent, so they run at the same time:
 
 ```json
 {
   "steps": [
     {
-      "id": "evidence",
+      "id": "field",
       "op": "research.open",
-      "input": {"from": "$hits[0]"},
-      "note": "Read the strongest candidate and preserve its source"
+      "input": {"url": "https://example.org/field-trial-report"},
+      "note": "Read the field trial and preserve its source"
     },
     {
-      "id": "brief",
-      "op": "research.summarize",
-      "input": {"from": "$evidence"},
-      "note": "Summarise the findings and their limitations"
-    },
+      "id": "review",
+      "op": "research.open",
+      "input": {"url": "https://example.org/retrofit-review"},
+      "note": "Read the review that reached a different conclusion"
+    }
+  ]
+}
+```
+
+Each result is citation metadata and a bounded summary; the page text stays in the
+sibling service and never becomes tokens. The model compares the two, then a third plan
+saves what it wrote:
+
+```json
+{
+  "steps": [
     {
       "id": "saved",
       "op": "workspace.write",
-      "input": {"path": "research/heat-pumps.md", "from": "$brief"},
+      "input": {"path": "research/heat-pumps.md", "content": "# Heat pumps in older UK houses\n..."},
       "note": "Save the evidence briefing in this session's workspace"
     }
   ]
 }
 ```
 
-`evidence → brief → saved` is a dependency chain. Saving waits for the summary, and the
-summary waits for the source. The complete source text can stay in the result store;
-the model sees the portion needed to assess it. Comparing several sources would open
-several selected results and retain provenance for each.
+The briefing is the model's own text, so it is written out rather than referenced: a
+`$field` reference resolves only in a field declared to take one
+([docs/tools.md](docs/tools.md#references)). Each source keeps its provenance in the
+briefing and in the transcript.
 
-A workspace write pauses if permission is needed. If opening a source fails, dependent
-steps are skipped and Lucy explains what is missing instead of saving an invented
-briefing. Web-page text remains untrusted evidence, even when it contains instructions.
+A workspace write pauses if permission is needed. If opening a source fails, its step says
+why and Lucy explains what is missing instead of saving an invented briefing. Web-page text remains untrusted evidence, even when it contains instructions.
 
 ### 2. Play yesterday's music, then review repository changes
 
@@ -192,7 +205,7 @@ Files that could not be parsed are reported explicitly rather than silently skip
 Monday:
   existing = notes.search("home city")
   → reconcile the new statement with the existing fact
-  updated = notes.correct(existing memory, "Bristol", valid from March)
+  updated = notes.correct(existing memory id, "Home city", "Bristol, since March")
   → show the person what was remembered
 
 Friday:
@@ -246,7 +259,7 @@ person's approval.
 reviewer_a = agents.spawn(read-only review of approach A)
 reviewer_b = agents.spawn(read-only review of approach B)
 → parent inspects the current implementation while the reviewers work
-agents.send(reviewer_b, "Account isolation is a hard requirement")
+agents.message(reviewer_b, "Account isolation is a hard requirement")
 → receive bounded reports with file and result references
 → parent decides, edits, and runs verification
 ```
