@@ -295,9 +295,9 @@ def _storage_profile(lifetime: str, profile: str, session_id: str) -> str:
 
 RESUMED_NOTICE = (
     "{operations} {was} approved just now and {has} already run, exactly as approved, with "
-    "the steps {pronoun} read from; {its} result{s} {are} above. Do not ask for {pronoun} "
-    "again. Carry on with whatever depended on {pronoun}; the rest of the plan that asked "
-    "for {pronoun} did not run."
+    "the steps {they} read from; {its} result{s} {are} above, including any failure. Do not "
+    "ask for {pronoun} again. Carry on with whatever depended on {pronoun}; the rest of the "
+    "plan that asked for {pronoun} did not run."
 )
 """What a model is told at the top of a round that a person has just unblocked.
 
@@ -439,6 +439,7 @@ def resumed_notice(operations: Sequence[str]) -> str:
         s="" if single else "s",
         are="is" if single else "are",
         pronoun="it" if single else "them",
+        they="it" if single else "they",
     )
 
 
