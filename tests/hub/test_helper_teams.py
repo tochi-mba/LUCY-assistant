@@ -111,6 +111,7 @@ async def test_spawn_past_the_cap_queues_and_starts_when_a_helper_finishes(
     assert first["state"] == "running"
     assert second["state"] == "queued"
     assert "1 helpers are running" in second["advice"]
+    assert "it is number 1 in the queue" in second["advice"]
     assert "work.cancel takes it out of the queue" in second["advice"]
     await asyncio.sleep(0)
     row = await agents.get(ACCOUNT, str(second["id"]))

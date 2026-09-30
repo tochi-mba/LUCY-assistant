@@ -356,7 +356,7 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
             "state": "queued",
             "advice": (
                 f"{running} helpers are running, as many as the person allows at once, and "
-                f"this is {queued} in the queue. It starts on its own when one of them "
+                f"it is number {queued} in the queue. It starts on its own when one of them "
                 "finishes, and its time starts then; work.cancel takes it out of the queue."
             ),
         }
