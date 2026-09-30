@@ -140,6 +140,8 @@ class Outcome:
     description: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
     asks: tuple[dict[str, Any], ...] = ()
+    parked_plan: dict[str, Any] | None = None
+    """The plan a write parked, so each approval can record the steps its call reads from."""
 
     @property
     def text(self) -> str:
@@ -608,6 +610,7 @@ def _parked(
         raw_input = step.get("input")
     outcome.arguments = raw_input if isinstance(raw_input, dict) else {}
     outcome.asks = waiting
+    outcome.parked_plan = plan
     outcome.rounds.append(round_)
     return outcome
 

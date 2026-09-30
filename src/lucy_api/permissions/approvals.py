@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Sequence
 
+    from lucy_api.permissions.replay import Needs
     from lucy_api.sessions.sql_store import SessionStore
 
 PENDING = "pending"
@@ -56,6 +57,9 @@ class Ask:
     policy: str = "ask"
     termination: str = "input_required"
     stop_reason: str = ""
+    needs: Needs | None = None
+    """What the call needs from its plan to run as planned (:mod:`.replay`); none recorded
+    for an ask that came without a plan step."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +98,13 @@ async def open_approval(
                 None,
                 labelled,
                 reason,
-                encoded({"permission": ask.permission, "arguments": ask.arguments}),
+                encoded(
+                    {
+                        "permission": ask.permission,
+                        "arguments": ask.arguments,
+                        **_needs_payload(ask.needs),
+                    }
+                ),
                 PENDING,
                 ask.policy,
                 "once",
@@ -284,14 +294,15 @@ def _storage_profile(lifetime: str, profile: str, session_id: str) -> str:
 
 
 RESUMED_NOTICE = (
-    "{operations} {was} approved just now and {has} already run, exactly as approved; "
-    "{its} result{s} {are} above. Do not ask for {pronoun} again. Carry on with whatever "
-    "depended on {pronoun}; the rest of the plan that asked for {pronoun} did not run."
+    "{operations} {was} approved just now and {has} already run, exactly as approved, with "
+    "the steps {pronoun} read from; {its} result{s} {are} above. Do not ask for {pronoun} "
+    "again. Carry on with whatever depended on {pronoun}; the rest of the plan that asked "
+    "for {pronoun} did not run."
 )
 """What a model is told at the top of a round that a person has just unblocked.
 
 An approved call is run by the hub, with the arguments the person saw, before the model is
-asked anything (`approved_calls`, `approved_plan`). It used to be the model's job to ask for
+asked anything (`approved_calls`, :func:`.replay.replay`). It used to be the model's job to ask for
 it again "with the same arguments", and two things went wrong. A weak model regenerating a
 file rarely reproduces it byte for byte, so the call it re-emitted was not the call the person
 approved. And the one-time grant covered the whole permission, so whatever it re-emitted ran
@@ -310,6 +321,15 @@ class ApprovedCall:
     approval_id: str
     operation: str
     arguments: dict[str, Any]
+    step: str = ""
+    """The call's step id in the plan that asked for it; empty for an approval recorded before
+    approvals kept it, which runs on its own as it always did."""
+    needs: tuple[dict[str, Any], ...] = ()
+    """The call's step and every step it reads from, in plan order."""
+    gated: tuple[str, ...] = ()
+    """Steps among ``needs`` that were parked beside it, and so must have been approved too."""
+    plan: str = ""
+    """A digest of the plan it came from."""
 
 
 async def approved_calls(store: SessionStore, turn_id: str) -> tuple[ApprovedCall, ...]:
@@ -337,6 +357,7 @@ async def approved_calls(store: SessionStore, turn_id: str) -> tuple[ApprovedCal
                     approval_id=str(row["id"]),
                     operation=str(row["operation"]),
                     arguments=arguments if isinstance(arguments, dict) else {},
+                    **_needs_of(payload),
                 )
             )
         return tuple(found)
@@ -363,20 +384,44 @@ async def mark_executed(store: SessionStore, calls: Sequence[ApprovedCall]) -> N
     await store.worker.call(write)
 
 
-def approved_plan(calls: Sequence[ApprovedCall]) -> dict[str, Any] | None:
-    """The approved calls as a plan the executor can run, or nothing to run.
-
-    No `note` on the steps: the executor's plan schema has no such key and refuses the whole
-    plan over it. What each call was for is already on its approval record.
-    """
-    if not calls:
-        return None
+def _needs_payload(needs: Needs | None) -> dict[str, Any]:
+    """The replay fields of an approval's stored input, or none for an ask with no step."""
+    if needs is None or not needs.step:
+        return {}
     return {
-        "steps": [
-            {"id": f"approved_{index}", "op": call.operation, "input": call.arguments}
-            for index, call in enumerate(calls, 1)
-        ]
+        "step": needs.step,
+        "needs": list(needs.steps),
+        "gated": list(needs.gated),
+        "plan": needs.plan,
     }
+
+
+def _needs_of(payload: dict[str, Any]) -> dict[str, Any]:
+    """The replay fields back, dropping anything that is not the shape they were written in.
+
+    A row whose fields cannot be read runs its call on its own, which is what every approval
+    did before they were recorded: the call the person saw, with nothing added to it.
+    """
+    step = payload.get("step")
+    steps = payload.get("needs")
+    gated = payload.get("gated")
+    plan = payload.get("plan")
+    if not isinstance(step, str) or not step or not isinstance(plan, str):
+        return {}
+    if not isinstance(steps, list) or not all(_is_step(item) for item in steps):
+        return {}
+    if not isinstance(gated, list) or not all(isinstance(item, str) for item in gated):
+        return {}
+    return {"step": step, "needs": tuple(steps), "gated": tuple(gated), "plan": plan}
+
+
+def _is_step(item: object) -> bool:
+    return (
+        isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("op"), str)
+        and isinstance(item.get("input"), dict)
+    )
 
 
 def resumed_notice(operations: Sequence[str]) -> str:
@@ -404,7 +449,6 @@ __all__ = [
     "Decision",
     "answer_approval",
     "approved_calls",
-    "approved_plan",
     "mark_executed",
     "open_approval",
     "resumed_notice",

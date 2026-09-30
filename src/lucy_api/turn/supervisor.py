@@ -26,12 +26,12 @@ from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.permissions.approvals import (
     Ask,
     approved_calls,
-    approved_plan,
     mark_executed,
     open_approval,
     resumed_notice,
 )
 from lucy_api.permissions.gate import Floors, PermissionGate, once_key
+from lucy_api.permissions.replay import needs, replay
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
@@ -275,7 +275,19 @@ class TurnSupervisor:
         # round is told about.
         approved = await approved_calls(self._store, claimed.id)
         await mark_executed(self._store, approved)
-        opening = resumed_notice(tuple(call.operation for call in approved))
+        # Each approved call runs with the steps it reads from, as the plan that asked for it
+        # would have; one that reads from something the person refused does not, and the
+        # model is told which and why rather than finding a result missing.
+        replayed = replay(approved)
+        opening = " ".join(
+            filter(
+                None,
+                (
+                    resumed_notice(tuple(call.operation for call in replayed.ran)),
+                    *(why for _call, why in replayed.held),
+                ),
+            )
+        )
         budget = _remaining(prepared.budget if prepared is not None else Budget(), session)
         if budget is None:
             await self._finish_over_budget(claimed, pack_ctx.policy.session_token_budget)
@@ -434,7 +446,7 @@ class TurnSupervisor:
                         ),
                         append=append,
                         opening_notice=opening,
-                        opening_plan=approved_plan(approved),
+                        opening_plan=replayed.plan,
                         # The id the provider understands, not the spec. A session stores
                         # `lmstudio:sonnet`; the provider was already built for `sonnet` and
                         # sends whatever this says straight up the wire, so passing the spec
@@ -492,8 +504,10 @@ class TurnSupervisor:
                     "description": result.description,
                 },
             )
+            parked = tuple(str(ask.get("step") or "") for ask in asks)
             for ask in asks:
                 arguments = ask.get("arguments")
+                step = str(ask.get("step") or "")
                 await open_approval(
                     self._store,
                     account=claimed.account_id,
@@ -509,6 +523,7 @@ class TurnSupervisor:
                         policy=pack_ctx.permission_mode,
                         termination=result.termination.value,
                         stop_reason=result.stop_reason.value,
+                        needs=needs(result.parked_plan, step, parked=parked) if step else None,
                     ),
                 )
             await self._store.record_spend(claimed.account_id, claimed.id, _spend(result))
