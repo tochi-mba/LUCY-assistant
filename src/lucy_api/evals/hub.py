@@ -30,12 +30,15 @@ two together."""
 class HubError(Exception):
     """The hub answered, and not with what the harness needed.
 
-    ``status`` is the HTTP status, or 0 when there was no answer at all.
+    ``status`` is the HTTP status, or 0 when there was no answer at all. ``problem`` is the
+    last part of the problem ``type`` the hub answered with, such as ``settings-unavailable``,
+    or empty when it did not name one.
     """
 
-    def __init__(self, message: str, *, status: int = 0) -> None:
+    def __init__(self, message: str, *, status: int = 0, problem: str = "") -> None:
         super().__init__(message)
         self.status = status
+        self.problem = problem
 
     @property
     def fatal(self) -> bool:

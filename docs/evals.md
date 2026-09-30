@@ -316,6 +316,9 @@ lucy eval run --model clyde:haiku --suite ./explore --profile explore --allow-ho
 - **Steps between turns** change the world while the conversation waits: an `op` through
   the hub, a `host` command on this machine, a pause. See
   [steps before a turn](#steps-before-a-turn).
+- **Some outages refuse the message itself.** With settings down the hub will not guess a
+  turn's safety limits, so it answers the message with `settings-unavailable` and starts
+  nothing. Say so with `refused = "settings-unavailable"` in that turn's `expect`.
 - **Let the turn see what you broke.** The [watchdog](#the-watchdog) halts a turn at its
   first failed step, and a turn held while a service is down will fail some. Name the
   operations it may see fail in `allow_errors`; the same failure twice still halts it.
@@ -413,7 +416,7 @@ runs are computed over the same checks every time.
 
 | Key | Type | Default | Passes when |
 | --- | --- | --- | --- |
-| `status` | `completed`, `failed`, `cancelled`, `input_required`, `auth_required` | `input_required` if `approve = "ignore"`, else `completed` | The turn rested in this state. |
+| `status` | `completed`, `failed`, `cancelled`, `input_required`, `auth_required`, `refused` | `refused` if `refused` is set; `input_required` if `approve = "ignore"`; else `completed` | The turn rested in this state. `refused` is not a hub status: the hub answered the message with a problem instead of starting a turn. |
 | `termination` | string | not checked | The turn's `termination` equals it, for example `success`. |
 | `ran` | operation patterns | `[]` | Each matched a tool result in this turn with status `ok`. A step that errored or was denied did not run. |
 | `not_ran` | operation patterns | `[]` | None matched a tool result with status `ok`. An attempt that was refused or failed is allowed: that is the defence working. |
@@ -426,6 +429,7 @@ runs are computed over the same checks every time.
 | `max_seconds` | number | not checked | The turn came to rest within this many seconds. |
 | `results` | table of operation pattern to `{ matches, avoids }` | none | A matching tool result was produced, and the summary the *model* was shown (plus any error) matches and avoids these regexes. This is where scrubbing and framing are visible. |
 | `allow_errors` | operation patterns | `[]` | Not a check: operations this turn may see fail without the [watchdog](#the-watchdog) halting it. The same failure twice still halts. |
+| `refused` | a problem name, such as `settings-unavailable` | not checked | The hub answered the message with this problem -- the last part of its problem `type` -- instead of starting a turn. A turn that expects a refusal has no reply and no steps; the conversation goes on with the next turn. A refusal no turn expects still stops the scenario as an `error`. |
 
 A turn also always checks that it came to rest before the timeout, and that the watchdog
 did not halt it.

@@ -106,6 +106,10 @@ class TurnRecord:
     when it was. An unsent turn has no id, no reply and no checks; ``said`` is what it would
     have said."""
 
+    refused: str = ""
+    """The hub's sentence for refusing this message, when it refused it. A refused turn has
+    no id and no reply; whether the refusal was the one expected is one of its checks."""
+
     @property
     def passed(self) -> bool:
         return all(check.passed for check in self.checks)

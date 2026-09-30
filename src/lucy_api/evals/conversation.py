@@ -51,6 +51,7 @@ from lucy_api.evals.scenario import (
     OK,
     OP_STEP,
     TERMINAL_STATUSES,
+    TURN_REFUSED,
     WAIT_STEP,
     HostCommand,
     Wait,
@@ -147,7 +148,24 @@ class Conversation:
             return _unsent(index, spec, taken, unsent)
         before = self._cache_read()
         started = self.pace.clock()
-        sent = self.hub.send_message(self.session_id, spec.say)
+        try:
+            sent = self.hub.send_message(self.session_id, spec.say)
+        except HubError as exc:
+            # A refusal the scenario expects is its answer, not a broken run; any other is
+            # still the run stopping, as it always was.
+            if not spec.expect.refused or exc.fatal or not exc.problem:
+                raise
+            seen = Observation(
+                status=TURN_REFUSED,
+                termination="",
+                seconds=self.pace.clock() - started,
+                timeout=timeout,
+                timed_out=False,
+                exchange=exchange_for([], ""),
+                refused=exc.problem,
+                refusal=str(exc),
+            )
+            return _refused(index, spec, taken, seen)
         turn_id = str(sent.get("id") or "")
         watcher = Watcher(
             turn_id,
@@ -270,7 +288,11 @@ class Conversation:
         label = f"before {number} `{step.command}`"
         if self.shell is None:
             refused = BeforeRecord(
-                kind=HOST_STEP, step=step.command, status=REFUSED, passed=False, error=NOT_ALLOWED
+                kind=HOST_STEP,
+                step=step.command,
+                status=REFUSED,
+                passed=False,
+                error=NOT_ALLOWED,
             )
             return refused, f"{label}: {NOT_ALLOWED}"
         finished = self.shell(step.command, step.timeout_seconds)
@@ -374,6 +396,34 @@ def _unsent(index: int, spec: TurnSpec, taken: tuple[BeforeRecord, ...], why: st
         checks=(),
         before=taken,
         unsent=why,
+    )
+
+
+def _refused(
+    index: int, spec: TurnSpec, taken: tuple[BeforeRecord, ...], seen: Observation
+) -> TurnRecord:
+    """A message the hub answered with a problem: no turn, no reply, and the checks on that."""
+    return TurnRecord(
+        index=index,
+        said=spec.say,
+        approve=spec.approve,
+        turn_id="",
+        status=TURN_REFUSED,
+        termination="",
+        seconds=round(seen.seconds, 3),
+        timed_out=False,
+        iterations=0,
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=None,
+        reply="",
+        results=(),
+        asks=(),
+        errors=(),
+        verify=(),
+        checks=check_turn(spec.expect, seen, prefix=f"turn {index}: "),
+        before=taken,
+        refused=seen.refusal,
     )
 
 

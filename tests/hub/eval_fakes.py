@@ -106,6 +106,9 @@ class FakeLucy:
         self.grants: set[tuple[str, str]] = set()
         self.files: dict[str, str] = {"progress.md": "# Progress\n"}
         self.fail: dict[tuple[str, str], Any] = {}
+        self.refusals: dict[str, tuple[int, str, str]] = {}
+        """A message the hub answers with a problem instead of a turn, by what was said:
+        its status, the problem named at the end of its ``type``, and its sentence."""
         self.invoke_bodies: dict[str, Any] = {}
         self.requests: list[httpx.Request] = []
         self.answered: list[dict[str, Any]] = []
@@ -196,6 +199,15 @@ class FakeLucy:
         return httpx.Response(200, json=self.sessions[session_id])
 
     def _input(self, session_id: str, event: dict[str, Any]) -> httpx.Response:
+        if event["type"] == "input.message" and event["content"] in self.refusals:
+            status, problem, detail = self.refusals[event["content"]]
+            body = {
+                "type": f"https://lucy-api.invalid/problems/{problem}",
+                "title": "Refused",
+                "status": status,
+                "detail": detail,
+            }
+            return httpx.Response(status, json=body)
         if event["type"] == "input.message":
             turn_id = f"trn_{len(self.turns) + 1}"
             turn = {
