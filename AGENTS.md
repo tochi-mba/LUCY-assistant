@@ -49,14 +49,14 @@ MODEL=provider:model` (`lucy eval`), which no workflow and no pytest run ever st
 - mypy `strict = true`; `filterwarnings = ["error"]`.
 - No file under `src/`, `tests/` or `scripts/` over 1000 lines.
 - Import contracts are the architecture statement, not an afterthought. Routers never
-  import `httpx`, `keyring_client` or `settings_client`.
+  import `httpx`, `keyring_client`, `settings_client` or `weftai`.
 
 `python scripts/parity.py` scores every sibling **and this repository**. Run it after
 changing anything the family standard cares about.
 
 ## Dependencies
 
-`weftai` comes from PyPI, pinned exactly (`weftai[all]==0.2.4`), never as a path
+`weftai` comes from PyPI, pinned exactly (`weftai[all]==0.5.0`), never as a path
 dependency to a checkout. Improving weftai means releasing weftai — to npm and PyPI in
 lockstep — and then bumping the pin here.
 
