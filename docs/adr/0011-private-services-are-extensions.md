@@ -2,6 +2,10 @@
 
 **Status:** accepted
 
+**Not yet built (2026-09-30):** seam 3. The hub's packs are the fixed list in
+`packs/service.py`, and nothing reads the `lucy.capabilities` group, so a private
+capability cannot yet reach the model. Seams 1, 2 and 4 and the parity check are built.
+
 ## Context
 
 The family is public. Some integrations are not, and more will not be: a tool somebody
