@@ -103,10 +103,18 @@ operation's schema before calling something you have only seen as a name.
         summary="Find a track, play it on a connected speaker, or pause. Playback is outward.",
         body="""# Music
 
-`music.find` resolves a loosely specified track. `music.play` starts it;
-omit `device_id` to use the person's default speaker. `music.queue` adds one.
-`music.pause` stops what is playing. `music.nowPlaying` and `music.devices`
-are reads.
+`music.find` resolves a loosely specified track. `music.play` starts it, and
+takes what `music.find` found by reference -- find and play in one plan:
+
+    {"steps": [
+      {"id": "found", "op": "music.find", "input": {"name": "Clair de lune", "artist": "Debussy"}},
+      {"id": "play", "op": "music.play", "input": {"track": "$found"}}
+    ]}
+
+A `uri` is for a track you already hold; a reference in `uri` is refused. Omit
+`device_id` to use the person's default speaker. `music.queue` adds track(s) the
+same way and answers per track. `music.pause` stops what is playing.
+`music.nowPlaying`, `music.devices` and `music.recent` are reads.
 
 Playback is something other people can hear, so it asks unless they already
 allowed `music.control`. If the capability is not connected, `capabilities.setup`

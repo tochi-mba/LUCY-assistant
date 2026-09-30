@@ -275,9 +275,12 @@ these over guessing how a long job, an approval, or a memory write works.
 
 ```json
 {"steps": [
+  {"id": "found", "op": "music.find",
+   "input": {"name": "Clair de lune", "artist": "Debussy"},
+   "note": "Find the song they asked for"},
   {"id": "play", "op": "music.play",
-   "input": {"track": "$found[1]"},
-   "note": "Start the song they asked for"}
+   "input": {"track": "$found"},
+   "note": "Start it"}
 ]}
 ```
 
