@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from lucy_api.core.errors import LucyError
-from lucy_api.sessions.items import append_item, list_agent_items, list_items, regenerate_item
+from lucy_api.sessions.items import append_item, list_agent_items, list_items
 from lucy_api.sessions.models import CreateSession, Cursor
 from lucy_api.sessions.sql_store import NewItem, identifier
 
@@ -130,53 +130,6 @@ async def test_appending_with_a_parent_still_refuses_another_accounts_session(
 
     assert caught.value.code == "not-found"
     assert len(await transcript(sessions_store, session)) == 1
-
-
-async def test_regenerating_an_answer_makes_a_sibling_and_leaves_the_original_alone(
-    sessions_store: SessionStore,
-) -> None:
-    session = await a_session(sessions_store)
-    question = await append_item(sessions_store, OWNER, session, said("what is the weather"))
-    answer = await append_item(sessions_store, OWNER, session, said("cold", role="assistant"))
-
-    again = await regenerate_item(
-        sessions_store, OWNER, str(answer["id"]), said("cold and wet", role="assistant")
-    )
-
-    assert again["parent_id"] == question["id"] == answer["parent_id"]
-    assert again["id"] != answer["id"]
-    assert [row["id"] for row in await transcript(sessions_store, session)] == [
-        question["id"],
-        answer["id"],
-        again["id"],
-    ]
-
-
-async def test_regenerating_the_first_message_produces_another_item_with_no_parent(
-    sessions_store: SessionStore,
-) -> None:
-    # The case a single None default would get wrong: this must not become a reply to the
-    # conversation it is trying to restart.
-    session = await a_session(sessions_store)
-    first = await append_item(sessions_store, OWNER, session, said("hello"))
-    await append_item(sessions_store, OWNER, session, said("hi", role="assistant"))
-
-    again = await regenerate_item(sessions_store, OWNER, str(first["id"]), said("hello again"))
-
-    assert again["parent_id"] is None
-    assert again["seq"] == 3
-
-
-async def test_regenerating_an_item_belonging_to_somebody_else_finds_nothing(
-    sessions_store: SessionStore,
-) -> None:
-    session = await a_session(sessions_store)
-    item = await append_item(sessions_store, OWNER, session, said("hello"))
-
-    with pytest.raises(LucyError) as caught:
-        await regenerate_item(sessions_store, STRANGER, str(item["id"]), said("mine now"))
-
-    assert caught.value.code == "not-found"
 
 
 async def test_a_page_of_a_transcript_reads_forwards_and_resumes_from_a_cursor(

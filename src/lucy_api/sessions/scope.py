@@ -189,10 +189,6 @@ class SessionScope:
     this class. Rendered alongside the rest, so a new fact does not need a new renderer."""
 
     @property
-    def is_agent(self) -> bool:
-        return bool(self.agent_id)
-
-    @property
     def workspace_root(self) -> str:
         """The subtree this scope may touch, or empty when it has no sandbox."""
         return self.workspace.root if self.workspace else ""

@@ -178,7 +178,6 @@ def test_a_child_inherits_the_person_and_the_conversation() -> None:
         parent.profile,
         parent.session_id,
     )
-    assert child.is_agent is True
     assert child.depth == parent.depth + 1
     assert child.workspace is not None
     assert child.workspace.root == "sessions/ses_7Kq2/agents/agt_1"

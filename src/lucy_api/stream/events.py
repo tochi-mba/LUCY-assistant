@@ -592,23 +592,10 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
 EVENT_TYPES = frozenset(name for names in GROUPS.values() for name in names)
 """Every declared name. Membership is informative and never a gate: the set is open."""
 
-TRANSPORT_TYPES = frozenset(GROUPS["Stream"])
-"""What a connection invents for itself and never writes to the session's log."""
-
 
 def is_well_formed(name: str) -> bool:
     """Whether a name obeys the grammar. Checked where an event is emitted, not assumed."""
     return GRAMMAR.match(name) is not None
-
-
-def is_declared(name: str) -> bool:
-    """Whether a name is in this catalogue.
-
-    Deliberately not used to accept or reject anything. A deployment shipping a pack with
-    events of its own is expected, and a client that has never heard of one must ignore it
-    rather than fail. This exists for documentation and for tests.
-    """
-    return name in EVENT_TYPES
 
 
 @dataclass(frozen=True, slots=True)

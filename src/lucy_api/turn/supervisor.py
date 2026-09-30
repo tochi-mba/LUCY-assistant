@@ -668,13 +668,6 @@ def _items_for(rows: list[dict[str, Any]], agent_id: str) -> list[dict[str, Any]
     return [row for row in rows if not row.get("agent_id")]
 
 
-def _conversation_order(
-    items: list[dict[str, Any]], turns: list[dict[str, Any]], visible_turns: set[str]
-) -> list[dict[str, Any]]:
-    """Kept under the old name so existing tests keep importing from this module."""
-    return conversation_order(items, turns, visible_turns)
-
-
 def _status_for(termination: Termination) -> str:
     if termination is Termination.success or termination is Termination.refused:
         return "completed"

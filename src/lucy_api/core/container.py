@@ -738,22 +738,6 @@ async def _load_grants(
     return dict(await grants_for(store, account, profile, session_id=session_id))
 
 
-def _integer(
-    resolved: ResolvedSettings | None,
-    key: str,
-    default: int,
-    *,
-    minimum: int,
-    maximum: int,
-) -> int:
-    if resolved is None:
-        return default
-    value = resolved.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return min(maximum, max(minimum, value))
-
-
 def _workspace_name(account: str, profile: str) -> str:
     """A non-identifying, valid and stable environment name for one profile."""
     digest = hashlib.sha256(f"{account}\0{profile}".encode()).hexdigest()[:20]

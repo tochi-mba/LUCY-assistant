@@ -160,7 +160,7 @@ def sequences(received: list[Event]) -> list[int]:
 
 def deltas(received: list[Event]) -> list[Event]:
     """What was in the log, as opposed to the frames the connection invented."""
-    return [event for event in received if event.type not in taxonomy.TRANSPORT_TYPES]
+    return [event for event in received if event.type not in taxonomy.GROUPS["Stream"]]
 
 
 async def test_a_sequence_number_comes_from_the_table_and_only_ever_climbs(

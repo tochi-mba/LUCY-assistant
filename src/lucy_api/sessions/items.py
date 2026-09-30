@@ -76,21 +76,6 @@ async def append_item(
     return await store.transaction(apply)
 
 
-async def regenerate_item(
-    store: SessionStore, account: str, item_id: str, item: NewItem
-) -> dict[str, Any]:
-    """Write ``item`` as a sibling of ``item_id``: the same parent, a new place in the log.
-
-    This is edit-and-regenerate. The item being replaced is never touched -- a transcript is
-    append-only, and an assistant that can rewrite what it said last week is an assistant
-    nobody can audit. Regenerating the *first* item produces another item with no parent,
-    which is why the parent is passed through rather than defaulted.
-    """
-    existing = await store.item(account, item_id)
-    parent: str | None = existing["parent_id"]
-    return await append_item(store, account, str(existing["session_id"]), item, parent)
-
-
 async def list_items(
     store: SessionStore, account: str, session: str, cursor: Cursor
 ) -> dict[str, Any]:

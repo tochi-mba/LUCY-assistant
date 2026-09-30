@@ -25,6 +25,7 @@ from lucy_api.sessions.turns import cancel_turn, submit_messages
 from lucy_api.settings.policy import TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
+from lucy_api.turn.prompt import conversation_order
 from lucy_api.turn.stop import Budget
 from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 
@@ -591,8 +592,6 @@ async def test_a_full_window_compacts_older_turns_and_swallows_a_too_new_session
 
 
 def test_a_rolled_back_turn_vanishes_from_the_next_prompt() -> None:
-    from lucy_api.turn.supervisor import _conversation_order
-
     items = [
         {"id": "1", "seq": 1, "turn_id": "t1", "role": "user", "content": "old"},
         {"id": "2", "seq": 2, "turn_id": "t1", "role": "assistant", "content": "partial"},
@@ -602,13 +601,11 @@ def test_a_rolled_back_turn_vanishes_from_the_next_prompt() -> None:
         {"id": "t1", "status": "cancelled", "stop_reason": "rollback", "created_at": 1.0},
         {"id": "t2", "status": "queued", "stop_reason": None, "created_at": 2.0},
     ]
-    ordered = _conversation_order(items, turns, {"t1", "t2"})
+    ordered = conversation_order(items, turns, {"t1", "t2"})
     assert [item["content"] for item in ordered] == ["new"]
 
 
 def test_an_interrupted_turn_keeps_the_progress_it_had_already_made() -> None:
-    from lucy_api.turn.supervisor import _conversation_order
-
     items = [
         {"id": "1", "seq": 1, "turn_id": "t1", "role": "user", "content": "old"},
         {"id": "2", "seq": 2, "turn_id": "t1", "role": "assistant", "content": "partial"},
@@ -618,7 +615,7 @@ def test_an_interrupted_turn_keeps_the_progress_it_had_already_made() -> None:
         {"id": "t1", "status": "cancelled", "stop_reason": "interrupt", "created_at": 1.0},
         {"id": "t2", "status": "queued", "stop_reason": None, "created_at": 2.0},
     ]
-    ordered = _conversation_order(items, turns, {"t1", "t2"})
+    ordered = conversation_order(items, turns, {"t1", "t2"})
     assert [item["content"] for item in ordered] == ["old", "partial", "new"]
 
 
