@@ -30,7 +30,7 @@ exist. The reasoning and the four seams are in
 | --- | --- |
 | its own settings namespace | the entry-point group `settings_api.namespaces` |
 | lines it may put in front of the model, and their toggles | the entry-point group `lucy.feeds` |
-| its capability and operations | the entry-point group `lucy.capabilities` |
+| its capability and operations | the entry-point group `lucy.capabilities`, reserved by ADR-0011; the hub does not load packs from it yet, so a private capability cannot reach the model today |
 | the process itself | `docker-compose.local.yml`, gitignored, merged by `make up` |
 | an audience of its own, when the hub calls it for a person | `exchange_audiences` in `scripts/genenv.local.json`, gitignored |
 | a setup card in the first-run flow | `LUCY_EXTRA_SERVICES`, which carries its own title, documentation, instructions and checks |
@@ -88,7 +88,7 @@ when you need private checkouts or write access:
 ```bash
 gh auth login                 # only needed for private checkouts / write access
 bash scripts/bootstrap.sh     # clones every repos.txt entry your account can read
-make images && make up        # optional: the family on ports 8001–8008
+make images && make up        # optional: the family on ports 8000–8009
 ```
 
 You do **not** install or use the family GitHub App to run Lucy. The app exists only so
