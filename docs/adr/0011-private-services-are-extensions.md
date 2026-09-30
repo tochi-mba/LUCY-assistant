@@ -39,8 +39,10 @@ namespace module. The public catalogue has no module for it and no import of one
 in front of the model gains an entry-point group, `lucy.feeds`. A private capability brings
 its own fields and its own toggles with it.
 
-**3. Capability packs are already an extension point.** `lucy.capabilities` was designed for
-third parties and works unchanged for private ones.
+**3. Capability packs become an extension point.** `lucy.capabilities` was designed for
+third parties and would serve private ones unchanged. The hub does not read the group yet
+(see the status note above), so until it does a private capability has no way to reach the
+model.
 
 **4. Compose is an overlay.** The public `docker-compose.yml` describes the public family.
 A private service lives in `docker-compose.local.yml`, which is gitignored and merged by
