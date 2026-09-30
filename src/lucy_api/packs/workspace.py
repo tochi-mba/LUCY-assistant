@@ -72,6 +72,18 @@ ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
 
 
+CONFIRMATIONS = frozenset(
+    {
+        "workspace.write",
+        "workspace.edit",
+        "workspace.patch",
+        "workspace.delete",
+        "workspace.move",
+    }
+)
+"""Operations whose result is the sandbox's account of a change Lucy made, not content."""
+
+
 class WorkspacePack:
     id = "workspace"
     title = "Workspace"
@@ -126,9 +138,14 @@ class WorkspacePack:
         )
 
     def result_trust(self, operation: str, data: object) -> Trust:
-        """Files and command output: anything can be in them."""
-        del operation, data
-        return Trust.untrusted
+        """Files and command output: anything can be in them. A confirmation is Lucy's own.
+
+        "This came from somewhere an attacker can write" was said about `{"written": true}`
+        after Lucy wrote a file. What a write, edit, move or delete reports is the sandbox's
+        own account of what Lucy just did, and no outsider chose a word of it.
+        """
+        del data
+        return Trust.observed if operation in CONFIRMATIONS else Trust.untrusted
 
     def setup(self) -> SetupPlan | None:
         # Session creation provisions this capability. There is deliberately no manual

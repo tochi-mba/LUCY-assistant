@@ -27,6 +27,8 @@ the page. A watch that never fires expires with one notice and the offer to star
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from weftai.operation import define_operation
@@ -69,13 +71,13 @@ from lucy_api.work.watch import (
 
 if TYPE_CHECKING:
     import re
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     import httpx
     from weftai.operation import AnyOperation, RunContext
 
-    from lucy_api.clients.environments import EnvironmentsClient
+    from lucy_api.clients.environments import EnvironmentsClient, FileText
     from lucy_api.packs.context import PackContext
     from lucy_api.work import Registry
     from lucy_api.work.watch import Probe, Sleep
@@ -228,10 +230,11 @@ class WatchPack:
                 {
                     "name": "watch.start",
                     "description": (
-                        "Say when a workspace file exists or matches, a public URL answers "
-                        "or matches, or another piece of work finishes. Give exactly one of "
-                        "path, url or work_id. Returns a handle at once; a notice arrives "
-                        "when it fires or expires (watch, wait for, monitor, when, notify)."
+                        "Say when a workspace file appears or changes (or matches, with a "
+                        "pattern), a public URL answers or matches, or another piece of work "
+                        "finishes. Give exactly one of path, url or work_id. Returns a handle "
+                        "at once; a notice arrives when it fires or expires (watch, wait for, "
+                        "monitor, when, notify)."
                     ),
                     "input": object_schema(
                         {
@@ -353,9 +356,10 @@ class WatchPack:
             return _refusal("invalid", str(exc))
         client = self._client(context)
         environment = context.workspace_environment_id
+        seen = Seen()
 
         async def file_probe() -> Check:
-            return await _file_check(client, environment, absolute, pattern)
+            return await _file_check(client, environment, absolute, pattern, seen)
 
         return file_probe
 
@@ -372,20 +376,53 @@ class WatchPack:
 # --------------------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
+class Seen:
+    """What a file looked like at the first check, so a later one can say it changed.
+
+    A watch with no pattern used to fire the moment the file existed. Asked to "keep an eye
+    on review.md and tell me when it changes", the model started that watch, and it fired at
+    once on a file that had not changed; the model then noticed "it completed in 0 seconds".
+    Watching a file that is already there means watching it for a change.
+    """
+
+    checked: bool = False
+    digest: str = ""
+
+
+def _digest(head: FileText) -> str:
+    return f"{head.size}:{hashlib.sha256(head.content.encode()).hexdigest()}"
+
+
+def _appeared_or_changed(head: FileText, seen: Seen, facts: Mapping[str, object]) -> Check:
+    """Fired when the file is new since the watch began, or different from the last look."""
+    digest = _digest(head)
+    first, before = not seen.checked, seen.digest
+    seen.checked, seen.digest = True, digest
+    if first or before == digest:
+        # Already there at the first look: what was asked for is the next change.
+        return Check(fired=False, detail=f"unchanged, {head.size:,} bytes", facts=facts)
+    excerpt = "" if head.binary else excerpt_around(head.content, None)
+    detail = "changed" if before else "file exists"
+    return Check(fired=True, detail=detail, excerpt=excerpt, facts=facts)
+
+
 async def _file_check(
     client: EnvironmentsClient,
     environment: str,
     path: str,
     pattern: re.Pattern[str] | None,
+    seen: Seen | None = None,
 ) -> Check:
+    seen = seen if seen is not None else Seen()
     try:
         head = await client.read(environment, path, max_bytes=MAX_BODY)
     except AbsentError:
+        seen.checked = True
         return Check(fired=False, detail="no file yet")
     facts = {"size": head.size}
     if pattern is None:
-        excerpt = "" if head.binary else excerpt_around(head.content, None)
-        return Check(fired=True, detail="file exists", excerpt=excerpt, facts=facts)
+        return _appeared_or_changed(head, seen, facts)
     if head.binary:
         return Check(fired=False, detail=BINARY_FILE, facts=facts)
     found = pattern.search(head.content)

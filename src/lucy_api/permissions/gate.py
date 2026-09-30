@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from lucy_api.packs.base import Catalogue, Permission
+    from lucy_api.packs.context import PackContext
 
 WRITE_EFFECTS = frozenset({"write"})
 ACCOUNT_PROFILE = "*"
@@ -68,17 +69,45 @@ class Verdict:
 
 @dataclass(frozen=True, slots=True)
 class Floors:
-    """The three policy floors a mode cannot lower.
+    """The policy floors a mode cannot lower.
 
-    They travel together because they are decided together -- by the person's settings,
-    once per turn -- and read together, by every step the gate inspects. Three loose
-    keyword arguments threaded through two functions is how one of them gets defaulted
-    on one path and not the other.
+    They travel together because they are decided together -- by the person's settings and
+    the session, once per turn -- and read together, by every step the gate inspects. Loose
+    keyword arguments threaded through two functions is how one of them gets defaulted on
+    one path and not the other.
     """
 
     memory_write_policy: str = "ask_first"
     confirm_outward: bool = True
     approval_policy: str = "destructive_always_asks"
+    incognito: bool = False
+    """An incognito session writes no note, so asking the person to approve one asks for
+    nothing. Read in a sent turn: "remember that my favourite editor is helix" parked for
+    approval on `notes.setFact`, was approved, and then met the refusal the handler holds.
+    The gate knows the session is incognito, and says so instead of asking."""
+
+    @classmethod
+    def of(cls, context: PackContext) -> Floors:
+        """The floors one turn runs under, read in one place.
+
+        The auto-mode audit read three of them and defaulted the approval policy, so under
+        `spend_and_destructive_ask` a spend the person had approved was written down as a
+        bypass the gate never granted. Two readers of the same settings is one too many.
+        """
+        policy = context.policy
+        return cls(
+            memory_write_policy=policy.memory_write_policy,
+            confirm_outward=policy.confirm_outward_actions,
+            approval_policy=policy.approval_policy,
+            incognito=context.incognito,
+        )
+
+
+DEFAULT_FLOORS = Floors()
+"""What a plan is judged under when no turn is behind it: the settings' own defaults."""
+
+INCOGNITO = "This session is incognito: notes are neither read nor written."
+NOTES_PERMISSIONS = frozenset({"notes.write", "notes.erase"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,22 +122,15 @@ class Grant:
 class PermissionGate:
     """Mode, grants, and the catalogue's permission list, applied to one plan."""
 
-    def inspect(  # noqa: PLR0913 - mode, grants and the two floors are independent inputs
+    def inspect(
         self,
         plan: Mapping[str, object],
         *,
         mode: str,
         grants: Mapping[str, Grant],
         catalogue: Catalogue | None,
-        memory_write_policy: str = "ask_first",
-        confirm_outward: bool = True,
-        approval_policy: str = "destructive_always_asks",
+        floors: Floors = DEFAULT_FLOORS,
     ) -> Verdict:
-        floors = Floors(
-            memory_write_policy=memory_write_policy,
-            confirm_outward=confirm_outward,
-            approval_policy=approval_policy,
-        )
         permissions = _permissions(catalogue)
         by_operation = _covers(permissions)
         steps = _steps_of(plan)
@@ -182,18 +204,13 @@ def _decide(
     """`once` is the person's answer to this exact call, when there is one. It stands in for
     the permission's standing grant and goes through the same floors in the same order, so a
     one-time yes can never lift a floor a standing yes could not."""
+    floor = _denied_by_floor(permission, floors)
+    if floor is not None:
+        return floor
     grant = once or grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
     if grant is not None and grant.decision.startswith("deny"):
         message = grant.instruction or f"{permission.title} is not allowed."
         return Verdict(False, message, permission.id, permission.title, denied=True)
-    if permission.id == "notes.write" and floors.memory_write_policy == "never":
-        return Verdict(
-            False,
-            "Remembering is off. Only an explicit request from the person writes a new note.",
-            permission.id,
-            permission.title,
-            denied=True,
-        )
     if grant is not None and grant.decision.startswith("allow"):
         return Verdict(True)
     if (
@@ -210,6 +227,21 @@ def _decide(
             permission.title,
         )
     return _mode_verdict(permission, mode, floors.approval_policy)
+
+
+def _denied_by_floor(permission: Permission, floors: Floors) -> Verdict | None:
+    """The floors that deny a note write before any grant is read, so no answer lifts them."""
+    if floors.incognito and permission.id in NOTES_PERMISSIONS:
+        return Verdict(False, INCOGNITO, permission.id, permission.title, denied=True)
+    if permission.id == "notes.write" and floors.memory_write_policy == "never":
+        return Verdict(
+            False,
+            "Remembering is off. Only an explicit request from the person writes a new note.",
+            permission.id,
+            permission.title,
+            denied=True,
+        )
+    return None
 
 
 def _mode_verdict(permission: Permission, mode: str, approval_policy: str) -> Verdict:

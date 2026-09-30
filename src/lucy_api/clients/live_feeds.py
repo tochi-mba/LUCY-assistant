@@ -8,7 +8,7 @@ and keeps enough provenance or identity to fetch the full record later.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.clients.errors import AbsentError, DownstreamError, NotConnectedError
@@ -217,18 +217,23 @@ class WorkspaceFeeds:
         # group already says both, and said here they reached the model twice.
         entries: list[FeedEntry] = [
             FeedEntry(
-                key="shells_running",
-                line=f"{current.shells_running} shells running",
-                trust=Trust.observed,
-                source="workspace",
-            ),
-            FeedEntry(
                 key="sandbox",
                 line=f"sandbox isolation: {current.sandbox_tier or 'unknown'}",
                 trust=Trust.observed,
                 source="workspace",
             ),
         ]
+        if current.shells_running:
+            # Said only when there is one: "0 shells running" on every turn is not news.
+            entries.insert(
+                0,
+                FeedEntry(
+                    key="shells_running",
+                    line=f"{current.shells_running} shells running",
+                    trust=Trust.observed,
+                    source="workspace",
+                ),
+            )
         branch = await _git_branch(self.client, self.environment_id, self.workspace_rel)
         if branch:
             entries.append(
@@ -337,10 +342,17 @@ def _persona_entries(payload: Any) -> tuple[FeedEntry, ...]:
             continue
         note_id = text(item, "note_id")
         body = text(item, "body")
-        # Marked, so a model can tell how to work from what is known, and has the ref to
-        # revise or unlearn it by.
-        line = f"lesson: {body}" if text(item, "kind") == LESSON else body
-        entries.append(_persona_entry(f"note_{index}", "notes", line, item, note_id))
+        if text(item, "kind") == LESSON:
+            # Marked, so a model can tell how to work from what is known, and has the ref
+            # to revise or unlearn it by. Its words are Lucy's, which the provenance says;
+            # its authority is the person's, who said it or corrected Lucy into it. Left to
+            # the source, a lesson came back `[inferred]`, and a model asked what it was
+            # least sure of answered with the person's own rule about archive/: "marked as
+            # inferred, not something you told me directly".
+            entry = _persona_entry(f"note_{index}", "notes", f"lesson: {body}", item, note_id)
+            entries.append(replace(entry, trust=Trust.stated))
+        else:
+            entries.append(_persona_entry(f"note_{index}", "notes", body, item, note_id))
     return tuple(entries)
 
 

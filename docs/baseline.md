@@ -298,3 +298,36 @@ on two separate sessions before it was understood.
 * Cash cost per turn, for the reason given above.
 * The typed-decision layer, which remains off. These conversations are the start of the
   golden set it needs, not a test of it.
+
+## The ladder: harder conversations, one rung at a time
+
+The sitting after the first real conversations fixed twenty-odd defects and then started a
+ladder: conversations a person would actually have, each one notch more demanding than the
+last, with a written list of what to inspect after every turn. Each rung is held on the weakest
+model (`clyde:haiku`), every request the hub sends is captured, and the eight checks run after
+every turn: the turn's status against what the person saw; the steps that ran against the
+approvals answered; leaks of wire format; `GET /usage`; the hub's log for the session;
+`environments`; `GET /context`; and, once per thread, the captured request read as the model
+read it.
+
+### Rung 1: building something small in the workspace
+
+Eleven turns on a fresh profile: what is in the workspace, make and read back a template,
+edit a heading, plant a word twice and change it, run `wc -l`, watch the file, edit it from
+outside, stop the watch, run a script in the background and be told when it lands. All eleven
+completed; the final answer was right. Four defects came out of the checks rather than the
+replies.
+
+| Seen | Cause | Fix |
+| --- | --- | --- |
+| `GET /usage` said `input_tokens: 0` beside `turn_input_tokens: 54,647` after two turns | The session's own totals were never written. A turn that parked for approval ran the loop twice: the first run's cost was never recorded and the second overwrote the row. `session_token_budget`, "a hard cap on tokens one session may spend", capped each turn on its own | One additive `record_spend` for every run of the loop, on the turn and the session; the budget is the conversation's; a budget stops further rounds instead of failing an answer that landed on the cap |
+| Asked to "keep an eye on review.md and tell me when it changes", the watch fired at once; the model noticed ("it completed in 0 seconds") and, next turn, credited the watch with an edit it had read itself | A file watch with no pattern fired on existence | A file that is there is watched for its next change; one that is not, for its appearance |
+| `{"written": true, "file_fingerprint": ...}` after Lucy's own write reached the model as "somewhere an attacker can write" | Every workspace result was untrusted | A write, edit, patch, delete or move confirmation is the sandbox's account of what Lucy did, and is observed; content and command output stay untrusted |
+| `0 shells running` on every turn of every conversation | The feed line was unconditional | Said only when a shell is running |
+
+Two things a model did that no fix addresses: on the last turn haiku called `work.result` on
+a script it had been told not to wait for (the script had finished during the approval round
+trip, so the call succeeded), then answered "No running work. Ready." with the output in hand,
+and only said "it landed" when asked again; and on turn 5 it spent five approvals on two
+edits. Both are the model's, and both are in the captured requests for the next model to be
+measured against.

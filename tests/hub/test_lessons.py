@@ -19,9 +19,10 @@ from lucy_api.clients.persona import FakePersonaClient, HttpPersonaClient, Lesso
 from lucy_api.clients.testing import Answer, FakeHttp, ReadRecorder, problem
 from lucy_api.clients.transport import PROFILE_HEADER
 from lucy_api.context.feeds import FeedRequest
+from lucy_api.context.types import Trust
 from lucy_api.packs.notes import NO_LESSON, NotesPack
 from lucy_api.packs.service import Capabilities, installed_packs
-from lucy_api.permissions.gate import Grant
+from lucy_api.permissions.gate import INCOGNITO, Grant
 from lucy_api.prompt.sections import PromptContext, render_all
 from lucy_api.sessions.scope import SessionScope
 
@@ -165,7 +166,8 @@ async def test_an_incognito_session_keeps_no_lessons(op: str, inputs: dict[str, 
     capabilities, context = _hub(persona, incognito=True)
     result = await _run(capabilities, context, op, **inputs)
 
-    assert result["steps"][0]["data"]["status"] == "incognito"
+    assert result["issues"][0]["code"] == "permission_denied"
+    assert result["issues"][0]["message"] == INCOGNITO
     assert persona.lessons == {}
 
 
@@ -267,6 +269,21 @@ async def test_a_kept_lesson_comes_back_marked_with_the_ref_to_revise_it_by() ->
         f"lesson: {NOTE['body']} [ref {NOTE['note_id']}]",
         "Works late. [ref note_1]",
     )
+
+
+async def test_a_lesson_carries_the_persons_authority_whoever_worded_it() -> None:
+    """The bug, named: a lesson came back `[inferred]`, because Lucy wrote the note.
+
+    Asked which of its notes it was least sure about, the model picked the person's own rule
+    about archive/: "marked as inferred, not something you told me directly, and I don't
+    know if it still holds". A lesson is learned from the person, said or corrected into;
+    only its words are Lucy's. An observation Lucy wrote stays what its source makes it.
+    """
+    other = {**NOTE, "note_id": "note_1", "kind": "observation", "body": "Works late."}
+    http = FakeHttp(Answer(body={"persona": {}, "fields": [], "notes": [NOTE, other]}))
+    [feed] = await PersonaFeeds(http, BASE).fetch(FeedRequest(profile="personal", session_id="s"))
+
+    assert [entry.trust for entry in feed.entries] == [Trust.stated, Trust.inferred]
 
 
 def test_the_prompt_says_where_lessons_come_back() -> None:

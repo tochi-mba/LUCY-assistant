@@ -19,7 +19,7 @@ from settings_client.testing import FakeSettingsClient
 from lucy_api.api.app import create_app
 from lucy_api.clients.environments import FakeEnvironmentsClient
 from lucy_api.clients.memory import Note
-from lucy_api.packs.notes import INCOGNITO
+from lucy_api.permissions.gate import INCOGNITO
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -108,17 +108,26 @@ def _watch(container: Container) -> list[PackContext]:
 async def test_a_memory_write_invoked_in_an_incognito_session_writes_nothing(
     hub: tuple[AsyncClient, Container], memory: Memory, incognito: bool
 ) -> None:
-    """The bug, named: this call reached the memory service. The other case shows it can."""
+    """The bug, named: this call reached the memory service. The other case shows it can.
+
+    An incognito write is denied at the permission gate, before any handler runs, and the
+    route answers with the denial and its reason."""
     http, _container = hub
     session = await _session(http, incognito=incognito)
     await _invoke(http, "capabilities.use", {"id": "notes"}, session)
 
-    step = await _invoke(http, "notes.remember", {"title": "tea", "body": "green"}, session)
+    answer = await http.post(
+        "/v1/tools/notes.remember/invoke",
+        json={"input": {"title": "tea", "body": "green"}, "session_id": session},
+        headers=bearer(),
+    )
 
     if incognito:
-        assert step["data"] == {"status": "incognito", "message": INCOGNITO}
+        assert answer.status_code == 409, answer.text
+        assert answer.json()["detail"] == INCOGNITO
         assert memory.written == []
     else:
+        assert answer.status_code == 200, answer.text
         assert [draft.title for draft in memory.written] == ["tea"]
 
 

@@ -29,7 +29,7 @@ from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
-from lucy_api.permissions.gate import PermissionGate
+from lucy_api.permissions.gate import Floors, PermissionGate
 from lucy_api.turn.window import executable
 
 NOT_FOUND = "not-found"
@@ -232,9 +232,7 @@ class Capabilities:
             mode=context.permission_mode,
             grants=context.grants,
             catalogue=catalogue,
-            memory_write_policy=context.policy.memory_write_policy,
-            confirm_outward=context.policy.confirm_outward_actions,
-            approval_policy=context.policy.approval_policy,
+            floors=Floors.of(context),
         )
         if not verdict.allowed:
             return {

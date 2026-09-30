@@ -49,6 +49,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.collections import NOTE
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
+from lucy_api.permissions.gate import INCOGNITO
 from lucy_api.prompt.docs import capability_doc
 
 if TYPE_CHECKING:
@@ -58,8 +59,6 @@ if TYPE_CHECKING:
     from weftai.operation import AnyOperation, RunContext
 
     from lucy_api.packs.context import PackContext
-
-INCOGNITO = "this session is incognito: notes are neither read nor written"
 
 LEAST_TRUSTED_LAST = (Trust.stated, Trust.observed, Trust.inferred, Trust.untrusted)
 NO_LESSON = "no lesson has that id; each lesson's id is its [ref ...] in your standing notes"
@@ -442,9 +441,8 @@ class NotesPack:
         return await self._write(run, kind="episode")
 
     async def _write(self, run: RunContext[PackContext], *, kind: str) -> dict[str, Any]:
-        refused = _incognito(run)
-        if refused is not None:
-            return refused
+        # An incognito session never reaches a write handler: the permission gate denies
+        # `notes.write` and `notes.erase` before any step runs, and says why.
         note = await self._client(run.ctx).remember(
             Draft(
                 title=str(run.input.get("title") or ""),
@@ -457,9 +455,6 @@ class NotesPack:
         return as_dict(note)
 
     async def _confirm(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run)
-        if refused is not None:
-            return refused
         return as_dict(
             await self._client(run.ctx).confirm(
                 str(run.input.get("memory_id") or ""), profile=run.ctx.profile
@@ -467,9 +462,6 @@ class NotesPack:
         )
 
     async def _correct(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run)
-        if refused is not None:
-            return refused
         return as_dict(
             await self._client(run.ctx).correct(
                 str(run.input.get("memory_id") or ""),
@@ -480,9 +472,6 @@ class NotesPack:
         )
 
     async def _forget(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run)
-        if refused is not None:
-            return refused
         return as_dict(
             await self._client(run.ctx).forget(
                 str(run.input.get("memory_id") or ""), profile=run.ctx.profile
@@ -490,7 +479,7 @@ class NotesPack:
         )
 
     async def _learn(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run) or _unsaid(run)
+        refused = _unsaid(run)
         if refused is not None:
             return refused
         try:
@@ -503,7 +492,7 @@ class NotesPack:
         return lesson_dict(learned)
 
     async def _revise_lesson(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run) or _unsaid(run)
+        refused = _unsaid(run)
         if refused is not None:
             return refused
         try:
@@ -515,9 +504,6 @@ class NotesPack:
         return lesson_dict(revised)
 
     async def _unlearn(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        refused = _incognito(run)
-        if refused is not None:
-            return refused
         lesson_id = str(run.input.get("lesson_id") or "")
         try:
             await self._lessons(run.ctx).unlearn(lesson_id, profile=run.ctx.profile)
@@ -544,12 +530,6 @@ def _unsaid(run: RunContext[PackContext]) -> dict[str, Any] | None:
     if _said(run):
         return None
     return {"status": "invalid", "message": "say the lesson, in one sentence"}
-
-
-def _incognito(run: RunContext[PackContext]) -> dict[str, Any] | None:
-    if run.ctx.incognito:
-        return {"status": "incognito", "message": INCOGNITO}
-    return None
 
 
 async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:

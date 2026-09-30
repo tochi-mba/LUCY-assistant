@@ -8,9 +8,9 @@ from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.testing import Answer, FakeHttp, problem
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamUnavailableError
-from lucy_api.packs.notes import INCOGNITO, NotesPack
+from lucy_api.packs.notes import NotesPack
 from lucy_api.packs.service import Capabilities
-from lucy_api.permissions.gate import Grant
+from lucy_api.permissions.gate import INCOGNITO, Grant
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 from lucy_api.settings.policy import TurnPolicy
@@ -105,27 +105,28 @@ async def test_incognito_neither_reads_nor_writes() -> None:
     http = FakeHttp(Answer(body={"data": []}))
     capabilities, context = _capabilities(http, permission_mode="auto", incognito=True)
     await capabilities.probe(context)
-    result = await capabilities.execute(
+    read = await capabilities.execute(
+        {"steps": [{"id": "me", "op": "notes.aboutMe", "input": {}}]}, context
+    )
+    write = await capabilities.execute(
         {
             "steps": [
-                {
-                    "id": "me",
-                    "op": "notes.aboutMe",
-                    "input": {},
-                },
                 {
                     "id": "keep",
                     "op": "notes.remember",
                     "input": {"title": "secret", "body": "do not store this"},
-                },
+                }
             ]
         },
         context,
     )
 
-    assert INCOGNITO in result["steps"][0]["data"]["message"]
-    assert result["steps"][1]["data"]["status"] == "incognito"
-    assert len(http.calls) == 1, "only the probe ran; the handlers did not call the store"
+    assert INCOGNITO in read["steps"][0]["data"]["message"]
+    assert write["steps"] == []
+    assert write["issues"][0]["code"] == "permission_denied"
+    assert len(http.calls) == 1, (
+        "only the probe ran; neither the handler nor the gate called the store"
+    )
 
 
 async def test_schema_and_writes_go_through_memory_api() -> None:
@@ -321,7 +322,7 @@ async def test_reading_notes_asks_for_this_sessions_episodes(
     assert searched[-1].params["session_id"] == "ses_a"
 
 
-async def test_incognito_writes_are_refused_without_calling_the_store() -> None:
+async def test_incognito_writes_are_denied_without_calling_the_store() -> None:
     http = FakeHttp(Answer(body={"data": []}))
     capabilities, context = _capabilities(http, permission_mode="auto", incognito=True)
     context.grants["notes.erase"] = Grant("notes.erase", "allow", "*")
@@ -335,7 +336,8 @@ async def test_incognito_writes_are_refused_without_calling_the_store() -> None:
             {"steps": [{"id": "x", "op": op, "input": payload}]},
             context,
         )
-        assert result["steps"][0]["data"]["status"] == "incognito"
+        assert result["issues"][0]["code"] == "permission_denied", op
+        assert result["issues"][0]["message"] == INCOGNITO, op
     assert len(http.calls) == 1
 
 
@@ -508,6 +510,33 @@ async def test_never_remembering_refuses_a_write_even_with_a_grant() -> None:
 
     assert result["issues"][0]["code"] == "permission_denied"
     assert "Remembering is off" in result["issues"][0]["message"]
+
+
+async def test_an_incognito_session_denies_a_note_write_before_anyone_is_asked() -> None:
+    """The bug, named: "remember that my favourite editor is helix" in an incognito session
+    parked for approval on `notes.setFact`, the person approved it, and the step then met
+    the refusal the handler holds. An approval for a write that cannot happen asks for
+    nothing. The gate knows the session is incognito, and denies the write and the erase
+    as it denies a `never` policy, so the model routes around it in the same round."""
+    http = FakeHttp(Answer(body={"data": []}))
+    capabilities, context = _capabilities(http, incognito=True)
+    await capabilities.probe(context)
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "keep", "op": "notes.remember", "input": {"title": "tea", "body": "green"}},
+                {"id": "drop", "op": "notes.forget", "input": {"memory_id": "mem_1"}},
+            ]
+        },
+        context,
+    )
+
+    assert [(item["code"], item["operation"]) for item in result["issues"]] == [
+        ("permission_denied", "notes.remember"),
+        ("permission_denied", "notes.forget"),
+    ]
+    assert {item["message"] for item in result["issues"]} == {INCOGNITO}
+    assert len(http.calls) == 1
     assert len(http.calls) == 1
 
 

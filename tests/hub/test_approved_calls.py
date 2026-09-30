@@ -41,7 +41,7 @@ from lucy_api.permissions.approvals import (
     open_approval,
     resumed_notice,
 )
-from lucy_api.permissions.gate import Grant, PermissionGate, once_key
+from lucy_api.permissions.gate import Floors, Grant, PermissionGate, once_key
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
@@ -135,7 +135,7 @@ def _inspect(arguments: Mapping[str, object], grants: Mapping[str, Grant], **flo
         mode="ask",
         grants=grants,
         catalogue=_catalogue(floors.pop("permission", "gadget.change")),
-        **floors,
+        floors=Floors(**floors),
     )
 
 

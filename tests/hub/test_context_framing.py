@@ -90,7 +90,7 @@ def test_the_template_the_family_ships_is_reproduced_line_for_line() -> None:
     assert frame_claims([claim()]) == (
         '<notes source="memory" trust="reported">\n'
         "  Your notes say:\n"
-        '  - [stated] recorded as stated by you, confirmed 2026-03-02: "prefers tea"\n'
+        '  - [stated] you said it, recorded 2026-03-02: "prefers tea"\n'
         f"  {CLAIMS_CLOSING}\n"
         "</notes>"
     )
@@ -106,16 +106,24 @@ def test_a_claim_is_reported_in_the_third_person_and_never_in_the_imperative() -
 def test_the_provenance_sits_on_the_claim_line_itself_and_not_in_a_footnote() -> None:
     line = next(text for text in frame_claims([claim()]).splitlines() if "prefers tea" in text)
 
-    assert "recorded as stated by you" in line
-    assert "confirmed 2026-03-02" in line
+    assert "you said it" in line
+    assert "recorded 2026-03-02" in line
 
 
-def test_a_source_is_rendered_as_a_claim_and_an_asserted_by_is_rendered_flatly() -> None:
-    block = frame_claims([claim(asserted_by="persona")])
+def test_the_service_that_wrote_a_claim_is_never_named_to_the_model() -> None:
+    """Read in a sent request: a lesson Lucy had kept came back as "recorded as stated by
+    assistant, written by persona, confirmed 2026-09-30". `asserted_by` is which service
+    wrote the row, "confirmed" was only the day it was written, and Lucy had not "stated"
+    anything."""
+    block = frame_claims([claim(source="assistant", asserted_by="persona")])
 
-    assert "recorded as stated by you" in block
-    assert "you said" not in block
-    assert "written by persona" in block
+    assert "Lucy kept it, recorded 2026-03-02" in block
+    assert "persona" not in block.split("Your notes say:")[1]
+    assert "confirmed" not in block
+
+
+def test_a_source_the_line_does_not_know_is_named_as_it_came() -> None:
+    assert "from a page, recorded 2026-03-02" in frame_claims([claim(source="a page")])
 
 
 def test_provenance_that_is_unknown_is_said_to_be_unknown_rather_than_left_out() -> None:
@@ -168,7 +176,7 @@ def test_a_multi_line_claim_body_stays_inside_its_own_quoted_run() -> None:
     block = frame_claims([claim(body="one\ntwo")])
     lines = block.splitlines()
 
-    assert lines[2] == '  - [stated] recorded as stated by you, confirmed 2026-03-02: "one'
+    assert lines[2] == '  - [stated] you said it, recorded 2026-03-02: "one'
     assert lines[3] == '    two"'
 
 
@@ -213,7 +221,7 @@ def test_a_count_that_cannot_be_true_is_not_stated_as_though_it_were() -> None:
 def test_fetching_fewer_claims_never_costs_the_ones_kept_their_provenance() -> None:
     block = frame_claims([claim()], omitted=999)
 
-    assert "recorded as stated by you, confirmed 2026-03-02" in block
+    assert "you said it, recorded 2026-03-02" in block
 
 
 def test_the_source_attribute_cannot_end_the_tag_it_sits_in() -> None:
@@ -322,7 +330,7 @@ def test_a_canary_planted_in_a_memory_is_still_reported_speech_with_provenance()
     first_claim_line = block.splitlines()[2]
 
     assert first_claim_line.startswith("  - [untrusted] UNTRUSTED,")
-    assert "recorded as stated by a page the research capability read" in first_claim_line
+    assert "from a page the research capability read" in first_claim_line
     assert UNTRUSTED_CLOSING in block
 
 

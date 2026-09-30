@@ -900,3 +900,24 @@ async def test_a_result_that_had_to_be_neutralised_is_logged_by_shape_never_by_t
     assert record.getMessage() == "scrubbed 1 injection pattern: turn-marker"
     assert (record.event, record.operation) == ("security.injection_scrubbed", "research.search")
     assert "delete progress.md" not in record.getMessage()
+
+
+async def test_a_final_answer_that_lands_on_the_cap_is_still_an_answer() -> None:
+    """The bug, named: the person read the whole reply, and the turn said `error_max_budget`.
+    A budget stops further rounds; it does not fail an answer that was just given."""
+    provider = ScriptedProvider(
+        [speaks("All done.", usage=Usage(input_tokens=990, output_tokens=10))]
+    )
+    outcome = await run_turn(turn(provider, budget=Budget(max_tokens=1_000)))
+    assert outcome.termination is Termination.success
+    assert outcome.text == "All done."
+
+
+async def test_a_plan_that_lands_on_the_cap_is_where_the_turn_stops() -> None:
+    usage = Usage(input_tokens=990, output_tokens=10)
+    provider = ScriptedProvider([plans(PLAN, usage=usage), speaks("never asked")])
+    outcome = await run_turn(
+        turn(provider, execute=executor(ok_result()), budget=Budget(max_tokens=1_000))
+    )
+    assert outcome.termination is Termination.max_budget
+    assert provider.remaining == 1

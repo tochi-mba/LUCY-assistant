@@ -15,16 +15,28 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from lucy_api.context.build import Live
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, speaks
 from lucy_api.model.types import Usage
+from lucy_api.packs.help import HelpPack
+from lucy_api.packs.service import Capabilities
 from lucy_api.sessions.models import CreateSession
-from lucy_api.sessions.sql_store import SessionStore
+from lucy_api.sessions.scope import SessionScope
+from lucy_api.sessions.sql_store import SessionStore, TurnSpend
 from lucy_api.sessions.turns import submit_messages
 from lucy_api.sessions.usage import session_usage
+from lucy_api.settings.policy import TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
-from lucy_api.turn.supervisor import TurnSupervisor, _spend
+from lucy_api.turn.stop import Budget, Spent, should_stop, warning_for
+from lucy_api.turn.supervisor import (
+    SESSION_BUDGET,
+    PreparedTurn,
+    TurnSupervisor,
+    _remaining,
+    _spend,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
@@ -152,3 +164,117 @@ async def test_a_turn_that_never_reached_a_model_records_zero(store: SessionStor
     usage = await session_usage(store, ACCOUNT, conversation)
     assert usage["turn_input_tokens"] == 0
     assert usage["turn_output_tokens"] == 0
+
+
+# --- every run of a turn, and the session's own totals -------------------------------------
+#
+# Read off a live session after two turns: `GET /usage` said `input_tokens: 0` beside
+# `turn_input_tokens: 54,647`. The session's columns were never written. And a turn that parks
+# for approval runs the loop twice: the first run's cost was never written, because the turn
+# had not finished, and the second overwrote the row. `session_token_budget`, "a hard cap on
+# tokens one session may spend", was handed to the loop as a cap on one turn.
+
+
+async def test_the_session_s_totals_are_the_sum_of_its_turns(store: SessionStore) -> None:
+    """The bug, named: the session said zero beside the true sum over its turns."""
+    conversation, running = await a_turn(
+        store,
+        ScriptedProvider(
+            [
+                speaks("One.", usage=Usage(input_tokens=1_000, output_tokens=50)),
+                speaks("Two.", usage=Usage(input_tokens=2_000, output_tokens=70)),
+            ]
+        ),
+    )
+    running.wake()
+    await running.join()
+    await submit_messages(
+        store, ACCOUNT, conversation, [{"type": "input.message", "content": "Again."}], "k2"
+    )
+    running.wake()
+    await running.join()
+
+    usage = await session_usage(store, ACCOUNT, conversation)
+    assert (usage["input_tokens"], usage["output_tokens"]) == (3_000, 120)
+    assert (usage["turn_input_tokens"], usage["turn_output_tokens"]) == (3_000, 120)
+    await running.aclose()
+
+
+async def test_a_turn_that_parked_for_approval_counts_both_of_its_runs(
+    store: SessionStore,
+) -> None:
+    """The bug, named: the run before the approval was never written, and the run after it
+    overwrote the row."""
+    parked = await store.create(ACCOUNT, CreateSession(model="scripted:demo"), "session-key")
+    conversation = str(parked["id"])
+    turn = await submit_messages(
+        store, ACCOUNT, conversation, [{"type": "input.message", "content": "Keep it."}], "k1"
+    )
+    turn_id = str(turn["id"])
+    await store.record_spend(ACCOUNT, turn_id, TurnSpend(input_tokens=500, output_tokens=20))
+    await store.finish_turn(
+        ACCOUNT,
+        turn_id,
+        "completed",
+        "success",
+        "end_turn",
+        spent=TurnSpend(input_tokens=700, output_tokens=30, iterations=1),
+    )
+
+    usage = await session_usage(store, ACCOUNT, conversation)
+    assert (usage["turn_input_tokens"], usage["turn_output_tokens"]) == (1_200, 50)
+    assert (usage["input_tokens"], usage["output_tokens"]) == (1_200, 50)
+
+
+async def test_the_budget_is_the_conversation_s_and_a_spent_one_gets_no_model_round(
+    store: SessionStore,
+) -> None:
+    """The bug, named: `session_token_budget` capped each turn on its own."""
+    conversation, running = await a_turn(
+        store,
+        ScriptedProvider([speaks("One.", usage=Usage(input_tokens=950, output_tokens=50))]),
+    )
+    capabilities = Capabilities((HelpPack(),))
+    scope = SessionScope(account_id=ACCOUNT, profile="personal", session_id=conversation)
+
+    def prepared() -> PreparedTurn:
+        context = capabilities.context_for(scope)
+        context.policy = TurnPolicy(session_token_budget=1_000)
+        return PreparedTurn(pack_context=context, live=Live(), budget=Budget(max_tokens=1_000))
+
+    turns = await store.records(ACCOUNT, conversation, "turns")
+    running.authorize(str(turns[0]["id"]), prepared())
+    running.wake()
+    await running.join()
+
+    again = await submit_messages(
+        store, ACCOUNT, conversation, [{"type": "input.message", "content": "More."}], "k2"
+    )
+    running.authorize(str(again["id"]), prepared())
+    running.wake()
+    await running.join()
+
+    second = await store.turn(ACCOUNT, str(again["id"]))
+    assert (second["status"], second["termination"]) == ("failed", "error_max_budget")
+    assert second["error_code"] == SESSION_BUDGET
+    items = await store.records(ACCOUNT, conversation, "items")
+    [said] = [item["content"] for item in items if item["type"] == "error"]
+    assert said["code"] == SESSION_BUDGET
+    assert "spent its budget of 1,000 tokens" in said["detail"]
+    assert (await session_usage(store, ACCOUNT, conversation))["input_tokens"] == 950
+    await running.aclose()
+
+
+def test_the_remaining_budget_is_what_the_conversation_has_left() -> None:
+    session = {"input_tokens": 600, "output_tokens": 100}
+    assert _remaining(Budget(max_tokens=1_000), session) == Budget(max_tokens=300)
+    assert _remaining(Budget(max_tokens=700), session) is None
+    assert _remaining(Budget(), session) == Budget(), "no cap stays no cap"
+
+
+def test_the_stop_rule_names_the_conversation_not_the_turn() -> None:
+    verdict = should_stop(Budget(max_tokens=100), Spent(tokens=100))
+    assert verdict.detail == "stopped after 100 tokens, all this conversation had left"
+    assert warning_for(Budget(max_tokens=100), Spent(tokens=90)).endswith(
+        "left in this conversation's budget"
+    )

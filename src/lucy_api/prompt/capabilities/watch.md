@@ -2,8 +2,9 @@
 
 A watch says when a condition outside the conversation holds, so you never have to check
 in a loop. Give `watch.start` exactly one of `path`, `url` or `work_id`, and `watch.command`
-a command; add `pattern` to fire on a match rather than on existence, a good answer, or
-exit 0.
+a command. A file watch fires when the file appears, or, if it is already there, when it
+next changes; add `pattern` to fire on a match instead, on a good answer from a URL, or on
+exit 0 from a command.
 
 Every watch has an interval (`every_seconds`, 15 by default) and a lifetime (`for_seconds`,
 5 minutes by default, an hour at most). It fires once, or it expires with one notice that

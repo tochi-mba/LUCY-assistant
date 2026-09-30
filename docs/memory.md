@@ -48,7 +48,9 @@ index pretending to be complete.
 A lesson is how this person wants the assistant to work: one imperative sentence, not a
 fact about them. Lessons are Persona-api notes of kind `lesson`, written by the assistant
 and pinned, so the persona feed carries them into every conversation as standing notes,
-each marked `lesson:` with its `[ref ...]`. `lucy.feeds_persona_notes` turns that off.
+each marked `lesson:` with its `[ref ...]`. A lesson comes back `[stated]`, whatever its
+note's source says: the person said it or corrected the assistant into it, and only the
+words are the assistant's. `lucy.feeds_persona_notes` turns that off.
 
 | Operation | What it does |
 | --- | --- |
@@ -57,8 +59,10 @@ each marked `lesson:` with its `[ref ...]`. `lucy.feeds_persona_notes` turns tha
 | `notes.unlearn` | Stop following one. Persona-api's forget is a tombstone. |
 
 Learning and rewording are `notes.write`; unlearning is `notes.erase`, which asks even
-in `auto`. They are offered only where a Persona-api is configured, and never in an
-incognito session.
+in `auto`. They are offered only where a Persona-api is configured. In an incognito session
+the permission gate denies both permissions outright, the way it denies `notes.write` under
+`memory_write_policy=never`: nobody is asked to approve a write that cannot happen, and
+the model is told why in the same round.
 
 Lucy keeps what is worth keeping without being asked, and says so once it is kept. When the
 optional Laya decisions are on, `decision_keeping` is a safety net: a turn about to end with

@@ -257,6 +257,19 @@ class TurnSpend:
     iterations: int = 0
 
 
+def _add_spend(db: sqlite3.Connection, turn: str, session: str, spent: TurnSpend) -> None:
+    """One run's cost, added to the turn's row and the session's, in the caller's transaction."""
+    db.execute(
+        "UPDATE turns SET input_tokens=input_tokens+?,output_tokens=output_tokens+?,"
+        "cache_read_tokens=cache_read_tokens+?,iterations=iterations+? WHERE id=?",
+        (spent.input_tokens, spent.output_tokens, spent.cache_read_tokens, spent.iterations, turn),
+    )
+    db.execute(
+        "UPDATE sessions SET input_tokens=input_tokens+?,output_tokens=output_tokens+? WHERE id=?",
+        (spent.input_tokens, spent.output_tokens, session),
+    )
+
+
 class SessionStore:
     """One account predicate at every externally addressable lookup."""
 
@@ -792,7 +805,10 @@ class SessionStore:
         spent: TurnSpend | None = None,
         error_code: str | None = None,
     ) -> None:
-        """End a turn, and write down what it cost and, when it failed, which way.
+        """End a turn, and write down what its last run cost and, when it failed, which way.
+
+        `spent` is what this run of the loop used, added to what the turn's earlier runs
+        already wrote through :meth:`record_spend`.
 
         `spent` is optional so the callers that end a turn without ever reaching a model --
         a cancel before the first round, an abandoned turn swept up at startup -- do not have
@@ -810,21 +826,17 @@ class SessionStore:
                 return
             db.execute(
                 "UPDATE turns SET status=?,termination=?,stop_reason=?,finished_at=?,"
-                "input_tokens=?,output_tokens=?,cache_read_tokens=?,iterations=?,"
                 "error_code=COALESCE(?,error_code) WHERE id=?",
                 (
                     status,
                     termination,
                     kept_reason,
                     time.time() if status in TERMINAL else None,
-                    cost.input_tokens,
-                    cost.output_tokens,
-                    cost.cache_read_tokens,
-                    cost.iterations,
                     error_code,
                     turn,
                 ),
             )
+            _add_spend(db, turn, str(current["session_id"]), cost)
             queued = db.execute(
                 "SELECT 1 FROM turns WHERE session_id=? AND status='queued' LIMIT 1",
                 (current["session_id"],),
@@ -843,6 +855,22 @@ class SessionStore:
                 {"termination": termination, "stop_reason": kept_reason},
                 turn,
             )
+
+        await self.transaction(apply)
+
+    async def record_spend(self, account: str, turn: str, spent: TurnSpend) -> None:
+        """Add what one run of the loop used to its turn, and to the session.
+
+        A turn that parks for approval runs the loop twice, and the first run's cost was
+        never written: `finish_turn` was not called for a turn that had not finished, and
+        when it was, it overwrote the row with the second run alone. The session's own
+        totals were never written at all, so `GET /usage` showed zero beside the true sums
+        and `session_token_budget` had nothing to measure against.
+        """
+        current = await self.turn(account, turn)
+
+        def apply(db: sqlite3.Connection) -> None:
+            _add_spend(db, turn, str(current["session_id"]), spent)
 
         await self.transaction(apply)
 

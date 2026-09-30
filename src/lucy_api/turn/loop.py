@@ -329,7 +329,10 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     acting = reply.plan is not None and executor is not None
     if not acting:
         await _assistant_item(turn, reply.text)
-    ended = await _early_stop(outcome, cycle.limits, outcome.spent, cycle.is_cancelled)
+    # A budget stops further rounds; it does not fail an answer that has just been given. A
+    # final reply that lands on the cap was reported as `max_budget` after the person had
+    # read it in full, and the turn as failed.
+    ended = await _early_stop(outcome, cycle.limits, outcome.spent, cycle.is_cancelled, more=acting)
     if ended is not None:
         outcome.rounds.append(replace(round_, text="") if acting else round_)
         return ended
@@ -771,7 +774,10 @@ async def _early_stop(
     limits: Budget,
     spent: Spent,
     is_cancelled: Callable[[], bool | Awaitable[bool]],
+    *,
+    more: bool = True,
 ) -> Outcome | None:
+    """A cancel ends the turn whatever it was doing; a budget only when `more` work would follow."""
     flagged = is_cancelled()
     if inspect.isawaitable(flagged):
         flagged = await flagged
@@ -780,6 +786,8 @@ async def _early_stop(
         outcome.detail = "stopped on request"
         outcome.stop_reason = Stop.cancelled
         return outcome
+    if not more:
+        return None
     verdict = should_stop(limits, spent)
     if verdict.stop:
         return _stopped(outcome, verdict)
