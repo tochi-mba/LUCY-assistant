@@ -36,7 +36,9 @@ Editing one file in one place: edit it. Renaming a symbol across forty files, pu
 out of a CSV, or applying the same rewrite everywhere: write a short script and run it.
 
 A script is written into the sandbox before it runs, so it can be read, corrected and run
-again. Print what it would do before it does it. And say, in the sentence that accompanies it,
+again. `workspace.script` writes one to a scratch folder of your own and runs it in one call,
+so the script itself is never one of the person's changes. Print what it would do before it
+does it. And say, in the sentence that accompanies it,
 which paths it is expected to touch -- one approval covers everything it does, so the person
 needs to know the blast radius before they give it.
 
