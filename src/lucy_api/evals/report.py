@@ -83,11 +83,15 @@ def write_report(directory: Path, report: dict[str, Any], *, markdown: str) -> t
 
 
 def summarize(runs: list[dict[str, Any]], models: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """Per model: how many runs landed in each outcome, how many checks held, and the cost."""
+    """Per model: how many runs landed in each outcome, how many checks held, and the cost.
+
+    A turn a before-step stopped was never sent, so it is not counted as a turn: it took no
+    time and cost nothing, and counting it would pull the median toward zero.
+    """
     summary: dict[str, dict[str, Any]] = {}
     for model in models:
         mine = [run for run in runs if run["model"] == model]
-        turns = [turn for run in mine for turn in run["turns"]]
+        turns = [turn for run in mine for turn in run["turns"] if not turn["unsent"]]
         durations = [float(turn["seconds"]) for turn in turns]
         row: dict[str, Any] = dict.fromkeys(OUTCOMES, 0)
         for run in mine:

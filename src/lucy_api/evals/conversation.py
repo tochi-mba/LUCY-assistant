@@ -1,5 +1,11 @@
 """One scenario's session: send each turn, wait for it, answer what it asks, read it back.
 
+Before a turn is sent, the steps its scenario lists under ``before`` are taken in order,
+once the previous turn has come to rest: an operation through the invoke route, exactly as
+a seed or verify step runs, or a pause. The first that does not end as the scenario says
+leaves the turn unsent, because the conversation after it would not be the one written
+down; the turn's record says why.
+
 Waiting is polling ``GET /v1/turns/{id}`` -- the route the hub documents for exactly this --
 until the turn comes to rest: finished, parked on a person, or out of time. The event
 stream would say the same thing sooner, but a poll cannot miss a frame, and a harness that
@@ -20,13 +26,18 @@ model budget after the harness has stopped listening.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.evals.checks import Observation, check_invocation, check_turn
+from lucy_api.evals.checks import (
+    Observation,
+    check_invocation,
+    check_turn,
+    invocation_failures,
+)
 from lucy_api.evals.direct import invoke
 from lucy_api.evals.hub import HubError
-from lucy_api.evals.results import TurnRecord
+from lucy_api.evals.results import BeforeRecord, TurnRecord
 from lucy_api.evals.scenario import (
     AUTH_REQUIRED,
     FAILED,
@@ -34,7 +45,11 @@ from lucy_api.evals.scenario import (
     INPUT_REQUIRED,
     LIFETIMES,
     NO,
+    OK,
+    OP_STEP,
     TERMINAL_STATUSES,
+    WAIT_STEP,
+    Wait,
 )
 from lucy_api.evals.transcript import exchange_for, pending_approvals
 from lucy_api.evals.watch import Watcher
@@ -44,7 +59,7 @@ if TYPE_CHECKING:
 
     from lucy_api.evals.hub import Hub
     from lucy_api.evals.results import Check, InvocationRecord
-    from lucy_api.evals.scenario import Invocation, TurnSpec
+    from lucy_api.evals.scenario import BeforeStep, Invocation, TurnSpec
     from lucy_api.evals.watch import Halt
 
 RESTING = frozenset({*TERMINAL_STATUSES, AUTH_REQUIRED})
@@ -98,7 +113,7 @@ class Conversation:
         self._open: set[str] = set()
 
     def invoke(self, invocation: Invocation) -> InvocationRecord:
-        """A seed or verify step, in this session."""
+        """A seed, before or verify step, in this session."""
         return invoke(self.hub, invocation, session_id=self.session_id, profile=self.profile)
 
     def take_turn(
@@ -109,10 +124,14 @@ class Conversation:
         timeout: float,
         on_event: Callable[[str], None] | None = None,
     ) -> TurnRecord:
-        """Say one thing, wait for the turn to come to rest, and check everything about it.
+        """Take the steps before it, say one thing, wait for the turn to rest, check it all.
 
-        ``on_event`` hears each step and ask the moment the transcript shows it.
+        ``on_event`` hears each step the harness takes before the turn as that step ends,
+        then each step and ask of the turn the moment the transcript shows it.
         """
+        taken, unsent = self._before(spec, on_event)
+        if unsent:
+            return _unsent(index, spec, taken, unsent)
         before = self._cache_read()
         started = self.pace.clock()
         sent = self.hub.send_message(self.session_id, spec.say)
@@ -169,6 +188,7 @@ class Conversation:
             verify=tuple(verified),
             checks=tuple(checks),
             halted=seen.halted,
+            before=taken,
         )
 
     def close(self, *, keep: bool) -> tuple[str, ...]:
@@ -190,6 +210,45 @@ class Conversation:
         except HubError as exc:
             problems.append(f"could not archive {self.session_id}: {exc}")
         return tuple(problems)
+
+    def _before(
+        self, spec: TurnSpec, on_event: Callable[[str], None] | None
+    ) -> tuple[tuple[BeforeRecord, ...], str]:
+        """Each step before the turn, in order, until one does not end as the scenario says.
+
+        Returns what every step taken did, and why the turn must not be sent: empty when it
+        may be.
+        """
+        taken: list[BeforeRecord] = []
+        for number, step in enumerate(spec.before, start=1):
+            started = self.pace.clock()
+            record, why = self._step(number, step)
+            record = replace(record, seconds=round(self.pace.clock() - started, 3))
+            taken.append(record)
+            if on_event is not None:
+                on_event(describe_before(record))
+            if why:
+                return tuple(taken), why
+        return tuple(taken), ""
+
+    def _step(self, number: int, step: BeforeStep) -> tuple[BeforeRecord, str]:
+        """One step, and why it did not end as written: empty when it did."""
+        if isinstance(step, Wait):
+            self.pace.sleep(step.seconds)
+            waited = BeforeRecord(kind=WAIT_STEP, step=f"{step.seconds:g}s", status=OK, passed=True)
+            return waited, ""
+        ran = self.invoke(step)
+        why = invocation_failures(step, ran, prefix=f"before {number} {step.op}: ")
+        record = BeforeRecord(
+            kind=OP_STEP,
+            step=ran.op,
+            status=ran.status,
+            passed=not why,
+            input=ran.input,
+            output=ran.output,
+            error=ran.error,
+        )
+        return record, why
 
     def _settle(
         self,
@@ -246,8 +305,41 @@ class Conversation:
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def describe_before(record: BeforeRecord) -> str:
+    """``> workspace.write -> ok``, or ``> waited 5s``: a step the harness took, not the model."""
+    if record.kind == WAIT_STEP:
+        return f"> waited {record.step}"
+    return f"> {record.step} -> {record.status}"
+
+
+def _unsent(index: int, spec: TurnSpec, taken: tuple[BeforeRecord, ...], why: str) -> TurnRecord:
+    """A turn a before-step stopped: nothing was sent, so there is nothing to check."""
+    return TurnRecord(
+        index=index,
+        said=spec.say,
+        approve=spec.approve,
+        turn_id="",
+        status="",
+        termination="",
+        seconds=0.0,
+        timed_out=False,
+        iterations=0,
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=None,
+        reply="",
+        results=(),
+        asks=(),
+        errors=(),
+        verify=(),
+        checks=(),
+        before=taken,
+        unsent=why,
+    )
+
+
 def _count(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-__all__ = ["RESTING", "Conversation", "Pace", "Transcript"]
+__all__ = ["RESTING", "Conversation", "Pace", "Transcript", "describe_before"]

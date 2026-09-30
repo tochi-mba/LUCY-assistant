@@ -94,6 +94,19 @@ def check_invocation(
     return _named(prefix, checks)
 
 
+def invocation_failures(invocation: Invocation, record: InvocationRecord, *, prefix: str) -> str:
+    """Why a step the harness ran for itself did not end as written, or nothing when it did.
+
+    A seed or a before-step is not a verdict on the model: when one fails, the conversation
+    cannot be held as written, so its failing checks, with their evidence, become the reason.
+    """
+    return "; ".join(
+        f"{check.name} ({check.detail})"
+        for check in check_invocation(invocation, record, prefix=prefix)
+        if not check.passed
+    )
+
+
 def _named(prefix: str, checks: list[Check]) -> tuple[Check, ...]:
     return tuple(Check(f"{prefix}{check.name}", check.passed, check.detail) for check in checks)
 
@@ -239,4 +252,4 @@ def _seconds(value: float) -> str:
     return f"{value:.1f}s"
 
 
-__all__ = ["LEAKS", "Observation", "check_invocation", "check_turn"]
+__all__ = ["LEAKS", "Observation", "check_invocation", "check_turn", "invocation_failures"]

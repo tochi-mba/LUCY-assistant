@@ -35,9 +35,11 @@ from lucy_api.evals.scenario import (
     IGNORE,
     INPUT_REQUIRED,
     OK,
+    OP_STEP,
     PERMISSION_MODES,
     STEP_STATUSES,
     TURN_STATUSES,
+    WAIT_STEP,
     YES,
     Expect,
     Invocation,
@@ -47,11 +49,14 @@ from lucy_api.evals.scenario import (
     Scenario,
     Suite,
     TurnSpec,
+    Wait,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from importlib.resources.abc import Traversable
+
+    from lucy_api.evals.scenario import BeforeStep
 
 PACKAGE = "lucy_api.evals"
 FOLDER = "scenarios"
@@ -68,7 +73,7 @@ OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_.-]*$")
 OP_PATTERN = re.compile(r"^[A-Za-z0-9_*?\[\]!-]+\.[A-Za-z0-9_*?\[\]!.-]+$")
 
 SCENARIO_KEYS = ("summary", "tags", "permission_mode", "incognito", "requires", "seed", "turns")
-TURN_KEYS = ("say", "approve", "timeout_seconds", "expect", "verify")
+TURN_KEYS = ("say", "approve", "timeout_seconds", "before", "expect", "verify")
 EXPECT_KEYS = (
     "status",
     "termination",
@@ -85,8 +90,15 @@ EXPECT_KEYS = (
     "allow_errors",
 )
 RESULT_KEYS = ("matches", "avoids")
-OP_KEY = "op"
+OP_KEY = OP_STEP
 INVOCATION_KEYS = (OP_KEY, "input", "status", "output_matches", "output_avoids")
+
+STEP_KEYS = {OP_STEP: INVOCATION_KEYS, WAIT_STEP: (WAIT_STEP,)}
+"""What each kind of ``before`` step takes. The key that names the kind comes first: a step
+is exactly one kind, and it is the key that says which."""
+
+BEFORE_KEYS = tuple(dict.fromkeys(key for keys in STEP_KEYS.values() for key in keys))
+"""Every key any kind of step takes: a key outside it is a typo, answered with the nearest."""
 
 CONTRADICTIONS = (("ran", "not_ran"), ("ran", "not_attempted"), ("approvals", "not_attempted"))
 """Pairs of lists an operation cannot sit in together; each pair is a scenario that
@@ -185,10 +197,42 @@ def _turn(table: _Table) -> TurnSpec:
     say = table.text("say", required=True)
     approve = table.choice("approve", APPROVE_VALUES, YES)
     timeout = table.seconds("timeout_seconds")
+    before = tuple(_before(entry) for entry in table.tables("before", allowed=BEFORE_KEYS))
     expect_table = table.table("expect", allowed=EXPECT_KEYS)
     expect = _expect(expect_table, approve=approve) if expect_table else _defaults(approve)
     verify = tuple(_invocation(entry) for entry in table.tables("verify", allowed=INVOCATION_KEYS))
-    return TurnSpec(say=say, approve=approve, timeout_seconds=timeout, expect=expect, verify=verify)
+    return TurnSpec(
+        say=say,
+        approve=approve,
+        timeout_seconds=timeout,
+        before=before,
+        expect=expect,
+        verify=verify,
+    )
+
+
+def _before(table: _Table) -> BeforeStep:
+    """One step between turns: exactly one kind, named by its own key, and only that kind's keys."""
+    kinds = [kind for kind in STEP_KEYS if kind in table.names()]
+    if not kinds:
+        named = [f"`{kind}`" for kind in STEP_KEYS]
+        message = f"say what the step does with one of {', '.join(named[:-1])} or {named[-1]}"
+        raise table.error_here(message)
+    kind, *others = kinds
+    if others:
+        message = (
+            f"this step already has `{kind}`, and a step does one thing: "
+            "give each its own [[turns.before]] table"
+        )
+        raise table.error(others[0], message)
+    takes = STEP_KEYS[kind]
+    for key in table.names():
+        if key not in takes:
+            listed = ", ".join(f"`{name}`" for name in takes)
+            raise table.error(key, f"not a key of this `{kind}` step, which takes {listed}")
+    if kind == WAIT_STEP:
+        return Wait(seconds=table.duration(WAIT_STEP))
+    return _invocation(table)
 
 
 def _defaults(approve: str) -> Expect:
@@ -273,6 +317,10 @@ class _Table:
         where = f"{self._where}.{key}" if self._where else key
         return ScenarioError(f"{self._file}: {where}: {message}")
 
+    def error_here(self, message: str) -> ScenarioError:
+        """An error about this table as a whole, at its own position: ``turns[2].before[1]``."""
+        return ScenarioError(f"{self._file}: {self._where}: {message}")
+
     def text(self, key: str, *, required: bool = False) -> str:
         value = self._values.get(key)
         if value is None:
@@ -290,9 +338,12 @@ class _Table:
         return value
 
     def seconds(self, key: str) -> float | None:
+        """A number of seconds, or ``None`` when the file leaves it out."""
+        return self.duration(key) if key in self._values else None
+
+    def duration(self, key: str) -> float:
+        """A number of seconds the table must give: finite, and more than zero."""
         value = self._values.get(key)
-        if value is None:
-            return None
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise self.error(key, "must be a number of seconds")
         if not math.isfinite(value) or value <= 0:

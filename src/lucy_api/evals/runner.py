@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lucy_api.evals.checks import check_invocation
+from lucy_api.evals.checks import invocation_failures
 from lucy_api.evals.conversation import Conversation, Pace
 from lucy_api.evals.hub import HubError
 from lucy_api.evals.results import ERROR, SKIPPED, ScenarioRecord, outcome_for
@@ -95,7 +95,11 @@ class Observer(Protocol):
     def turn_finished(self, job: Job, turn: TurnRecord) -> None: ...
 
     def turn_event(self, job: Job, index: int, line: str) -> None:
-        """One step or ask of turn ``index``, the moment the transcript shows it."""
+        """One line about turn ``index`` as it happens.
+
+        Each step the harness took before sending it, the moment that step ends; then each
+        step and ask of the turn itself, the moment the transcript shows it.
+        """
 
     def finished(self, record: ScenarioRecord) -> None: ...
 
@@ -195,19 +199,15 @@ class Runner:
             record = conversation.invoke(invocation)
             seeds.append(record)
             label = f"seed {number} {invocation.op}: "
-            failing = [
-                check
-                for check in check_invocation(invocation, record, prefix=label)
-                if not check.passed
-            ]
+            failing = invocation_failures(invocation, record, prefix=label)
             if failing:
-                return "; ".join(f"{check.name} ({check.detail})" for check in failing)
+                return failing
         return ""
 
     def _converse(
         self, conversation: Conversation, job: Job, timeout: float, turns: list[TurnRecord]
     ) -> str:
-        """Every turn in order. A turn that was halted or never came to rest ends it."""
+        """Every turn in order. A turn left unsent, halted or never at rest ends it."""
         specs = job.scenario.turns
         for index, spec in enumerate(specs, start=1):
             limit = spec.timeout_seconds or timeout
@@ -218,6 +218,10 @@ class Runner:
                 on_event=partial(self._observer.turn_event, job, index),
             )
             turns.append(turn)
+            if turn.unsent:
+                later = len(specs) - index
+                either = f"; {later} later turn(s) were not sent either" if later else ""
+                return f"turn {index} was not sent: {turn.unsent}{either}"
             self._observer.turn_finished(job, turn)
             if turn.halted:
                 later = len(specs) - index

@@ -157,18 +157,25 @@ def _failure(run: dict[str, Any]) -> list[str]:
         lines.extend(_invocations(run["seed"]))
     lines.append("")
     for turn in run["turns"]:
-        if not all(check["passed"] for check in turn["checks"]):
+        # A report written before steps between turns existed has neither `unsent` nor
+        # `before`; it still reads as it did.
+        if turn.get("unsent") or not all(check["passed"] for check in turn["checks"]):
             lines.extend(_turn(turn))
     return lines
 
 
 def _turn(turn: dict[str, Any]) -> list[str]:
+    if turn.get("unsent"):
+        return _unsent(turn)
     title = (
         f"#### Turn {turn['index']}: {turn['status'] or 'unknown'} in "
         f"{_duration(turn['seconds'])}, {turn['iterations']} round(s), "
         f"{len(turn['results'])} step(s)"
     )
-    lines = [title, "", "Person:", "", *_fenced(turn["said"]), "", "Lucy:", ""]
+    lines = [title, ""]
+    if turn.get("before"):
+        lines.extend(["Before it was sent:", "", *_before(turn["before"]), ""])
+    lines.extend(["Person:", "", *_fenced(turn["said"]), "", "Lucy:", ""])
     lines.extend(_fenced(turn["reply"]) if turn["reply"] else ["*(no reply)*"])
     lines.append("")
     if turn["results"]:
@@ -189,6 +196,36 @@ def _turn(turn: dict[str, Any]) -> list[str]:
         lines.extend(["", "Verified:", ""])
         lines.extend(_invocations(turn["verify"]))
     return [*lines, ""]
+
+
+def _unsent(turn: dict[str, Any]) -> list[str]:
+    """A turn a before-step stopped: every step up to that one, and what it would have said."""
+    return [
+        f"#### Turn {turn['index']}: not sent",
+        "",
+        "Before it:",
+        "",
+        *_before(turn["before"]),
+        "",
+        "It would have said:",
+        "",
+        *_fenced(turn["said"]),
+        "",
+    ]
+
+
+def _before(records: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "| Kind | Step | Status | Took | Output or error |",
+        "| --- | --- | --- | ---: | --- |",
+    ]
+    lines.extend(
+        f"| {_cell(record['kind'])} | {_cell(record['step'])} | {_cell(record['status'])} | "
+        f"{_duration(record['seconds'])} | "
+        f"{_cell(_clip(record['error'] or record['output'], CELL_LIMIT))} |"
+        for record in records
+    )
+    return lines
 
 
 def _invocations(records: list[dict[str, Any]]) -> list[str]:

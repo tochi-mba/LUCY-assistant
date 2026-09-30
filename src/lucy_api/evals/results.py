@@ -20,8 +20,8 @@ SKIPPED = "skipped"
 ERROR = "error"
 OUTCOMES = (PASSED, FAILED, SKIPPED, ERROR)
 """``skipped``: a capability it requires is not ready, so it never started. ``error``: the
-harness could not hold the conversation -- the hub refused a request, or a seed step failed
--- so nothing is known about the model either way."""
+harness could not hold the conversation as written -- the hub refused a request, or a seed
+or before-step did not end as the scenario said -- so it is not a verdict on the model."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +50,27 @@ class InvocationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class BeforeRecord:
+    """One step the harness took before a turn was sent, and how it ended.
+
+    ``kind`` is the key that named the step -- ``op`` or ``wait_seconds`` -- and ``step`` is
+    what it asked for: the operation, or how long to wait. ``status`` is how it ended: an
+    operation's own status, as :class:`InvocationRecord` has it, or ``ok`` for a wait.
+    ``passed`` is whether that is how the scenario said it would end; the first step that did
+    not is the last one taken, and the turn is not sent.
+    """
+
+    kind: str
+    step: str
+    status: str
+    passed: bool
+    seconds: float = 0.0
+    input: dict[str, Any] = field(default_factory=dict)
+    output: str = ""
+    error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class TurnRecord:
     """One turn: what was said, how it came to rest, what it cost, and every check on it."""
 
@@ -73,6 +94,15 @@ class TurnRecord:
     checks: tuple[Check, ...]
     halted: str = ""
     """Why the watchdog stopped this turn, or empty when it came to rest by itself."""
+
+    before: tuple[BeforeRecord, ...] = ()
+    """Every step the harness took after the previous turn came to rest and before this one
+    was sent, in order."""
+
+    unsent: str = ""
+    """Why this turn was never sent -- a before-step that did not end as written -- or empty
+    when it was. An unsent turn has no id, no reply and no checks; ``said`` is what it would
+    have said."""
 
     @property
     def passed(self) -> bool:
@@ -113,7 +143,13 @@ class ScenarioRecord:
 
 
 def outcome_for(turns: tuple[TurnRecord, ...]) -> str:
-    """Passed only when every check on every turn held."""
+    """Passed only when every check on every turn held; an error when a turn went unsent.
+
+    A turn that could not be sent leaves a conversation that was not the one written down,
+    so whatever the turns before it did, the run is not a verdict on the model.
+    """
+    if any(turn.unsent for turn in turns):
+        return ERROR
     return PASSED if all(turn.passed for turn in turns) else FAILED
 
 
@@ -123,6 +159,7 @@ __all__ = [
     "OUTCOMES",
     "PASSED",
     "SKIPPED",
+    "BeforeRecord",
     "Check",
     "InvocationRecord",
     "ScenarioRecord",

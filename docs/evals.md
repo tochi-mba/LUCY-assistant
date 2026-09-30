@@ -103,13 +103,14 @@ parallel, because the hub is one process and latency is one of the things measur
    the profile, the scenario's permission mode and incognito flag, and `input_policy:
    enqueue` (so a message sent while an ask is parked queues rather than being refused).
 3. **Seeds**: `POST /v1/tools/{op}/invoke`, in that session, before the first turn.
-4. **Each turn in order**: `POST /v1/sessions/{id}/inputs`, then `GET /v1/turns/{id}` once
-   a second until the turn comes to rest -- completed, failed, cancelled, waiting on a
-   person, or waiting on a connection. Every poll also reads the turn's transcript: each
-   step and each ask is printed to stderr the moment it appears, and the
-   [watchdog](#the-watchdog) stops the turn at the first thing that went wrong. Every
-   approval the turn parks on is answered as the turn's `approve` says, one per request,
-   and polling carries on.
+4. **Each turn in order**: first the [steps before it](#steps-before-a-turn), once the
+   previous turn has come to rest; then `POST /v1/sessions/{id}/inputs`, then
+   `GET /v1/turns/{id}` once a second until the turn comes to rest -- completed, failed,
+   cancelled, waiting on a person, or waiting on a connection. Every poll also reads the
+   turn's transcript: each step and each ask is printed to stderr the moment it appears,
+   and the [watchdog](#the-watchdog) stops the turn at the first thing that went wrong.
+   Every approval the turn parks on is answered as the turn's `approve` says, one per
+   request, and polling carries on.
 5. **The transcript is read back** (`GET /v1/sessions/{id}/items`, from a cursor) and every
    item carrying this turn's id is attributed to it: the reply, every tool result with its
    operation, status, summary and error, every approval asked and how it was answered.
@@ -163,15 +164,15 @@ While a turn runs, stderr shows it as it goes:
 
 - **Your settings, never.** No settings route is called. The scenario that tries to change
   a protected setting answers "no" to every ask, so even a regression cannot flip it.
-- **Grants, only for the session they are for.** A seed or verify step that writes needs a
-  permission in an `ask` session. The harness looks up which permission covers the
+- **Grants, only for the session they are for.** A seed, before or verify step that writes
+  needs a permission in an `ask` session. The harness looks up which permission covers the
   operation (`GET /v1/permissions`), grants it under the session's own grant scope
   (`session:<id>`), makes the one call, and revokes it immediately. Your profile and
   account grants are never read for writing, and the model's own turns still have to ask.
   `approve = "yes-session"` also stores a session-scoped grant, through the hub's own
   approval path -- it dies with the session.
-- **Deferred capabilities are bound the way the model binds them.** If a seed or verify
-  operation is not callable yet and its capability is deferred, the harness calls
+- **Deferred capabilities are bound the way the model binds them.** If a seed, before or
+  verify operation is not callable yet and its capability is deferred, the harness calls
   `capabilities.use` first. That counts as a use of the capability in that session.
 - **Memory is real, and each run's is its own.** A scenario that asks Lucy to remember
   something writes a real note, to the run's profile. By default every run gets a new profile,
@@ -309,6 +310,7 @@ Positions are 1-based -- `turns[2]` is the second turn -- as the report numbers 
 | `say` | string | required | What the person says. |
 | `approve` | `"yes"`, `"no"`, `"yes-session"`, `"ignore"` | `"yes"` | How every approval this turn parks on is answered. `yes` approves once; `yes-session` approves for the rest of the session; `no` refuses; `ignore` leaves it waiting, so the turn rests as `input_required`. |
 | `timeout_seconds` | number | `--timeout` | How long this turn may take before it is cancelled. |
+| `before` | `[[turns.before]]` tables | none | [Steps](#steps-before-a-turn) the harness takes once the previous turn has come to rest and before this one is said. One that does not end as written leaves the turn unsent and makes the scenario an `error`. |
 | `expect` | table | defaults below | What must be true when the turn comes to rest. |
 | `verify` | `[[turns.verify]]` tables | none | [Operations](#operations-seed-and-verify) run after the turn; each one's expectations are checks on the turn. |
 
@@ -372,6 +374,54 @@ An operation the session cannot call records the status `unavailable`, with the 
 what it can call; a request the hub turns down records `refused`, with the hub's reason.
 Both fail a `status = "ok"` expectation, with that evidence.
 
+### Steps before a turn
+
+Some conversations need something to change between two things the person says: a file
+edited from outside, to see whether a watch Lucy set up notices; a pause for something to
+settle. A turn's `[[turns.before]]` tables are taken in order once the previous turn has come
+to rest -- finished, or parked on an ask it was told to ignore -- and before the turn is
+said. Before the first turn they come after the seeds.
+
+Each step is exactly one kind, named by the key that says what it does:
+
+| Kind | Keys | What it does |
+| --- | --- | --- |
+| `op` | `op`, and the other [operation keys](#operations-seed-and-verify): `input`, `status`, `output_matches`, `output_avoids` | Runs one operation through the invoke route, in the scenario's session, exactly as a seed does. It must end as its keys say: `status = "ok"` unless the step says otherwise. |
+| `wait_seconds` | `wait_seconds` alone: a number of seconds, more than zero | Pauses. |
+
+A step with none of those keys, two of them, or a key its kind does not take is refused
+when the file is read, naming the key.
+
+**The first step that does not end as written is the last one taken.** The turn is not
+sent, the turns after it are not sent either, and the scenario is an `error`, as it is when
+a seed fails: the conversation that would follow is not the one written down. The report
+shows that turn as *not sent*, with every step up to the one that stopped it.
+
+```toml
+[[turns]]
+say = "Anything happen to review.md?"
+
+[[turns.before]]
+op = "workspace.write"
+input = { path = "review.md", content = "edited from outside\n", mode = "append" }
+
+[[turns.before]]
+wait_seconds = 5
+```
+
+Each step is printed to stderr as it ends, marked `>` because the harness took it, not the
+model, and before the turn's own lines:
+
+```
+    turn 1: completed in 14.2s, 2 round(s), 1 step(s)  ok
+      > workspace.write -> ok
+      > waited 5s
+      · workspace.read -> ok
+    turn 2: completed in 9.1s, 1 round(s), 1 step(s)  ok
+```
+
+A turn's time is its own: the steps before it are timed separately, in the report.
+
 ## Reports, and comparing them
 
 Each run writes two files into its report folder, even when it stops early:
@@ -379,20 +429,25 @@ Each run writes two files into its report folder, even when it stops early:
 - **`report.json`** -- the contract. Versioned (`"format": "lucy-eval-report"`,
   `"version": 1`). The environment (hub URL, version and environment; client and Python
   versions), the plan, a per-model summary, per-check pass rates, and every run: its
-  outcome and reason, session id, seeds, and every turn with its full reply, tool results,
-  asks, errors, verify steps, tokens, rounds, seconds and every check with its evidence.
+  outcome and reason, session id, seeds, and every turn with the steps taken before it
+  (`before`: each one's kind, what it did, how it ended and how long it took), its full
+  reply, tool results, asks, errors, verify steps, tokens, rounds, seconds and every check
+  with its evidence. A turn a step stopped carries `unsent`, the reason it was not sent; it
+  is left out of the summary's turn count and median, because it never ran.
 - **`report.md`** -- the same, for a person, failures first: each failed scenario with the
-  failing checks and their evidence, then the transcript of each failing turn -- what was
-  said, what Lucy replied, the tool results, the asks and how they were answered, the verify
-  steps. Then flaky checks, the comparison, what was skipped and why, and every run.
+  failing checks and their evidence, then the transcript of each failing turn -- the steps
+  taken before it, what was said, what Lucy replied, the tool results, the asks and how they
+  were answered, the verify steps -- and each turn that was not sent, with its steps and
+  what it would have said. Then flaky checks, the comparison, what was skipped and why, and
+  every run.
 
 A reply is shown up to 2,000 characters with an exact count of the rest; `report.json`
 has all of it. Model output is fenced so nothing it contains can break the document.
 
 **Four outcomes, never folded together.** `passed`; `failed` (a check did not hold);
 `skipped` (a required capability is not ready -- nothing was created, nothing is known);
-`error` (the harness could not hold the conversation: the hub refused a request, or a
-seed failed).
+`error` (the harness could not hold the conversation as written: the hub refused a
+request, or a seed or a step before a turn did not end as the scenario said).
 
 **`--repeat N`** holds each conversation N times. A scenario that passes some runs and not
 others is shown as a pass rate, and the report lists every **flaky check** -- one that held

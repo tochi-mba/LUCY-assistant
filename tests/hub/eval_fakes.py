@@ -378,8 +378,10 @@ class FakeLucy:
         if operation in self.invoke_bodies:
             return httpx.Response(200, json=self.invoke_bodies[operation])
         if operation == "workspace.write":
-            self.files[arguments["path"]] = arguments["content"]
-            return _steps({"status": "ok", "data": {"path": arguments["path"], "written": True}})
+            path = arguments["path"]
+            kept = self.files.get(path, "") if arguments.get("mode") == "append" else ""
+            self.files[path] = kept + arguments["content"]
+            return _steps({"status": "ok", "data": {"path": path, "written": True}})
         if operation == "workspace.read":
             path = arguments["path"]
             if path in self.files:

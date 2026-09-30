@@ -425,6 +425,28 @@ def test_a_passing_run_writes_its_report_and_exits_zero(
     assert len(fake.archived) == 2
 
 
+def test_each_step_before_a_turn_is_printed_as_it_ends(fake: FakeLucy, tmp_path: Path) -> None:
+    folder = tmp_path / "between"
+    folder.mkdir()
+    (folder / "edited.toml").write_text(
+        'summary = "Edited between two turns."\n'
+        '[[turns]]\nsay = "Hello?"\n'
+        '[[turns]]\nsay = "Hello?"\n'
+        '[[turns.before]]\nop = "workspace.write"\ninput = { path = "a.md", content = "x" }\n'
+        "[[turns.before]]\nwait_seconds = 5\n",
+        encoding="utf-8",
+    )
+    code, _, err = run("--suite", str(folder))
+    assert code == OK
+    assert (
+        "    turn 1: completed in 1.0s, 1 round(s), 0 step(s)  ok\n"
+        "      > workspace.write -> ok\n"
+        "      > waited 5s\n"
+        "    turn 2: completed in 1.0s, 1 round(s), 0 step(s)  ok\n"
+    ) in err
+    assert fake.files["a.md"] == "x"
+
+
 def test_a_failing_run_exits_one_and_names_what_failed(fake: FakeLucy, suite: Path) -> None:
     fake.say("Hello?", Play(reply="<invoke name='x'> ```json"))
     code, out, err = run("--suite", str(suite), "--repeat", "2")

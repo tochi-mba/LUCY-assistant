@@ -15,8 +15,9 @@ internals -- an import contract holds that line. The layout, from the file to th
 * :mod:`~lucy_api.evals.scenario` -- the validated shape of a scenario.
 * :mod:`~lucy_api.evals.loader` -- reading and strictly validating the TOML files.
 * :mod:`~lucy_api.evals.hub` -- the Protocol for the routes a conversation needs.
-* :mod:`~lucy_api.evals.conversation` -- one session: turns, waiting, approvals.
-* :mod:`~lucy_api.evals.direct` -- seed and verify operations, run without a model.
+* :mod:`~lucy_api.evals.conversation` -- one session: steps before each turn, turns,
+  waiting, approvals.
+* :mod:`~lucy_api.evals.direct` -- seed, before and verify operations, run without a model.
 * :mod:`~lucy_api.evals.transcript` -- what one turn did, read off the transcript.
 * :mod:`~lucy_api.evals.checks` -- every kind of expectation, with evidence.
 * :mod:`~lucy_api.evals.runner` -- the plan, the jobs, and their outcomes.

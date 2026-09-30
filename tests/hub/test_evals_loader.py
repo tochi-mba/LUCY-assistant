@@ -25,7 +25,9 @@ from lucy_api.evals.scenario import (
     COMPLETED,
     INPUT_REQUIRED,
     TERMINAL_STATUSES,
+    Invocation,
     OpMatch,
+    Wait,
 )
 
 if TYPE_CHECKING:
@@ -180,6 +182,7 @@ def test_a_minimal_scenario_takes_every_default() -> None:
     turn = scenario.turns[0]
     assert turn.approve == "yes"
     assert turn.timeout_seconds is None
+    assert turn.before == ()
     assert turn.verify == ()
     assert turn.expect.status == COMPLETED
     assert turn.expect.reply_nonempty is True
@@ -260,6 +263,46 @@ status = "error"
     assert [pattern.source for pattern in result.matches] == ["Human&#58;"]
     assert [pattern.source for pattern in result.avoids] == ["Human:"]
     assert turn.verify[0].status == "error"
+
+
+def test_a_turn_takes_steps_before_it_is_sent_in_the_order_written() -> None:
+    turn = parse(
+        MINIMAL
+        + """
+[[turns.before]]
+op = "workspace.write"
+input = { path = "review.md", content = "edited from outside\\n", mode = "append" }
+status = "ok"
+output_matches = ['written']
+output_avoids = ['error']
+
+[[turns.before]]
+wait_seconds = 5
+
+[[turns.before]]
+op = "workspace.read"
+input = { path = "gone.md" }
+status = "error"
+
+[[turns.before]]
+wait_seconds = 0.5
+"""
+    ).turns[0]
+
+    write, pause, read, blink = turn.before
+    assert isinstance(write, Invocation)
+    assert write.op == "workspace.write"
+    assert write.input == {
+        "path": "review.md",
+        "content": "edited from outside\n",
+        "mode": "append",
+    }
+    assert [pattern.source for pattern in write.output_matches] == ["written"]
+    assert [pattern.source for pattern in write.output_avoids] == ["error"]
+    assert pause == Wait(seconds=5.0)
+    assert isinstance(pause.seconds, float)
+    assert read == Invocation(op="workspace.read", input={"path": "gone.md"}, status="error")
+    assert blink == Wait(seconds=0.5)
 
 
 def test_an_ignored_ask_expects_a_parked_turn_and_no_reply_by_default() -> None:
@@ -418,6 +461,68 @@ def test_an_unknown_key_with_no_near_spelling_still_lists_the_keys() -> None:
     ],
 )
 def test_a_bad_value_is_refused_where_it_is(text: str, where: str, complaint: str) -> None:
+    message = refused(text)
+    assert message.startswith(f"tests/sample.toml: {where}: "), message
+    assert complaint in message, message
+
+
+STEP = MINIMAL + "[[turns.before]]\n"
+"""A turn with one step before it, which each case below completes."""
+
+
+@pytest.mark.parametrize(
+    ("text", "where", "complaint"),
+    [
+        (MINIMAL + "before = 'x'\n", "turns[1].before", "must be written as [[before]] tables"),
+        (MINIMAL + "before = [1]\n", "turns[1].before", "must be written as [[before]] tables"),
+        (STEP, "turns[1].before[1]", "say what the step does with one of `op` or `wait_seconds`"),
+        (STEP + "input = { path = 'a.md' }\n", "turns[1].before[1]", "say what the step does"),
+        (STEP + "opp = 'workspace.read'\n", "turns[1].before[1].opp", "did you mean `op`?"),
+        (
+            STEP + "wait_second = 5\n",
+            "turns[1].before[1].wait_second",
+            "did you mean `wait_seconds`?",
+        ),
+        (STEP + "pause = 5\n", "turns[1].before[1].pause", "unknown key. This table takes `op`"),
+        (
+            STEP + "op = 'workspace.read'\nwait_seconds = 1\n",
+            "turns[1].before[1].wait_seconds",
+            "this step already has `op`, and a step does one thing: give each its own",
+        ),
+        (
+            STEP + "wait_seconds = 1\ninput = { path = 'a.md' }\n",
+            "turns[1].before[1].input",
+            "not a key of this `wait_seconds` step, which takes `wait_seconds`",
+        ),
+        (STEP + "wait_seconds = 0\n", "turns[1].before[1].wait_seconds", "more than zero"),
+        (STEP + "wait_seconds = -5\n", "turns[1].before[1].wait_seconds", "more than zero"),
+        (STEP + "wait_seconds = inf\n", "turns[1].before[1].wait_seconds", "more than zero"),
+        (STEP + "wait_seconds = '5'\n", "turns[1].before[1].wait_seconds", "a number of seconds"),
+        (STEP + "wait_seconds = true\n", "turns[1].before[1].wait_seconds", "a number of seconds"),
+        (
+            MINIMAL + "[[turns]]\nsay = 'b'\n[[turns.before]]\nwait_seconds = 1\n"
+            "[[turns.before]]\nwait_seconds = 0\n",
+            "turns[2].before[2].wait_seconds",
+            "more than zero",
+        ),
+        (STEP + "op = ''\n", "turns[1].before[1].op", "must be a non-empty string"),
+        (STEP + "op = 'workspace.*'\n", "turns[1].before[1].op", "is not an operation"),
+        (
+            STEP + "op = 'workspace.read'\ninput = 'a.md'\n",
+            "turns[1].before[1].input",
+            "must be a table",
+        ),
+        (STEP + "op = 'workspace.read'\nstatus = 'fine'\n", "turns[1].before[1].status", "one of"),
+        (
+            STEP + "op = 'workspace.read'\noutput_matches = ['(']\n",
+            "turns[1].before[1].output_matches[1]",
+            "not a valid regular expression",
+        ),
+    ],
+)
+def test_a_step_before_a_turn_is_one_kind_said_with_that_kind_s_keys(
+    text: str, where: str, complaint: str
+) -> None:
     message = refused(text)
     assert message.startswith(f"tests/sample.toml: {where}: "), message
     assert complaint in message, message
