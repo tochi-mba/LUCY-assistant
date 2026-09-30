@@ -13,8 +13,9 @@ from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.notes import NotesPack
 from lucy_api.packs.service import Capabilities, _unknown_tool
-from lucy_api.permissions.gate import PermissionGate
+from lucy_api.permissions.gate import Floors, PermissionGate
 from lucy_api.sessions.scope import SessionScope
+from lucy_api.settings.policy import TurnPolicy
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -249,7 +250,7 @@ def test_an_outward_write_asks_even_in_auto_unless_a_grant_already_allows_it() -
     assert "other people will see" in asked.message
 
     silent = PermissionGate().inspect(
-        plan, mode="auto", grants={}, catalogue=catalogue, confirm_outward=False
+        plan, mode="auto", grants={}, catalogue=catalogue, floors=Floors(confirm_outward=False)
     )
     assert silent.allowed is True
     assert silent.auto_bypassed == ("music.control",)
@@ -299,7 +300,7 @@ def test_destructive_and_spend_floors_ask_even_in_auto_unless_already_granted() 
         mode="auto",
         grants={},
         catalogue=catalogue,
-        approval_policy="spend_and_destructive_ask",
+        floors=Floors(approval_policy="spend_and_destructive_ask"),
     )
     assert asked.allowed is False
     assert "spends money" in asked.message
@@ -308,7 +309,7 @@ def test_destructive_and_spend_floors_ask_even_in_auto_unless_already_granted() 
         mode="auto",
         grants={"gadget.buy": Grant("gadget.buy", "allow", "*")},
         catalogue=catalogue,
-        approval_policy="spend_and_destructive_ask",
+        floors=Floors(approval_policy="spend_and_destructive_ask"),
     )
     assert granted.allowed is True
     silent = PermissionGate().inspect(
@@ -316,7 +317,7 @@ def test_destructive_and_spend_floors_ask_even_in_auto_unless_already_granted() 
         mode="auto",
         grants={},
         catalogue=catalogue,
-        approval_policy="destructive_always_asks",
+        floors=Floors(approval_policy="destructive_always_asks"),
     )
     assert silent.allowed is True
 
@@ -328,3 +329,31 @@ def test_destructive_and_spend_floors_ask_even_in_auto_unless_already_granted() 
     )
     assert forget.allowed is False
     assert "destructive" in forget.message
+
+
+def test_the_floors_of_a_turn_are_read_once_from_its_context() -> None:
+    """The bug, named: the auto-mode audit read three floors from the policy and defaulted
+    the fourth, so it could disagree with the gate about the same plan. Every reader now
+    takes the floors from `Floors.of`, which reads the turn's policy and session together."""
+    capabilities = Capabilities((HelpPack(),))
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct",
+            profile="personal",
+            session_id="ses",
+            permission_mode="auto",
+            incognito=True,
+        )
+    )
+    context.policy = TurnPolicy(
+        memory_write_policy="never",
+        confirm_outward_actions=False,
+        approval_policy="spend_and_destructive_ask",
+    )
+
+    assert Floors.of(context) == Floors(
+        memory_write_policy="never",
+        confirm_outward=False,
+        approval_policy="spend_and_destructive_ask",
+        incognito=True,
+    )

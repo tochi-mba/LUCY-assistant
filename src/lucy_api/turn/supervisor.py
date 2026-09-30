@@ -31,7 +31,7 @@ from lucy_api.permissions.approvals import (
     open_approval,
     resumed_notice,
 )
-from lucy_api.permissions.gate import PermissionGate, once_key
+from lucy_api.permissions.gate import Floors, PermissionGate, once_key
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
@@ -694,9 +694,7 @@ async def _audit_bypasses(
         mode=pack_ctx.permission_mode,
         grants=pack_ctx.grants,
         catalogue=pack_ctx.catalogue,
-        memory_write_policy=pack_ctx.policy.memory_write_policy,
-        confirm_outward=pack_ctx.policy.confirm_outward_actions,
-        incognito=pack_ctx.incognito,
+        floors=Floors.of(pack_ctx),
     )
     for permission in verdict.auto_bypassed:
         await store.record_audit(

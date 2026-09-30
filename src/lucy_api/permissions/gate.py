@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from lucy_api.packs.base import Catalogue, Permission
+    from lucy_api.packs.context import PackContext
 
 WRITE_EFFECTS = frozenset({"write"})
 ACCOUNT_PROFILE = "*"
@@ -85,6 +86,25 @@ class Floors:
     approval on `notes.setFact`, was approved, and then met the refusal the handler holds.
     The gate knows the session is incognito, and says so instead of asking."""
 
+    @classmethod
+    def of(cls, context: PackContext) -> Floors:
+        """The floors one turn runs under, read in one place.
+
+        The auto-mode audit read three of them and defaulted the approval policy, so under
+        `spend_and_destructive_ask` a spend the person had approved was written down as a
+        bypass the gate never granted. Two readers of the same settings is one too many.
+        """
+        policy = context.policy
+        return cls(
+            memory_write_policy=policy.memory_write_policy,
+            confirm_outward=policy.confirm_outward_actions,
+            approval_policy=policy.approval_policy,
+            incognito=context.incognito,
+        )
+
+
+DEFAULT_FLOORS = Floors()
+"""What a plan is judged under when no turn is behind it: the settings' own defaults."""
 
 INCOGNITO = "This session is incognito: notes are neither read nor written."
 NOTES_PERMISSIONS = frozenset({"notes.write", "notes.erase"})
@@ -102,24 +122,15 @@ class Grant:
 class PermissionGate:
     """Mode, grants, and the catalogue's permission list, applied to one plan."""
 
-    def inspect(  # noqa: PLR0913 - mode, grants and the two floors are independent inputs
+    def inspect(
         self,
         plan: Mapping[str, object],
         *,
         mode: str,
         grants: Mapping[str, Grant],
         catalogue: Catalogue | None,
-        memory_write_policy: str = "ask_first",
-        confirm_outward: bool = True,
-        approval_policy: str = "destructive_always_asks",
-        incognito: bool = False,
+        floors: Floors = DEFAULT_FLOORS,
     ) -> Verdict:
-        floors = Floors(
-            memory_write_policy=memory_write_policy,
-            confirm_outward=confirm_outward,
-            approval_policy=approval_policy,
-            incognito=incognito,
-        )
         permissions = _permissions(catalogue)
         by_operation = _covers(permissions)
         steps = _steps_of(plan)
