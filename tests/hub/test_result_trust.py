@@ -68,6 +68,8 @@ def test_a_notes_result_is_as_trusted_as_its_least_trusted_memory(data: Any, tru
         (WorkPack(), "work.cancel"),
         (AgentsPack(), "agents.list"),
         (AgentsPack(), "journal.claim"),
+        (WorkspacePack("http://workspace.test"), "workspace.write"),
+        (WorkspacePack("http://workspace.test"), "workspace.delete"),
     ],
 )
 def test_lucy_s_own_machinery_is_observed(pack: Any, operation: str) -> None:
@@ -79,6 +81,7 @@ def test_lucy_s_own_machinery_is_observed(pack: Any, operation: str) -> None:
     [
         (ResearchPack("http://search.test"), "research.open"),
         (WorkspacePack("http://workspace.test"), "workspace.read"),
+        (WorkspacePack("http://workspace.test"), "workspace.list"),
         (WorkspacePack("http://workspace.test"), "workspace.run"),
         (MusicPack("http://music.test"), "music.search"),
         (WatchPack("http://workspace.test"), "watch.command"),
