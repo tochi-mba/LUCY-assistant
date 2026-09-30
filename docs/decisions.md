@@ -1,7 +1,7 @@
 # Optional Laya decisions
 
-Lucy uses the published Weft 0.4.0 decisions contract and
-`weftai.providers.laya.LayaDecider`. The matching npm adapter is
+Lucy uses the decisions contract weftai has published since 0.4.0 (the hub pins 0.5.0)
+and `weftai.providers.laya.LayaDecider`. The matching npm adapter is
 `@weftai/providers/laya`. Both use a long-running Laya HTTP service.
 Installing Lucy does not install PyTorch or download checkpoints.
 
