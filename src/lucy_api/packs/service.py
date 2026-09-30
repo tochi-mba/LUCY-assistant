@@ -31,6 +31,7 @@ from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
 from lucy_api.permissions.gate import Floors, PermissionGate
+from lucy_api.permissions.replay import would_run
 from lucy_api.turn.window import executable
 
 NOT_FOUND = "not-found"
@@ -229,14 +230,27 @@ class Capabilities:
         catalogue = context.catalogue
         if catalogue is None:
             catalogue = await self.probe(context)
-        verdict = PermissionGate().inspect(
-            plan,
-            mode=context.permission_mode,
-            grants=context.grants,
-            catalogue=catalogue,
-            floors=Floors.of(context),
+        stripped = executable(plan)
+        bound, _deferred = self.bound_for(catalogue, context.session_id)
+        registry = self.registry_for(catalogue, context.session_id)
+        limits = limits_for(bound, context.policy)
+        # The gate asks a person about a write before anything runs, so a plan that could
+        # not run is refused first: a bad reference or a malformed step is the model's to
+        # repair, and nobody should be asked to approve it. The runtime checks the plan
+        # again with its own result store, which is new for every plan, so nothing stored
+        # could make a reference valid there that was invalid here.
+        verdict = (
+            PermissionGate().inspect(
+                plan,
+                mode=context.permission_mode,
+                grants=context.grants,
+                catalogue=catalogue,
+                floors=Floors.of(context),
+            )
+            if would_run(stripped, registry, max_steps=limits["maxSteps"])
+            else None
         )
-        if not verdict.allowed:
+        if verdict is not None and not verdict.allowed:
             return {
                 "issues": [
                     {
@@ -255,7 +269,7 @@ class Capabilities:
             }
         runtime = self.runtime_for(catalogue, context.session_id, context)
         result = await runtime.execute(
-            executable(plan),
+            stripped,
             {
                 "ctx": context,
                 "session": {"id": context.session_id},
