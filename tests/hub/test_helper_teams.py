@@ -19,6 +19,7 @@ import pytest
 
 from lucy_api.agents.runtime import ChildRuntime
 from lucy_api.agents.store import AgentStore
+from lucy_api.mcp.skills import resolve
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, speaks
 from lucy_api.model.types import Reply
@@ -27,6 +28,8 @@ from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.work import WorkPack, _check
 from lucy_api.permissions.gate import Grant
+from lucy_api.prompt.docs import read_capability_doc
+from lucy_api.prompt.sections import PromptContext, render_all
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
 from lucy_api.sessions.sql_store import SessionStore
@@ -428,3 +431,52 @@ async def test_one_plan_runs_two_groups_at_once_and_skeptics_queue_behind_them(
     verdict = work.result(handles[0]).payload
     assert isinstance(verdict, dict)
     assert verdict["data"] == json.loads(VERDICT)
+
+
+# --------------------------------------------------------------------------------------
+# What the model is told
+# --------------------------------------------------------------------------------------
+
+
+def test_the_always_on_section_sizes_a_team_to_the_job_and_points_at_the_recipe() -> None:
+    helpers = next(section for section in render_all(PromptContext()) if section.id == "helpers")
+    text = " ".join(helpers.body.split())
+
+    assert "Start with one or two" not in text, "a five-helper team is allowed"
+    assert "Size the team to the job" in text
+    assert "spends the person's money" in text, "the cost warning stays"
+    assert "one lens each and never see each other's findings" in text
+    assert "a skeptic gets one finding to refute" in text
+    assert "Fold in only what survives" in text
+    assert "`helper-team`" in text
+    assert not helpers.truncated
+
+
+def test_the_capability_page_says_a_spawn_past_the_cap_queues_and_a_group_ends_once() -> None:
+    page = " ".join(read_capability_doc("agents").split())
+
+    assert "a spawn is `queued`, not refused" in page
+    assert "one notice for the whole group" in page
+    assert "`return_schema`" in page
+    assert "`helper-team`" in page
+
+
+def test_the_recipe_is_a_skill_the_model_loads_on_purpose() -> None:
+    recipe = resolve("helper-team")
+    assert recipe is not None
+    text = " ".join(recipe.body.split())
+    for promise in (
+        "one lens each",
+        "nothing any other reviewer found",
+        "briefed to refute it",
+        "never the reviewer's reasoning",
+        "Do not wait in a loop",
+        "Keep findings a skeptic confirmed",
+        "Drop refuted ones",
+        "the skeptics queue behind them",
+        "one approval card",
+        "Plan mode starts none",
+    ):
+        assert promise in text, promise
+    for shape in ("facts", "findings", "verdict"):
+        assert f'"{shape}"' in text
