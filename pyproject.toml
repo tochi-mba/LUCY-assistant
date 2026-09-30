@@ -19,6 +19,7 @@ dependencies = [
     "keyring-client",
     "pydantic>=2.10",
     "pydantic-settings>=2.5",
+    "python-dotenv>=1.0",
     "settings-client",
     "uvicorn[standard]>=0.30",
     "weftai[all]==0.4.0",
