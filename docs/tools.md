@@ -205,6 +205,34 @@ real deadline (return immediately with the handle), not "omit this and use the c
 timeout". Add `wake: true` and a command that finishes while nobody is talking opens a
 turn of its own to say so.
 
+### A quick calculation, in one call
+
+*"What will 1,200 be worth after seven years at 3.5%?"*
+
+```json
+{"steps": [
+  {"id": "growth", "op": "workspace.script",
+   "input": {"language": "python", "name": "growth",
+             "code": "print(round(1200 * 1.035 ** 7, 2))\n"},
+   "note": "Work out what the savings grow to"}
+]}
+```
+
+→ One step and, in `ask` mode, one approval: a script is a command, so it asks under the
+same permission as `workspace.run`, and the approval card shows the code. The script is
+written to `.scratch/growth.py` and runs as `python3 .scratch/growth.py` from the session's
+own directory, through the same machinery as `workspace.run`: the same output cap, the same
+notice saying which end was kept, the same handle if it outlives its step. The result is the
+command's, plus `script` (its path) and `file_fingerprint`. A named script is rewritten and
+run again by the next call with that name, which is how a model corrects one; an unnamed one
+is named by its own fingerprint, so the same code is the same file. `python` and `bash` are
+what the sandbox has.
+
+`.scratch/` holds an ignore file that ignores everything in it, itself included, so scratch
+work never appears in `git status`, nor among the files a returning turn is told have
+changed. What a script writes anywhere else is ordinary work and shows as a change like any
+other. What it prints is a command's output, framed as untrusted.
+
 ### Tell me when it lands, without polling
 
 *"Let me know when CI is green."*

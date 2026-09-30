@@ -83,6 +83,7 @@ def test_lucy_s_own_machinery_is_observed(pack: Any, operation: str) -> None:
         (WorkspacePack("http://workspace.test"), "workspace.read"),
         (WorkspacePack("http://workspace.test"), "workspace.list"),
         (WorkspacePack("http://workspace.test"), "workspace.run"),
+        (WorkspacePack("http://workspace.test"), "workspace.script"),
         (MusicPack("http://music.test"), "music.search"),
         (WatchPack("http://workspace.test"), "watch.command"),
         (McpPack((), None), "mcp.call"),

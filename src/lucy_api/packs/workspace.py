@@ -34,6 +34,13 @@ from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, StillRunningError
 from lucy_api.work.types import Brief, Kind
+from lucy_api.workspace.scratch import (
+    IGNORE_ALL,
+    IGNORE_FILE,
+    LANGUAGES,
+    NOTHING_DONE,
+    script_for,
+)
 from lucy_api.workspace.text import (
     BINARY_NOTICE,
     DEFAULT_LINE_LIMIT,
@@ -58,9 +65,9 @@ MAX_TOOL_OUTPUT_CHARS = 8_000
 MAX_TIMEOUT_MS = 600_000
 """The longest ceiling one command is given, whatever it asked for."""
 SHOW = ("end", "start")
-"""Which end of a long command output `workspace.run` shows. The end is the default: a test
-run or a build prints its verdict last, and the beginning of a megabyte log is not where
-anybody looks first."""
+"""Which end of a long command output `workspace.run` and `workspace.script` show. The end is
+the default: a test run or a build prints its verdict last, and the beginning of a megabyte
+log is not where anybody looks first."""
 OUTLAST_EXEC_SECONDS = 1.0
 """How much longer a command's work deadline is than the exec call it wraps.
 
@@ -154,9 +161,11 @@ class WorkspacePack:
             Permission(
                 id="workspace.run",
                 title="Run workspace commands",
-                description="Run a command inside this session's sandbox subtree.",
+                description=(
+                    "Run a command, or a short script, inside this session's sandbox subtree."
+                ),
                 risk="execute",
-                covers=("workspace.run",),
+                covers=("workspace.run", "workspace.script"),
             ),
         )
 
@@ -289,6 +298,22 @@ class WorkspacePack:
                 },
                 value(object_schema({})),
                 self._run,
+                effects="write",
+            ),
+            self._operation(
+                "script",
+                "Run a short python or bash script in one call: a quick calculation, a check, "
+                "a one-off transformation. It is written to .scratch/, which is yours and never "
+                "among the person's changes; with name, the same file is rewritten and rerun.",
+                {
+                    "language": enum_schema(*LANGUAGES),
+                    "code": string_schema(),
+                    "name": string_schema().optional(),
+                    "show": enum_schema(*SHOW).optional(),
+                    "timeout_ms": integer_schema().optional(),
+                },
+                value(object_schema({})),
+                self._script,
                 effects="write",
             ),
         )
@@ -509,6 +534,36 @@ class WorkspacePack:
                 wake=bool(run.input.get("wake", False)),
             ),
         )
+
+    async def _script(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        """Write one throwaway script to the scratchpad and run it, waiting for its answer.
+
+        A refusal writes nothing and runs nothing. The ignore file is written before the
+        script every time, so that no script is ever in the folder without it.
+        """
+        code = str(run.input.get("code") or "")
+        name = str(run.input.get("name") or "")
+        script = script_for(LANGUAGES[str(run.input.get("language"))], code, name)
+        if script.notice:
+            return {"name": name, "written": False, "notice": script.notice}
+        ignore = confined_path(run.ctx, IGNORE_FILE)
+        path = confined_path(run.ctx, script.path)
+        problem = validate_text(path, code)
+        if problem:
+            return {"script": script.path, "written": False, "notice": f"{problem}; {NOTHING_DONE}"}
+        client = self._client(run.ctx)
+        env_id = run.ctx.workspace_environment_id
+        await client.write(env_id, ignore, IGNORE_ALL)
+        await client.write(env_id, path, code)
+        ran = await self._execute(
+            run.ctx,
+            Command(
+                text=script.command,
+                timeout_ms=_timeout_ms(run.input.get("timeout_ms")),
+                tail=run.input.get("show") != "start",
+            ),
+        )
+        return {**ran, "script": script.path, "file_fingerprint": digest(code)}
 
     async def _execute(self, context: PackContext, command: Command) -> dict[str, Any]:
         """Run one command as a piece of work, and wait for its answer as far as it asked.

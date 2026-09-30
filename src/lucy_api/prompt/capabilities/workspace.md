@@ -14,3 +14,8 @@ what you built, read it back into the conversation.
 `workspace.run` executes inside the subtree; with `wait: false` it becomes work you check on,
 and with `wake: true` it wakes the session when it finishes. `workspace.delete` removes a
 file and still asks in auto mode unless the person already allowed deletions.
+
+For a quick calculation, a check or a one-off transformation, `workspace.script` writes a
+short `python` or `bash` script to `.scratch/` and runs it in one call. Name it to rewrite and
+rerun the same file. Scratch files are yours, not the person's work, and are kept out of
+their changes; what a script writes anywhere else is not.

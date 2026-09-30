@@ -1,8 +1,9 @@
-"""Session-local files: fingerprints, the edit ladder, and resume orientation.
+"""Session-local files: fingerprints, the edit ladder, resume orientation and the scratchpad.
 
 The pack still owns the HTTP verbs. This package owns the rules that make those verbs
 safe for a model: a digest so a stale edit is refused, a ladder so a near-miss is still
-applied, and a resume ritual so a long-horizon helper does not redo yesterday's work.
+applied, a resume ritual so a long-horizon helper does not redo yesterday's work, and a
+scratchpad so a throwaway script is never one of the person's changes.
 """
 
 from lucy_api.workspace.orient import WorkspaceLive
