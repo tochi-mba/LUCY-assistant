@@ -141,6 +141,8 @@ class Outcome:
     asks: tuple[dict[str, Any], ...] = ()
     parked_plan: dict[str, Any] | None = None
     """The plan a write parked, so each approval can record the steps its call reads from."""
+    refused: tuple[str, ...] = ()
+    """Steps the gate denied outright in that plan; a call that reads from one cannot run."""
 
     @property
     def text(self) -> str:
@@ -390,7 +392,7 @@ async def _run_plan(
     unsaid = replace(round_, text="")
     waiting = _permission_issues(result)
     if waiting:
-        return _parked(outcome, unsaid, plan, waiting)
+        return _parked(outcome, unsaid, plan, waiting, _refused_steps(result))
     denied_notice = await _record_denial(turn, outcome, unsaid, result)
     if denied_notice:
         cycle.repair_notice = denied_notice
@@ -602,6 +604,7 @@ def _parked(
     round_: Round,
     plan: dict[str, Any] | None,
     waiting: tuple[dict[str, Any], ...],
+    refused: tuple[str, ...] = (),
 ) -> Outcome:
     """A write that needs a person is a parked turn, not a broken plan."""
     first = waiting[0] if waiting else {}
@@ -617,6 +620,7 @@ def _parked(
     outcome.arguments = raw_input if isinstance(raw_input, dict) else {}
     outcome.asks = waiting
     outcome.parked_plan = plan
+    outcome.refused = refused
     outcome.rounds.append(round_)
     return outcome
 
@@ -632,6 +636,16 @@ def _permission_issues(result: Any) -> tuple[dict[str, Any], ...]:
         item
         for item in issues
         if isinstance(item, dict) and item.get("code") == "permission_required"
+    )
+
+
+def _refused_steps(result: Any) -> tuple[str, ...]:
+    """The steps the gate denied outright, beside the ones it is asking about."""
+    issues = result.get("issues") or ()
+    return tuple(
+        str(item.get("step") or "")
+        for item in issues
+        if isinstance(item, dict) and item.get("code") == "permission_denied" and item.get("step")
     )
 
 

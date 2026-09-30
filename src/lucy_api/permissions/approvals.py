@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from lucy_api.core.errors import absent, conflict
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant
+from lucy_api.permissions.replay import needs as needs_of_plan
 from lucy_api.permissions.store import SESSION_PROFILE_PREFIX
 from lucy_api.sessions.sql_store import (
     IdempotentWrite,
@@ -33,7 +34,7 @@ from lucy_api.stream.events import APPROVAL_DENIED, APPROVAL_GRANTED, APPROVAL_R
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from lucy_api.permissions.replay import Needs
     from lucy_api.sessions.sql_store import SessionStore
@@ -384,6 +385,43 @@ async def mark_executed(store: SessionStore, calls: Sequence[ApprovedCall]) -> N
     await store.worker.call(write)
 
 
+async def reopen(
+    store: SessionStore,
+    calls: Sequence[ApprovedCall],
+    plan: Mapping[str, Any] | None,
+    *,
+    parked: Sequence[str],
+) -> None:
+    """Give back approved calls whose replay parked again, recorded against the plan that did.
+
+    The gate parks a plan before any step runs, so an approved call in a plan that parked
+    has not run and its approval is not spent. Each is recorded again with what it now needs
+    from that plan, and which of those steps were parked beside it, so it is replayed
+    together with whatever the person answers next -- or held, if they refuse.
+    """
+    rewritten = [
+        (
+            _needs_payload(needs_of_plan(plan, call.step, parked=parked)),
+            call.approval_id,
+        )
+        for call in calls
+    ]
+
+    def write(db: sqlite3.Connection) -> None:
+        for fields, approval_id in rewritten:
+            row = db.execute(
+                "SELECT input_json FROM approvals WHERE id=?", (approval_id,)
+            ).fetchone()
+            payload = _payload(row["input_json"]) if row is not None else {}
+            payload.update(fields)
+            db.execute(
+                "UPDATE approvals SET executed_at=NULL, input_json=? WHERE id=?",
+                (json.dumps(payload), approval_id),
+            )
+
+    await store.worker.call(write)
+
+
 def _needs_payload(needs: Needs | None) -> dict[str, Any]:
     """The replay fields of an approval's stored input, or none for an ask with no step."""
     if needs is None or not needs.step:
@@ -452,5 +490,6 @@ __all__ = [
     "approved_calls",
     "mark_executed",
     "open_approval",
+    "reopen",
     "resumed_notice",
 ]
