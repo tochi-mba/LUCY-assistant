@@ -239,6 +239,8 @@ class WorkSnapshot:
     elapsed_seconds: float = 0.0
     progress: str = ""
     finished_since_last_turn: bool = False
+    group: str = ""
+    """The team this work was started in, when it was started in one: "reviewers"."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,8 +364,8 @@ class LiveState:
 
     @property
     def running(self) -> tuple[WorkSnapshot, ...]:
-        """What is still going, helpers and jobs and commands alike."""
-        return tuple(work for work in self.in_flight if work.status == "running")
+        """What is still going, helpers and jobs and commands alike, and what waits to start."""
+        return tuple(work for work in self.in_flight if work.status in {"running", "queued"})
 
 
 class Trust(StrEnum):

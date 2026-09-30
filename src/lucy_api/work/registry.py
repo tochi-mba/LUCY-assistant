@@ -27,6 +27,14 @@ from `failed`.
 **Cancelling is explicit and idempotent**, and is never a side effect of a client
 disconnecting.
 
+**Work past a cap can wait its turn.** `queue` starts work at once when one of its kind's
+slots is free and otherwise holds it, in order, until one is -- bounded, so a queue is never
+a promise to run something after the person has stopped caring. Its clock starts when it
+starts. `start` is the other answer, for work whose caller would rather be told no.
+
+**A group ends once.** Work started under one group name is told, as a `Team`, when the last
+of it ends, so five reviewers started together are one piece of news rather than five.
+
 Nothing in here touches a model, a database or a socket. It holds records and asyncio tasks,
 which is what makes it testable without any of those.
 """
@@ -38,10 +46,12 @@ import contextlib
 import logging
 import secrets
 from collections.abc import Coroutine
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from lucy_api.context.types import WorkSnapshot
 from lucy_api.work.types import (
+    MAX_GROUP,
     MAX_OBJECTIVE,
     MAX_PROGRESS,
     MAX_ROLE,
@@ -52,6 +62,7 @@ from lucy_api.work.types import (
     Record,
     Result,
     State,
+    Team,
     WorkError,
 )
 
@@ -60,6 +71,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     type Listener = Callable[[Record], Awaitable[None]]
+    type TeamListener = Callable[[Team], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +100,12 @@ completed download is not something anybody is about to ask for.
 """
 
 
+CANCELLED_QUEUED = "cancelled before it started"
+"""The ending of queued work somebody cancelled: nothing of it ever ran."""
+
+
 class AtCapacityError(Exception):
-    """Raised when a session already has `MAX_CONCURRENT` things running.
+    """Raised when a session already has `MAX_CONCURRENT` things running, or a full queue.
 
     It is an exception here and a sentence by the time the model sees it. The boundary that
     turns one into the other is the operation, which knows how to phrase a cap as advice.
@@ -128,6 +144,19 @@ def _discard(work: Awaitable[object]) -> None:
         work.close()
 
 
+@dataclass(frozen=True, slots=True)
+class _Waiting:
+    """Queued work: how to start it, how many of its kind may run, and who to tell if not.
+
+    `work` makes the awaitable only when the work starts, so nothing of it -- not even a
+    coroutine object -- exists while it waits, and its own clock cannot start early.
+    """
+
+    work: Callable[[], Awaitable[object]]
+    slots: int
+    dropped: Callable[[], Awaitable[None]] | None = None
+
+
 def _clip(text: str, limit: int) -> str:
     """One line, bounded, with the cut made visible rather than silent."""
     flat = " ".join(str(text).split())
@@ -158,7 +187,10 @@ class Registry:
         self._measure = measure or rough_tokens
         self._records: dict[str, Record] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._waiting: dict[str, _Waiting] = {}
         self._listeners: list[Listener] = []
+        self._team_listeners: list[TeamListener] = []
+        self._teams: dict[str, list[Team]] = {}
         self._deliveries: set[asyncio.Task[None]] = set()
         self._closing = False
 
@@ -176,6 +208,14 @@ class Registry:
         slow or failing listener cannot hold up or corrupt the ending it is being told about.
         """
         self._listeners.append(listener)
+
+    def on_team_finished(self, listener: TeamListener) -> None:
+        """Be told, once, when the last member of a group ends -- after every member has.
+
+        Told after each member's own ending, so a listener that wakes the session for the
+        group can rely on every member's record being final.
+        """
+        self._team_listeners.append(listener)
 
     # ---------------------------------------------------------------- starting
 
@@ -196,7 +236,7 @@ class Registry:
         warning from the garbage collector minutes later, pointing at a line that did nothing
         wrong. Cleaning it up here is the only place that can.
         """
-        if len(self.running(brief.session_id)) >= self._max_concurrent:
+        if len(self._active(brief.session_id)) >= self._max_concurrent:
             _discard(work)
             message = (
                 f"{self._max_concurrent} things are already running for this session; "
@@ -207,9 +247,63 @@ class Registry:
         identifier = work_id or new_id()
         if identifier in self._records:
             _discard(work)
-            message = f"work {identifier} is already registered"
-            raise ValueError(message)
-        record = Record(
+            raise ValueError(_taken(identifier))
+        record = self._new_record(identifier, brief, State.running)
+        self._records[record.id] = record
+        self._tasks[record.id] = asyncio.create_task(
+            self._run(record, work), name=f"work:{record.id}"
+        )
+        return _handle(record)
+
+    def queue(  # noqa: PLR0913 - the work, its brief, and the three numbers of its lane
+        self,
+        work: Callable[[], Awaitable[object]],
+        brief: Brief,
+        *,
+        slots: int,
+        waiting: int,
+        work_id: str | None = None,
+        dropped: Callable[[], Awaitable[None]] | None = None,
+    ) -> Handle:
+        """Start work now if one of its kind's `slots` is free, or hold it until one is.
+
+        `slots` is how many of this kind may run at once for the session, and is the
+        person's number, not the registry's: five helpers, say. Past it the work is
+        `queued`, in the order it arrived, and starts on its own when one of its kind ends --
+        never more than `slots` at once, and never past the registry's own cap either. Its
+        timeout counts from when it starts, because `work` is only called then.
+
+        `waiting` bounds the queue. Past it this raises `AtCapacityError`, which the caller
+        phrases as advice: a queue that grows without end is a promise to do the work after
+        the person has stopped caring about it.
+
+        `dropped` is told when queued work is cancelled before it ever started, since
+        nothing of the work itself will run to say so.
+        """
+        identifier = work_id or new_id()
+        if identifier in self._records:
+            raise ValueError(_taken(identifier))
+        if self._has_room(brief.session_id, brief.kind, slots):
+            return self.start(work(), brief, work_id=identifier)
+        held = [
+            record
+            for record in self._for(brief.session_id)
+            if record.kind is brief.kind and record.state is State.queued
+        ]
+        if len(held) >= waiting:
+            message = (
+                f"{slots} {brief.kind.value}s may run at once and {len(held)} more are already "
+                "queued, as many as may wait; wait for one to finish, cancel one, or do this "
+                "inline"
+            )
+            raise AtCapacityError(message)
+        record = self._new_record(identifier, brief, State.queued)
+        self._records[record.id] = record
+        self._waiting[record.id] = _Waiting(work=work, slots=slots, dropped=dropped)
+        return _handle(record)
+
+    def _new_record(self, identifier: str, brief: Brief, state: State) -> Record:
+        return Record(
             id=identifier,
             kind=brief.kind,
             role=_clip(brief.role, MAX_ROLE),
@@ -218,21 +312,40 @@ class Registry:
             started_at=self._now(),
             depth=brief.depth,
             timeout_seconds=brief.timeout_seconds,
+            state=state,
             tags=dict(brief.tags),
             account_id=brief.account_id,
             wake=brief.wake and bool(brief.account_id),
+            group=_clip(brief.group, MAX_GROUP),
         )
-        self._records[record.id] = record
-        self._tasks[record.id] = asyncio.create_task(
-            self._run(record, work), name=f"work:{record.id}"
-        )
-        return Handle(
-            id=record.id,
-            kind=record.kind,
-            role=record.role,
-            objective=record.objective,
-            started_at=record.started_at,
-        )
+
+    def _active(self, session_id: str) -> tuple[Record, ...]:
+        """What is actually running for one session: started, and not yet ended."""
+        return tuple(record for record in self._for(session_id) if record.state is State.running)
+
+    def _has_room(self, session_id: str, kind: Kind, slots: int) -> bool:
+        active = self._active(session_id)
+        of_kind = sum(1 for record in active if record.kind is kind)
+        return len(active) < self._max_concurrent and of_kind < slots
+
+    def _promote(self, session_id: str) -> None:
+        """Start queued work, oldest first, for as long as its kind has a slot free.
+
+        Called whenever something of the session ends. Not while the process is going
+        down: work that never started is left queued, and the next process says so.
+        """
+        if self._closing:
+            return
+        for record in self._for(session_id):
+            waiting = self._waiting.get(record.id)
+            if waiting is None or not self._has_room(session_id, record.kind, waiting.slots):
+                continue
+            del self._waiting[record.id]
+            record.state = State.running
+            record.started_at = self._now()
+            self._tasks[record.id] = asyncio.create_task(
+                self._run(record, waiting.work()), name=f"work:{record.id}"
+            )
 
     async def _run(self, record: Record, work: Awaitable[object]) -> None:
         """Await the work, and record what happened to it however it ended.
@@ -258,6 +371,7 @@ class Registry:
         finally:
             self._tasks.pop(record.id, None)
             self._forget_old(record.session_id)
+            self._promote(record.session_id)
 
     @staticmethod
     async def _awaited(record: Record, work: Awaitable[object]) -> object:
@@ -271,9 +385,10 @@ class Registry:
         """Record how a piece of work ended. Called exactly once per record.
 
         There is no guard against being called twice because there is no second caller:
-        `_run` has one ending, and `cancel` asks the task to end rather than ending the
-        record itself. A guard here would be a branch nothing can reach, which is a worse
-        thing to have than the invariant written down.
+        `_run` has one ending for work that started, and `cancel` ends only work that never
+        did -- for started work it asks the task to end rather than ending the record itself.
+        A guard here would be a branch nothing can reach, which is a worse thing to have
+        than the invariant written down.
         """
         record.state = state
         record.finished_at = self._now()
@@ -281,9 +396,33 @@ class Registry:
         record.detail = _clip(detail, MAX_PROGRESS)
         record.tokens = self._measure(payload) if payload is not None else 0
         for listener in self._listeners:
-            task = asyncio.create_task(_told(listener, record), name=f"work-told:{record.id}")
-            self._deliveries.add(task)
-            task.add_done_callback(self._deliveries.discard)
+            self._deliver(_told(listener, record), f"work-told:{record.id}")
+        if record.group:
+            self._end_team(record.session_id, record.group)
+
+    def _end_team(self, session_id: str, group: str) -> None:
+        """Tell the group's ending once its last member has ended, and not before."""
+        members = tuple(
+            record
+            for record in self._for(session_id)
+            if record.group == group and not record.teamed
+        )
+        if any(not member.state.finished for member in members):
+            return
+        for member in members:
+            member.teamed = True
+        team = Team(session_id=session_id, group=group, members=members)
+        told = self._teams.setdefault(session_id, [])
+        told.append(team)
+        del told[: max(0, len(told) - self._keep_finished)]
+        for listener in self._team_listeners:
+            self._deliver(_told_team(listener, team), f"work-team:{group}")
+
+    def _deliver(self, told: Awaitable[None], name: str) -> None:
+        task = asyncio.ensure_future(told)
+        task.set_name(name)
+        self._deliveries.add(task)
+        task.add_done_callback(self._deliveries.discard)
 
     def record_lost(  # noqa: PLR0913 - the brief, and the four facts of how it ended
         self,
@@ -322,6 +461,8 @@ class Registry:
             tokens=self._measure(payload) if payload is not None else 0,
             detail=_clip(detail, MAX_PROGRESS),
             account_id=brief.account_id,
+            group=_clip(brief.group, MAX_GROUP),
+            teamed=True,
         )
 
     # ---------------------------------------------------------------- checking in
@@ -360,6 +501,10 @@ class Registry:
         self._forget_old(session_id)
         return tuple(notices)
 
+    def drain_teams(self, session_id: str) -> tuple[Team, ...]:
+        """Every group of this session that ended since it was last asked, told once."""
+        return tuple(self._teams.pop(session_id, ()))
+
     def snapshot(self, session_id: str, *, announce: bool = False) -> tuple[WorkSnapshot, ...]:
         """What the live-state block shows: everything in flight, in one group.
 
@@ -385,12 +530,17 @@ class Registry:
                     elapsed_seconds=record.elapsed(now),
                     progress=record.progress or record.detail,
                     finished_since_last_turn=fresh,
+                    group=record.group,
                 )
             )
         return tuple(snapshots)
 
     def running(self, session_id: str) -> tuple[Record, ...]:
-        """What is still going for one session, in the order it was started."""
+        """What is still going for one session, in the order it was started.
+
+        Queued work is here too: it is in flight, only not started. A caller that needs to
+        tell them apart reads each record's state.
+        """
         return tuple(record for record in self._for(session_id) if not record.state.finished)
 
     # ---------------------------------------------------------------- fetching
@@ -404,7 +554,10 @@ class Registry:
         """
         record = self._record(work_id)
         if not record.state.finished:
-            message = f"{record.role} is still running; wait for its notice rather than polling"
+            message = (
+                f"{record.role} is still {record.state.value}; wait for its notice rather "
+                "than polling"
+            )
             raise StillRunningError(message)
         record.fetched = True
         return Result(
@@ -429,7 +582,7 @@ class Registry:
                 await asyncio.wait_for(asyncio.shield(task), timeout_seconds)
         if not record.state.finished:
             message = (
-                f"{record.role} is still running after {timeout_seconds:.0f}s; "
+                f"{record.role} is still {record.state.value} after {timeout_seconds:.0f}s; "
                 "it has not been stopped"
             )
             raise StillRunningError(message)
@@ -446,6 +599,14 @@ class Registry:
         """
         record = self._record(work_id)
         record.cancel_requested = True
+        waiting = self._waiting.pop(work_id, None)
+        if waiting is not None:
+            # Nothing of it ever ran, so there is no task to stop and nothing of the work to
+            # record its own ending: it ends here, and whoever queued it is told.
+            self._finish(record, State.cancelled, detail=CANCELLED_QUEUED)
+            if waiting.dropped is not None:
+                self._deliver(_quietly(waiting.dropped(), record), f"work-dropped:{record.id}")
+            return record
         task = self._tasks.get(work_id)
         if task is not None:
             task.cancel()
@@ -502,6 +663,20 @@ class Registry:
             self._records.pop(record.id, None)
 
 
+def _handle(record: Record) -> Handle:
+    return Handle(
+        id=record.id,
+        kind=record.kind,
+        role=record.role,
+        objective=record.objective,
+        started_at=record.started_at,
+    )
+
+
+def _taken(identifier: str) -> str:
+    return f"work {identifier} is already registered"
+
+
 def _expired(record: Record) -> str:
     """The sentence for a timeout, which means two different things for two kinds of work.
 
@@ -533,6 +708,28 @@ async def _told(listener: Listener, record: Record) -> None:
         )
 
 
+async def _told_team(listener: TeamListener, team: Team) -> None:
+    """One listener, one group ending. Logged like `_told`, by the group's name only."""
+    try:
+        await listener(team)
+    except Exception as exc:
+        logger.warning(
+            "work team listener failed",
+            extra={"group": team.group, "error": type(exc).__name__},
+        )
+
+
+async def _quietly(dropped: Awaitable[None], record: Record) -> None:
+    """Tell whoever queued work that it was cancelled unstarted; a failure is only logged."""
+    try:
+        await dropped
+    except Exception as exc:
+        logger.warning(
+            "work dropped callback failed",
+            extra={"work_id": record.id, "error": type(exc).__name__},
+        )
+
+
 def rough_tokens(payload: object) -> int:
     """About how many tokens a result would cost, to the nearest order of usefulness.
 
@@ -560,6 +757,7 @@ def notices_block(notices: Sequence[Notice]) -> str:
 
 
 __all__ = [
+    "CANCELLED_QUEUED",
     "DEFAULT_TIMEOUT_SECONDS",
     "KEEP_FINISHED",
     "MAX_CONCURRENT",

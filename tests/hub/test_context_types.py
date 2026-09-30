@@ -97,7 +97,9 @@ def test_the_prompt_reads_as_its_sections_in_order_and_skips_the_empty_ones() ->
     assert [section.id for section in assembled.band(Band.tools)] == []
 
 
-def test_only_the_children_still_working_count_as_running() -> None:
+def test_only_the_children_still_working_or_waiting_to_start_count_as_running() -> None:
+    """A helper queued behind the cap is in flight: it is shown, only not started."""
+
     def child(identifier: str, status: str) -> WorkSnapshot:
         return WorkSnapshot(id=identifier, role="researcher", objective="Look", status=status)
 
@@ -107,6 +109,11 @@ def test_only_the_children_still_working_count_as_running() -> None:
             id="ses_1", profile="personal", title="t", turn_number=1, permission_mode="ask"
         ),
         budget=BudgetSnapshot(used=1, window=10),
-        in_flight=(child("a", "running"), child("b", "finished"), child("c", "queued")),
+        in_flight=(
+            child("a", "running"),
+            child("b", "finished"),
+            child("c", "queued"),
+            child("d", "cancelled"),
+        ),
     )
-    assert [agent.id for agent in state.running] == ["a"]
+    assert [agent.id for agent in state.running] == ["a", "c"]

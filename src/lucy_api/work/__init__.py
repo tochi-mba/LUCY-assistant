@@ -17,6 +17,7 @@ from lucy_api.work.types import (
     Record,
     Result,
     State,
+    Team,
     WorkError,
 )
 from lucy_api.work.wake import Waker, wake_line
@@ -35,6 +36,7 @@ __all__ = [
     "Result",
     "State",
     "StillRunningError",
+    "Team",
     "UnknownWorkError",
     "Waker",
     "WorkError",
