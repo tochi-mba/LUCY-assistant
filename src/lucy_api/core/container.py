@@ -812,6 +812,7 @@ def build_container(
     # to spend endings held while a turn ran, so the two are introduced after both exist.
     waker = Waker(store, events)
     work.on_finished(waker.on_finished)
+    work.on_team_finished(waker.on_team_finished)
     turns = TurnSupervisor(
         store,
         models,
