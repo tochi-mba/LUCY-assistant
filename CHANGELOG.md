@@ -143,8 +143,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
-- **Breaking:** the family floor is **Python 3.12**, and CI gates 3.12. Python 3.13 is
-  declared supported and remains an optional local test run.
+- **Breaking:** the family floor is **Python 3.12**, and CI gates 3.12 and 3.13.
   [ADR-0008](docs/adr/0008-python-3-12-floor.md) records why: `weftai`, which the hub
   depends on, requires 3.12 and uses PEP 695 type parameters that do not parse on 3.11.
   `scripts/parity.py` enforces the new floor, and its check descriptions are now rendered
