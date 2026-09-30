@@ -50,7 +50,7 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 
 | | |
 | --- | --- |
-| `lucy setup` | Choose a hub, save client preferences, and optionally save a token. |
+| `lucy setup` | Choose a hub, save client preferences, optionally save a token, and show what is already in place. |
 | `lucy config` | Show effective values and where they came from; redact the token. |
 | `lucy doctor` | Check the local installation, hub readiness and caller identity. |
 | `lucy connect [capability]` | List setup requirements, or show instructions for one capability. |
@@ -61,7 +61,7 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 | `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. |
 | `lucy eval list` | The regression conversations that ship with Lucy, and what each guards. No hub needed. |
 | `lucy eval run --model SPEC` | Hold them against a running hub with a real model and write a report. Never run by CI. See [evals.md](evals.md). |
-| `lucy logs` | The hub's log file, filtered: `--session`, `--turn`, `--agent` (any part of an id), `--level`, `--grep`, `--last N`; `--json` for the raw lines. Reads the file on this machine, so it works when the hub does not. |
+| `lucy logs` | The hub's log file, filtered: `--session`, `--turn`, `--agent` (any part of an id), `--level`, `--grep`, `--last N`; `--json` for the raw lines; `--file` for a log somewhere other than the family's `var/log/lucy.jsonl`. Reads the file on this machine, so it works when the hub does not. |
 | `lucy serve` | Run the hub in the foreground. `--host` and `--port`. |
 
 `lucy` with no command prints help, and exits 0. Help leads with examples, because that is
@@ -87,6 +87,14 @@ The interactive guide offers three modes: `hub` for running the hub here, `famil
 running the family from a checkout, and `remote` for an existing hub. These are saved
 preferences and next-step instructions; choosing a mode does not start containers, install
 dependencies or create an account.
+
+Every run starts with what is already in place -- the saved configuration, the hub, the
+token, the family checkout, the family CI GitHub App and any private extras -- each marked
+`done` or `next`. `family` mode also opens the
+[family CI app's](private-repos.md#connect-ci-one-command-one-install-click) Install page
+unless it is installed already; `--no-github-ci` skips that, and `--github-ci` asks for it in
+any mode, even when it is installed. On a machine that is already set up, a run with no
+flags keeps the saved answers unless you say, when asked, that you want to change them.
 
 ```bash
 lucy setup --mode remote --url https://lucy.example --no-token --yes
@@ -150,6 +158,7 @@ still needs attention. `--dry-run` performs no connection mutation.
 | `LUCY_URL` | Where the hub is. Default `http://127.0.0.1:8000`. |
 | `LUCY_TOKEN` | Your keyring token, audience `lucy-api`. |
 | `LUCY_CONFIG` | Override the client configuration file location. |
+| `LUCY_FAMILY_ROOT` | The family checkout, when it is not this directory or one above it. `lucy setup`, `lucy logs` and `lucy models connect` look for it. |
 | `NO_COLOR` | Set to anything to turn colour off. So does `TERM=dumb`. |
 
 **A token is never a flag.** A flag lands in shell history and in the output of `ps`, where
@@ -207,7 +216,7 @@ report on `1`, and collapsing the two makes an outage indistinguishable from a r
 | `cannot reach Lucy at …` | Nothing is listening. `lucy serve`, or `make up`, or set `LUCY_URL`. |
 | `ready no` with a named check | That dependency is down. `lucy status` names which one. |
 | `not signed in` | Run `lucy setup --force` to save a current token, or set `LUCY_TOKEN`. |
-| `LUCY_TOKEN was refused` | The token is expired, or its audience is not `lucy-api`. |
+| `your token was refused` | The token is expired, or its audience is not `lucy-api`. |
 
 The interface follows the [Command Line Interface Guidelines](https://clig.dev/):
 examples in help, explicit noninteractive options, stdout for results, stderr for prompts,
