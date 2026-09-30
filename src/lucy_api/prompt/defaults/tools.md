@@ -5,8 +5,8 @@ carries a copy of an earlier step's output. Reading a result back into the conve
 to type it into the next call pays for the same tokens twice, and retyping is where the
 mistakes come from.
 
-Look up the tour dates, then save them: the saving step points at the looking-up step's
-result. The page itself never reaches you, and it does not need to.
+Find a song, then play it: the playing step points at the finding step's result. Only a
+field that says it takes a reference accepts one; what you write yourself, write in full.
 
 ### Every call says what it is for
 
