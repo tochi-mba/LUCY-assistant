@@ -363,3 +363,37 @@ it came up again. The keeping decision (`decision_keeping`) is the safety net fo
 that turn, and it needs Laya, which this family does not run (`LAYA_API_KEY` unset). The
 usage zeros seen on this rung are the Rung 1 fix not yet deployed; the rung is re-run on the
 rebuilt image below.
+
+### A song that would not play: the approval loop, and the harness that did not look
+
+"Play clair de lune by debussy", on a private music service implementing the music
+contract, took eleven minutes and never played. The hub's own log showed why within the
+first minute: every `music.play` the turn ran was refused with a 422, and the turn kept
+asking to run it again.
+
+What the model did was reasonable: find the track, then play what was found, in one plan,
+`{"uri": "$find_track"}`. Four defects stood between that plan and a song, and a fifth kept
+anybody from noticing:
+
+| Seen | Cause | Fix |
+| --- | --- | --- |
+| The music service was sent the literal text `$find_track` as a URI | `music.play` and `music.queue` took only a `uri` string. weftai resolves a reference only in a field typed as one, so a reference in a string field passes through as text. The tools guide had always shown `{"track": "$found[1]"}` | Both take `track`, a reference to `music.find`'s result, and the capability page shows find and play in one plan. weftai 0.5.0 refuses a whole reference written into a plain field at validation (`ref.in_plain_field`), for every operation, and the hub checks a plan with weftai before the permission gate sees it: such a plan goes back to the model to repair, and nobody is asked to approve it |
+| Once a reference field existed, the approved play still could not see what was found | A plan is checked whole before any step runs, so the play parked before the find had run, and after approval the hub ran the play on its own | An approval records its call's step and every step it reads from; the resumed turn runs them together under their own ids. A call reading from a step the person refused does not run, and the model is told why |
+| Every Spotify credential read would have been refused | The music audience had been renamed to a shared `music-api` so a second implementation could accept the same tokens; keyring reads an audience as exactly one service's name | The audience is each service's own name again, and the hub takes `LUCY_MUSIC_API_AUDIENCE` as configuration; a private service's audience is added locally under `exchange_audiences` |
+| A `.env` with the old `LUCY_SPOTIFY_API_BASE_URL` stopped the hub with "extra inputs are not permitted" | The unknown-variable check read only the environment, never `.env` | It reads both and names a renamed variable's new name |
+| The first play of a found song outran its fifteen-second confirmation window, and the model asked to play it again | The private service's player resolved a track's page when it loaded it, about ten seconds before the first byte of audio | The service resolves each found track's stream in the background while the person reads the approval card, and a play loads the stream; a play now starts within about two seconds |
+| The loop ran to the harness's timeout, approved ten times | Both the eval harness and the scratch runner answered every new ask and looked at the turn only when it rested | The eval harness's watchdog halts a turn at the first failed step, error, repeated failure, or ask for a call already answered, and prints each step as it lands. Held against the unfixed hub, it stopped the same turn at 97 seconds with the 422 as evidence |
+
+A review of the replay found four more ways an approval could go wrong, each fixed with a
+test that names it: a call held because it read from a refused step kept its one-time grant,
+so the model's next plan could run it with another source unasked; a step a standing deny
+refused was not recorded as something the call needed, so the whole resumed plan was refused
+and the model told everything had run; a replay that parked again after a mode change spent
+its approvals without running them; and a gate that read `operation`, `tool` and `name` as
+well as `op` asked about steps the executor would refuse.
+
+Held again on the fixed hub, the song was found, the approved play ran together with the
+find, and it played: 17 of 17 checks held.
+
+The scratch runner these conversations were held with is retired: conversations are held
+through `lucy eval run --suite <folder>`, where the watchdog applies.
