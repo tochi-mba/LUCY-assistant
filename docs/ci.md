@@ -25,6 +25,20 @@ jobs:
     uses: tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1
 ```
 
+## Inputs
+
+| Input | Default | What it changes |
+| --- | --- | --- |
+| `python-versions` | `'["3.12","3.13"]'` | The test matrix, as a JSON list. Both versions are gated ([ADR-0008](adr/0008-python-3-12-floor.md)). |
+| `extras` | `--all-extras --group dev` | Extra arguments to `uv sync`. |
+| `privileged-container` | `false` | Run the test job in a privileged container. |
+| `live-browser-job` | `false` | Add a Playwright job for services that drive Chromium. |
+| `live-browser-marker` | `live_browser` | The pytest marker that job selects. |
+| `generated-files-command` | *(empty)* | Regenerate committed files, then refuse any diff. |
+| `run-docker` | `true` | Build the Dockerfile and probe the health path. |
+| `docker-image-healthcheck-path` | `/healthy` | The path that probe calls: liveness, not readiness. |
+| `docker-env` | *(empty)* | `KEY=VALUE` lines the probe container boots with. |
+
 The callers use the moving, tested `v1` workflow tag. Only advance it after the
 meta workflow changes pass their checks; client dependency tags remain immutable. Settings-api also regenerates committed files:
 
