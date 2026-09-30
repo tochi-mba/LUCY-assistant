@@ -4,11 +4,11 @@ The model does not call tools one at a time. It answers with a **plan**: several
 where a later step names an earlier step's result by reference. The data those steps produce
 never becomes tokens on its way between them.
 
-That is the whole bet, and it is worth being concrete about what it saves. Searching the web
-and then saving the three best results is, in a call-at-a-time world, an entire search result
-rendered into the context so the model can copy three identifiers out of it and type them
-into the next call. Here it is two steps and a `$hits[1,2,3]`. The page text is never a token
-anybody paid for, and nothing was retyped, which is where the mistakes come from.
+That is the whole bet, and it is worth being concrete about what it saves. Finding a song and
+playing it is, in a call-at-a-time world, a search result rendered into the context so the
+model can copy an identifier out of it and type it into the next call. Here it is two steps
+and a `$found[1]`. The identifier is never a token anybody paid for, and nothing was retyped,
+which is where the mistakes come from.
 
 ## The model never sees a service
 
@@ -31,28 +31,28 @@ exactly the cost plans exist to avoid.
 Every example below is a real plan shape. The model writes the plan; everything after
 `→` is what comes back.
 
-### One question, two steps, nothing retyped
+### One request, two steps, nothing retyped
 
-*"Find out when they're touring and put the dates in my notes."*
+*"Put on Clair de lune."*
 
 ```json
 {"steps": [
-  {"id": "hits", "op": "research.search",
-   "input": {"query": "2027 European tour dates", "limit": 5},
-   "note": "Find out when the tour reaches Europe"},
+  {"id": "found", "op": "music.find",
+   "input": {"name": "Clair de lune", "artist": "Debussy"},
+   "note": "Find the piece they asked for"},
 
-  {"id": "saved", "op": "notes.remember",
-   "input": {"title": "Tour dates", "body": "$hits[1]", "kind": "fact"},
-   "note": "Keep the dates so I do not have to look them up again"}
+  {"id": "play", "op": "music.play",
+   "input": {"track": "$found[1]"},
+   "note": "Start the best match"}
 ]}
 ```
 
-→ `hits` comes back as a collection of five, rendered as five labelled lines. `saved`
-receives the first result **as data**, resolved from the stored result. The page text never
-entered the conversation, and no identifier was copied by hand.
+→ `found` comes back as a collection of tracks, rendered as labelled lines. `play` receives
+the first of them **as data**, resolved from the stored result, so no track identifier was
+copied by hand. `"$found"` on its own would play every track the search returned, in order.
 
 Both steps carry a `note`. That is what the person sees if the write needs approving, and
-what the log says six weeks later.
+what the transcript says about the step afterwards.
 
 ### Three stores, three lists
 
@@ -117,7 +117,7 @@ answer and is not one.
 on purpose. Untrusted topics never appear in the index, so expanding one cannot smuggle
 them in.
 
-### Reads together, the write on its own
+### Reads together, the write in the next plan
 
 *"Check the two repositories and write me a summary."*
 
@@ -129,18 +129,14 @@ them in.
 
   {"id": "two", "op": "workspace.grep",
    "input": {"pattern": "TODO", "path": "service-b"},
-   "note": "Find what is outstanding in the second service"},
-
-  {"id": "summary", "op": "workspace.write",
-   "input": {"path": "outstanding.md", "from": ["$one", "$two"]},
-   "note": "Write both lists into one file I can read later"}
+   "note": "Find what is outstanding in the second service"}
 ]}
 ```
 
-→ `one` and `two` run at the same time; they are reads and independent. `summary` waits for
-both and runs alone, because it writes. Had the model put two writes in one plan, they would
-have run one after the other in the order written — and two writes that could collide belong
-in two plans, not one.
+→ `one` and `two` run at the same time; they are reads and independent. The summary is a
+`workspace.write` whose `content` the model writes from both results, so it goes in the next
+plan, once the model has read them. `content` is an ordinary field: a `$one` written there is
+refused rather than resolved (see [References](#references)).
 
 ### A helper for work the parent does not need to see
 
@@ -160,19 +156,19 @@ in two plans, not one.
 ]}
 ```
 
-A later turn can continue a finished helper without copying the whole brief:
+A later turn can continue a finished helper without copying the whole brief, by the handle
+its spawn returned:
 
 ```json
 {"steps": [
   {"id": "again", "op": "agents.reopen",
-   "input": {"id": "$left.agent_id",
-             "guidance": "The merge landed; check whether the review still holds."},
+   "input": {"id": "agt_q3Vx8LmT0cRk2Hn5WbYe9sJd"},
    "note": "Continue the left review from where it stopped"}
 ]}
 ```
 
-The new helper sees the previous items and last report. To hold the return to a shape, pass
-`return_schema` on spawn. Mail between them is hop-counted, burst-capped, and identical
+The new helper keeps the old objective and sees the previous items and last report. To hold
+the return to a shape, pass `return_schema` on spawn or on reopen. Mail between them is hop-counted, burst-capped, and identical
 unread steers count as one.
 
 → Each spawn returns a handle immediately. The parent keeps talking. When a helper
@@ -323,11 +319,13 @@ does not look for another route, and it does not ask for the credential itself.
 ```
 
 Head *and* tail, because errors cluster at the end of a log. To look somewhere specific, the
-model runs the same step again with `show_from` set to a unique snippet it already saw:
+model runs the same step again with `show_from` set to a unique snippet it already saw.
+`show_from` belongs to the step, beside `note`, not to the operation's input:
 
 ```json
 {"id": "detail", "op": "workspace.read",
- "input": {"path": "build.log", "show_from": "ModuleNotFoundError"},
+ "input": {"path": "build.log"},
+ "show_from": "ModuleNotFoundError",
  "note": "Look at the part of the log where the import failed"}
 ```
 
@@ -337,27 +335,35 @@ much of it became tokens.
 ### Reading a file, then editing it without a stale write
 
 `workspace.read` returns numbered lines and two fingerprints. `workspace.edit` walks a
-ladder (exact, whitespace, fuzzy) and refuses if `fingerprint` does not equal the current
-file digest.
+ladder (exact, whitespace, fuzzy) and refuses if `if_match` does not equal the current
+file digest. The model reads in one plan and edits in the next, because the edit's text and
+fingerprint are what the read showed it:
 
 ```json
 {"steps": [
   {"id": "seen", "op": "workspace.read",
    "input": {"path": "dates.txt", "start_line": 1, "limit": 80},
-   "note": "Read the date list before changing it"},
+   "note": "Read the date list before changing it"}
+]}
+```
+
+```json
+{"steps": [
   {"id": "fixed", "op": "workspace.edit",
    "input": {
      "path": "dates.txt",
      "old_string": "Berlin — 12 March",
      "new_string": "Berlin — 14 March",
-     "fingerprint": "$seen.file_fingerprint"
+     "if_match": "9c1d4e7a20b3f658"
    },
    "note": "Move the Berlin date by two days"}
 ]}
 ```
 
 → `seen` comes back as `1\t…` numbered lines plus `showing lines 1-80 of 80` and a
-`file_fingerprint`. If another write landed first, `fixed` does **not** apply: it returns
+`file_fingerprint`, which the edit carries as `if_match`. `workspace.write` and
+`workspace.patch` take `if_match` the same way. If another write landed first, `fixed` does
+**not** apply: it returns
 `replaced: false` and names the fix — re-read, then reapply. Ambiguous `old_string` lists
 every line number it matched. A near-miss shows the closest window as a diff.
 
@@ -370,14 +376,14 @@ not a handle.
 {"steps": [
   {"id": "hits", "op": "research.search", "input": {"query": "tour dates"},
    "note": "Look up the dates"},
-  {"id": "page", "op": "research.open", "input": {"hit": "$hits[1]"},
-   "note": "Read the first result in full"},
+  {"id": "best", "op": "hit.first", "input": {"from": "$hits"},
+   "note": "Pick out the top result"},
   {"id": "note", "op": "notes.search", "input": {"query": "concerts"},
    "note": "Check what I already know about their gig preferences"}
 ]}
 ```
 
-→ If `hits` fails, `page` is **skipped** — it depended on it — and says so. `note` still
+→ If `hits` fails, `best` is **skipped** — it depended on it — and says so. `note` still
 runs, because it did not. The model gets a sentence about the failure and two useful
 results, rather than nothing.
 
@@ -417,9 +423,13 @@ for on every turn, in tokens and in wrong choices.
 index the full result rather than the lines that happened to be rendered — so a step can act
 on something the model never actually read.
 
-A field only accepts a reference if it was declared with `ref()`. An ordinary object field
-refuses the string, which is the right refusal: a reference is meaningful only where the
-operation said it resolves one.
+A field only accepts a reference if it was declared with `ref()`: the `from` of every
+collection operation (`note.filter`, `hit.first`, …) and `track` on `music.play` and
+`music.queue`. A reference written into any other field refuses the plan before anything
+runs, naming the field, which is the right refusal: a reference is meaningful only where the
+operation said it resolves one, and anywhere else it would arrive as the literal text
+`$found`. There is no path into a result: `$seen.file_fingerprint` is not a reference. A value
+the model needs from a result, it reads, and writes into the next plan.
 
 ## Every call says what it is for
 
@@ -427,13 +437,13 @@ Each step carries one plain sentence saying what *that* call is for — not a re
 its arguments. *"Discard the draft folder and start again"*, never
 `workspace.delete(path=drafts)`.
 
-It is written once and then pays for itself in six places: the progress line a person
-watches, the approval prompt they answer, the transcript, the audit log, the summary that
-survives a compaction, and the commit message on the checkpoint taken before a write. Nobody
-can answer *"do you approve this?"* about a JSON blob.
+It is written once and then pays for itself wherever a person reads about the call: the
+approval card they answer, and the transcript's record of each step that ran or was refused.
+Nobody can answer *"do you approve this?"* about a JSON blob. The field is Lucy's, not the
+operation's: it is taken off the step before the plan runs.
 
-When the model omits it, a deterministic fallback is rendered from the operation's own
-description. A missing sentence is never an error; it is logged with a worse one.
+When the model omits it, the approval card falls back to the gate's own sentence about the
+permission. A missing note is never an error.
 
 ## Reads run together, writes run in order
 
@@ -484,9 +494,10 @@ A malformed plan comes back as **text describing what was wrong**, naming the st
 field, and the model corrects it. Twice at most — a model that cannot answer the schema after
 two tries has misunderstood the task, not the format.
 
-Three identical calls with identical arguments is a model that has lost track, not one being
-thorough. It is told what it already tried and what came back, which is usually enough; only
-if it ignores that is the operation withdrawn for the rest of the turn.
+The same call with the same arguments, returning the same answer twice in a row, is a model
+that has lost track, not one being thorough. It is told what it already tried and what came
+back, which is usually enough. What stops a model that ignores it is the turn's own budget of
+rounds and calls; the operation is not withdrawn.
 
 ## A result is framed by where it came from
 
