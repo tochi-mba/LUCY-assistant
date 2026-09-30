@@ -30,7 +30,7 @@ def test_build_env_tokens_meet_the_floor() -> None:
 
 
 def test_keyring_json_matches_consumer_variables() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     mapping = json.loads(env["KEYRING_SERVICE_TOKENS"])
     for name, variable in genenv.KEYRING_CONSUMERS:
         assert mapping[name] == env[variable]
@@ -38,7 +38,7 @@ def test_keyring_json_matches_consumer_variables() -> None:
 
 
 def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     allowlists = json.loads(env["KEYRING_EXCHANGE_AUDIENCES"])
 
     assert allowlists == {"lucy-api": list(genenv.LUCY_EXCHANGE_AUDIENCES)}
@@ -55,7 +55,7 @@ def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
 
 
 def test_settings_services_match_settings_api_shape() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     grants = json.loads(env["SETTINGS_API_SERVICES"])
     for name, audience_prefix, namespaces, token_var in genenv.SETTINGS_GRANTS:
         row = grants[name]
@@ -68,7 +68,7 @@ def test_settings_services_match_settings_api_shape() -> None:
 
 
 def test_settings_and_keyring_tokens_are_not_shared() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     keyring = set(json.loads(env["KEYRING_SERVICE_TOKENS"]).values())
     settings = {row["token"] for row in json.loads(env["SETTINGS_API_SERVICES"]).values()}
     memory = set(json.loads(env["MEMORY_SERVICE_TOKENS"]).values())
@@ -78,7 +78,7 @@ def test_settings_and_keyring_tokens_are_not_shared() -> None:
 
 
 def test_memory_service_token_is_lucy_s_internal_credential() -> None:
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     mapping = json.loads(env["MEMORY_SERVICE_TOKENS"])
     assert mapping == {"lucy-api": env["LUCY_MEMORY_API_TOKEN"]}
     assert len(env["LUCY_MEMORY_API_TOKEN"]) >= genenv.MIN_TOKEN_CHARS
@@ -88,14 +88,14 @@ def test_refuse_overwrite_without_force(tmp_path: Path) -> None:
     path = tmp_path / ".env.family"
     path.write_text("already=1\n", encoding="utf-8")
     with pytest.raises(genenv.AlreadyExistsError, match="already exists"):
-        genenv.write_env(path, force=False)
+        genenv.write_env(path, force=False, extras_path=None)
     assert path.read_text(encoding="utf-8") == "already=1\n"
 
 
 def test_force_replaces(tmp_path: Path) -> None:
     path = tmp_path / ".env.family"
     path.write_text("already=1\n", encoding="utf-8")
-    written = genenv.write_env(path, force=True)
+    written = genenv.write_env(path, force=True, extras_path=None)
     text = path.read_text(encoding="utf-8")
     assert written.count > 0
     assert "KEYRING_SERVICE_TOKENS=" in text
@@ -136,7 +136,7 @@ def test_main_does_not_print_secret_on_refuse(
 def test_master_key_is_32_decoded_bytes() -> None:
     import base64
 
-    env = genenv.build_env()
+    env = genenv.build_env(extras_path=None)
     raw = base64.b64decode(env["KEYRING_MASTER_KEY"], validate=True)
     assert len(raw) == genenv.MASTER_KEY_BYTES
 
@@ -146,7 +146,7 @@ def test_generated_environment_never_contains_github_credentials(
 ) -> None:
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "FAMILY_GITHUB_TOKEN"):
         monkeypatch.setenv(name, "test-only-github-secret")
-    rendered = genenv.render(genenv.build_env())
+    rendered = genenv.render(genenv.build_env(extras_path=None))
     assert "GITHUB" not in rendered
     assert "GH_TOKEN" not in rendered
     assert "test-only-github-secret" not in rendered
