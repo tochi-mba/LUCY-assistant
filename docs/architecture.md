@@ -46,9 +46,11 @@ and fetch keys. They have no service token.
 | Web-search-api | In-memory jobs | Process lifetime only. |
 | Spotify-api | In-memory jobs | Process lifetime only. |
 | Environments-api | Workspace trees | On disk under `ENVAPI_ROOT`, sandboxed. |
+| Memory-api | What the assistant has learned about the person, with its history | No. File mode 0600. |
+| Lucy (the hub) | Conversations, uploaded files, permission grants, MCP pins, webhooks | No. One SQLite file, `LUCY_DATABASE_PATH`, beside a blob directory. |
 
-Nothing that looks like a credential is accepted by user-api, persona-api, or
-settings-api. That refusal is a test, not a comment.
+Nothing that looks like a credential is accepted by user-api, persona-api,
+settings-api, or memory-api. That refusal is a test, not a comment.
 
 ## Settings versus configuration
 
