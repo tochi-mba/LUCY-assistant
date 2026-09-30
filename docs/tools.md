@@ -21,8 +21,8 @@ and it cannot express the thing a model most needs to be told, which is when *no
 something. Every operation here is hand-written for that reason, and a test greps the default
 prompts for service names, ports and verbs.
 
-Operations are **workflow-shaped, not route-shaped**. `music.findAndPlay` fans out to a
-credential lookup and a provider internally. Exposing `getTrack`, `getAlbum` and `getArtist`
+Operations are **workflow-shaped, not route-shaped**. `music.play` fans out to a
+credential lookup, a device and a provider internally. Exposing `getTrack`, `getAlbum` and `getArtist`
 instead makes the model do the joining, in context, one round trip at a time — which is
 exactly the cost plans exist to avoid.
 

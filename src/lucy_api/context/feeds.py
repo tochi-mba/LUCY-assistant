@@ -1,6 +1,6 @@
 """How a sibling publishes what the model should already know, without writing the prompt.
 
-Persona notes, a now-playing line, a workspace cwd: each is a fact an API owns, and each
+Persona notes, a now-playing line, a workspace's branch: each is a fact an API owns, and each
 used to look like a special case that belonged in the system prompt. Putting live facts in
 the system prompt is the expensive instinct this module exists to refuse. A provider caches
 a prefix; anything rewritten every turn that sits in that prefix makes the whole prompt

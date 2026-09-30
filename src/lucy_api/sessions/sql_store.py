@@ -192,10 +192,10 @@ def item_row(
 ) -> dict[str, Any]:
     """Append one item, chained to ``parent`` or, by default, to the tail of the log.
 
-    Naming a parent explicitly is how edit-and-regenerate writes a *sibling* of an existing
-    item rather than its successor: the sequence still climbs, because the log is
-    append-only and a number that went backwards would break every cursor over it, but the
-    parent chain forks so a reader can tell the two answers apart.
+    Naming a parent explicitly writes a *sibling* of an existing item rather than its
+    successor: the sequence still climbs, because the log is append-only and a number that
+    went backwards would break every cursor over it, but the parent chain forks so a reader
+    can tell the two answers apart.
 
     The default is ``...`` rather than ``None`` because the two mean different things here
     and both are reachable. Omitting the argument asks for the tail; passing ``None`` says
