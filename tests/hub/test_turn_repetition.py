@@ -15,6 +15,7 @@ from test_turn_loop import Prompts, Transcript, executor, ok_result
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.repetition import NOTICE_AT, Repetition, fingerprint
+from lucy_api.turn.window import inputs_of
 
 READ = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
 OTHER = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "venues"}}]}
@@ -62,6 +63,12 @@ def test_an_answer_that_changed_starts_the_count_again() -> None:
     repetition.record("workspace.read", {"path": "a.txt"}, "two")
     assert repetition.record("workspace.read", {"path": "a.txt"}, "two").startswith("You have")
     assert "3 times" in repetition.record("workspace.read", {"path": "a.txt"}, "two")
+
+
+def test_a_call_s_arguments_are_read_from_the_plan_the_model_wrote() -> None:
+    assert inputs_of(READ) == {"hits": {"query": "tour dates"}}
+    assert inputs_of({"steps": ["not a step", {"id": "bare"}]}) == {"bare": None}
+    assert inputs_of("not a plan") == {}
 
 
 # --- in the loop -------------------------------------------------------------------------------
