@@ -7,15 +7,15 @@ make cov        # an HTML report in htmlcov/
 ```
 
 `make check` has four gates and does not grow a fifth. Anything else — an eval suite, a
-live-model smoke test — is its own verb behind a pytest marker, so the default run stays
-deterministic and offline. The conversation regressions are not pytest at all: they are
+live-model smoke test — is its own verb, so the default run stays deterministic and
+offline. The conversation regressions are not pytest at all: they are
 `lucy eval run` (or `make evals MODEL=...`), held on demand against a running hub, and
 only the harness's own logic is tested here, against a fake hub. See
 [evals.md](evals.md).
 
-CI gates Python 3.12. Python 3.13 remains declared supported, with the reason it is not
-currently gated recorded in [ADR-0008](adr/0008-python-3-12-floor.md). `make matrix` runs
-tests on both interpreters; it does not repeat lint, typing or import checks.
+CI gates Python 3.12 and 3.13; [ADR-0008](adr/0008-python-3-12-floor.md) records what 3.13
+found when it was first gated. `make matrix` runs the tests on both interpreters here; it does
+not repeat lint, typing or import checks.
 
 ## The rules
 
@@ -24,7 +24,8 @@ tests on both interpreters; it does not repeat lint, typing or import checks.
 - `filterwarnings = ["error"]`. A warning is a failure.
 - mypy `strict = true` over `src`.
 - Import contracts are checked, not documented. Routers never import `httpx`,
-  `keyring_client` or `settings_client`.
+  `keyring_client`, `settings_client` or `weftai`; the eval harness never imports the hub's
+  internals; configuration imports nothing of ours. `pyproject.toml` holds all four.
 
 ## The shape of a test
 
