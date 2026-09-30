@@ -125,11 +125,11 @@ def replay(calls: Sequence[ApprovedCall]) -> Replay:
     steps: dict[str, dict[str, Any]] = {}
     for index, call in enumerate(calls, 1):
         if not call.step:
-            steps[LEGACY_ID.format(index=index)] = {
-                "id": LEGACY_ID.format(index=index),
-                "op": call.operation,
-                "input": call.arguments,
-            }
+            legacy = LEGACY_ID.format(index=index)
+            if legacy in steps:
+                held.append((call, _taken(call, legacy)))
+                continue
+            steps[legacy] = {"id": legacy, "op": call.operation, "input": call.arguments}
             ran.append(call)
             continue
         refused = [step for step in call.gated if (call.plan, step) not in approved]
@@ -162,6 +162,13 @@ def _clashed(call: ApprovedCall, clash: Sequence[str]) -> str:
     return (
         f"{call.operation} was approved but did not run: it came from a different plan, "
         f"whose step {named} is not the one that ran."
+    )
+
+
+def _taken(call: ApprovedCall, legacy: str) -> str:
+    return (
+        f"{call.operation} was approved but did not run: another approved step already "
+        f"runs as {legacy}, the only id it could have."
     )
 
 

@@ -249,6 +249,32 @@ def test_an_approval_recorded_without_its_step_runs_on_its_own_as_before() -> No
     }
 
 
+def test_an_approval_recorded_without_its_step_is_held_when_its_only_id_is_taken() -> None:
+    """The bug, named: the step a stepped call read from was replaced, without a word, by
+    an older approval whose only possible id happened to be the same."""
+    find_a = {"id": "approved_2", "op": "music.find", "input": {"name": "a"}}
+    play_it = {"id": "play", "op": "music.play", "input": {"track": "$approved_2"}}
+    stepped = ApprovedCall(
+        approval_id="apr_1",
+        operation="music.play",
+        arguments=play_it["input"],
+        step="play",
+        needs=(find_a, play_it),
+        plan="p",
+    )
+    legacy = ApprovedCall(approval_id="apr_2", operation="music.fetch", arguments={"name": "z"})
+    result = replay([stepped, legacy])
+    assert result.plan == {"steps": [find_a, play_it]}
+    assert result.ran == (stepped,)
+    assert result.held == (
+        (
+            legacy,
+            "music.fetch was approved but did not run: another approved step already runs "
+            "as approved_2, the only id it could have.",
+        ),
+    )
+
+
 def test_nothing_approved_is_nothing_to_run() -> None:
     assert replay(()).plan is None
 
