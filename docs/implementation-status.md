@@ -58,9 +58,9 @@ machine is listed as in progress, however finished it looks.
 - **Live memory index.** Each turn fetches Memory-api's topic list, ranks it, holds
   untrusted topics back, and puts the trusted prefix in the live state block.
   `notes.openTopic` expands one topic. Incognito sessions skip the fetch.
-- **Forty-three model providers, three adapters.** A catalogue row per provider -- the
+- **Forty-four model providers, three adapters.** A catalogue row per provider -- the
   two native dialects, every OpenAI-compatible host including the Chinese labs and their
-  mainland endpoints, the cloud tenants, and eight local runtimes -- with the deviations
+  mainland endpoints, the cloud tenants, and nine local runtimes -- with the deviations
   each declares (no tools, JSON-object output only, no reasoning effort, needs a base URL).
   `GET /v1/models` sorts them into `ready` (a listing call answered), `available`
   (configured, unproven) and `unavailable` (with the command that fixes it); `lucy models`
@@ -158,9 +158,9 @@ machine is listed as in progress, however finished it looks.
   the mode does not. `notes.erase` covers `notes.forget` and `notes.unlearn`;
   `workspace.destroy` covers
   `workspace.delete`.
-- **Pack documentation.** Help, notes, workspace, music, research, settings, work and
-  helpers ship inline markdown the model can read through `help.docs`. MCP skills cover
-  the same product names.
+- **Pack documentation.** Help, notes, workspace, music, research, settings, work, watch
+  and helpers each have a markdown page the model can read through `help.docs`. MCP skills
+  cover the same product names.
 - **Sibling defaults.** Omitted `music.play` device ids and `research.search` limits come
   from the person's music and research settings, never from a hard-coded service default
   the model has to guess.
@@ -193,7 +193,6 @@ machine is listed as in progress, however finished it looks.
 
 ## Known gaps, stated plainly
 
-- A configured OpenAI or Anthropic provider can complete conversational model/tool rounds.
 - Settings unavailability **refuses the turn** (503 `settings-unavailable`) when
   `disabled_capabilities` or `approval_policy` cannot be confirmed. Guessing those would
   re-enable something the person turned off. Other lucy knobs are clamped onto
@@ -209,7 +208,7 @@ machine is listed as in progress, however finished it looks.
   first composed run, the four defects it exposed -- none of which `make check` could
   see -- and the readiness-shape divergence across the family.
 - **The Linux sandbox is validated under compose.** Environments-api reports
-  `sandbox_tier: namespace`, so the M4 caveat below applies only to running the hub
+  `sandbox_tier: namespace`, so the M4 caveat above applies only to running the hub
   natively on Windows, not to the composed path.
 - **A real model has been called, and ten conversations were held with it.** No API key
   was needed: [clyde](https://github.com/tochi-mba/clyde) serves chat-completions from the
