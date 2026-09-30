@@ -32,6 +32,8 @@ NEAR_FLOOR = 0.3
 EXACT = "exact"
 WHITESPACE = "whitespace"
 FUZZY = "fuzzy"
+RESULT = "the result"
+"""What a validation notice calls the text it refused, unless the caller says otherwise."""
 BINARY_NOTICE = "this file is binary; it cannot be read or edited as text"
 EMPTY_NEEDLE = "old_string is empty; an edit needs a unique snippet to replace"
 STALE_NOTICE = (
@@ -188,40 +190,46 @@ def stale_if_changed(current: str, expected: str) -> str:
     return STALE_NOTICE
 
 
-def validate_text(path: str, content: str) -> str:
-    """Parse JSON, TOML or Python before a write. Other suffixes are left alone."""
+def validate_text(path: str, content: str, *, subject: str = RESULT) -> str:
+    """Parse JSON, TOML or Python before a write. Other suffixes are left alone.
+
+    `subject` is what the notice calls the text that did not parse. After an edit it is
+    "the result": the file as the edit would leave it. A script a model sent has no result
+    yet, and "the result is not valid Python" read as the script's output, so the pack
+    names the script instead.
+    """
     suffix = PurePosixPath(path).suffix.lower()
     if suffix == ".json":
-        return _json_error(content)
+        return _json_error(content, subject)
     if suffix == ".toml":
-        return _toml_error(content)
+        return _toml_error(content, subject)
     if suffix == ".py":
-        return _python_error(content)
+        return _python_error(content, subject)
     return ""
 
 
-def _json_error(content: str) -> str:
+def _json_error(content: str, subject: str) -> str:
     try:
         json.loads(content)
     except json.JSONDecodeError as exc:
-        return f"the result is not valid JSON ({exc.msg} at line {exc.lineno})"
+        return f"{subject} is not valid JSON ({exc.msg} at line {exc.lineno})"
     return ""
 
 
-def _toml_error(content: str) -> str:
+def _toml_error(content: str, subject: str) -> str:
     try:
         tomllib.loads(content)
     except tomllib.TOMLDecodeError as exc:
-        return f"the result is not valid TOML ({type(exc).__name__})"
+        return f"{subject} is not valid TOML ({type(exc).__name__})"
     return ""
 
 
-def _python_error(content: str) -> str:
+def _python_error(content: str, subject: str) -> str:
     try:
         ast.parse(content)
     except SyntaxError as exc:
         line = exc.lineno or 0
-        return f"the result is not valid Python (syntax error at line {line})"
+        return f"{subject} is not valid Python (syntax error at line {line})"
     return ""
 
 
@@ -328,6 +336,7 @@ __all__ = [
     "DEFAULT_LINE_LIMIT",
     "DIGEST_CHARS",
     "MAX_LINE_LIMIT",
+    "RESULT",
     "Applied",
     "Located",
     "Match",
