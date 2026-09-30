@@ -145,7 +145,7 @@ Each rung runs to exhaustion before the next. Only the last two lose information
 5. Compact, at `compaction_trigger_percent` of the window (default 72%) rather than 90%.
    Quality is already degrading by then, and at 95% there is no room for the summarisation
    call itself. Auto-compact keeps `history_turns_kept` recent turns verbatim.
-6. Split the session, with a handoff note.
+6. Split the session, with a handoff note. Not built yet: today the ladder stops at compaction.
 
 Compaction is a projection, never a mutation. The transcript stays append-only and the
 request context is computed at send time, so a bad summary can be regenerated and "why did
