@@ -67,6 +67,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **weftai 0.5.2.** Writes in one plan run one at a time, in the order the model wrote them,
+  and a read written after a write sees what it changed; two writes with no reference
+  between them used to run at the same moment. Lucy's own decision gates all fail closed,
+  so weftai's fix to how a gate reads a noul answered no changes none of them.
 - **The example service's Makefile runs mypy, pytest and import-linter through the
   interpreter**, as the hub's does, so a service copied from it does not fail `make check`
   where a Windows policy refuses the `.venv` shims.
