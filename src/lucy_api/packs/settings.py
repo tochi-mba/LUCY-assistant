@@ -16,6 +16,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
+from lucy_api.settings.groups import group_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,9 +83,10 @@ class SettingsPack:
                 {
                     "name": "settings.describe",
                     "description": (
-                        "Describe available settings, their current values, types, bounds, "
-                        "meaning, and whether each one is account-wide or for this "
-                        "conversation's profile. Call before changing an unfamiliar setting."
+                        "Describe available settings, each placed under the capability that "
+                        "owns it, with its current value, type, bounds, meaning, and whether "
+                        "it is account-wide or for this conversation's profile. Call before "
+                        "changing an unfamiliar setting."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({})),
@@ -158,7 +160,14 @@ class SettingsPack:
 
 
 def _resource(setting: Setting, *, detailed: bool = False) -> dict[str, Any]:
+    """One setting as the model sees it: addressed by namespace and key, placed by capability.
+
+    The address is settings-api's, because that is what `settings.get` and `settings.set`
+    take. The placement is Lucy's: `spotify.default_market` is a Music setting, and
+    `lucy.feeds_music_now_playing` is one too, whichever namespace stores it.
+    """
     result = {
+        "capability": group_for(f"{setting.namespace}.{setting.key}"),
         "namespace": setting.namespace,
         "key": setting.key,
         "value": setting.value,

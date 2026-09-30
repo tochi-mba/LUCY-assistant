@@ -22,8 +22,9 @@ that only happens in the proxy is a validation that can be skipped.**
 
 ## Grouped by capability, not by service
 
-`GET /v1/settings` returns every setting the person can see, grouped by the capability that
-owns it. The mapping lives in `lucy_api.settings.groups` and nowhere else:
+Every setting Lucy shows carries the capability that owns it: `settings.describe` places
+each one under its capability for the model, and a client rendering a settings page uses the
+same placement. The mapping lives in `lucy_api.settings.groups` and nowhere else:
 
 | Person sees | Namespaces | What is in it |
 | --- | --- | --- |
