@@ -22,17 +22,18 @@ if TYPE_CHECKING:
 
 
 def _notes_catalogue() -> Catalogue:
+    """The notes pack bound and ready, with its real operations: a plan is checked the way
+    the executor checks one before the gate sees it, so a stand-in would not get that far."""
     pack = NotesPack("http://memory.test")
+    context = Capabilities((pack,)).context_for(
+        SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
+    )
     return Catalogue(
         bound=(
             Bound(
                 pack=pack,
                 availability=Availability(state=State.ready),
-                operations=(
-                    SimpleNamespace(name="notes.remember", effects="write", description=""),
-                    SimpleNamespace(name="notes.forget", effects="write", description=""),
-                    SimpleNamespace(name="notes.search", effects="read", description=""),
-                ),
+                operations=tuple(pack.operations(context)),
             ),
         )
     )
@@ -95,6 +96,27 @@ def test_auto_mode_names_the_writes_it_let_through_without_asking() -> None:
 
     assert verdict.allowed is True
     assert verdict.auto_bypassed == ("notes.write",)
+
+
+def test_the_gate_passes_over_what_is_not_a_step_and_judges_the_steps_that_are() -> None:
+    """A plan reaches the gate checked when it is about to run; the audit of an auto-mode
+    plan asks the gate about whatever plan it is given, so a malformed one must not break
+    it, and the real write in it is still judged."""
+    verdict = PermissionGate().inspect(
+        {
+            "steps": [
+                "not-a-step",
+                {"id": "blank"},
+                {"id": "keep", "op": "notes.remember", "input": {"title": "tea"}},
+            ]
+        },
+        mode="ask",
+        grants={},
+        catalogue=_notes_catalogue(),
+    )
+
+    assert verdict.allowed is False
+    assert [item.operation for item in verdict.blocked] == ["notes.remember"]
 
 
 def test_two_writes_in_one_plan_are_both_named_so_a_subset_can_be_answered() -> None:

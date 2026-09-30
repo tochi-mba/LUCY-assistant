@@ -14,6 +14,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   unresolved. Each approval now records its call's step and every step it reads from, and
   the resumed turn runs them together under their own ids; a call reading from a step the
   person refused does not run, and the model is told why.
+- **A plan the executor would refuse is never asked about.** The permission gate saw a plan
+  before the executor checked it, so a plan with a repeated step id, a reference to nothing
+  or a step without an `op` could be asked about and approved, then refused or replayed as
+  something else. A plan is now checked the way the executor checks one first; what cannot
+  run goes back to the model to repair, and the gate reads a step's operation only from
+  `op`.
 - **`music.play` and `music.queue` take the track `music.find` found.** They took only a
   `uri` string, so the plan a model naturally writes -- find, then play what was found --
   sent the literal text `$found` as a URI. They now take `track`, a reference to

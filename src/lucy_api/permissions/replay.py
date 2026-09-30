@@ -23,10 +23,13 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from weftai.plan.validate import validate_plan
 from weftai.refs import parse_ref
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
+
+    from weftai.registry import Registry
 
     from lucy_api.permissions.approvals import ApprovedCall
 
@@ -58,8 +61,22 @@ class Replay:
     """Approved calls that cannot run, each with the sentence that says why."""
 
 
+def would_run(plan: Mapping[str, Any], registry: Registry[Any], *, max_steps: int) -> bool:
+    """Whether the executor would run this plan, checked the way it checks one.
+
+    Its shape, ids, operations, inputs and references; not who may run it, which is the
+    gate's question and comes after this one.
+    """
+    return validate_plan(plan, registry, {"maxSteps": max_steps, "allowWrites": True})["ok"]
+
+
 def references(value: object) -> tuple[str, ...]:
-    """The step ids a step input reads from, in the order they appear, each once."""
+    """The step ids a step input reads from, in the order they appear, each once.
+
+    Every whole string written as a reference, wherever it sits: a plan reaches the gate
+    checked, and the executor refuses a reference to a step in a field that does not take
+    one, so in a plan that parked every such string that names a step is a real reference.
+    """
     found: list[str] = []
     for text in _strings(value):
         parsed = parse_ref(text)
@@ -174,4 +191,4 @@ def _strings(value: object) -> Iterable[str]:
             yield from _strings(item)
 
 
-__all__ = ["Needs", "Replay", "digest", "needs", "references", "replay"]
+__all__ = ["Needs", "Replay", "digest", "needs", "references", "replay", "would_run"]

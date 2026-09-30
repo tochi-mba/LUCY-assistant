@@ -337,7 +337,10 @@ def _steps_of(plan: Mapping[str, object]) -> tuple[object, ...]:
 
 
 def _operation_name(step: Mapping[str, object]) -> str:
-    value = step.get("op") or step.get("operation") or step.get("tool") or step.get("name")
+    """``op``: the one key weftai's plan takes, and every plan is checked before the gate sees
+    it. Reading ``operation``, ``tool`` and ``name`` as well, as this once did, let a step the
+    executor would refuse be asked about, and then replayed under an empty operation."""
+    value = step.get("op")
     return str(value) if value else ""
 
 

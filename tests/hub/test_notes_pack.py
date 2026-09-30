@@ -640,29 +640,6 @@ async def test_an_allow_grant_lets_a_write_run_in_ask_mode() -> None:
     assert result["steps"][0]["status"] == "ok"
 
 
-async def test_a_non_step_and_an_unnamed_step_are_skipped_until_a_real_write() -> None:
-    http = FakeHttp(Answer(body={"data": []}))
-    capabilities, context = _capabilities(http)
-    await capabilities.probe(context)
-    result = await capabilities.execute(
-        {
-            "steps": [
-                "not-a-step",
-                {"id": "blank"},
-                {
-                    "id": "keep",
-                    "tool": "notes.remember",
-                    "input": {"title": "tea", "body": "green"},
-                },
-            ]
-        },
-        context,
-    )
-
-    assert result["issues"][0]["code"] == "permission_required"
-    assert result["issues"][0]["operation"] == "notes.remember"
-
-
 async def test_an_account_grant_keyed_with_the_wildcard_still_allows_the_write() -> None:
     http = FakeHttp(Answer(body={"data": []}), Answer(status_code=201, body={"id": "mem_tea"}))
     capabilities, context = _capabilities(http)
