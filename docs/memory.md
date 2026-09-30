@@ -48,7 +48,9 @@ index pretending to be complete.
 A lesson is how this person wants the assistant to work: one imperative sentence, not a
 fact about them. Lessons are Persona-api notes of kind `lesson`, written by the assistant
 and pinned, so the persona feed carries them into every conversation as standing notes,
-each marked `lesson:` with its `[ref ...]`. `lucy.feeds_persona_notes` turns that off.
+each marked `lesson:` with its `[ref ...]`. A lesson comes back `[stated]`, whatever its
+note's source says: the person said it or corrected the assistant into it, and only the
+words are the assistant's. `lucy.feeds_persona_notes` turns that off.
 
 | Operation | What it does |
 | --- | --- |
