@@ -536,6 +536,16 @@ async def test_an_approved_play_plays_the_record_its_plan_found(store: SessionSt
     assert provider.remaining == 0
 
 
+async def test_the_approval_card_says_what_the_step_s_note_says(store: SessionStore) -> None:
+    """The bug, named: the turn loop took Lucy's own fields off a plan before the gate saw it,
+    so no approval card carried the step's note, only the gate's generic sentence."""
+    _shelf, items, _turn, _provider = await _hold(
+        store, [plans(FIND_AND_PLAY), speaks("Playing x.")], {"shelf.play": True}
+    )
+    [ask] = [item["content"] for item in items if item["type"] == "approval_request"]
+    assert ask["description"] == "Play x"
+
+
 async def test_a_play_that_reads_from_a_refused_fetch_does_not_run(store: SessionStore) -> None:
     fetch_and_play = {
         "steps": [

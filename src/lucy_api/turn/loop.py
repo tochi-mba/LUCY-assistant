@@ -60,7 +60,6 @@ from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop,
 from lucy_api.turn.window import (
     RESULT_TOKEN_CAP,
     attach_needles,
-    executable,
     inputs_of,
     needle_from,
     notes_of,
@@ -249,7 +248,11 @@ async def run_turn(turn: Turn) -> Outcome:
     if turn.opening_plan is not None and turn.execute is not None:
         opening = Reply(plan=turn.opening_plan, stop=Stop.tool_use)
         opened = await _run_plan(
-            cycle, opening, Round(text="", plan=turn.opening_plan), turn.execute
+            cycle,
+            opening,
+            Round(text="", plan=turn.opening_plan),
+            turn.execute,
+            turn.opening_plan,
         )
         if opened is not None:
             return opened
@@ -342,7 +345,7 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
         if _said_nothing(reply):
             return await _nothing_said(cycle, round_)
         return _finished(outcome, round_, reply)
-    return await _run_plan(cycle, reply, round_, executor)
+    return await _run_plan(cycle, reply, round_, executor, reply.plan)
 
 
 def _said_nothing(reply: Reply) -> bool:
@@ -368,7 +371,7 @@ async def _nothing_said(cycle: _Cycle, round_: Round) -> Outcome | None:
 
 
 async def _run_plan(
-    cycle: _Cycle, reply: Reply, round_: Round, executor: ExecutePlan
+    cycle: _Cycle, reply: Reply, round_: Round, executor: ExecutePlan, plan: dict[str, Any]
 ) -> Outcome | None:
     """Execute the plan on a reply that already survived the cancel check.
 
@@ -379,12 +382,15 @@ async def _run_plan(
     """
     turn = cycle.turn
     outcome = cycle.outcome
-    result = await executor(executable(reply.plan))
-    attach_needles(reply.plan, result)
+    # The plan as the model wrote it, notes and all: the gate puts a step's note on the
+    # approval card, and the executor takes Lucy's own fields off before weftai sees them.
+    # Stripped here as well, every card fell back to the gate's generic sentence.
+    result = await executor(plan)
+    attach_needles(plan, result)
     unsaid = replace(round_, text="")
     waiting = _permission_issues(result)
     if waiting:
-        return _parked(outcome, unsaid, reply.plan, waiting)
+        return _parked(outcome, unsaid, plan, waiting)
     denied_notice = await _record_denial(turn, outcome, unsaid, result)
     if denied_notice:
         cycle.repair_notice = denied_notice
@@ -415,7 +421,7 @@ async def _run_plan(
             result,
             repetition=cycle.repetition,
             cap=turn.result_token_cap,
-            plan=reply.plan,
+            plan=plan,
         )
     if turn.append is not None:
         for step in executed:
@@ -424,7 +430,7 @@ async def _run_plan(
         Round(
             text=said,
             reasoning=reply.reasoning,
-            plan=reply.plan,
+            plan=plan,
             steps=executed,
             usage=reply.usage,
             repaired=cycle.repairs,
