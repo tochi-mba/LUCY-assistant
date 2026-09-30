@@ -81,7 +81,7 @@ for it and loaded on demand.
 | D9 | **Agents are Lucy, not a service** | An agent is a runtime + registry + session id + `include` predicate. A separate service would call back into Lucy for the loop. |
 | D10 | **Everything in-process** | `docs/architecture.md`: "one process, SQLite or memory, no extra broker; background work is in-process." |
 | D11 | **Hand-written tool surface, not OpenAPI ingestion** | Both `docs/mcp.md` files argue it: a model needs to be told when *not* to call something, and the framing rule cannot be generated. |
-| D12 | **Capability packs are entry points** | `lucy.capabilities`: a third party can `pip install lucy-capability-x`. |
+| D12 | **Capability packs are entry points** | `lucy.capabilities`: a third party can `pip install lucy-capability-x`. (Not built: the hub loads only its own packs; see ADR-0011.) |
 | D13 | **Behaviour is persona notes; knobs are settings** | Settings-api holds only bool/int/str/enum/str_list ≤4096 bytes — a prompt override does not fit. Persona notes are exactly "lessons about how to behave in this profile". |
 | D14 | **One loop, not a framework** | `run(session, input) -> AsyncIterator[Event]`. The successful implementations "weren't using complex frameworks or specialized libraries". Everything else is harness. |
 | D15 | **Single writer** | Only the main thread mutates the workspace or calls a mutating tool; children are read-only researchers, reviewers and verifiers. Parallel writers make conflicting implicit decisions the parent cannot reconcile. |
