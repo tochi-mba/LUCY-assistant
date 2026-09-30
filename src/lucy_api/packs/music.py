@@ -67,7 +67,17 @@ beginning. The last sentence names the read that settles it, rather than the ret
 
 
 TRACK_REFERENCE = 'A track music.find returned, by reference: "$stepId", or "$stepId[2]".'
-URI = "A track's uri, as music.find returned it. Prefer `track` for one found in this plan."
+URI = (
+    "A track's uri, as music.find returned it -- never a reference. To play or queue what an "
+    "earlier step found, give it as `track`."
+)
+URI_PATTERN = r"^(?!\s*\$)[\s\S]*$"
+"""What `uri` accepts: anything that does not begin, after optional whitespace, with ``$``.
+
+A reference belongs in `track`. Refusing it at validation, where the model reads the
+schema, is the first line of defence; `_named` strips and looks again, for a call that
+reaches the operation by another route.
+"""
 NOT_A_REFERENCE = (
     "`uri` takes a track's uri, not a reference; {uri!r} looks like one. To play or queue what "
     'an earlier step found, give it as `track`: {{"track": "{uri}"}}.'
@@ -223,7 +233,7 @@ class MusicPack:
                     "input": object_schema(
                         {
                             "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
-                            "uri": string_schema().describe(URI).optional(),
+                            "uri": string_schema().regex(URI_PATTERN).describe(URI).optional(),
                             "device_id": string_schema().optional(),
                         }
                     ),
@@ -242,7 +252,7 @@ class MusicPack:
                     "input": object_schema(
                         {
                             "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
-                            "uri": string_schema().describe(URI).optional(),
+                            "uri": string_schema().regex(URI_PATTERN).describe(URI).optional(),
                             "device_id": string_schema().optional(),
                         }
                     ),
@@ -415,7 +425,7 @@ def _not_queued(uri: str, name: str, reason: str) -> dict[str, Any]:
 def _named(run: RunContext[PackContext]) -> tuple[tuple[str, str], ...]:
     """The tracks a play or queue names, as (uri, name): every one the reference resolved
     to, or the one uri, which is its own name."""
-    uri = str(run.input.get("uri") or "")
+    uri = str(run.input.get("uri") or "").strip()
     picked = run.input.get("track")
     if picked is not None and uri:
         raise MusicInputError(EITHER)

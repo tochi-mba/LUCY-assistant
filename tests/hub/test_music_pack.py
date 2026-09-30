@@ -1,7 +1,9 @@
 """Music is gated by connection state and projected before the model sees it."""
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,13 +24,17 @@ from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.music import (
     EITHER,
+    NOT_A_REFERENCE,
     NOT_REACHED,
     NOT_TRIED,
     NOTHING_FOUND,
     QUEUE_WHAT,
     UNCONFIRMED_NOTE,
     UNREACHABLE,
+    URI_PATTERN,
+    MusicInputError,
     MusicPack,
+    _named,
     _optional_int,
 )
 from lucy_api.packs.registry import limits_for
@@ -339,12 +345,6 @@ async def test_play_and_queue_take_the_track_music_find_found_by_reference() -> 
 @pytest.mark.parametrize(
     ("operation", "given", "said"),
     [
-        (
-            "music.play",
-            {"uri": "$elsewhere"},
-            "`uri` takes a track's uri, not a reference; '$elsewhere' looks like one. To play "
-            'or queue what an earlier step found, give it as `track`: {"track": "$elsewhere"}.',
-        ),
         ("music.play", {"uri": "spotify:track:1", "track": "$found"}, EITHER),
         ("music.play", {"track": "$nothing"}, NOTHING_FOUND),
         ("music.queue", {}, QUEUE_WHAT),
@@ -369,24 +369,67 @@ async def test_a_track_named_in_a_way_the_operation_cannot_use_is_refused_with_t
     assert fake.queued == []
 
 
-async def test_a_reference_to_a_step_given_as_a_uri_is_refused_before_the_plan_runs() -> None:
-    """weftai refuses a whole reference written into a field that does not take one, when it
-    names a step: nothing runs, and the model is told which field takes a reference."""
+@pytest.mark.parametrize("uri", ["$found", " $found ", "$elsewhere", "\t$found[1]"])
+async def test_a_reference_given_as_a_uri_is_refused_before_the_plan_runs(uri: str) -> None:
+    """The bug, named: the `uri` check looked at the first character, so a reference with a
+    space in front of it -- `" $found "` -- was not seen as one and went to the music
+    service as the text written; and a bare `$found` was refused only once the step ran."""
     fake = FakeMusicClient()
     fake.stock("Clair de lune", FOUND)
     capabilities, context = setup(fake)
     await capabilities.probe(context)
 
     result = await capabilities.execute(
-        {"steps": [*FINDS, {"id": "act", "op": "music.play", "input": {"uri": "$found"}}]},
-        context,
+        {"steps": [*FINDS, {"id": "act", "op": "music.play", "input": {"uri": uri}}]}, context
     )
 
     assert result["steps"] == []
-    assert [(issue["code"], list(issue["path"])) for issue in result["issues"]] == [
-        ("ref.in_plain_field", ["uri"])
-    ]
+    assert [
+        (issue["code"], issue["stepId"], list(issue["path"])) for issue in result["issues"]
+    ] == [("step.invalid_input", "act", ["uri"])]
+    assert result["issues"][0]["message"] == "input.uri: Invalid string."
     assert fake.played == []
+
+
+async def test_a_uri_with_whitespace_around_it_is_the_uri_inside() -> None:
+    fake = FakeMusicClient()
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "play", "op": "music.play", "input": {"uri": " spotify:track:1\n"}}]},
+        context,
+    )
+
+    assert result["issues"] is None
+    assert fake.played == [("personal", ("spotify:track:1",), "")]
+
+
+async def test_the_uri_field_tells_the_model_where_a_reference_goes() -> None:
+    fake = FakeMusicClient()
+    capabilities, context = setup(fake)
+    catalogue = await capabilities.probe(context)
+
+    schema = json.dumps(capabilities.plan_schema(catalogue, "ses_a", context))
+
+    assert json.dumps(URI_PATTERN).strip('"') in schema
+    assert (
+        "never a reference. To play or queue what an earlier step found, give it as `track`."
+        in (schema)
+    )
+
+
+@pytest.mark.parametrize("uri", ["$found", "  $found[2]"])
+def test_a_reference_that_reaches_the_operation_as_a_uri_is_still_refused(uri: str) -> None:
+    """The schema is the first line of defence; a call arriving by another route meets the
+    same refusal, whitespace and all."""
+    run = SimpleNamespace(input={"uri": uri}, ctx=None)
+
+    with pytest.raises(MusicInputError) as refused:
+        _named(run)  # type: ignore[arg-type]
+
+    assert str(refused.value) == NOT_A_REFERENCE.format(uri=uri.strip())
+    assert '{"track": "' + uri.strip() + '"}' in str(refused.value)
 
 
 def test_the_prompt_shows_find_and_play_in_one_plan() -> None:

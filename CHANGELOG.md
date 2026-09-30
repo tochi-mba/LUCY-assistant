@@ -34,6 +34,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   was reported. `music.queue` now says for every track whether it was queued and, if not,
   why; it stops before the next command would run past the ceiling and says how many were
   left to queue in a new step. A command accepted but not confirmed is noted as before.
+- **A reference in `uri` is refused before the plan runs, whitespace and all.** The check
+  looked at the first character, so `" $found "` was not seen as a reference and went to the
+  music service as the text written, and a bare `$found` was refused only once the step ran.
+  The `uri` field's schema now refuses anything that begins, after optional whitespace, with
+  `$`, and its description says a reference goes in `track`; the operation strips
+  whitespace before it looks, as the second line of defence, and a padded uri is the uri
+  inside.
 
 ### Changed
 
