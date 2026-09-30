@@ -581,6 +581,10 @@ class Progress:
             f"{turn.iterations} round(s), {len(turn.results)} step(s)  {mark}"
         )
 
+    def turn_event(self, job: Job, index: int, line: str) -> None:
+        del job, index
+        self._ctx.say(f"      {line}")
+
     def finished(self, record: ScenarioRecord) -> None:
         style = self._ctx.style
         label = LABELS[record.outcome]

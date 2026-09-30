@@ -8,11 +8,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
-- Music user tokens now use the provider-neutral `music-api` audience. The provider's
-  deployment name no longer leaks into the hub-to-music authentication contract.
+- **The music audience is configuration.** `LUCY_MUSIC_API_AUDIENCE` sits beside
+  `LUCY_MUSIC_API_BASE_URL`, defaulting to `spotify-api`. An audience names exactly one
+  service -- keyring refuses a credential read whose token was minted for anybody else -- so
+  a second implementation of the music contract is minted tokens for its own name, and a
+  private one adds that name under `exchange_audiences` in the gitignored
+  `scripts/genenv.local.json`. A short-lived shared `music-api` audience broke every
+  Spotify credential read and was withdrawn.
+- **A renamed variable in `.env` fails at startup with its new name**, rather than with
+  pydantic's "extra inputs are not permitted".
 
 ### Added
 
+- **The eval harness halts a turn at the first thing wrong.** A watchdog reads the
+  transcript on every poll and stops the turn at a failed step, an error in the transcript,
+  the same failure twice, or an ask for a call already answered -- before answering it
+  again -- then cancels it and ends the scenario with the rule and its evidence. Each step
+  and ask is printed as it lands. A turn names failures it expects the model to recover
+  from in `allow_errors`. See [docs/evals.md](docs/evals.md#the-watchdog).
 - **`lucy eval`: conversation regressions, on demand.** Every defect found by talking to
   Lucy through a real model was invisible to the unit suite, because the scripted
   provider never reads the request. `lucy eval run --model clyde:haiku` (or `make evals

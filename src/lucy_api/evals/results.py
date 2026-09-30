@@ -71,6 +71,8 @@ class TurnRecord:
     errors: tuple[str, ...]
     verify: tuple[InvocationRecord, ...]
     checks: tuple[Check, ...]
+    halted: str = ""
+    """Why the watchdog stopped this turn, or empty when it came to rest by itself."""
 
     @property
     def passed(self) -> bool:

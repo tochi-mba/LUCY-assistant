@@ -43,6 +43,9 @@ class Recorder:
     def turn_finished(self, job: Job, turn: Any) -> None:
         self.events.append(("turn", (job.scenario.name, turn.index, turn.status)))
 
+    def turn_event(self, job: Job, index: int, line: str) -> None:
+        self.events.append(("event", (job.scenario.name, index, line)))
+
     def finished(self, record: ScenarioRecord) -> None:
         self.events.append(("finished", (record.name, record.outcome)))
 
@@ -165,8 +168,9 @@ def test_a_transcript_longer_than_a_page_is_read_to_the_end() -> None:
         for request in fake.requests
         if request.url.path.endswith("/items")
     ]
-    assert afters[0] is None
-    assert "itm_ses_1_2" in afters
+    # The watchdog reads the transcript on every poll, so the cursor moves with the turn:
+    # the message alone, then the rest two to a page, each item fetched exactly once.
+    assert afters == [None, "itm_ses_1_1", "itm_ses_1_3", "itm_ses_1_5"]
 
 
 def test_a_hub_that_does_not_report_cache_reads_records_none() -> None:
@@ -513,3 +517,110 @@ def test_a_failed_turn_is_recorded_with_its_errors_and_what_the_model_was_shown(
     assert turn.errors == ("empty_reply",)
     assert turn.results[0].error == "memory answered 503"
     assert turn.reply == ""
+
+
+# --------------------------------------------------------------------------------------
+# The watchdog: stop at the first thing wrong, not at the timeout
+# --------------------------------------------------------------------------------------
+
+REFUSED = "Step 'approved_1' failed while running 'music.play': music answered 422"
+
+
+def two_turns(first: str, second: str, extra: str = "") -> str:
+    return (
+        f'summary = "Two turns."\n[[turns]]\nsay = "{first}"\n{extra}[[turns]]\nsay = "{second}"\n'
+    )
+
+
+def test_a_step_that_fails_halts_the_turn_and_the_scenario() -> None:
+    """The bug, named: every ``music.play`` in a turn failed with a 422, and the harness went
+    on until its timeout. A failed step is now the end of the conversation, with why."""
+    fake = FakeLucy()
+    fake.say("Play it.", Play(ran=(("music.play", "error"),), error=REFUSED))
+    fake.say("And now?", Play(reply="Still here."))
+    held = Held(fake, scenario(two_turns("Play it.", "And now?")))
+    assert held.record.outcome == FAILED
+    [turn] = held.record.turns
+    assert turn.halted == "step-error: music.play failed: music answered 422"
+    assert held.record.reason == (
+        "turn 1 was halted: step-error: music.play failed: music answered 422, "
+        "so 1 later turn(s) were not sent"
+    )
+    assert "turn 1: ran without the watchdog halting it" in held.failing()
+    assert [request.url.path for request in fake.requests].count("/v1/sessions/ses_1/inputs") == 1
+
+
+def test_an_ask_for_a_call_already_answered_is_halted_before_it_is_answered_again() -> None:
+    """The bug, named: the same ``music.play`` was asked for ten times in one turn, and the
+    harness approved every one. The second ask for the same call is never answered."""
+    fake = FakeLucy()
+    fake.say("Play it.", Play(asks=("music.play",), again=9, between="ok"))
+    held = Held(fake, scenario(one_turn("Play it.")))
+    assert held.record.outcome == FAILED
+    [turn] = held.record.turns
+    assert turn.halted.startswith("asked-again: music.play was asked for again")
+    assert [answer["approval_id"] for answer in fake.answered] == ["apr_trn_1_1"]
+    assert fake.cancelled[0] == "trn_1"
+    assert held.record.reason.startswith("turn 1 was halted: asked-again")
+
+
+def test_a_failure_the_scenario_allows_is_watched_but_not_halted() -> None:
+    fake = FakeLucy()
+    fake.say(
+        "Read it.",
+        Play(ran=(("workspace.read", "error"), ("workspace.list", "ok")), error="no such file"),
+    )
+    text = one_turn("Read it.", "[turns.expect]\nallow_errors = ['workspace.read']\n")
+    held = Held(fake, scenario(text))
+    assert held.record.outcome == PASSED
+    assert held.record.turns[0].halted == ""
+
+
+def test_an_allowed_failure_that_repeats_is_halted_all_the_same() -> None:
+    fake = FakeLucy()
+    fake.say(
+        "Read it.",
+        Play(ran=(("workspace.read", "error"), ("workspace.read", "error")), error="no such file"),
+    )
+    text = one_turn("Read it.", "[turns.expect]\nallow_errors = ['workspace.*']\n")
+    held = Held(fake, scenario(text))
+    assert held.record.turns[0].halted == (
+        "failed-again: workspace.read failed the same way twice: no such file"
+    )
+    assert held.record.reason == (
+        "turn 1 was halted: failed-again: workspace.read failed the same way twice: no such file"
+    )
+
+
+def test_an_error_in_the_transcript_halts_the_turn() -> None:
+    fake = FakeLucy()
+    fake.say("Hello?", Play(errors=("model_error",)))
+    held = Held(fake, scenario(one_turn()))
+    assert held.record.turns[0].halted == "error-item: model_error"
+
+
+def test_a_turn_expected_to_fail_is_not_halted_for_failing() -> None:
+    fake = FakeLucy()
+    fake.say(
+        "Look it up.",
+        Play(status="failed", ran=(("notes.search", "error"),), errors=("empty_reply",)),
+    )
+    text = one_turn("Look it up.", '[turns.expect]\nstatus = "failed"\nreply_nonempty = false\n')
+    held = Held(fake, scenario(text))
+    assert held.record.outcome == PASSED
+    assert held.record.turns[0].halted == ""
+
+
+def test_the_observer_hears_each_step_and_ask_as_the_turn_goes() -> None:
+    fake = FakeLucy()
+    fake.say(
+        "Remember tea.",
+        Play(asks=("notes.setFact",), ran=(("notes.setFact", "ok"), ("notes.search", "ok"))),
+    )
+    held = Held(fake, scenario(one_turn("Remember tea.")))
+    events = [value for kind, value in held.recorder.events if kind == "event"]
+    assert events == [
+        ("sample", 1, "? notes.setFact asks to run (title=Drink, body=Prefers tea)"),
+        ("sample", 1, "· notes.setFact -> ok"),
+        ("sample", 1, "· notes.search -> ok"),
+    ]

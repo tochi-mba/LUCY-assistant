@@ -47,13 +47,18 @@ class Play:
     park_without_asks: bool = False
     rest_as: str = ""
     """A status the turn rests in instead of finishing, like ``auth_required``."""
+    again: int = 0
+    """How many more times the turn parks on the same asks after they are answered: the loop
+    a turn fell into on 2026-09-30, asking to play the same unresolved track ten times."""
+    between: str = ""
+    """The status of the result each answered ask writes before the turn asks again."""
 
 
 @dataclass
 class _Live:
     play: Play
     polls: int = 0
-    asked: bool = False
+    parks: int = 0
     answers: dict[str, bool] = field(default_factory=dict)
 
 
@@ -219,7 +224,7 @@ class FakeLucy:
             {"approval_id": approval_id, "approved": event["approved"]},
         )
         turn = self.turns[turn_id]
-        if len(live.answers) == len(live.play.asks):
+        if len(live.answers) == len(live.play.asks) * live.parks:
             turn["status"] = "queued"
         return httpx.Response(202, json=turn)
 
@@ -278,28 +283,47 @@ class FakeLucy:
             live.polls += 1
             turn["status"] = "running"
             return
-        session_id = turn["session_id"]
         if play.park_without_asks:
             turn["status"] = "input_required"
             return
-        if play.asks and not live.asked:
-            live.asked = True
-            for index, operation in enumerate(play.asks, start=1):
+        if play.asks and live.parks <= play.again:
+            self._park(turn, live)
+            return
+        self._finish(turn, live)
+
+    def _park(self, turn: dict[str, Any], live: _Live) -> None:
+        """Ask for every operation in the play, after running the last answers if it asks again."""
+        play = live.play
+        session_id = turn["session_id"]
+        if live.parks and play.between:
+            for operation in play.asks:
                 self._item(
                     session_id,
                     turn["id"],
-                    "approval_request",
-                    "assistant",
+                    "tool_result",
+                    "tool",
                     {
-                        "approval_id": f"apr_{turn['id']}_{index}",
-                        "tool": operation,
-                        "permission": "notes.write",
-                        "arguments": {"title": "Drink", "body": "Prefers tea", "flag": True},
+                        "operation": operation,
+                        "status": play.between,
+                        "error": play.error if play.between != "ok" else "",
                     },
                 )
-            turn["status"] = "input_required"
-            return
-        self._finish(turn, live)
+        live.parks += 1
+        for index, operation in enumerate(play.asks, start=1):
+            suffix = f"{index}" if live.parks == 1 else f"{live.parks}_{index}"
+            self._item(
+                session_id,
+                turn["id"],
+                "approval_request",
+                "assistant",
+                {
+                    "approval_id": f"apr_{turn['id']}_{suffix}",
+                    "tool": operation,
+                    "permission": "notes.write",
+                    "arguments": {"title": "Drink", "body": "Prefers tea", "flag": True},
+                },
+            )
+        turn["status"] = "input_required"
 
     def _finish(self, turn: dict[str, Any], live: _Live) -> None:
         play = live.play

@@ -406,7 +406,7 @@ def test_a_passing_run_writes_its_report_and_exits_zero(
     assert (folder / JSON_NAME).is_file()
     assert (folder / MARKDOWN_NAME).is_file()
     assert out.splitlines() == [
-        "clyde:haiku: 2 passed, 0 failed, 0 error(s), 0 skipped; 14/14 checks held",
+        "clyde:haiku: 2 passed, 0 failed, 0 error(s), 0 skipped; 16/16 checks held",
         f"report: {Path('var', 'evals', '20260924T101500Z', MARKDOWN_NAME)}",
     ]
     assert "Holding 2 scenario(s) x 1 model(s) x 1 run(s)" in err

@@ -24,6 +24,7 @@ session they are for (see :mod:`lucy_api.evals.direct`).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lucy_api.evals.checks import check_invocation
@@ -93,6 +94,9 @@ class Observer(Protocol):
 
     def turn_finished(self, job: Job, turn: TurnRecord) -> None: ...
 
+    def turn_event(self, job: Job, index: int, line: str) -> None:
+        """One step or ask of turn ``index``, the moment the transcript shows it."""
+
     def finished(self, record: ScenarioRecord) -> None: ...
 
 
@@ -103,6 +107,9 @@ class Quiet:
         """Nothing to say."""
 
     def turn_finished(self, job: Job, turn: TurnRecord) -> None:
+        """Nothing to say."""
+
+    def turn_event(self, job: Job, index: int, line: str) -> None:
         """Nothing to say."""
 
     def finished(self, record: ScenarioRecord) -> None:
@@ -200,13 +207,22 @@ class Runner:
     def _converse(
         self, conversation: Conversation, job: Job, timeout: float, turns: list[TurnRecord]
     ) -> str:
-        """Every turn in order. A turn that never came to rest ends the conversation."""
+        """Every turn in order. A turn that was halted or never came to rest ends it."""
         specs = job.scenario.turns
         for index, spec in enumerate(specs, start=1):
             limit = spec.timeout_seconds or timeout
-            turn = conversation.take_turn(index, spec, timeout=limit)
+            turn = conversation.take_turn(
+                index,
+                spec,
+                timeout=limit,
+                on_event=partial(self._observer.turn_event, job, index),
+            )
             turns.append(turn)
             self._observer.turn_finished(job, turn)
+            if turn.halted:
+                later = len(specs) - index
+                unsent = f", so {later} later turn(s) were not sent" if later else ""
+                return f"turn {index} was halted: {turn.halted}{unsent}"
             if turn.timed_out and index < len(specs):
                 return (
                     f"turn {index} did not come to rest in {limit:.0f}s, so "
