@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import os
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Self
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,6 +42,18 @@ ROUTES = ("/healthy", "/ready")
 CLIENT_VARIABLES = frozenset(
     {ENV_PREFIX + name for name in ("URL", "TOKEN", "CONFIG", "FAMILY_ROOT")}
 )
+
+
+RENAMED: Mapping[str, str] = {
+    "LUCY_SPOTIFY_API_BASE_URL": "LUCY_MUSIC_API_BASE_URL",
+}
+"""Variables that were renamed, and their names now.
+
+A renamed variable left in a `.env` is an unknown one, and an unknown one stops the hub. The
+failure should say what to write instead: "extra inputs are not permitted" names no fix.
+"""
+
+ENV_FILE = Path(".env")
 
 
 class LogFormat(StrEnum):
@@ -205,20 +219,32 @@ class Settings(BaseSettings):
         return row
 
 
-def check_for_unknown_env_vars(environ: Mapping[str, str] | None = None) -> None:
+def check_for_unknown_env_vars(
+    environ: Mapping[str, str] | None = None, *, env_file: Path | None = None
+) -> None:
     """Refuse unknown ``LUCY_*`` variables so a typo fails at startup, not at first use.
 
-    The `lucy` command's own variables are known, not unknown. See ``CLIENT_VARIABLES``.
+    `env_file` is read as well as the environment, because `Settings` reads it: a stale key
+    there reached pydantic's own refusal, which names the key and not the fix. A renamed
+    variable is reported with its new name. The `lucy` command's own variables are known,
+    not unknown. See ``CLIENT_VARIABLES``.
     """
     known = {ENV_PREFIX + name.upper() for name in Settings.model_fields} | CLIENT_VARIABLES
-    source = environ if environ is not None else os.environ
-    unknown = sorted(key for key in source if key.startswith(ENV_PREFIX) and key not in known)
-    if unknown:
-        msg = "unknown environment variables: " + ", ".join(unknown)
-        raise RuntimeError(msg)
+    names = set(environ if environ is not None else os.environ)
+    if env_file is not None and env_file.is_file():
+        names |= set(dotenv_values(env_file))
+    stray = sorted(name for name in names if name.startswith(ENV_PREFIX) and name not in known)
+    renamed = [f"{name} is now {RENAMED[name]}" for name in stray if name in RENAMED]
+    unknown = [name for name in stray if name not in RENAMED]
+    problems = [
+        *renamed,
+        *(["unknown environment variables: " + ", ".join(unknown)] if unknown else []),
+    ]
+    if problems:
+        raise RuntimeError("; ".join(problems))
 
 
 def load_settings() -> Settings:
-    """Load settings, refusing unknown variables under the prefix first."""
-    check_for_unknown_env_vars()
+    """Load settings, refusing unknown variables under the prefix first, wherever they are."""
+    check_for_unknown_env_vars(env_file=ENV_FILE)
     return Settings()

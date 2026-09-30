@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -106,3 +107,21 @@ def test_the_model_timeout_is_its_own_knob() -> None:
     settings = _settings(model_timeout_seconds=300.0)
     assert settings.model_timeout_seconds == 300.0
     assert settings.http_timeout_seconds == 10.0
+
+
+def test_a_renamed_variable_in_env_is_refused_with_its_new_name(tmp_path: Path) -> None:
+    """The bug, named: `LUCY_SPOTIFY_API_BASE_URL` was renamed, and a `.env` that still had it
+    stopped the hub with pydantic's "extra inputs are not permitted", which names no fix. The
+    check read only the environment, never the `.env` that `Settings` reads."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LUCY_SPOTIFY_API_BASE_URL=http://127.0.0.1:8007\nLUCY_KEYRNIG_BASE_URL=x\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError) as refused:
+        check_for_unknown_env_vars({}, env_file=env_file)
+    assert str(refused.value) == (
+        "LUCY_SPOTIFY_API_BASE_URL is now LUCY_MUSIC_API_BASE_URL; "
+        "unknown environment variables: LUCY_KEYRNIG_BASE_URL"
+    )
+    check_for_unknown_env_vars({}, env_file=tmp_path / "missing.env")
