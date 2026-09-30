@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import posixpath
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from weftai.operation import define_operation
@@ -54,6 +55,8 @@ if TYPE_CHECKING:
 
 
 MAX_TOOL_OUTPUT_CHARS = 8_000
+MAX_TIMEOUT_MS = 600_000
+"""The longest ceiling one command is given, whatever it asked for."""
 SHOW = ("end", "start")
 """Which end of a long command output `workspace.run` shows. The end is the default: a test
 run or a build prints its verdict last, and the beginning of a megabyte log is not where
@@ -82,6 +85,26 @@ CONFIRMATIONS = frozenset(
     }
 )
 """Operations whose result is the sandbox's account of a change Lucy made, not content."""
+
+
+@dataclass(frozen=True, slots=True)
+class Command:
+    """One command for the sandbox, and how far to wait for its answer.
+
+    The operation that was asked for builds it from its own inputs, and one method runs it.
+    Everything that happens to a command once it is known -- the work it becomes, the wait
+    inside the step, the output cut to fit and the notice that says what was cut -- is then
+    the same for every operation that runs one, rather than a copy that drifts.
+    """
+
+    text: str
+    timeout_ms: int
+    tail: bool
+    """Keep the end of a long output, where a verdict is printed, rather than its beginning."""
+    wait: bool = True
+    wait_seconds: float | None = None
+    """How long to wait inside the step. `None` waits as long as the command may take."""
+    wake: bool = False
 
 
 class WorkspacePack:
@@ -473,26 +496,38 @@ class WorkspacePack:
         return _mutation(run.ctx, result)
 
     async def _run(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        command = str(run.input.get("command") or "")
-        timeout_ms = max(1, min(int(run.input.get("timeout_ms") or DEFAULT_TIMEOUT_MS), 600_000))
         wait = run.input.get("wait", True)
-        wait_flag = wait if isinstance(wait, bool) else True
         raw_wait = run.input.get("wait_seconds")
-        deadline = timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
-        wait_seconds = run.ctx.within_step(
-            deadline if raw_wait is None else max(0.0, float(raw_wait))
+        return await self._execute(
+            run.ctx,
+            Command(
+                text=str(run.input.get("command") or ""),
+                timeout_ms=_timeout_ms(run.input.get("timeout_ms")),
+                tail=run.input.get("show") != "start",
+                wait=wait if isinstance(wait, bool) else True,
+                wait_seconds=None if raw_wait is None else max(0.0, float(raw_wait)),
+                wake=bool(run.input.get("wake", False)),
+            ),
         )
 
-        tail = run.input.get("show") != "start"
+    async def _execute(self, context: PackContext, command: Command) -> dict[str, Any]:
+        """Run one command as a piece of work, and wait for its answer as far as it asked.
+
+        The only place a command meets the sandbox, the work registry and the output cap.
+        """
+        deadline = command.timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
+        wait_seconds = context.within_step(
+            deadline if command.wait_seconds is None else command.wait_seconds
+        )
 
         async def work() -> dict[str, Any]:
-            result = await self._client(run.ctx).run(
-                run.ctx.workspace_environment_id,
-                command,
-                cwd=run.ctx.workspace_path,
-                timeout_ms=timeout_ms,
+            result = await self._client(context).run(
+                context.workspace_environment_id,
+                command.text,
+                cwd=context.workspace_path,
+                timeout_ms=command.timeout_ms,
                 max_output_bytes=DEFAULT_OUTPUT_BYTES,
-                tail=tail,
+                tail=command.tail,
             )
             shown = _shown(result.output, tail=result.tail)
             cut = len(result.output) - len(shown) + result.output_truncated_bytes
@@ -507,25 +542,25 @@ class WorkspacePack:
                 "notice": _output_notice(omitted, cut, tail=result.tail),
             }
 
-        registry = run.ctx.work
+        registry = context.work
         if registry is None:
             return await work()
         try:
             handle = registry.start(
                 work(),
                 Brief(
-                    session_id=run.ctx.session_id,
+                    session_id=context.session_id,
                     kind=Kind.command,
                     role="command",
-                    objective=command[:160] or "run a workspace command",
+                    objective=command.text[:160] or "run a workspace command",
                     timeout_seconds=deadline,
-                    account_id=run.ctx.account_id,
-                    wake=bool(run.input.get("wake", False)),
+                    account_id=context.account_id,
+                    wake=command.wake,
                 ),
             )
         except AtCapacityError as exc:
             return {"status": "busy", "message": str(exc)}
-        if not wait_flag:
+        if not command.wait:
             return {
                 "status": "running",
                 "work_id": handle.id,
@@ -546,6 +581,11 @@ class WorkspacePack:
             # It ended without an answer; how it ended is the only thing there is to say.
             return {"status": finished.state.value, "work_id": handle.id, "notice": finished.detail}
         return _completed_command(finished.payload, handle.id)
+
+
+def _timeout_ms(asked: Any) -> int:
+    """The ceiling a command is given: what it asked for, from one millisecond to the most."""
+    return max(1, min(int(asked or DEFAULT_TIMEOUT_MS), MAX_TIMEOUT_MS))
 
 
 def _shown(output: str, *, tail: bool) -> str:
