@@ -38,7 +38,7 @@ index pretending to be complete.
 | Operation | What it does |
 | --- | --- |
 | `notes.setFact` | A durable fact. Preference, constraint, identity. |
-| `notes.remember` | An episode from this conversation. Stays with the session unless promoted. |
+| `notes.remember` | An episode from this conversation. Session-scoped: retrieval brings it back only in this conversation. |
 | `notes.confirm` | Vouch for an untrusted note so retrieval may use it. |
 | `notes.correct` | Supersede, keeping history. Never delete-then-add. |
 | `notes.forget` | Hidden immediately, erased after the grace period, restorable until then. |
