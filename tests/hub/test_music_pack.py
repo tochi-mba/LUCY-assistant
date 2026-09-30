@@ -18,6 +18,7 @@ from lucy_api.clients.music import (
     Track,
 )
 from lucy_api.core.config import Settings
+from lucy_api.mcp.skills import CATALOGUE
 from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.context import STEP_MARGIN_SECONDS
 from lucy_api.packs.help import HelpPack
@@ -639,3 +640,10 @@ async def test_a_null_track_beside_a_uri_plays_the_uri() -> None:
     fake = await play_after_recent({"track": None, "uri": "spotify:track:4"})
     assert fake.played == [("personal", ("spotify:track:4",), "")]
 
+
+def test_the_music_skill_teaches_the_plan_the_capability_page_shows() -> None:
+    """The bug, named: the skill an MCP client loads still said ``music.play`` starts a
+    track by itself, so a client following it played the literal text ``$found``."""
+    body = next(skill.body for skill in CATALOGUE if skill.name == "music")
+    assert '"input": {"track": "$found"}' in body
+    assert '"input": {"track": "$found"}' in read_capability_doc("music")
