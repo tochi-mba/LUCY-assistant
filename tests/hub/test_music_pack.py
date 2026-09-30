@@ -1,21 +1,33 @@
 """Music is gated by connection state and projected before the model sees it."""
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
 
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
-from lucy_api.clients.music import CONFIRM_WAIT_SECONDS, Device, FakeMusicClient, Play, Track
+from lucy_api.clients.music import (
+    CONFIRM_WAIT_SECONDS,
+    Device,
+    FakeMusicClient,
+    NowPlaying,
+    Play,
+    Track,
+)
 from lucy_api.core.config import Settings
 from lucy_api.packs.base import Availability, Bound, State
+from lucy_api.packs.context import STEP_MARGIN_SECONDS
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.music import (
     EITHER,
+    NOT_REACHED,
+    NOT_TRIED,
     NOTHING_FOUND,
     QUEUE_WHAT,
     UNCONFIRMED_NOTE,
+    UNREACHABLE,
     MusicPack,
     _optional_int,
 )
@@ -25,8 +37,12 @@ from lucy_api.prompt.docs import capability_doc, read_capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
-def setup(fake: FakeMusicClient) -> tuple[Capabilities, object]:
-    capabilities = Capabilities((HelpPack(), MusicPack("http://music.test", client=fake)))
+def setup(
+    fake: FakeMusicClient, clock: Callable[[], float] | None = None
+) -> tuple[Capabilities, object]:
+    capabilities = Capabilities(
+        (HelpPack(), MusicPack("http://music.test", client=fake, clock=clock))
+    )
     context = capabilities.context_for(
         SessionScope(
             account_id="acct_a", profile="personal", session_id="ses_a", permission_mode="auto"
@@ -375,3 +391,174 @@ async def test_a_reference_to_a_step_given_as_a_uri_is_refused_before_the_plan_r
 
 def test_the_prompt_shows_find_and_play_in_one_plan() -> None:
     assert '"input": {"track": "$found"}' in read_capability_doc("music")
+
+
+# --- a queue of several tracks answers per track, inside the step's ceiling ------------------
+
+PLAYED = tuple(
+    Track(name=name, artists=("Asake",), uri=f"spotify:track:{index}")
+    for index, name in enumerate(
+        ("Lonely At The Top", "Terminator", "Sungba", "Joha", "Organise", "Peace Be Unto You"),
+        start=1,
+    )
+)
+RECENT = {"id": "recent", "op": "music.recent", "input": {"limit": 6}}
+
+
+class Clock:
+    """A clock the player moves, so a slow queue takes seconds without waiting for any."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class Player(FakeMusicClient):
+    """A player that refuses named tracks and takes a set number of seconds per queue."""
+
+    def __init__(self, clock: Clock, *, seconds_per_queue: float = 0.0) -> None:
+        super().__init__()
+        self.clock = clock
+        self.seconds_per_queue = seconds_per_queue
+        self.refused: dict[str, Exception] = {}
+
+    async def queue(self, profile: str, uri: str, *, device_id: str = "") -> NowPlaying:
+        self.clock.now += self.seconds_per_queue
+        if uri in self.refused:
+            raise self.refused[uri]
+        return await super().queue(profile, uri, device_id=device_id)
+
+
+def player(clock: Clock, *, seconds_per_queue: float = 0.0) -> Player:
+    fake = Player(clock, seconds_per_queue=seconds_per_queue)
+    fake.seed(plays=tuple(Play(track) for track in PLAYED))
+    fake.state = NowPlaying(track=PLAYED[0], progress_ms=5_000, is_playing=True)
+    return fake
+
+
+async def queue_recent(fake: Player) -> dict[str, object]:
+    capabilities, context = setup(fake, fake.clock)
+    await capabilities.probe(context)
+    result = await capabilities.execute(
+        {"steps": [RECENT, {"id": "queue", "op": "music.queue", "input": {"track": "$recent"}}]},
+        context,
+    )
+    assert result["issues"] is None
+    assert result["steps"][1]["status"] == "ok"
+    return dict(result["steps"][1]["data"])
+
+
+async def test_a_queue_refused_part_way_reports_every_track_and_queues_the_rest() -> None:
+    """The bug, named: a six-track queue whose third track the service refused ended the step
+    with that one failure, so the model could not tell the person the first two were queued,
+    and the last three were never tried."""
+    fake = player(Clock())
+    fake.refused["spotify:track:3"] = DownstreamError("music", 403, "not available here")
+
+    answer = await queue_recent(fake)
+
+    assert [(item["track"], item["queued"]) for item in answer["queued"]] == [
+        ("Lonely At The Top", True),
+        ("Terminator", True),
+        ("Sungba", False),
+        ("Joha", True),
+        ("Organise", True),
+        ("Peace Be Unto You", True),
+    ]
+    assert answer["queued"][2]["reason"] == "not available here"
+    assert "note" not in answer
+    assert answer["track"]["name"] == "Lonely At The Top"
+    assert [uri for _profile, uri, _device in fake.queued] == [
+        "spotify:track:1",
+        "spotify:track:2",
+        "spotify:track:4",
+        "spotify:track:5",
+        "spotify:track:6",
+    ]
+
+
+async def test_a_queue_stops_before_the_step_s_ceiling_and_says_what_was_left() -> None:
+    """The bug, named: six queue commands at five seconds each ran past the thirty-second
+    step ceiling, so the step timed out and the model was told nothing about the five tracks
+    that had been queued."""
+    fake = player(Clock(), seconds_per_queue=5.0)
+    capabilities, context = setup(fake, fake.clock)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [RECENT, {"id": "queue", "op": "music.queue", "input": {"track": "$recent"}}]},
+        context,
+    )
+
+    assert context.step_seconds == 30.0
+    answer = result["steps"][1]["data"]
+    assert [item["queued"] for item in answer["queued"]] == [True] * 5 + [False]
+    assert answer["queued"][5] == {
+        "track": "Peace Be Unto You",
+        "uri": "spotify:track:6",
+        "queued": False,
+        "reason": NOT_TRIED,
+    }
+    assert answer["note"] == (
+        "Queuing stopped after 5 of 6 so this step could answer before its time ran out; "
+        "1 left unqueued. Queue those in a new step."
+    )
+    assert "confirmed" not in answer
+    assert len(fake.queued) == 5
+    assert fake.clock.now - 100.0 + 5.0 > context.step_seconds - STEP_MARGIN_SECONDS
+
+
+async def test_a_queue_that_loses_the_service_reports_what_was_queued_before_it() -> None:
+    fake = player(Clock())
+    fake.refused["spotify:track:2"] = TransportError("connection reset", audience="music")
+
+    answer = await queue_recent(fake)
+
+    assert [item["queued"] for item in answer["queued"]] == [
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+    assert answer["queued"][1]["reason"] == UNREACHABLE
+    assert {item["reason"] for item in answer["queued"][2:]} == {NOT_REACHED}
+    assert len(fake.queued) == 1
+
+
+async def test_a_queue_with_nothing_queued_still_answers_with_what_is_playing() -> None:
+    fake = player(Clock())
+    fake.refused["spotify:track:1"] = DownstreamError("music", 404)
+    capabilities, context = setup(fake, fake.clock)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [RECENT, {"id": "queue", "op": "music.queue", "input": {"track": "$recent[1]"}}]},
+        context,
+    )
+
+    answer = result["steps"][1]["data"]
+    assert answer["queued"] == [
+        {
+            "track": "Lonely At The Top",
+            "uri": "spotify:track:1",
+            "queued": False,
+            "reason": "music answered 404",
+        }
+    ]
+    assert answer["track"]["name"] == "Lonely At The Top"
+    assert answer["is_playing"] is True
+
+
+async def test_an_unconfirmed_queue_of_several_tracks_says_so_once_and_per_track() -> None:
+    fake = player(Clock())
+    fake.confirms = False
+
+    answer = await queue_recent(fake)
+
+    assert answer["confirmed"] is False
+    assert answer["note"] == UNCONFIRMED_NOTE
+    assert all(item["queued"] and item["confirmed"] is False for item in answer["queued"])
