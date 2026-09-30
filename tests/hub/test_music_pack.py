@@ -325,9 +325,9 @@ async def test_play_and_queue_take_the_track_music_find_found_by_reference() -> 
     [
         (
             "music.play",
-            {"uri": "$found"},
-            "`uri` takes a track's uri, not a reference; '$found' looks like one. To play or "
-            'queue what an earlier step found, give it as `track`: {"track": "$found"}.',
+            {"uri": "$elsewhere"},
+            "`uri` takes a track's uri, not a reference; '$elsewhere' looks like one. To play "
+            'or queue what an earlier step found, give it as `track`: {"track": "$elsewhere"}.',
         ),
         ("music.play", {"uri": "spotify:track:1", "track": "$found"}, EITHER),
         ("music.play", {"track": "$nothing"}, NOTHING_FOUND),
@@ -351,6 +351,26 @@ async def test_a_track_named_in_a_way_the_operation_cannot_use_is_refused_with_t
     assert step["error"].endswith(said)
     assert fake.played == []
     assert fake.queued == []
+
+
+async def test_a_reference_to_a_step_given_as_a_uri_is_refused_before_the_plan_runs() -> None:
+    """weftai refuses a whole reference written into a field that does not take one, when it
+    names a step: nothing runs, and the model is told which field takes a reference."""
+    fake = FakeMusicClient()
+    fake.stock("Clair de lune", FOUND)
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [*FINDS, {"id": "act", "op": "music.play", "input": {"uri": "$found"}}]},
+        context,
+    )
+
+    assert result["steps"] == []
+    assert [(issue["code"], list(issue["path"])) for issue in result["issues"]] == [
+        ("ref.in_plain_field", ["uri"])
+    ]
+    assert fake.played == []
 
 
 def test_the_prompt_shows_find_and_play_in_one_plan() -> None:
