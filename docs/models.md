@@ -1,6 +1,6 @@
 # Models and providers
 
-Lucy can think with any of forty-three providers. Most of them speak the same wire format,
+Lucy can think with any of forty-four providers. Most of them speak the same wire format,
 and the three that do not are the ones everybody has heard of. What a person actually needs
 to know is which of them work *right now*, and what the rest would need -- so that is what
 the hub reports, and everything else here is the reasoning behind that report.
@@ -40,9 +40,9 @@ folding the two into one row with a switch is how somebody sends a key to the wr
 
 | Trait | Effect | Who |
 | --- | --- | --- |
-| no tool calling | usable for answers, not for plans | Perplexity |
-| JSON object only | a plan's schema is put in words in the prompt rather than enforced by the provider | DeepSeek, Moonshot, iFlytek Spark, Ollama |
-| no reasoning effort | Lucy does not send a thinking depth | Cohere |
+| no tool calling | recorded only: plans travel as schema output rather than as tool calls, so nothing Lucy sends changes | Perplexity, clyde |
+| JSON object only | a plan's schema is put in words in the prompt rather than enforced by the provider | DeepSeek, Moonshot (both regions), iFlytek Spark |
+| no reasoning effort | Lucy does not send a thinking depth | Cohere, clyde |
 | needs a base URL | there is no public endpoint to default to | Azure OpenAI, Amazon Bedrock |
 
 A plan through a JSON-only provider is a weaker guarantee than a schema the provider
