@@ -7,7 +7,8 @@ especially: it is remote code execution as a product.
 ## What we are protecting
 
 - Credentials in keyring (OAuth grants, API keys, stored passwords).
-- Personal data in user-api, persona-api, and settings-api (plaintext at rest).
+- Personal data in user-api, persona-api, settings-api, memory-api and the hub's own
+  conversation store (plaintext at rest).
 - The ability of one account to read another.
 - The ability of one service to act as another (confused deputy).
 - Command execution leaking out of an environment.
