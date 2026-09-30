@@ -14,6 +14,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   unresolved. Each approval now records its call's step and every step it reads from, and
   the resumed turn runs them together under their own ids; a call reading from a step the
   person refused does not run, and the model is told why.
+- **`music.play` and `music.queue` take the track `music.find` found.** They took only a
+  `uri` string, so the plan a model naturally writes -- find, then play what was found --
+  sent the literal text `$found` as a URI. They now take `track`, a reference to
+  `music.find`'s result, as the tools guide always showed; a `$` reference given as a `uri`
+  is refused with the fix, and the capability page shows find and play in one plan.
 
 ### Changed
 

@@ -4,6 +4,12 @@ The pack is connection-gated: an unavailable account removes every music operati
 the model's registry, while the capability catalogue keeps a setup path visible to the
 person. Every result is projected to names, artists, albums, device labels and playable
 URIs before it crosses the tool boundary.
+
+A track found by ``music.find`` is played or queued by reference: ``{"track": "$found"}``,
+resolved by the runtime to the tracks that step returned. The documentation always showed
+play that way and the operation took only a ``uri`` string, so the plan a model naturally
+writes -- find, then play what was found -- sent the literal text ``$found`` as a URI. A
+``uri`` is still accepted for a track the model already holds.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from weftai.operation import define_operation
+from weftai.schema import ref
 from weftai.schema.spec import integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
@@ -49,6 +56,21 @@ Without it the model read an outage, told the person playback had failed while t
 already have been starting, and sent the command again -- which restarts a track from the
 beginning. The last sentence names the read that settles it, rather than the retry.
 """
+
+
+TRACK_REFERENCE = 'A track music.find returned, by reference: "$stepId", or "$stepId[2]".'
+URI = "A track's uri, as music.find returned it. Prefer `track` for one found in this plan."
+NOT_A_REFERENCE = (
+    "`uri` takes a track's uri, not a reference; {uri!r} looks like one. To play or queue what "
+    'an earlier step found, give it as `track`: {{"track": "{uri}"}}.'
+)
+EITHER = "Give `track` or `uri`, not both."
+NOTHING_FOUND = "The referenced step found no track to play; find one first."
+QUEUE_WHAT = "Name what to queue: `track` for a track found earlier, or `uri`."
+
+
+class MusicInputError(ValueError):
+    """A play or queue that names its track in a way the operation cannot use."""
 
 
 class MusicPack:
@@ -170,10 +192,15 @@ class MusicPack:
             define_operation(
                 {
                     "name": "music.play",
-                    "description": "Play or resume one track, optionally on a named device.",
+                    "description": (
+                        "Play a track -- the one music.find found, as `track`, or by `uri` -- "
+                        "or resume what was loaded when neither is given; optionally on a "
+                        "named device."
+                    ),
                     "input": object_schema(
                         {
-                            "uri": string_schema().optional(),
+                            "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
+                            "uri": string_schema().describe(URI).optional(),
                             "device_id": string_schema().optional(),
                         }
                     ),
@@ -185,10 +212,14 @@ class MusicPack:
             define_operation(
                 {
                     "name": "music.queue",
-                    "description": "Queue one playable track behind the current item.",
+                    "description": (
+                        "Queue a track behind the current item -- the one music.find found, "
+                        "as `track`, or by `uri`."
+                    ),
                     "input": object_schema(
                         {
-                            "uri": string_schema().describe("Playable URI returned by music.find."),
+                            "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
+                            "uri": string_schema().describe(URI).optional(),
                             "device_id": string_schema().optional(),
                         }
                     ),
@@ -257,23 +288,22 @@ class MusicPack:
         ]
 
     async def _play(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        uri = str(run.input.get("uri") or "")
         return await _commanded(
-            self._client(run.ctx).play(
-                run.ctx.profile,
-                uris=(uri,) if uri else (),
-                device_id=_device_id(run),
-            )
+            self._client(run.ctx).play(run.ctx.profile, uris=_uris(run), device_id=_device_id(run))
         )
 
     async def _queue(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        return await _commanded(
-            self._client(run.ctx).queue(
-                run.ctx.profile,
-                str(run.input.get("uri") or ""),
-                device_id=_device_id(run),
-            )
-        )
+        uris = _uris(run)
+        if not uris:
+            raise MusicInputError(QUEUE_WHAT)
+        client = self._client(run.ctx)
+        device = _device_id(run)
+        answer: dict[str, Any] = {}
+        # One at a time, in order: each queue answers once it is seen in the queue, and the
+        # next must go behind it.
+        for uri in uris:
+            answer = await _commanded(client.queue(run.ctx.profile, uri, device_id=device))
+        return answer
 
     async def _pause(self, run: RunContext[PackContext]) -> dict[str, Any]:
         return await _commanded(
@@ -308,6 +338,24 @@ def _playing(state: NowPlaying) -> dict[str, Any]:
     }
 
 
+def _uris(run: RunContext[PackContext]) -> tuple[str, ...]:
+    """The uris a play or queue names: every track the reference resolved to, or the one uri."""
+    uri = str(run.input.get("uri") or "")
+    picked = run.input.get("track")
+    if picked is not None and uri:
+        raise MusicInputError(EITHER)
+    if uri.startswith("$"):
+        raise MusicInputError(NOT_A_REFERENCE.format(uri=uri))
+    if picked is None:
+        return (uri,) if uri else ()
+    uris = tuple(
+        str(item.get("uri")) for item in picked.items if isinstance(item, dict) and item.get("uri")
+    )
+    if not uris:
+        raise MusicInputError(NOTHING_FOUND)
+    return uris
+
+
 def _device_id(run: RunContext[PackContext]) -> str:
     given = str(run.input.get("device_id") or "")
     if given:
@@ -320,4 +368,4 @@ def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-__all__ = ["MusicPack"]
+__all__ = ["MusicInputError", "MusicPack"]

@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+import pytest
+
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.music import CONFIRM_WAIT_SECONDS, Device, FakeMusicClient, Play, Track
@@ -9,10 +11,17 @@ from lucy_api.core.config import Settings
 from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
-from lucy_api.packs.music import UNCONFIRMED_NOTE, MusicPack, _optional_int
+from lucy_api.packs.music import (
+    EITHER,
+    NOTHING_FOUND,
+    QUEUE_WHAT,
+    UNCONFIRMED_NOTE,
+    MusicPack,
+    _optional_int,
+)
 from lucy_api.packs.registry import limits_for
 from lucy_api.packs.service import Capabilities, installed_packs
-from lucy_api.prompt.docs import capability_doc
+from lucy_api.prompt.docs import capability_doc, read_capability_doc
 from lucy_api.sessions.scope import SessionScope
 
 
@@ -269,3 +278,80 @@ def test_the_music_audience_is_the_configured_service_s_own() -> None:
     assert isinstance(other, MusicPack)
     assert (default.audience, other.audience) == ("spotify-api", "other-music")
     assert Settings(_env_file=None).music_api_audience == "spotify-api"
+
+
+# --- a found track, played and queued by reference ------------------------------------------
+
+FOUND = Track(
+    name="Clair de lune",
+    artists=("Claude Debussy",),
+    album="Suite bergamasque",
+    uri="spotify:track:1",
+    duration_ms=300_000,
+)
+FINDS = [
+    {"id": "found", "op": "music.find", "input": {"name": "Clair de lune"}},
+    {"id": "nothing", "op": "music.find", "input": {"name": "Nothing by that name"}},
+]
+
+
+async def test_play_and_queue_take_the_track_music_find_found_by_reference() -> None:
+    """The bug, named: play took only a ``uri`` string, so the plan a model writes -- find,
+    then play what was found -- sent the literal text ``$found`` to the music service."""
+    fake = FakeMusicClient()
+    fake.stock("Clair de lune", FOUND)
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                *FINDS,
+                {"id": "play", "op": "music.play", "input": {"track": "$found"}},
+                {"id": "queue", "op": "music.queue", "input": {"track": "$found[1]"}},
+            ]
+        },
+        context,
+    )
+
+    assert result["issues"] is None
+    assert [step["status"] for step in result["steps"]] == ["ok", "ok", "ok", "ok"]
+    assert fake.played == [("personal", ("spotify:track:1",), "")]
+    assert fake.queued == [("personal", "spotify:track:1", "")]
+
+
+@pytest.mark.parametrize(
+    ("operation", "given", "said"),
+    [
+        (
+            "music.play",
+            {"uri": "$found"},
+            "`uri` takes a track's uri, not a reference; '$found' looks like one. To play or "
+            'queue what an earlier step found, give it as `track`: {"track": "$found"}.',
+        ),
+        ("music.play", {"uri": "spotify:track:1", "track": "$found"}, EITHER),
+        ("music.play", {"track": "$nothing"}, NOTHING_FOUND),
+        ("music.queue", {}, QUEUE_WHAT),
+    ],
+)
+async def test_a_track_named_in_a_way_the_operation_cannot_use_is_refused_with_the_fix(
+    operation: str, given: dict[str, str], said: str
+) -> None:
+    fake = FakeMusicClient()
+    fake.stock("Clair de lune", FOUND)
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [*FINDS, {"id": "act", "op": operation, "input": given}]}, context
+    )
+
+    step = result["steps"][-1]
+    assert step["status"] == "error"
+    assert step["error"].endswith(said)
+    assert fake.played == []
+    assert fake.queued == []
+
+
+def test_the_prompt_shows_find_and_play_in_one_plan() -> None:
+    assert '"input": {"track": "$found"}' in read_capability_doc("music")
