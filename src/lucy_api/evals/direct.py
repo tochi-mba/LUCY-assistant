@@ -1,9 +1,10 @@
 """Operations the harness runs itself, in a scenario's session, without a model.
 
-``seed`` plants something before the first turn; ``verify`` reads the world back after
-one. Both go through ``POST /v1/tools/{name}/invoke`` scoped to the session, which applies
-the same deferral and the same permission gate a turn does -- so two things have to be
-arranged first, and both are arranged as narrowly as the hub allows:
+``seed`` plants something before the first turn; an ``op`` step under ``before`` changes
+it between two turns; ``verify`` reads the world back after one. All three go through
+``POST /v1/tools/{name}/invoke`` scoped to the session, which applies the same deferral and
+the same permission gate a turn does -- so two things have to be arranged first, and both
+are arranged as narrowly as the hub allows:
 
 **Binding.** A capability can be deferred on a fresh session. If the operation is not
 callable yet and its capability is in the deferred list, the harness binds it the way the

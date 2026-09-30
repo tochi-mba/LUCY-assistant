@@ -49,6 +49,11 @@ STEP_STATUSES = (OK, "error", "skipped", "denied")
 LIFETIMES = {YES: "once", NO: "once", YES_SESSION: "session"}
 """The approval lifetime each answer is sent with."""
 
+OP_STEP = "op"
+WAIT_STEP = "wait_seconds"
+"""The kinds of ``before`` step. Each is named by the key that gives it in a scenario file,
+and its record in the report carries the same name."""
+
 
 @dataclass(frozen=True, slots=True)
 class Pattern:
@@ -111,10 +116,11 @@ class Expect:
 class Invocation:
     """One operation the harness runs itself, through the hub's invoke route.
 
-    Used before the first turn (``seed``: plant a file) and after a turn (``verify``: read
-    the file back). Verification is how a scenario proves something happened instead of
-    trusting the model's word for it -- a weak model has been seen to say "Done. Your
-    calculator website is ready" having written nothing at all.
+    Used before the first turn (``seed``: plant a file), between turns (``before``: change
+    the file from outside), and after a turn (``verify``: read the file back). Verification
+    is how a scenario proves something happened instead of trusting the model's word for it
+    -- a weak model has been seen to say "Done. Your calculator website is ready" having
+    written nothing at all.
     """
 
     op: str
@@ -125,12 +131,28 @@ class Invocation:
 
 
 @dataclass(frozen=True, slots=True)
+class Wait:
+    """A pause between two turns, for something outside the conversation to settle."""
+
+    seconds: float
+
+
+type BeforeStep = Invocation | Wait
+"""One thing the harness does after the previous turn comes to rest and before a turn is
+sent: an operation run through the hub, or a pause."""
+
+
+@dataclass(frozen=True, slots=True)
 class TurnSpec:
-    """One thing the person says, how the harness answers asks, and what must follow."""
+    """One thing the person says, what changes first, how asks are answered, what must follow."""
 
     say: str
     approve: str = YES
     timeout_seconds: float | None = None
+    before: tuple[BeforeStep, ...] = ()
+    """Steps taken, in order, once the previous turn has come to rest and before this one is
+    sent. The first that does not end as written leaves the turn unsent."""
+
     expect: Expect = field(default_factory=Expect)
     verify: tuple[Invocation, ...] = ()
 
@@ -178,12 +200,15 @@ __all__ = [
     "LIFETIMES",
     "NO",
     "OK",
+    "OP_STEP",
     "PERMISSION_MODES",
     "STEP_STATUSES",
     "TERMINAL_STATUSES",
     "TURN_STATUSES",
+    "WAIT_STEP",
     "YES",
     "YES_SESSION",
+    "BeforeStep",
     "Expect",
     "Invocation",
     "OpMatch",
@@ -192,4 +217,5 @@ __all__ = [
     "Scenario",
     "Suite",
     "TurnSpec",
+    "Wait",
 ]

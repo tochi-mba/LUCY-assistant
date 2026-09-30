@@ -29,6 +29,7 @@ from lucy_api.evals.results import (
     FAILED,
     PASSED,
     SKIPPED,
+    BeforeRecord,
     Check,
     InvocationRecord,
     ScenarioRecord,
@@ -303,6 +304,79 @@ def test_failures_come_first_with_the_evidence_and_the_turn_that_failed() -> Non
     assert "**error** after 12.5s." in text
 
 
+def test_the_steps_before_each_turn_are_in_both_reports() -> None:
+    wrote = BeforeRecord(
+        kind="op",
+        step="workspace.write",
+        status="ok",
+        passed=True,
+        input={"path": "review.md", "mode": "append"},
+        output='{"path": "review.md", "written": true}',
+    )
+    waited = BeforeRecord(kind="wait_seconds", step="5s", status="ok", passed=True, seconds=5.0)
+    missing = BeforeRecord(
+        kind="op", step="workspace.read", status="error", passed=False, error="no file b.md"
+    )
+    why = "before 1 workspace.read: status is ok (error: no file b.md)"
+    said = turn(("turn 1: reply matches /tea/", False), before=(wrote, waited))
+    unsent = turn(
+        index=2,
+        said="And now?",
+        turn_id="",
+        status="",
+        seconds=0.0,
+        iterations=0,
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=None,
+        reply="",
+        before=(missing,),
+        unsent=why,
+    )
+    document = report([record("alpha", said, unsent, reason=f"turn 2 was not sent: {why}")])
+
+    saved = document["runs"][0]
+    assert saved["outcome"] == ERROR
+    assert saved["turns"][0]["unsent"] == ""
+    assert saved["turns"][0]["before"][1] == {
+        "kind": "wait_seconds",
+        "step": "5s",
+        "status": "ok",
+        "passed": True,
+        "seconds": 5.0,
+        "input": {},
+        "output": "",
+        "error": "",
+    }
+    assert saved["turns"][1]["unsent"] == why
+    assert saved["turns"][1]["before"][0]["error"] == "no file b.md"
+    json.dumps(document)
+    tally = document["summary"]["clyde:haiku"]
+    assert (tally["error"], tally["turns"], tally["median_turn_seconds"]) == (1, 1, 12.0)
+
+    text = render(document)
+    assert (
+        "#### Turn 1: completed in 12.0s, 2 round(s), 0 step(s)\n\nBefore it was sent:\n\n" in text
+    )
+    assert (
+        "| Kind | Step | Status | Took | Output or error |\n| --- | --- | --- | ---: | --- |\n"
+        '| op | workspace.write | ok | 0.0s | {"path": "review.md", "written": true} |\n'
+        "| wait_seconds | 5s | ok | 5.0s |  |\n\nPerson:"
+    ) in text
+    assert "#### Turn 2: not sent\n\nBefore it:\n\n" in text
+    assert "| op | workspace.read | error | 0.0s | no file b.md |\n\nIt would have said:" in text
+    assert "It would have said:\n\n```text\nAnd now?\n```\n" in text
+    assert f"Why: turn 2 was not sent: {why}" in text
+
+
+def test_a_report_written_before_steps_between_turns_existed_still_reads() -> None:
+    document = report([record("alpha", turn(("turn 1: reply matches /tea/", False)))])
+    for key in ("before", "unsent"):
+        del document["runs"][0]["turns"][0][key]
+    text = render(document)
+    assert "#### Turn 1: completed in 12.0s, 2 round(s), 0 step(s)\n\nPerson:" in text
+
+
 def test_a_turn_with_no_reply_says_so() -> None:
     silent = turn(("turn 1: reply is not empty", False), reply="")
     text = render(report([record("alpha", silent)]))
@@ -376,3 +450,4 @@ def test_a_comparison_with_nothing_to_say_says_no_regressions() -> None:
 def test_outcomes_are_labelled_for_people() -> None:
     assert outcome_for(()) == PASSED
     assert outcome_for((turn(("a", False)),)) == FAILED
+    assert outcome_for((turn(("a", False)), turn(unsent="before 1 x.y: status is ok"))) == ERROR
