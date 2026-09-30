@@ -25,6 +25,7 @@ a defect, and a weak one shows it first.
 - [The watchdog](#the-watchdog)
 - [The default suite](#the-default-suite)
 - [Writing a scenario](#writing-a-scenario)
+- [Holding an exploratory conversation](#holding-an-exploratory-conversation)
 - [The scenario schema](#the-scenario-schema)
 - [Reports, and comparing them](#reports-and-comparing-them)
 - [Cost and time](#cost-and-time)
@@ -284,7 +285,92 @@ input = { path = "calc.js" }
 Other shapes that have earned their keep in practice: research followed by writing a
 `comparison.md` with cited sources (`requires = ["research"]`, then `verify` the file
 mentions `https://`); and a long-running script started without waiting, checked on later
-with `work.list` and `work.result`.
+with `work.list` and `work.result`. A conversation that needs something to change between
+two turns -- a file edited from outside, a service stopped -- is
+[an exploratory one](#holding-an-exploratory-conversation).
+
+## Holding an exploratory conversation
+
+The same command holds a one-off conversation you want to watch rather than a regression you
+want to guard: what Lucy does when a file changes under it, or when memory goes away halfway
+through. Write the conversation as scenario files in a folder of your own and point
+`--suite` at the folder.
+
+```bash
+lucy eval list --suite ./explore                     # read and validate the files; no hub
+lucy eval run --model clyde:haiku --suite ./explore --profile explore --dry-run
+lucy eval run --model clyde:haiku --suite ./explore --profile explore --allow-host --keep-sessions
+```
+
+- **One file is one session.** Its turns are one conversation, so what Lucy should remember
+  from an earlier turn belongs in the same file. Each file starts a new session, with no
+  history and a workspace folder of its own.
+- **Files run one after another, in file-name order** -- the order the loader sorts them in
+  -- so number them to say the order: `01-watch.toml`, `02-outage.toml`. With `--repeat`, a
+  file's repeats run together; with several models, every file runs with one model before
+  the next model starts.
+- **Memory is the profile's, not the session's.** Every session in a run is held in the
+  run's profile, so the files in one run already share memory. Name the profile with
+  `--profile` to keep that memory for the next run -- to hold the next part tomorrow -- and
+  to find it afterwards; without it, each run starts a new, empty `eval-<time>` profile.
+- **Steps between turns** change the world while the conversation waits: an `op` through
+  the hub, a `host` command on this machine, a pause. See
+  [steps before a turn](#steps-before-a-turn).
+- **Let the turn see what you broke.** The [watchdog](#the-watchdog) halts a turn at its
+  first failed step, and a turn held while a service is down will fail some. Name the
+  operations it may see fail in `allow_errors`; the same failure twice still halts it.
+- **Read it afterwards.** `report.json` has every turn in full, and `report.md` shows the
+  turns that did not pass. `--keep-sessions` leaves each session open to read in a client,
+  and `--timeout` gives slow turns longer than five minutes.
+
+```toml
+# 01-watch-and-outage.toml -- a file edited from outside, then memory taken away.
+summary = "Lucy notices an edit made from outside, and says so when memory is down."
+tags = ["explore"]
+
+[[seed]]
+op = "workspace.write"
+input = { path = "review.md", content = "# Review\n" }
+
+[[turns]]
+say = "Keep an eye on review.md in my workspace and tell me when it changes."
+
+[[turns]]
+say = "Anything happen to review.md?"
+
+[[turns.before]]
+op = "workspace.write"
+input = { path = "review.md", content = "edited from outside\n", mode = "append" }
+
+[[turns.before]]
+wait_seconds = 5
+
+[[turns]]
+say = "Remember that the review is due on Friday."
+
+[[turns.before]]
+host = "docker stop lucy-family-memory-1"
+timeout_seconds = 60
+
+[turns.expect]
+allow_errors = ["notes.*"]
+
+[[turns]]
+say = "What do you remember about the review?"
+
+[[turns.before]]
+host = "docker start lucy-family-memory-1"
+
+[[turns.before]]
+wait_seconds = 15
+```
+
+> **`host` steps run on this machine**, as you, with your environment, through the shell,
+> and what they print goes into the report. A run refuses to start without `--allow-host`
+> when any of its scenarios has one; read what `--dry-run` lists before you allow it,
+> above all in a folder somebody else wrote. And if the conversation ends early -- a halt,
+> a timeout, a step that failed -- the steps before the later turns never run: a service
+> one step stopped stays stopped until you start it yourself.
 
 ## The scenario schema
 
