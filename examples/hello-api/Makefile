@@ -18,17 +18,23 @@ lint: ## Lint (no fixes)
 	$(UV) run ruff format --check .
 	$(UV) run ruff check .
 
+# mypy, pytest and import-linter run through the interpreter, as the hub's Makefile does, not
+# through their generated .venv shims: a Windows Application Control policy can refuse those
+# shims (`Failed to spawn`) and take `make check` down on a developer box while CI on Linux
+# stays green. import-linter has no `__main__`, so its click command is called directly.
+# pytest runs with `-P` so the working directory is not put on `sys.path`, which is how CI's
+# own test run imports.
 type: ## Strict type check
-	$(UV) run mypy
+	$(UV) run python -m mypy
 
 imports: ## Enforce the architectural layering contracts
-	$(UV) run lint-imports
+	$(UV) run python -c "from importlinter.cli import lint_imports_command; lint_imports_command()"
 
 test: ## Run the test suite with 100% branch coverage enforced
-	$(UV) run pytest --cov --cov-report=term-missing
+	$(UV) run python -P -m pytest --cov --cov-report=term-missing
 
 cov: ## Write an HTML coverage report to htmlcov/
-	$(UV) run pytest --cov --cov-report=html
+	$(UV) run python -P -m pytest --cov --cov-report=html
 
 check: lint type imports test ## Everything CI runs, on one interpreter
 
