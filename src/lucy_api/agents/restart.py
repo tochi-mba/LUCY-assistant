@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from lucy_api.agents.types import CONTINUABLE, RESTARTED
+from lucy_api.agents.types import CONTINUABLE, RESTARTED, RESTARTED_QUEUED
 from lucy_api.work.types import Brief, Kind
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ def announce_interrupted(work: Registry | None, stopped: Sequence[Interrupted]) 
     for helper in stopped:
         if helper.depth != TOP_LEVEL:
             continue
+        why = RESTARTED_QUEUED if helper.queued else RESTARTED
         work.record_lost(
             Brief(
                 session_id=helper.session_id,
@@ -46,16 +47,17 @@ def announce_interrupted(work: Registry | None, stopped: Sequence[Interrupted]) 
                 objective=helper.objective,
                 depth=helper.depth,
                 account_id=helper.account_id,
+                group=helper.group,
             ),
             work_id=helper.id,
             started_at=datetime.fromtimestamp(helper.started_at, UTC),
             ended_at=datetime.fromtimestamp(helper.last_seen, UTC),
-            detail=f"{CONTINUABLE}: {RESTARTED}",
+            detail=f"{CONTINUABLE}: {why}",
             payload={
                 "status": "failed",
                 "agent_id": helper.id,
                 "role": helper.role,
-                "summary": RESTARTED,
+                "summary": why,
                 "tokens": 0,
                 "resumable": True,
             },

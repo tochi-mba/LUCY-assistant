@@ -35,6 +35,9 @@ STOPPED = "stopped before it finished"
 RESTARTED = "the hub restarted while it was running"
 """Why a helper a previous process was running has stopped."""
 
+RESTARTED_QUEUED = "the hub restarted before it started"
+"""Why a helper a previous process held in its queue has stopped. Nothing of it ran."""
+
 
 @dataclass(frozen=True, slots=True)
 class Delegation:
@@ -82,6 +85,7 @@ def declared_return(text: str, schema: str) -> tuple[object | None, str]:
 __all__ = [
     "CONTINUABLE",
     "RESTARTED",
+    "RESTARTED_QUEUED",
     "RESULT_CHAR_CAP",
     "RESULT_TOKEN_CAP",
     "STOPPED",

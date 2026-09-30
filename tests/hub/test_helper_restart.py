@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +20,7 @@ import pytest
 from lucy_api.agents.restart import announce_interrupted
 from lucy_api.agents.runtime import ChildRuntime
 from lucy_api.agents.store import AgentStore, Interrupted
-from lucy_api.agents.types import CONTINUABLE, RESTARTED
+from lucy_api.agents.types import CONTINUABLE, RESTARTED, RESTARTED_QUEUED
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, speaks
 from lucy_api.packs.agents import AgentsPack, _reopen, _spawn
@@ -281,3 +282,60 @@ async def test_a_helper_somebody_cancels_is_still_recorded_as_cancelled(
     row = await AgentStore(store).get(ACCOUNT, agent_id)
     assert (row["status"], row["interrupted_reason"]) == ("interrupted", "cancelled")
     await work.shutdown()
+
+
+async def test_a_helper_queued_when_the_hub_shuts_down_is_stopped_before_it_started(
+    store: SessionStore,
+) -> None:
+    """The queue is process memory, like the helper's own loop. A queued helper is not
+    started again by the next process -- that would run a model for a turn that has ended,
+    without its authority -- it is announced as stopped before it started, and continuable."""
+    work, session, running_id = await _hanging_helper(store)
+    capabilities = Capabilities((HelpPack(), AgentsPack()), work=work)
+    agents = AgentStore(store)
+    capabilities.child = ChildRuntime(
+        store, agents, ModelRegistry({"scripted": lambda _m: ScriptedProvider()}), capabilities
+    )
+    scope = SessionScope(account_id=ACCOUNT, profile="personal", session_id=session)
+    context = capabilities.context_for(scope)
+    context.policy = replace(context.policy, agent_max_concurrent=1)
+    queued = await _spawn(work, context, depth=0, objective="Read the rest", role="second")
+    assert queued["state"] == "queued"
+
+    await work.shutdown()
+    assert (await agents.get(ACCOUNT, str(queued["id"])))["status"] == "queued"
+
+    after = _registry()
+    await _restart(store, after)
+    shown = {item.id: item.progress for item in after.snapshot(session, announce=True)}
+    assert shown == {
+        running_id: f"{CONTINUABLE}: {RESTARTED}",
+        str(queued["id"]): f"{CONTINUABLE}: {RESTARTED_QUEUED}",
+    }
+    payload = after.result(str(queued["id"])).payload
+    assert isinstance(payload, dict)
+    assert payload["summary"] == RESTARTED_QUEUED
+    assert payload["resumable"] is True
+    stopped = {line["id"]: line["why"] for line in await capabilities.child.stopped(context)}
+    assert stopped[str(queued["id"])] == RESTARTED_QUEUED
+    assert stopped[running_id] == RESTARTED
+
+
+def test_a_group_survives_a_restart_as_a_name_and_never_as_a_team() -> None:
+    stopped = Interrupted(
+        id="agt_1",
+        account_id=ACCOUNT,
+        session_id="ses_1",
+        role="reviewer",
+        objective="Read",
+        depth=1,
+        started_at=STARTED,
+        last_seen=STARTED,
+        queued=True,
+        group="reviewers",
+    )
+    work = _registry()
+    announce_interrupted(work, (stopped,))
+    [shown] = work.snapshot("ses_1")
+    assert shown.group == "reviewers"
+    assert work.drain_teams("ses_1") == ()

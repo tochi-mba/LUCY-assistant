@@ -188,6 +188,7 @@ class Registry:
         self._records: dict[str, Record] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._waiting: dict[str, _Waiting] = {}
+        self._begun: dict[str, asyncio.Event] = {}
         self._listeners: list[Listener] = []
         self._team_listeners: list[TeamListener] = []
         self._teams: dict[str, list[Team]] = {}
@@ -341,6 +342,7 @@ class Registry:
             if waiting is None or not self._has_room(session_id, record.kind, waiting.slots):
                 continue
             del self._waiting[record.id]
+            self._left_queue(record.id)
             record.state = State.running
             record.started_at = self._now()
             self._tasks[record.id] = asyncio.create_task(
@@ -576,10 +578,17 @@ class Registry:
         carries on downloading.
         """
         record = self._record(work_id)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        if work_id in self._waiting:
+            # Queued: wait for it to start, within the same deadline, and then for it to end.
+            begun = self._begun.setdefault(work_id, asyncio.Event())
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(begun.wait(), timeout_seconds)
         task = self._tasks.get(work_id)
         if task is not None:
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                await asyncio.wait_for(asyncio.shield(task), timeout_seconds)
+                await asyncio.wait_for(asyncio.shield(task), max(0.0, deadline - loop.time()))
         if not record.state.finished:
             message = (
                 f"{record.role} is still {record.state.value} after {timeout_seconds:.0f}s; "
@@ -601,6 +610,7 @@ class Registry:
         record.cancel_requested = True
         waiting = self._waiting.pop(work_id, None)
         if waiting is not None:
+            self._left_queue(work_id)
             # Nothing of it ever ran, so there is no task to stop and nothing of the work to
             # record its own ending: it ends here, and whoever queued it is told.
             self._finish(record, State.cancelled, detail=CANCELLED_QUEUED)
@@ -633,6 +643,12 @@ class Registry:
                 await delivery
 
     # ---------------------------------------------------------------- internals
+
+    def _left_queue(self, work_id: str) -> None:
+        """Wake anything waiting for queued work to start: it has, or it never will."""
+        begun = self._begun.pop(work_id, None)
+        if begun is not None:
+            begun.set()
 
     def _record(self, work_id: str) -> Record:
         record = self._records.get(work_id)

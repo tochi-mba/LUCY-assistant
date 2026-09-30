@@ -8,6 +8,7 @@ account, and a miss is `absent()` — the same 404-not-403 rule as the session s
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -41,6 +42,8 @@ MAIL_TOO_FAR = "mail-too-far"
 MAIL_TOO_LONG = "mail-too-long"
 MAIL_TOO_MANY = "mail-too-many"
 TASK_FINISHED = "that task is already finished"
+QUEUED = "queued"
+"""A helper accepted past the person's cap, waiting for one of this conversation's to end."""
 TASK_HELD = "that task is already claimed; wait for the lease to expire"
 
 
@@ -57,6 +60,9 @@ class Interrupted:
     started_at: float
     last_seen: float
     """When it last wrote to its transcript: the nearest thing on record to when it died."""
+    queued: bool = False
+    """It was still waiting behind the cap: it never started, so nothing of it ran."""
+    group: str = ""
 
 
 class AgentStore:
@@ -82,7 +88,10 @@ class AgentStore:
         parent_agent_id: str | None = None,
         delegation: dict[str, Any] | None = None,
         agent_id: str | None = None,
+        status: str = "running",
     ) -> str:
+        """Record a helper. `queued` is one accepted and not yet started: no `started_at`
+        until `begin` gives it one, because its clock is its own and starts then."""
         agent = agent_id or identifier("agt")
         payload = dict(delegation or {})
 
@@ -102,7 +111,7 @@ class AgentStore:
                     role,
                     objective,
                     encoded(payload),
-                    "running",
+                    status,
                     depth,
                     encoded([]),
                     encoded({}),
@@ -112,7 +121,7 @@ class AgentStore:
                     0,
                     None,
                     now,
-                    now,
+                    None if status == QUEUED else now,
                     None,
                     0,
                     0,
@@ -122,6 +131,22 @@ class AgentStore:
             return agent
 
         return await self._sessions.transaction(apply)
+
+    async def begin(self, account: str, agent_id: str) -> None:
+        """A queued helper has started: it is running from now, and its clock starts now.
+
+        A helper already running is left as it is, so starting one that was never queued
+        -- a direct run, or a row written running -- changes nothing.
+        """
+
+        def apply(db: sqlite3.Connection) -> None:
+            _owned_agent(db, account, agent_id)
+            db.execute(
+                "UPDATE agents SET status='running', started_at=? WHERE id=? AND status=?",
+                (time.time(), agent_id, QUEUED),
+            )
+
+        await self._sessions.transaction(apply)
 
     async def get(self, account: str, agent_id: str) -> dict[str, Any]:
         def read(db: sqlite3.Connection) -> dict[str, Any]:
@@ -191,21 +216,28 @@ class AgentStore:
         from memory. Pretending the helper is still running would make the parent wait on a
         notice that will never arrive. Claimed journal tasks go back to pending so another
         helper can take them.
+
+        A queued helper is stopped the same way, and for the same reasons: the queue was
+        process memory too, and starting it again here would run a model on behalf of a turn
+        that has ended, with none of the authority that turn held, and every conversation's
+        queue at once. It is told to its conversation as stopped before it started, and
+        `agents.reopen` starts it from its brief when the conversation still wants it.
         """
 
         def apply(db: sqlite3.Connection) -> tuple[Interrupted, ...]:
             rows = db.execute(
                 "SELECT agents.id, sessions.account_id, agents.session_id, agents.role, "
-                "agents.objective, agents.depth, agents.created_at, "
+                "agents.objective, agents.depth, agents.created_at, agents.status, "
+                "agents.delegation_json, "
                 "(SELECT MAX(items.created_at) FROM items WHERE items.agent_id=agents.id) "
                 "AS last_seen "
                 "FROM agents JOIN sessions ON sessions.id=agents.session_id "
-                "WHERE agents.status='running' ORDER BY agents.id"
+                "WHERE agents.status IN ('running','queued') ORDER BY agents.id"
             ).fetchall()
             now = time.time()
             db.execute(
                 "UPDATE agents SET status='interrupted', interrupted_reason=?, finished_at=? "
-                "WHERE status='running'",
+                "WHERE status IN ('running','queued')",
                 ("process_restarted", now),
             )
             db.execute(
@@ -222,6 +254,8 @@ class AgentStore:
                     depth=int(row["depth"]),
                     started_at=float(row["created_at"]),
                     last_seen=float(row["last_seen"] or row["created_at"]),
+                    queued=str(row["status"]) == QUEUED,
+                    group=_group_of(row["delegation_json"]),
                 )
                 for row in rows
             )
@@ -422,6 +456,13 @@ class AgentStore:
         return await self._sessions.worker.call(read)
 
 
+def _group_of(delegation_json: object) -> str:
+    """The group a helper was started in, from its stored brief, or none."""
+    stored = json.loads(str(delegation_json))
+    group = stored.get("group") if isinstance(stored, dict) else None
+    return group if isinstance(group, str) else ""
+
+
 def _owned_agent(db: sqlite3.Connection, account: str, agent_id: str) -> sqlite3.Row:
     row: sqlite3.Row | None = db.execute(
         "SELECT agents.* FROM agents JOIN sessions ON sessions.id=agents.session_id "
@@ -438,5 +479,6 @@ __all__ = [
     "MAIL_BURST",
     "MAIL_MAX_CHARS",
     "MAIL_MAX_HOPS",
+    "QUEUED",
     "AgentStore",
 ]

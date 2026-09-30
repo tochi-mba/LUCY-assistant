@@ -18,7 +18,7 @@ from lucy_api.core.errors import LucyError
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.model.types import Reply
-from lucy_api.packs.agents import MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
+from lucy_api.packs.agents import MAX_DEPTH, AgentsPack, _list, _message, _reopen, _spawn
 from lucy_api.packs.base import State as PackState
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
@@ -285,6 +285,7 @@ async def test_spawn_refusals_are_sentences(store: SessionStore) -> None:
     work = Registry(now=lambda: datetime.now(UTC), max_concurrent=0)
     capabilities = Capabilities((AgentsPack(),), work=work)
     context = parent_context(session, capabilities=capabilities)
+    context.policy = TurnPolicy(agent_max_concurrent=1)
     assert (await _spawn(work, context, depth=0, objective="  ", role="x"))["status"] == ("invalid")
     assert (await _spawn(work, context, depth=MAX_DEPTH, objective="go", role="x"))[
         "status"
@@ -292,29 +293,134 @@ async def test_spawn_refusals_are_sentences(store: SessionStore) -> None:
     assert (await _spawn(work, context, depth=0, objective="go", role="x"))["status"] == (
         "not_configured"
     )
-    context.child = runtime_for(store, ScriptedProvider([speaks("x")]), work=work)[0]
-    assert (await _spawn(work, context, depth=0, objective="go", role="x"))["status"] == (
-        "at_capacity"
-    )
+    child, _capabilities, agents = runtime_for(store, ScriptedProvider([speaks("x")]), work=work)
+    context.child = child
+    queued = await _spawn(work, context, depth=0, objective="go", role="x")
+    refused = await _spawn(work, context, depth=0, objective="again", role="y")
+
+    assert queued["state"] == "queued"
+    assert refused["status"] == "at_capacity"
+    assert refused["message"].startswith("helper queue full: 1 helpers may run at once")
+    roster = await agents.for_session(ACCOUNT, session)
+    assert [row["objective"] for row in roster] == ["go"], "the refused one left no row"
+    work.cancel(str(queued["id"]))
 
 
-async def test_spawn_stops_at_the_configured_helper_cap(store: SessionStore) -> None:
+async def test_spawn_past_the_cap_queues_and_starts_when_a_helper_finishes(
+    store: SessionStore,
+) -> None:
+    """The cap is the person's; the model is handed a handle, not a refusal to retry."""
     session = await a_session(store)
-    occupied = Registry(now=lambda: datetime.now(UTC))
+    work = Registry(now=lambda: datetime.now(UTC))
+    gate = asyncio.Event()
 
-    class _Slot:
-        kind = Kind.helper
+    class Held(ScriptedProvider):
+        async def complete(self, request: Request) -> Reply:
+            await gate.wait()
+            return await super().complete(request)
 
-    occupied.running = lambda _session_id: (_Slot(),)  # type: ignore[method-assign]
+    child, capabilities, agents = runtime_for(
+        store, Held([speaks("first"), speaks("second")]), work=work
+    )
+    context = parent_context(session, capabilities=capabilities)
+    context.policy = TurnPolicy(agent_max_concurrent=1)
+    first = await _spawn(work, context, depth=0, objective="First look", role="one")
+    second = await _spawn(work, context, depth=0, objective="Second look", role="two")
+
+    assert first["state"] == "running"
+    assert second["state"] == "queued"
+    assert "1 helpers are running" in second["advice"]
+    assert "work.cancel takes it out of the queue" in second["advice"]
+    await asyncio.sleep(0)
+    row = await agents.get(ACCOUNT, str(second["id"]))
+    assert row["status"] == "queued"
+    assert row["started_at"] is None
+    listed = await _list(work, context)
+    assert [line["state"] for line in listed["running"]] == ["running", "queued"]
+    assert listed["queued"] == 1
+    probed = await AgentsPack().probe(context)
+    assert probed.detail == "1 helpers running, 1 queued"
+
+    gate.set()
+    done = await work.wait(str(second["id"]), 30)
+    assert isinstance(done.payload, dict)
+    assert done.payload["summary"] == "second"
+    finished = await agents.get(ACCOUNT, str(second["id"]))
+    assert finished["status"] == "completed"
+    assert finished["started_at"] is not None
+    assert "queued" not in await _list(work, context)
+    assert child is context.child
+
+
+async def test_a_queued_helper_cancelled_before_it_starts_is_recorded_cancelled(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    work = Registry(now=lambda: datetime.now(UTC), max_concurrent=0)
+    child, capabilities, agents = runtime_for(store, ScriptedProvider([]), work=work)
+    context = parent_context(session, capabilities=capabilities)
+    context.child = child
+    queued = await _spawn(work, context, depth=0, objective="Never mind", role="late")
+
+    record = work.cancel(str(queued["id"]))
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert record.state.value == "cancelled"
+    row = await agents.get(ACCOUNT, str(queued["id"]))
+    assert row["status"] == "interrupted"
+    assert row["interrupted_reason"] == "cancelled"
+    assert (await agents.tasks(ACCOUNT, session))[0].status == "cancelled"
+    assert await child.stopped(context) == [], "cancelling it was the point"
+
+
+async def test_a_queued_helper_takes_mail_and_is_not_reopened(store: SessionStore) -> None:
+    session = await a_session(store)
+    work = Registry(now=lambda: datetime.now(UTC), max_concurrent=0)
+    child, capabilities, _agents = runtime_for(store, ScriptedProvider([]), work=work)
+    context = parent_context(session, capabilities=capabilities)
+    context.child = child
+    queued = await _spawn(work, context, depth=0, objective="Wait", role="late")
+
+    sent = await child.send(context, str(queued["id"]), "look at the tests first")
+    reopened = await child.reopen(context, str(queued["id"]))
+
+    assert sent["status"] == "delivered"
+    assert reopened["status"] == "queued"
+    assert "still queued" in reopened["message"]
+    work.cancel(str(queued["id"]))
+
+
+async def test_reopen_queues_past_the_cap_too(store: SessionStore) -> None:
+    session = await a_session(store)
+    work = Registry(now=lambda: datetime.now(UTC))
+    child, capabilities, _agents = runtime_for(store, ScriptedProvider([speaks("x")]), work=work)
+    context = parent_context(session, capabilities=capabilities)
+    done = await child.run(context, objective="One pass", role="one")
+    work = Registry(now=lambda: datetime.now(UTC), max_concurrent=0)
+    context.policy = TurnPolicy(agent_max_concurrent=1)
+
+    again = await _reopen(work, context, depth=0, agent_id=str(done["agent_id"]))
+    refused = await _reopen(work, context, depth=0, agent_id=str(done["agent_id"]))
+
+    assert again["state"] == "queued"
+    assert again["resume_from"] == done["agent_id"]
+    assert refused["status"] == "continued"
+    work.cancel(str(again["id"]))
+
+
+async def test_reopen_past_a_full_queue_is_refused_and_discards_its_setup(
+    store: SessionStore,
+) -> None:
+    session = await a_session(store)
+    occupied = Registry(now=lambda: datetime.now(UTC), max_concurrent=0)
     child, capabilities, _agents = runtime_for(
         store, ScriptedProvider([speaks("x")]), work=occupied
     )
     context = parent_context(session, capabilities=capabilities)
     context.child = child
     context.policy = TurnPolicy(agent_max_concurrent=1)
-    refused = await _spawn(occupied, context, depth=0, objective="another", role="two")
-    assert refused["status"] == "at_capacity"
-    assert "cap reached" in refused["message"]
+    await _spawn(occupied, context, depth=0, objective="fills the queue", role="one")
 
     class _Prepared:
         discarded: tuple[str, int] | None = None
@@ -627,7 +733,7 @@ async def test_reopening_a_finished_helper_keeps_its_transcript(store: SessionSt
     prepared = await child.reopen(parent, finished["agent_id"])
     assert prepared["resume_from"] == finished["agent_id"]
     still = await child.reopen(parent, str(prepared["agent_id"]))
-    assert still["status"] == "running"
+    assert still["status"] == "queued", "prepared and not yet run is queued, not running"
     continued = await child.run(
         parent,
         objective="Find the date",
@@ -636,7 +742,6 @@ async def test_reopening_a_finished_helper_keeps_its_transcript(store: SessionSt
         task_id=int(prepared["task_id"]),
     )
     assert continued["summary"] == "second"
-    assert still["status"] == "running"
     missing = await child.reopen(parent, "agt_missing")
     assert missing["status"] == "not-found"
 
@@ -683,7 +788,9 @@ async def test_journal_tools_and_reopen_go_through_the_pack(store: SessionStore)
     context.child = child
     helper = await agents.insert(ACCOUNT, session, role="helper", objective="go", depth=1)
     await agents.finish(ACCOUNT, helper, status="completed", result={"summary": "done"})
-    assert (await _reopen(work, context, depth=0, agent_id=helper))["status"] == "at_capacity"
+    queued = await _reopen(work, context, depth=0, agent_id=helper)
+    assert queued["state"] == "queued"
+    work.cancel(str(queued["id"]))
     work_ok = Registry(now=lambda: datetime.now(UTC))
     child_ok, capabilities_ok, agents_ok = runtime_for(
         store, ScriptedProvider([speaks("next")]), work=work_ok
@@ -695,7 +802,7 @@ async def test_journal_tools_and_reopen_go_through_the_pack(store: SessionStore)
     claimed = await _journal_claim(context_ok, str(task))
     assert claimed["status"] == "claimed"
     listed = await _journal_read(context_ok)
-    assert listed["tasks"][0]["id"] == str(task)
+    assert listed["tasks"][-1]["id"] == str(task)
     assert (await _journal_claim(context_ok, "nope"))["status"] == "invalid"
     assert (await _journal_complete(context_ok, "nope"))["status"] == "invalid"
     assert (await _journal_complete(context_ok, str(task)))["status"] == "completed"

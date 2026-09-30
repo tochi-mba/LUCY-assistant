@@ -3,6 +3,12 @@
 A helper is work: it gets a handle, a notice, and a fetch, the same as a download. Starting
 records a typed brief and runs a child loop with a clean context. The child's return is
 capped; the rest lives on the child's own items, which the parent does not see.
+
+A spawn past the person's cap (`agent_max_concurrent`) is queued rather than refused: it
+gets its handle at once, waits in order, and starts on its own when one of this
+conversation's helpers ends. So a team larger than the cap is started in one plan and
+staged by the hub, not by a model counting slots. The queue holds as many as the cap; only
+past that is a spawn refused, as a result the model can act on.
 """
 
 from __future__ import annotations
@@ -15,14 +21,14 @@ from weftai.schema.types import value
 
 from lucy_api.agents.types import CONTINUABLE, STOPPED
 from lucy_api.context.types import Trust
-from lucy_api.packs.base import Availability, Permission, SetupPlan, State
+from lucy_api.packs.base import Availability, Permission, SetupPlan
+from lucy_api.packs.base import State as PackState
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work.registry import AtCapacityError, Registry
-from lucy_api.work.registry import _discard as discard_unstarted
-from lucy_api.work.types import Brief, Handle, Kind, WorkError
+from lucy_api.work.types import Brief, Kind, State, WorkError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation, RunContext
@@ -82,10 +88,12 @@ class AgentsPack:
 
     async def probe(self, context: PackContext) -> Availability:
         if context.work is None:
-            return Availability(state=State.not_configured, detail="no work registry this turn")
-        running = _helpers_running(context.work, context.session_id)
+            return Availability(state=PackState.not_configured, detail="no work registry this turn")
+        running, queued = _helpers_in_flight(context.work, context.session_id)
         detail = f"{running} helpers running" if running else "no helpers running"
-        return Availability(state=State.ready, detail=detail)
+        if queued:
+            detail += f", {queued} queued"
+        return Availability(state=PackState.ready, detail=detail)
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
         registry, depth = context.work, context.depth
@@ -235,8 +243,9 @@ class AgentsPack:
                     "name": "agents.spawn",
                     "description": (
                         "Start a helper with a brief saying what it is for. It returns a "
-                        "handle immediately; read the result with work.result when the "
-                        "notice arrives (delegate, helper, subagent, spawn)."
+                        "handle immediately, running or queued behind the cap; read the "
+                        "result with work.result when the notice arrives (delegate, helper, "
+                        "subagent, spawn, team)."
                     ),
                     "input": object_schema(
                         {
@@ -291,44 +300,57 @@ def _deadline(context: PackContext) -> float:
     return float(context.policy.agent_wall_clock_seconds) + WALL_CLOCK_GRACE
 
 
-def _helpers_running(registry: Registry, session_id: str) -> int:
-    return sum(1 for record in registry.running(session_id) if record.kind is Kind.helper)
+def _helpers_in_flight(registry: Registry, session_id: str) -> tuple[int, int]:
+    """How many of this conversation's helpers are running, and how many wait to start."""
+    helpers = [record for record in registry.running(session_id) if record.kind is Kind.helper]
+    queued = sum(1 for record in helpers if record.state is State.queued)
+    return len(helpers) - queued, queued
 
 
-def _at_helper_cap(registry: Registry, context: PackContext) -> dict[str, Any] | None:
-    helpers = _helpers_running(registry, context.session_id)
-    if helpers < context.policy.agent_max_concurrent:
-        return None
-    return {
-        "status": "at_capacity",
-        "message": (
-            f"helper cap reached ({helpers} running, "
-            f"limit {context.policy.agent_max_concurrent}); "
-            "wait for one to finish or cancel one"
-        ),
-    }
-
-
-async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if the cap is hit
+async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if the queue is full
     registry: Registry,
     context: PackContext,
     *,
     runtime: Any,
-    work: Any,
+    work: Callable[[], Awaitable[object]],
     brief: Brief,
     work_id: str,
     discard: tuple[str, int],
-) -> Handle | dict[str, Any]:
-    refused = _at_helper_cap(registry, context)
-    if refused is not None:
-        discard_unstarted(work)
-        await runtime.discard_setup(context, discard[0], discard[1])
-        return refused
+    advice: str,
+) -> dict[str, Any]:
+    """Start a prepared helper, or queue it behind the cap, or refuse it past the queue.
+
+    `advice` is what a helper that started at once is handed back with.
+
+    The cap is the person's `agent_max_concurrent`, and the queue holds as many again: a
+    team of twice the cap can be started in one plan. A helper refused past that has its
+    prepared roster row and journal task removed, so nothing is left that never ran.
+    """
+    cap = context.policy.agent_max_concurrent
+
+    async def withdraw() -> None:
+        await runtime.withdraw(context, discard[0], discard[1])
+
     try:
-        return registry.start(work, brief, work_id=work_id)
+        handle = registry.queue(
+            work, brief, slots=cap, waiting=cap, work_id=work_id, dropped=withdraw
+        )
     except AtCapacityError as exc:
         await runtime.discard_setup(context, discard[0], discard[1])
-        return {"status": "at_capacity", "message": str(exc)}
+        return {"status": "at_capacity", "message": f"helper queue full: {exc}"}
+    if registry.state_of(handle.id) is State.queued:
+        running, queued = _helpers_in_flight(registry, context.session_id)
+        return {
+            "id": handle.id,
+            "role": handle.role,
+            "state": "queued",
+            "advice": (
+                f"{running} helpers are running, as many as the person allows at once, and "
+                f"this is {queued} in the queue. It starts on its own when one of them "
+                "finishes, and its time starts then; work.cancel takes it out of the queue."
+            ),
+        }
+    return {"id": handle.id, "role": handle.role, "state": "running", "advice": advice}
 
 
 def _not_attached() -> dict[str, Any]:
@@ -357,12 +379,16 @@ async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
                 "role": record.role,
                 "objective": record.objective,
                 "depth": record.depth,
+                "state": record.state.value,
                 "progress": record.progress or record.detail,
             }
             for record in running
         ],
         "count": len(running),
     }
+    queued = sum(1 for record in running if record.state is State.queued)
+    if queued:
+        listed["queued"] = queued
     if stopped:
         listed["stopped"] = stopped[-MAX_STOPPED_LISTED:]
         listed["stopped_count"] = len(stopped)
@@ -394,9 +420,6 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
     if runtime is None:
         return _not_attached()
     name = role.strip() or "helper"
-    refused = _at_helper_cap(registry, context)
-    if refused is not None:
-        return refused
 
     agent_id, task_id = await runtime.prepare(
         context, objective=brief, role=name, return_schema=return_schema
@@ -413,36 +436,31 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             )
         )
 
-    try:
-        handle = registry.start(
-            work(),
-            Brief(
-                session_id=context.session_id,
-                kind=Kind.helper,
-                role=name,
-                objective=brief,
-                depth=depth + 1,
-                timeout_seconds=_deadline(context),
-                account_id=context.account_id,
-                # The main thread's helpers wake an idle session when they finish; a
-                # helper's helpers do not, because their parent is still running and is
-                # the one that will read them.
-                wake=depth == 0,
-            ),
-            work_id=agent_id,
-        )
-    except AtCapacityError as exc:
-        await runtime.discard_setup(context, agent_id, task_id)
-        return {"status": "at_capacity", "message": str(exc)}
-    return {
-        "id": handle.id,
-        "role": handle.role,
-        "state": "running",
-        "advice": (
+    return await _begin_helper(
+        registry,
+        context,
+        runtime=runtime,
+        work=work,
+        brief=Brief(
+            session_id=context.session_id,
+            kind=Kind.helper,
+            role=name,
+            objective=brief,
+            depth=depth + 1,
+            timeout_seconds=_deadline(context),
+            account_id=context.account_id,
+            # The main thread's helpers wake an idle session when they finish; a helper's
+            # helpers do not, because their parent is still running and is the one that
+            # will read them.
+            wake=depth == 0,
+        ),
+        work_id=agent_id,
+        discard=(agent_id, task_id),
+        advice=(
             "It is running. A notice arrives when it finishes; then read work.result. "
             "agents.read shows what it has done so far, and work.cancel stops it."
         ),
-    }
+    )
 
 
 async def _reopen(
@@ -490,7 +508,7 @@ async def _reopen(
         registry,
         context,
         runtime=runtime,
-        work=work(),
+        work=work,
         brief=Brief(
             session_id=context.session_id,
             kind=Kind.helper,
@@ -503,16 +521,9 @@ async def _reopen(
         ),
         work_id=new_id,
         discard=(new_id, task_id),
+        advice="It is running from the previous transcript. Read work.result when it finishes.",
     )
-    if isinstance(started, dict):
-        return started
-    return {
-        "id": started.id,
-        "role": started.role,
-        "state": "running",
-        "resume_from": handle,
-        "advice": "It is running from the previous transcript. Read work.result when it finishes.",
-    }
+    return {**started, "resume_from": handle} if "id" in started else started
 
 
 def _ended(result: dict[str, Any]) -> dict[str, Any]:
