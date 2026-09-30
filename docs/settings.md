@@ -106,7 +106,7 @@ setting never moves the ceilings of a turn that is already running.
 | `agent_message_max_chars` | 4000 | One helper message larger than this is refused |
 | `agent_message_burst` | 5 | Unread helper messages allowed before the next is refused |
 | `agent_max_depth` | 3 | How many levels of helper may nest |
-| `agent_max_concurrent` | 5 | How many helpers may run at once |
+| `agent_max_concurrent` | 5 | How many helpers may run at once; more wait in a queue as long again and start as these end |
 | `memory_write_policy` | ask_first | `never` refuses new notes; `automatic` writes without asking |
 | `permission_mode` | ask | Default for a new session when the create request omits it |
 | `input_policy` | enqueue | Default for a new session when the create request omits it. `interrupt` stops the live turn and keeps its progress; `rollback` hides that turn's items from the next prompt |

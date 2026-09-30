@@ -35,7 +35,7 @@ that names an account.
 | `GET` | `/v1/sessions/{id}/workspace` | bearer | Attached environment id and session-relative path. Never a host path. |
 | `POST` | `/v1/sessions/{id}/workspace` | bearer | Attach if missing. Idempotent when already attached. |
 | `POST` | `/v1/sessions/{id}/workspace/reset` | bearer | Wipe the session subtree and seed `progress.md` / `tasks.json` again. |
-| `GET` | `/v1/sessions/{id}/subagents` | bearer | Durable helper roster for this conversation. |
+| `GET` | `/v1/sessions/{id}/subagents` | bearer | Durable helper roster for this conversation: `status` (`queued`, `running`, `completed`, `failed`, `interrupted`), `group`, `created_at`, `started_at` (null until a queued helper starts), `finished_at`. |
 | `GET` | `/v1/sessions/{id}/subagents/{id}` | bearer | One helper. A stranger's id is 404. |
 | `GET` | `/v1/sessions/{id}/subagents/{id}/items` | bearer | The helper's own item log. Parent items are not here. |
 | `GET` | `/v1/sessions/{id}/subagents/{id}/turns` | bearer | Always an empty page: helpers share the parent's turn row. |
@@ -101,7 +101,7 @@ copied into a log line.
 | `GET` | `/v1/sessions/{id}/results` | Tool results still addressable by reference. |
 | `GET` | `/v1/sessions/{id}/results/{result_id}` | One stored tool result. |
 | `GET` | `/v1/sessions/{id}/usage` | Token and cost totals for the conversation. |
-| `GET` | `/v1/sessions/{id}/agents` | Helpers running on this conversation now, from process memory. `subagents` above is the durable roster. |
+| `GET` | `/v1/sessions/{id}/agents` | Helpers in flight on this conversation now, from process memory: `state` is `running` or `queued` behind the person's cap, and `group` names the team one was started in. `subagents` above is the durable roster. |
 
 Session, turn and item endpoints use the one write path at
 `POST /v1/sessions/{id}/inputs`; streams are resumable. Creating a session provisions its
@@ -116,6 +116,16 @@ The client's `approved: true` is an input, not an authorization — the gate re-
 ledger before the tool runs. A denial is a transcript item plus a grant the model will
 see as "not allowed", never an exception.
 
+A plan's gated calls under one permission are **one card**. The `approval_request` item and
+the `lucy.approval.requested` event name the permission once, with a `description` that
+counts the calls ("Start a helper, 5 calls in this plan: researcher x2, reviewer x3"),
+`count`, and `steps`: each call's `step`, `operation`, `arguments` and `description`. Its
+top-level `arguments` is empty. One answer decides every call on the card; `lifetime: "once"`
+approves exactly those calls, each by its own arguments, and nothing in a later plan, while
+`session`, `profile` and `account` record a grant for the permission as they always have.
+Calls under different permissions are different cards, answered one at a time. A card for a
+single call is unchanged: no `steps`, and its `arguments` are the call's.
+
 `GET /v1/permissions?profile=personal` lists every permission declared by an installed
 capability and its effective grant, if any. Profile grants override account-wide (`*`)
 grants. `PUT /v1/permissions` records a decision. `DELETE /v1/permissions/{id}` returns
@@ -126,7 +136,8 @@ person cannot name or inspect another person's grants.
 after deferred loading. `POST /v1/tools/{name}/invoke` runs one of those operations without
 starting a model turn. The gate is the same: a write that still needs a person is `409`.
 Grant it through `/v1/permissions` or answer `input.approval` on the session, then retry.
-A plan that asks for two writes parks both; answering one leaves the other pending.
+A plan that asks for writes under two permissions parks both cards; answering one leaves the
+other pending.
 
 Every grant, refusal, ask, revoke and auto-mode bypass is an append-only `audit` row. The
 row names the permission and never the arguments.
