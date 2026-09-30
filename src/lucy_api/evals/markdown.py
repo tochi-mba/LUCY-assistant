@@ -175,7 +175,10 @@ def _turn(turn: dict[str, Any]) -> list[str]:
     lines = [title, ""]
     if turn.get("before"):
         lines.extend(["Before it was sent:", "", *_before(turn["before"]), ""])
-    lines.extend(["Person:", "", *_fenced(turn["said"]), "", "Lucy:", ""])
+    lines.extend(["Person:", "", *_fenced(turn["said"]), ""])
+    if turn.get("refused"):
+        return [*lines, "The hub refused it:", "", *_fenced(turn["refused"]), ""]
+    lines.extend(["Lucy:", ""])
     lines.extend(_fenced(turn["reply"]) if turn["reply"] else ["*(no reply)*"])
     lines.append("")
     if turn["results"]:

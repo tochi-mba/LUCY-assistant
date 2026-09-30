@@ -95,6 +95,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **An eval turn can expect the hub to refuse the message.** `refused = "settings-unavailable"`
+  in a turn's `expect` passes when the hub answers the message with that problem instead
+  of starting a turn, and the conversation goes on. The hub refuses a message outright
+  when settings cannot be reached, and the harness took any refusal as the run breaking,
+  so an outage held as a conversation could only ever end as an `error`.
 - **A team of helpers runs at once, groups doing different things.** A spawn past
   `lucy.agent_max_concurrent` used to be refused with `at_capacity`, so a plan starting two
   researchers and three reviewers and then skeptics left the model counting free slots. It

@@ -154,19 +154,34 @@ class HttpHub:
             message = f"cannot reach Lucy at {self._url}"
             raise HubUnreachable(message) from exc
         if response.status_code >= ERROR_FROM:
-            raise HubError(_problem(method, path, response), status=response.status_code)
+            body = _body(response)
+            raise HubError(
+                _problem(method, path, response, body),
+                status=response.status_code,
+                problem=_kind(body),
+            )
         return response
 
 
-def _problem(method: str, path: str, response: httpx.Response) -> str:
-    """The hub's own sentence for what went wrong, which its errors are written to carry."""
+def _body(response: httpx.Response) -> dict[str, Any]:
     try:
         body = response.json()
     except ValueError:
-        body = None
-    detail = body.get("detail") if isinstance(body, dict) else None
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _problem(method: str, path: str, response: httpx.Response, body: dict[str, Any]) -> str:
+    """The hub's own sentence for what went wrong, which its errors are written to carry."""
+    detail = body.get("detail")
     reason = detail if isinstance(detail, str) and detail else response.reason_phrase or "no detail"
     return f"{method} {path} answered {response.status_code}: {reason}"
+
+
+def _kind(body: dict[str, Any]) -> str:
+    """The last part of a problem ``type`` URI: ``.../settings-unavailable`` names the problem."""
+    kind = body.get("type")
+    return kind.rstrip("/").rsplit("/", 1)[-1] if isinstance(kind, str) else ""
 
 
 def _segment(value: str) -> str:

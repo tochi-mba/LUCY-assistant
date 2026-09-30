@@ -39,7 +39,9 @@ from lucy_api.evals.scenario import (
     OK,
     OP_STEP,
     PERMISSION_MODES,
+    PROBLEM_PATTERN,
     STEP_STATUSES,
+    TURN_REFUSED,
     TURN_STATUSES,
     WAIT_STEP,
     YES,
@@ -91,8 +93,11 @@ EXPECT_KEYS = (
     "max_seconds",
     "results",
     "allow_errors",
+    "refused",
 )
 RESULT_KEYS = ("matches", "avoids")
+STATUS_KEY = "status"
+REFUSED_KEY = "refused"
 OP_KEY = OP_STEP
 INVOCATION_KEYS = (OP_KEY, "input", "status", "output_matches", "output_avoids")
 TIMEOUT_KEY = "timeout_seconds"
@@ -264,7 +269,22 @@ def _defaults(approve: str) -> Expect:
 
 
 def _expect(table: _Table, *, approve: str) -> Expect:
-    status = table.choice("status", TURN_STATUSES, _defaults(approve).status)
+    refused = table.text(REFUSED_KEY)
+    if refused and not PROBLEM_PATTERN.match(refused):
+        message = (
+            f'must name the problem the hub refuses with, such as "settings-unavailable", '
+            f"not {refused!r}"
+        )
+        raise table.error(REFUSED_KEY, message)
+    status = table.choice(
+        STATUS_KEY, TURN_STATUSES, TURN_REFUSED if refused else _defaults(approve).status
+    )
+    if refused and status != TURN_REFUSED:
+        message = f'must be "{TURN_REFUSED}" when the turn is expected refused'
+        raise table.error(STATUS_KEY, message)
+    if status == TURN_REFUSED and not refused:
+        message = f'"{TURN_REFUSED}" needs `{REFUSED_KEY}`: the problem the hub refuses it with'
+        raise table.error(STATUS_KEY, message)
     lists = {key: table.ops(key) for key in ("ran", "not_ran", "not_attempted", "approvals")}
     for first, second in CONTRADICTIONS:
         clash = {op.source for op in lists[first]} & {op.source for op in lists[second]}
@@ -286,6 +306,7 @@ def _expect(table: _Table, *, approve: str) -> Expect:
         max_seconds=table.seconds("max_seconds"),
         results=_results(results) if results else (),
         allow_errors=table.ops("allow_errors"),
+        refused=refused,
     )
 
 

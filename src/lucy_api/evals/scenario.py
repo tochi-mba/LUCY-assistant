@@ -12,12 +12,10 @@ harness that quietly tests something different on the second run.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    import re
+from typing import Any
 
 YES = "yes"
 NO = "no"
@@ -38,9 +36,15 @@ COMPLETED = "completed"
 FAILED = "failed"
 INPUT_REQUIRED = "input_required"
 AUTH_REQUIRED = "auth_required"
+TURN_REFUSED = "refused"
+"""Not a turn's status on the hub: the hub answered the message with a problem instead of
+starting a turn, as it does when settings cannot be reached."""
 TERMINAL_STATUSES = ("completed", "failed", "cancelled")
-TURN_STATUSES = (*TERMINAL_STATUSES, INPUT_REQUIRED, AUTH_REQUIRED)
+TURN_STATUSES = (*TERMINAL_STATUSES, INPUT_REQUIRED, AUTH_REQUIRED, TURN_REFUSED)
 """Where a turn can come to rest. A running or queued turn is still moving."""
+
+PROBLEM_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+"""A problem the hub refuses with: the last part of its problem ``type``."""
 
 OK = "ok"
 STEP_STATUSES = (OK, "error", "skipped", "denied")
@@ -114,6 +118,10 @@ class Expect:
     allow_errors: tuple[OpMatch, ...] = ()
     """Operations this turn may see fail without the harness halting it: a failure the
     model is expected to notice and recover from. The same failure twice still halts."""
+    refused: str = ""
+    """The problem the hub must answer this message with instead of starting a turn --
+    ``settings-unavailable`` when settings cannot be reached -- or empty when it must take
+    the message."""
 
 
 @dataclass(frozen=True, slots=True)

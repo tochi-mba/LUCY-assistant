@@ -56,12 +56,18 @@ class Observation:
     exchange: Exchange
     halted: str = ""
     """Why the watchdog stopped the turn (:mod:`lucy_api.evals.watch`), or empty."""
+    refused: str = ""
+    """The problem the hub refused the message with, or empty when it took it."""
+    refusal: str = ""
+    """The hub's sentence for that refusal."""
 
 
 def check_turn(expect: Expect, seen: Observation, *, prefix: str) -> tuple[Check, ...]:
     """Every check ``expect`` states, in a stable order, each named under ``prefix``."""
     exchange = seen.exchange
     checks = [_status(expect.status, seen), _finished(seen), _unhalted(seen)]
+    if expect.refused:
+        checks.append(_refused(expect.refused, seen))
     if expect.termination is not None:
         checks.append(_termination(expect.termination, seen.termination))
     if expect.max_seconds is not None:
@@ -118,6 +124,15 @@ def _status(expected: str, seen: Observation) -> Check:
     if seen.exchange.errors:
         detail += "; the transcript recorded " + "; ".join(seen.exchange.errors)
     return Check(f"status is {expected}", seen.status == expected, detail)
+
+
+def _refused(expected: str, seen: Observation) -> Check:
+    name = f"the hub refused the message as {expected}"
+    if not seen.refused:
+        return Check(
+            name, passed=False, detail=f"the hub took it, and the turn ended {seen.status}"
+        )
+    return Check(name, seen.refused == expected, seen.refusal)
 
 
 def _finished(seen: Observation) -> Check:
