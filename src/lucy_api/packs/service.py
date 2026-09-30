@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.clients.music import AUDIENCE as MUSIC_AUDIENCE
 from lucy_api.core.errors import LucyError, conflict
 from lucy_api.packs.agents import AgentsPack
 from lucy_api.packs.context import PackContext, SilentTokens
@@ -51,6 +52,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     memory_base_url: str = "http://127.0.0.1:8009",
     user_base_url: str = "http://127.0.0.1:8002",
     music_base_url: str = "http://127.0.0.1:8007",
+    music_audience: str = MUSIC_AUDIENCE,
     search_base_url: str = "http://127.0.0.1:8006",
     settings_base_url: str = "http://127.0.0.1:8003",
     environments_base_url: str = "http://127.0.0.1:8008",
@@ -70,7 +72,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
         HelpPack(),
         NotesPack(memory_base_url, user_base_url=user_base_url, persona_base_url=persona_base_url),
         ResearchPack(search_base_url),
-        MusicPack(music_base_url),
+        MusicPack(music_base_url, audience=music_audience),
         SettingsPack(settings_base_url),
         WorkspacePack(environments_base_url),
         WorkPack(),

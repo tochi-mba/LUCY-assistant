@@ -2,7 +2,7 @@
 
 This is the hub's side of the music contract: the HTTP shape Spotify-api, the family's
 implementation, defines, and which any other implementation pointed at with
-`LUCY_MUSIC_API_BASE_URL` has to answer to, for the audience `music-api`.
+`LUCY_MUSIC_API_BASE_URL` has to answer to, with tokens minted for its own audience.
 
 A Spotify player read is one of the largest documents any sibling returns: a track carries
 its available markets, its external ids, its images in three sizes, its album's artists and
@@ -42,7 +42,10 @@ if TYPE_CHECKING:
     from lucy_api.packs.context import Http
 
 SERVICE = "music"
-AUDIENCE = "music-api"
+AUDIENCE = "spotify-api"
+"""Spotify-api's own name. An audience names one service (keyring refuses a credential
+read whose token was minted for anybody else), so an implementation with another name is
+configured with its own: `LUCY_MUSIC_API_AUDIENCE`."""
 
 DEFAULT_RECENT = 10
 """How many plays a history read asks for. Small on purpose: the service ceiling is 50."""

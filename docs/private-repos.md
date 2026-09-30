@@ -32,6 +32,7 @@ exist. The reasoning and the four seams are in
 | lines it may put in front of the model, and their toggles | the entry-point group `lucy.feeds` |
 | its capability and operations | the entry-point group `lucy.capabilities` |
 | the process itself | `docker-compose.local.yml`, gitignored, merged by `make up` |
+| an audience of its own, when the hub calls it for a person | `exchange_audiences` in `scripts/genenv.local.json`, gitignored |
 | a setup card in the first-run flow | `LUCY_EXTRA_SERVICES`, which carries its own title, documentation, instructions and checks |
 
 So a private service is a small installable package rather than a directory of files the

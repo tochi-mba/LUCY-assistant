@@ -543,7 +543,13 @@ class Container:
         feeds: list[FeedSource] = [
             PersonaFeeds(pack_context.http, self.settings.persona_api_base_url),
             UserFeeds(HttpUserClient(pack_context.http, self.settings.user_api_base_url)),
-            MusicFeeds(HttpMusicClient(pack_context.http, self.settings.music_api_base_url)),
+            MusicFeeds(
+                HttpMusicClient(
+                    pack_context.http,
+                    self.settings.music_api_base_url,
+                    audience=self.settings.music_api_audience,
+                )
+            ),
             ResearchFeeds(str(pack_context.defaults.get("research.backend") or "")),
         ]
         environment_id = str(session.get("workspace_environment_id") or "")
@@ -788,6 +794,7 @@ def build_container(
                 memory_base_url=settings.memory_api_base_url,
                 user_base_url=settings.user_api_base_url,
                 music_base_url=settings.music_api_base_url,
+                music_audience=settings.music_api_audience,
                 search_base_url=settings.web_search_base_url,
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,

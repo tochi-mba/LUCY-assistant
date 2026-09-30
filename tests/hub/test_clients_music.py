@@ -111,7 +111,7 @@ async def test_player_calls_project_and_use_the_music_audience() -> None:
     assert found[1].detail == "no match"
     assert paused.is_playing is False
     assert resumed.is_playing is True
-    assert all(call.audience == "music-api" for call in http.calls)
+    assert all(call.audience == "spotify-api" for call in http.calls)
     assert http.calls[4].json["market"] == "GB"
 
 
