@@ -441,3 +441,17 @@ def test_a_regex_is_compiled_once_and_kept_with_its_source() -> None:
     )
     assert pattern.source == r"\b0 of"
     assert pattern.regex.flags & re.IGNORECASE
+
+
+def test_a_turn_can_name_the_failures_it_expects_the_model_to_recover_from() -> None:
+    parsed = parse_scenario(
+        b'summary = "s"\n[[turns]]\nsay = "x"\n'
+        b"[turns.expect]\nallow_errors = ['workspace.read|workspace.list', 'music.*']\n",
+        name="s",
+        suite="t",
+        path="t/s.toml",
+    )
+    allowed = parsed.turns[0].expect.allow_errors
+    assert [match.source for match in allowed] == ["workspace.read|workspace.list", "music.*"]
+    assert allowed[0].matches("workspace.list")
+    assert not allowed[0].matches("workspace.write")

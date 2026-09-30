@@ -13,6 +13,7 @@ had uses ``verify``.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,6 +52,9 @@ class Ask:
     arguments: str = ""
     answer: str = ""
     """``approved`` or ``denied`` once answered; empty while it is still waiting."""
+    call: str = ""
+    """The operation and every argument, canonically: two asks with the same ``call`` ask to
+    run the same thing. ``arguments`` above drops what is not a plain value, so it cannot."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,13 +126,22 @@ def _result(content: dict[str, Any]) -> ToolResult:
 
 def _ask(content: dict[str, Any], answers: dict[str, str]) -> Ask:
     approval_id = str(content.get("approval_id") or "")
+    operation = str(content.get("tool") or content.get("permission") or "")
+    arguments = _object(content.get("arguments"))
     return Ask(
         approval_id=approval_id,
-        operation=str(content.get("tool") or content.get("permission") or ""),
+        operation=operation,
         permission=str(content.get("permission") or ""),
-        arguments=_plain(_object(content.get("arguments"))),
+        arguments=_plain(arguments),
         answer=answers.get(approval_id, ""),
+        call=call_key(operation, arguments),
     )
+
+
+def call_key(operation: str, arguments: dict[str, Any]) -> str:
+    """One call, the same whatever order its arguments were written in."""
+    rendered = json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
+    return f"{operation}:{rendered}"
 
 
 def _plain(arguments: dict[str, Any]) -> str:
@@ -162,4 +175,4 @@ def _object(content: object) -> dict[str, Any]:
     return content if isinstance(content, dict) else {}
 
 
-__all__ = ["Ask", "Exchange", "ToolResult", "exchange_for", "pending_approvals"]
+__all__ = ["Ask", "Exchange", "ToolResult", "call_key", "exchange_for", "pending_approvals"]

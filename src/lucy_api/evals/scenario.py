@@ -35,6 +35,7 @@ PERMISSION_MODES = ("ask", "accept_edits", "plan", "auto")
 """The hub's session permission modes, spelled as its API spells them."""
 
 COMPLETED = "completed"
+FAILED = "failed"
 INPUT_REQUIRED = "input_required"
 AUTH_REQUIRED = "auth_required"
 TERMINAL_STATUSES = ("completed", "failed", "cancelled")
@@ -101,6 +102,9 @@ class Expect:
     no_leaks: bool = True
     max_seconds: float | None = None
     results: tuple[ResultExpect, ...] = ()
+    allow_errors: tuple[OpMatch, ...] = ()
+    """Operations this turn may see fail without the harness halting it: a failure the
+    model is expected to notice and recover from. The same failure twice still halts."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +172,7 @@ __all__ = [
     "APPROVE_VALUES",
     "AUTH_REQUIRED",
     "COMPLETED",
+    "FAILED",
     "IGNORE",
     "INPUT_REQUIRED",
     "LIFETIMES",

@@ -22,6 +22,7 @@ a defect, and a weak one shows it first.
 
 - [Running it](#running-it)
 - [What a run does](#what-a-run-does)
+- [The watchdog](#the-watchdog)
 - [The default suite](#the-default-suite)
 - [Writing a scenario](#writing-a-scenario)
 - [The scenario schema](#the-scenario-schema)
@@ -104,8 +105,11 @@ parallel, because the hub is one process and latency is one of the things measur
 3. **Seeds**: `POST /v1/tools/{op}/invoke`, in that session, before the first turn.
 4. **Each turn in order**: `POST /v1/sessions/{id}/inputs`, then `GET /v1/turns/{id}` once
    a second until the turn comes to rest -- completed, failed, cancelled, waiting on a
-   person, or waiting on a connection. Every approval the turn parks on is answered as the
-   turn's `approve` says, one per request, and polling carries on.
+   person, or waiting on a connection. Every poll also reads the turn's transcript: each
+   step and each ask is printed to stderr the moment it appears, and the
+   [watchdog](#the-watchdog) stops the turn at the first thing that went wrong. Every
+   approval the turn parks on is answered as the turn's `approve` says, one per request,
+   and polling carries on.
 5. **The transcript is read back** (`GET /v1/sessions/{id}/items`, from a cursor) and every
    item carrying this turn's id is attributed to it: the reply, every tool result with its
    operation, status, summary and error, every approval asked and how it was answered.
@@ -118,6 +122,42 @@ A turn that never comes to rest is cancelled at the timeout, so an abandoned tur
 go on spending, and the scenario's later turns are not sent. A hub that stops answering,
 or starts refusing the token, stops the whole run: every remaining scenario is recorded as
 `error` rather than dropped, and the report is written.
+
+## The watchdog
+
+Checks read a turn after it rests, and a turn that loops never rests: it runs to the
+timeout. On 2026-09-30 a turn asked to play a song parked on `music.play` ten times. Each
+approval ran the same call with an unresolved `$find_track`, each failed the same way, and
+the harness approved every new ask as it had the first -- for the whole timeout, spending
+model budget on a failure visible in the first minute.
+
+So the harness watches the transcript on every poll and **halts** a turn the moment any of
+these is true:
+
+| Rule | Halts when |
+| --- | --- |
+| `step-error` | A step ended `error`. Name an operation in the turn's `allow_errors` when the scenario expects it to fail and the model to recover. |
+| `error-item` | The hub wrote an error into the transcript: the turn itself failed. |
+| `failed-again` | The same operation failed with the same cause twice in one turn -- even when it is in `allow_errors`, because a recovery that repeats the failure is not one. |
+| `asked-again` | The turn asked for a call it had already been given an answer to in this turn: the same operation with the same arguments. The harness never answers it a second time. |
+
+A turn whose `status` is expected to be `failed` is not halted for `step-error` or
+`error-item` -- failing is what the scenario is waiting to see -- but is still halted for
+`failed-again` and `asked-again`.
+
+A halt **cancels the turn**, fails the check `ran without the watchdog halting it` with the
+rule and its evidence, and **ends the scenario**: its later turns would be said into a
+conversation already known to be broken. The run moves on to the next scenario.
+
+While a turn runs, stderr shows it as it goes:
+
+```
+[1/2] default/workspace-in-one-turn with clyde:haiku
+      · capabilities.use -> ok
+      ? workspace.write asks to run (path=calc/index.html)
+      · workspace.write -> ok
+    turn 1: completed in 41.2s, 3 round(s), 2 step(s)  ok
+```
 
 ### What the harness does and does not change
 
@@ -291,8 +331,10 @@ runs are computed over the same checks every time.
 | `no_leaks` | bool | `true` | The reply shows no tool-call markup (`<invoke`, `<function_calls`), no ```` ```json ```` fence, and no raw `{"steps"` plan. |
 | `max_seconds` | number | not checked | The turn came to rest within this many seconds. |
 | `results` | table of operation pattern to `{ matches, avoids }` | none | A matching tool result was produced, and the summary the *model* was shown (plus any error) matches and avoids these regexes. This is where scrubbing and framing are visible. |
+| `allow_errors` | operation patterns | `[]` | Not a check: operations this turn may see fail without the [watchdog](#the-watchdog) halting it. The same failure twice still halts. |
 
-A turn also always checks that it came to rest before the timeout.
+A turn also always checks that it came to rest before the timeout, and that the watchdog
+did not halt it.
 
 **The reply** is every assistant message the transcript attributes to the turn, joined by
 a blank line: what the person read.

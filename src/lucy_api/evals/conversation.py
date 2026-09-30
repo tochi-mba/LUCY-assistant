@@ -9,6 +9,10 @@ A parked turn is answered from the scenario's ``approve`` value, one approval at
 (the hub refuses more than one per request), and polled again: approving a write resumes
 the turn, and a turn can park more than once. ``ignore`` leaves it parked.
 
+Every poll also reads the turn's transcript and hands it to the watchdog
+(:mod:`lucy_api.evals.watch`), which stops the turn at the first step that fails or the
+first ask for a call already answered -- before the harness answers it again.
+
 Out of time, the turn is cancelled, so an abandoned turn does not go on spending somebody's
 model budget after the harness has stopped listening.
 """
@@ -25,6 +29,7 @@ from lucy_api.evals.hub import HubError
 from lucy_api.evals.results import TurnRecord
 from lucy_api.evals.scenario import (
     AUTH_REQUIRED,
+    FAILED,
     IGNORE,
     INPUT_REQUIRED,
     LIFETIMES,
@@ -32,6 +37,7 @@ from lucy_api.evals.scenario import (
     TERMINAL_STATUSES,
 )
 from lucy_api.evals.transcript import exchange_for, pending_approvals
+from lucy_api.evals.watch import Watcher
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,6 +45,7 @@ if TYPE_CHECKING:
     from lucy_api.evals.hub import Hub
     from lucy_api.evals.results import Check, InvocationRecord
     from lucy_api.evals.scenario import Invocation, TurnSpec
+    from lucy_api.evals.watch import Halt
 
 RESTING = frozenset({*TERMINAL_STATUSES, AUTH_REQUIRED})
 """States a turn will not leave without something the harness does not do."""
@@ -94,13 +101,31 @@ class Conversation:
         """A seed or verify step, in this session."""
         return invoke(self.hub, invocation, session_id=self.session_id, profile=self.profile)
 
-    def take_turn(self, index: int, spec: TurnSpec, *, timeout: float) -> TurnRecord:
-        """Say one thing, wait for the turn to come to rest, and check everything about it."""
+    def take_turn(
+        self,
+        index: int,
+        spec: TurnSpec,
+        *,
+        timeout: float,
+        on_event: Callable[[str], None] | None = None,
+    ) -> TurnRecord:
+        """Say one thing, wait for the turn to come to rest, and check everything about it.
+
+        ``on_event`` hears each step and ask the moment the transcript shows it.
+        """
         before = self._cache_read()
         started = self.pace.clock()
         sent = self.hub.send_message(self.session_id, spec.say)
         turn_id = str(sent.get("id") or "")
-        turn, timed_out = self._settle(sent, turn_id, spec.approve, deadline=started + timeout)
+        watcher = Watcher(
+            turn_id,
+            allowed=spec.expect.allow_errors,
+            expecting_failure=spec.expect.status == FAILED,
+            on_event=on_event,
+        )
+        turn, timed_out, halt = self._settle(
+            sent, turn_id, spec.approve, deadline=started + timeout, watcher=watcher
+        )
         seconds = self.pace.clock() - started
         status = str(turn.get("status") or "")
         if status not in TERMINAL_STATUSES:
@@ -114,6 +139,7 @@ class Conversation:
             timeout=timeout,
             timed_out=timed_out,
             exchange=exchange,
+            halted=str(halt) if halt is not None else "",
         )
         prefix = f"turn {index}: "
         checks: list[Check] = list(check_turn(spec.expect, seen, prefix=prefix))
@@ -142,6 +168,7 @@ class Conversation:
             errors=exchange.errors,
             verify=tuple(verified),
             checks=tuple(checks),
+            halted=seen.halted,
         )
 
     def close(self, *, keep: bool) -> tuple[str, ...]:
@@ -165,18 +192,34 @@ class Conversation:
         return tuple(problems)
 
     def _settle(
-        self, turn: dict[str, Any], turn_id: str, approve: str, *, deadline: float
-    ) -> tuple[dict[str, Any], bool]:
-        """Poll until the turn rests, answering asks on the way. ``True`` if time ran out."""
+        self,
+        turn: dict[str, Any],
+        turn_id: str,
+        approve: str,
+        *,
+        deadline: float,
+        watcher: Watcher,
+    ) -> tuple[dict[str, Any], bool, Halt | None]:
+        """Poll until the turn rests or goes wrong, answering asks on the way.
+
+        Returns the turn, whether time ran out, and why the watchdog stopped it, if it did.
+        The watchdog looks before anything is answered, so an ask for a call already given
+        an answer is never answered twice.
+        """
         answered: set[str] = set()
         while True:
             status = str(turn.get("status") or "")
+            _, halt = watcher.look(self.log.refresh())
+            if halt is not None:
+                if status not in TERMINAL_STATUSES:
+                    turn = self.hub.cancel_turn(turn_id)
+                return turn, False, halt
             if status in RESTING:
-                return turn, False
+                return turn, False, None
             if status == INPUT_REQUIRED:
                 pending = self._unanswered(turn_id, answered) if approve != IGNORE else ()
                 if not pending:
-                    return turn, False
+                    return turn, False, None
                 for approval_id in pending:
                     self.hub.answer_approval(
                         self.session_id,
@@ -188,7 +231,7 @@ class Conversation:
                 turn = self.hub.turn(turn_id)
                 continue
             if self.pace.clock() >= deadline:
-                return self.hub.cancel_turn(turn_id), True
+                return self.hub.cancel_turn(turn_id), True, None
             self.pace.sleep(self.pace.poll_seconds)
             turn = self.hub.turn(turn_id)
 

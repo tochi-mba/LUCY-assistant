@@ -54,12 +54,14 @@ class Observation:
     timeout: float
     timed_out: bool
     exchange: Exchange
+    halted: str = ""
+    """Why the watchdog stopped the turn (:mod:`lucy_api.evals.watch`), or empty."""
 
 
 def check_turn(expect: Expect, seen: Observation, *, prefix: str) -> tuple[Check, ...]:
     """Every check ``expect`` states, in a stable order, each named under ``prefix``."""
     exchange = seen.exchange
-    checks = [_status(expect.status, seen), _finished(seen)]
+    checks = [_status(expect.status, seen), _finished(seen), _unhalted(seen)]
     if expect.termination is not None:
         checks.append(_termination(expect.termination, seen.termination))
     if expect.max_seconds is not None:
@@ -114,6 +116,15 @@ def _finished(seen: Observation) -> Check:
         return Check(name, passed=False, detail=detail)
     detail = f"took {_seconds(seen.seconds)} of {_seconds(seen.timeout)}"
     return Check(name, passed=True, detail=detail)
+
+
+def _unhalted(seen: Observation) -> Check:
+    # Named for what a passing turn did, so the name stays the same across runs whichever
+    # rule a failing one broke; the rule and its evidence are in the detail.
+    name = "ran without the watchdog halting it"
+    if seen.halted:
+        return Check(name, passed=False, detail=f"halted, {seen.halted}; the harness cancelled it")
+    return Check(name, passed=True, detail="nothing failed, and nothing was asked for twice")
 
 
 def _termination(expected: str, termination: str) -> Check:

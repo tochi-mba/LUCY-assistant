@@ -82,6 +82,7 @@ EXPECT_KEYS = (
     "no_leaks",
     "max_seconds",
     "results",
+    "allow_errors",
 )
 RESULT_KEYS = ("matches", "avoids")
 OP_KEY = "op"
@@ -217,6 +218,7 @@ def _expect(table: _Table, *, approve: str) -> Expect:
         no_leaks=table.flag("no_leaks", default=True),
         max_seconds=table.seconds("max_seconds"),
         results=_results(results) if results else (),
+        allow_errors=table.ops("allow_errors"),
     )
 
 

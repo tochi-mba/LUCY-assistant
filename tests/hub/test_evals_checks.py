@@ -131,9 +131,16 @@ def test_approvals_carry_what_they_would_do_and_how_they_were_answered() -> None
             permission="notes.write",
             arguments="title=Drink, body=Tea, count=2",
             answer="approved",
+            call='notes.setFact:{"body":"Tea","count":2,"flag":true,"list":[1],"title":"Drink"}',
         ),
-        Ask("apr_2", "workspace.destroy", permission="workspace.destroy", answer="denied"),
-        Ask("apr_3", "workspace.run"),
+        Ask(
+            "apr_2",
+            "workspace.destroy",
+            permission="workspace.destroy",
+            answer="denied",
+            call="workspace.destroy:{}",
+        ),
+        Ask("apr_3", "workspace.run", call="workspace.run:{}"),
     )
     assert pending_approvals(items, "trn_1") == ("apr_3",)
     assert pending_approvals(items, "trn_9") == ()
@@ -149,6 +156,7 @@ def test_the_status_and_the_timeout_are_always_checked() -> None:
     assert list(checks) == [
         "status is completed",
         "came to rest before the timeout",
+        "ran without the watchdog halting it",
         "reply is not empty",
         "reply shows no tool-call markup",
         "reply shows no fenced JSON",
@@ -157,6 +165,24 @@ def test_the_status_and_the_timeout_are_always_checked() -> None:
     assert all(check.passed for check in checks.values())
     assert checks["status is completed"].detail == "ended completed (success)"
     assert checks["came to rest before the timeout"].detail == "took 3.0s of 300.0s"
+    assert checks["ran without the watchdog halting it"].detail == (
+        "nothing failed, and nothing was asked for twice"
+    )
+
+
+def test_a_halted_turn_fails_with_the_rule_and_its_evidence() -> None:
+    checks = by_name(
+        check_turn(
+            Expect(),
+            seen(halted="step-error: music.play failed: music answered 422"),
+            prefix="turn 1: ",
+        )
+    )
+    halted = checks["ran without the watchdog halting it"]
+    assert not halted.passed
+    assert halted.detail == (
+        "halted, step-error: music.play failed: music answered 422; the harness cancelled it"
+    )
 
 
 def test_a_wrong_status_says_what_the_turn_ended_as_and_what_it_recorded() -> None:
@@ -299,7 +325,11 @@ def test_the_wire_format_never_reaches_the_person(leak: str, reply: str) -> None
 def test_leak_and_emptiness_checks_can_be_switched_off() -> None:
     expect = Expect(reply_nonempty=False, no_leaks=False)
     names = by_name(check_turn(expect, seen(Exchange(said="x", reply="")), prefix=""))
-    assert list(names) == ["status is completed", "came to rest before the timeout"]
+    assert list(names) == [
+        "status is completed",
+        "came to rest before the timeout",
+        "ran without the watchdog halting it",
+    ]
 
 
 def test_a_result_expectation_reads_what_the_model_was_shown() -> None:
