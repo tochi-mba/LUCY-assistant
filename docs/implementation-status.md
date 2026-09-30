@@ -70,7 +70,7 @@ machine is listed as in progress, however finished it looks.
 - **Work in flight.** Helpers, jobs and commands share one registry. The live block shows
   them together; a prompt preview does not consume the "just finished" flag a real turn
   still needs to see.
-- **Watches, and being woken.** `watch.start` says when a workspace file exists or matches,
+- **Watches, and being woken.** `watch.start` says when a workspace file appears, changes or matches,
   a public address answers or matches, or another piece of work ends; `watch.command`
   repeats a command until it exits 0 or matches, under one approval. A watch is work: an
   interval, a lifetime (five minutes by default, an hour at most), a bounded excerpt as its

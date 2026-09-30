@@ -34,6 +34,7 @@ from lucy_api.packs.watch import (
     BINARY_FILE,
     MAX_BODY,
     NO_WORKSPACE,
+    Seen,
     WatchPack,
     _file_check,
     httpx_fetch,
@@ -398,17 +399,53 @@ async def test_a_pattern_is_never_matched_against_a_binary_file() -> None:
 
 
 async def test_a_binary_file_can_still_be_waited_for_without_a_pattern() -> None:
-    """It exists, which is all that was asked; the base64 is no excerpt of anything."""
+    """It appeared, which is all that was asked; the base64 is no excerpt of anything."""
     fake = Workspace()
-    fake.seed(
-        Environment(ENV, "Conversation", profile="personal"),
-        files=((f"{ROOT}/out/app", ELF),),
-    )
+    fake.seed(Environment(ENV, "Conversation", profile="personal"))
+    seen = Seen()
+    assert (await _file_check(fake, ENV, f"{ROOT}/out/app", None, seen)).fired is False
+    fake.contents[(ENV, f"{ROOT}/out/app")] = ELF
 
-    check = await _file_check(fake, ENV, f"{ROOT}/out/app", None)
+    check = await _file_check(fake, ENV, f"{ROOT}/out/app", None, seen)
 
     assert check.fired is True
     assert check.excerpt == ""
+
+
+async def test_a_file_that_is_already_there_is_watched_for_its_next_change() -> None:
+    """The bug, named: asked to "tell me when it changes", the watch fired at once, on a
+    file that had not changed, because a file watch fired on existence."""
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/review.md", "# Week of\n"),),
+    )
+    seen = Seen()
+
+    first = await _file_check(fake, ENV, f"{ROOT}/review.md", None, seen)
+    same = await _file_check(fake, ENV, f"{ROOT}/review.md", None, seen)
+    fake.contents[(ENV, f"{ROOT}/review.md")] = "# Week of\n- edited from outside\n"
+    changed = await _file_check(fake, ENV, f"{ROOT}/review.md", None, seen)
+
+    assert (first.fired, first.detail) == (False, "unchanged, 10 bytes")
+    assert same.fired is False
+    assert (changed.fired, changed.detail) == (True, "changed")
+    assert changed.excerpt.endswith("- edited from outside\n")
+
+
+async def test_a_watch_on_a_file_that_is_there_does_not_fire_on_its_first_look() -> None:
+    fake = Workspace()
+    fake.seed(
+        Environment(ENV, "Conversation", profile="personal"),
+        files=((f"{ROOT}/a.txt", "one"),),
+    )
+    pack = a_pack(fake, sleep=Sleeper())
+    registry = Registry(now=Clock())
+    started = step(await run(pack, start({"path": "a.txt"}), a_context(registry)))
+    await settled()
+
+    assert registry.running(SESSION)[0].progress.startswith("checked 1x, unchanged, 3 bytes")
+    assert registry.running(SESSION)[0].id == started["id"], "still watching"
 
 
 class Offsets(Workspace):
