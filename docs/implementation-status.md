@@ -200,9 +200,10 @@ machine is listed as in progress, however finished it looks.
   model, thinking token budget, outward-action confirmation, advertised disconnected
   capabilities, auto-title, slow-turn notice, downstream retries, and helper mail/time
   caps.
-- **Hub tests pass on this machine:** 2,456 passed and 18 skipped at 100.00% coverage
-  over 14,183 statements and 2,802 branches. Format, lint, mypy, and import contracts
-  are gated by `make check`. `python scripts/parity.py --repo lucy-api` is green.
+- **The suite passes on this machine** (2026-09-30): 3,447 passed and 35 skipped, hub and
+  desk together, at 100.00% coverage over 18,094 statements and 3,692 branches. Format,
+  lint, mypy, and import contracts are gated by `make check`.
+  `python scripts/parity.py --repo lucy-api` is green.
 - **The family now comes up together.** `make up` starts nine services and all nine are
   healthy; eight answer `/ready` with 200. See [docs/baseline.md](baseline.md) for the
   first composed run, the four defects it exposed -- none of which `make check` could
