@@ -155,7 +155,7 @@ def test_an_ask_repeated_after_a_refusal_halts_too() -> None:
 
 
 def test_a_different_call_or_an_unanswered_duplicate_is_not_asked_again() -> None:
-    other = 'music.play:{"uri":"ytmusic:track:abcdefghijk"}'
+    other = 'music.play:{"uri":"example:track:2"}'
     different = (
         Ask("apr_1", "music.play", answer="approved", call=PLAY),
         Ask("apr_2", "music.play", call=other),
