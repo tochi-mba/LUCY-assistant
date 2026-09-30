@@ -605,3 +605,37 @@ async def test_an_unconfirmed_queue_of_several_tracks_says_so_once_and_per_track
     assert answer["confirmed"] is False
     assert answer["note"] == UNCONFIRMED_NOTE
     assert all(item["queued"] and item["confirmed"] is False for item in answer["queued"])
+
+
+# --- what a track reference can name ----------------------------------------------------------
+
+
+async def play_after_recent(given: dict[str, object]) -> FakeMusicClient:
+    fake = FakeMusicClient()
+    fake.seed(plays=tuple(Play(track) for track in PLAYED))
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+    result = await capabilities.execute(
+        {"steps": [RECENT, {"id": "play", "op": "music.play", "input": given}]}, context
+    )
+    assert result["issues"] is None
+    assert [step["status"] for step in result["steps"]] == ["ok", "ok"]
+    return fake
+
+
+async def test_a_reference_with_an_ordinal_plays_that_one_track() -> None:
+    fake = await play_after_recent({"track": "$recent[2]"})
+    assert fake.played == [("personal", ("spotify:track:2",), "")]
+
+
+async def test_a_whole_reference_plays_every_track_the_step_returned_in_order() -> None:
+    fake = await play_after_recent({"track": "$recent"})
+    assert fake.played == [("personal", tuple(track.uri for track in PLAYED), "")]
+
+
+async def test_a_null_track_beside_a_uri_plays_the_uri() -> None:
+    """A strict tool schema lists every property, so a model sends ``null`` for the one it
+    does not use; that is not two ways of naming a track."""
+    fake = await play_after_recent({"track": None, "uri": "spotify:track:4"})
+    assert fake.played == [("personal", ("spotify:track:4",), "")]
+

@@ -66,7 +66,10 @@ beginning. The last sentence names the read that settles it, rather than the ret
 """
 
 
-TRACK_REFERENCE = 'A track music.find returned, by reference: "$stepId", or "$stepId[2]".'
+TRACK_REFERENCE = (
+    "The track(s) an earlier music.find or music.recent step returned, by reference: "
+    '"$found" for all of them, or "$found[2]" for one.'
+)
 URI = (
     "A track's uri, as music.find returned it -- never a reference. To play or queue what an "
     "earlier step found, give it as `track`."
@@ -226,9 +229,9 @@ class MusicPack:
                 {
                     "name": "music.play",
                     "description": (
-                        "Play a track -- the one music.find found, as `track`, or by `uri` -- "
-                        "or resume what was loaded when neither is given; optionally on a "
-                        "named device."
+                        "Play the track(s) an earlier step found, as `track`, or one by `uri`; "
+                        "resume what was loaded when neither is given. Optionally on a named "
+                        "device."
                     ),
                     "input": object_schema(
                         {
@@ -246,8 +249,9 @@ class MusicPack:
                 {
                     "name": "music.queue",
                     "description": (
-                        "Queue a track behind the current item -- the one music.find found, "
-                        "as `track`, or by `uri`."
+                        "Queue the track(s) an earlier step found, as `track`, or one by `uri`, "
+                        "behind the current item. Several are queued in order and reported one "
+                        "by one."
                     ),
                     "input": object_schema(
                         {
