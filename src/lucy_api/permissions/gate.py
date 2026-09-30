@@ -46,6 +46,8 @@ class Blocked:
     denied: bool = False
     arguments: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    step: str = ""
+    """The blocked step's id in the plan, so an approval can find what the step reads from."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +167,7 @@ class PermissionGate:
                     denied=verdict.denied,
                     arguments=arguments,
                     description=str(step.get("note") or verdict.message),
+                    step=str(step.get("id") or ""),
                 )
                 blocked.append(item)
                 if first is None:

@@ -246,6 +246,7 @@ class Capabilities:
                         "operation": item.operation,
                         "arguments": item.arguments,
                         "description": item.description,
+                        "step": item.step,
                     }
                     for item in verdict.blocked
                 ],

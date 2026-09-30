@@ -32,7 +32,9 @@ Two things happen beside that path:
 
 - **Asking the person.** A write that needs approval parks the turn
   (`permissions/approvals.py`). The answer re-queues it, and the approved call runs, exactly as
-  approved, before the model is asked anything.
+  approved and together with the steps it reads from (`permissions/replay.py`), before the
+  model is asked anything. A call that reads from a step the person refused does not run, and
+  the model is told why.
 - **Work that outlives a step** -- a long command, a watch, a helper -- lives in
   `work/registry.py` and announces itself when it ends. Helpers are a child run of the same
   loop (`agents/runtime.py`); a helper a restart interrupted is announced by

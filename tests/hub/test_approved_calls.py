@@ -36,7 +36,6 @@ from lucy_api.permissions.approvals import (
     Ask,
     answer_approval,
     approved_calls,
-    approved_plan,
     mark_executed,
     open_approval,
     resumed_notice,
@@ -311,15 +310,11 @@ async def test_an_unreadable_payload_runs_the_call_with_no_arguments(store: Sess
     assert (await approved_calls(store, turn))[0].arguments == {}
 
 
-def test_the_plan_runs_each_call_as_approved_and_nothing_means_no_plan() -> None:
-    assert approved_plan(()) is None
-
-
 def test_the_notice_says_the_calls_already_ran() -> None:
     one = resumed_notice(("notes.remember",))
     two = resumed_notice(("notes.remember", "workspace.write"))
     assert "notes.remember was approved just now and has already run" in one
-    assert "its result is above" in one
+    assert "with the steps it read from; its result is above" in one
     assert "were approved just now and have already run" in two
     assert "their results are above" in two
     assert resumed_notice(()) == ""

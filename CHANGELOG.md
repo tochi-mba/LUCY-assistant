@@ -6,6 +6,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ## [Unreleased]
 
+### Fixed
+
+- **An approved call runs with the steps it reads from.** A plan is checked whole before
+  any step runs, so a plan whose write needs a person parks before its reads have run, and
+  the approved call used to run on its own, with a reference such as `$found` left
+  unresolved. Each approval now records its call's step and every step it reads from, and
+  the resumed turn runs them together under their own ids; a call reading from a step the
+  person refused does not run, and the model is told why.
+
 ### Changed
 
 - **The music audience is configuration.** `LUCY_MUSIC_API_AUDIENCE` sits beside
