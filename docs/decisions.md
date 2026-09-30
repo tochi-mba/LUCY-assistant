@@ -42,6 +42,11 @@ settings surface and Settings-api. Settings apply when the next turn is prepared
 - `decision_recovery=false`: advisory recovery judgments.
 - `decision_claims=true`: catch unbacked completion claims in any wording, subject to the
   master switch.
+- `decision_keeping=true`: notice when the person said something worth keeping and nothing in
+  the turn kept it, subject to the master switch. The reply is held back once with a notice;
+  the model decides whether to keep it, and the memory write policy and approvals decide
+  whether it is kept. Never asked in an incognito session, with `memory_write_policy=never`,
+  or when notes cannot be reached.
 - `decision_timeout_ms=1000`: per-call ceiling, bounded to 50–5,000 ms.
 - `decision_max_per_turn=8`: call budget, bounded to 1–32.
 

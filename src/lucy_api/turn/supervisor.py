@@ -39,6 +39,7 @@ from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import TURN_SLOW
 from lucy_api.turn.claims import ClaimCheck
+from lucy_api.turn.keeping import Keeping
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.project import StreamProjector
 from lucy_api.turn.prompt import (
@@ -437,6 +438,7 @@ class TurnSupervisor:
                         max_thinking_tokens=policy.max_thinking_tokens,
                         recovery=Recovery(pack_ctx.decide),
                         claims=ClaimCheck(pack_ctx.decide),
+                        keeping=Keeping(pack_ctx.decide, able=_may_keep(pack_ctx, ready)),
                     )
                 )
                 await self._finish_result(claimed, result, pack_ctx, session)
@@ -616,6 +618,12 @@ def _first_user_text(rows: list[dict[str, Any]]) -> str:
             if isinstance(text, str) and text.strip():
                 return text.strip()
     return ""
+
+
+def _may_keep(context: PackContext, ready: tuple[str, ...]) -> bool:
+    """Whether this conversation may keep anything about the person at all."""
+    remembering = context.policy.memory_write_policy != "never"
+    return remembering and not context.incognito and "notes" in ready
 
 
 def _arm_workspace(live: Live | None, *, resume: bool) -> None:
