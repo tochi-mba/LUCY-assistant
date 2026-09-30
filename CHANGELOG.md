@@ -51,6 +51,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   step and how it ended. A run whose scenarios have a `host` step refuses to start without
   the new `--allow-host`, and `--dry-run` lists every command. See
   [docs/evals.md](docs/evals.md#holding-an-exploratory-conversation).
+- **`workspace.script`: a scratchpad for Lucy's own scripts.** A quick calculation, a check
+  or a one-off transformation took `workspace.write` and then `workspace.run` -- two
+  operations and, in `ask` mode, two approvals -- and left the script among the person's
+  files, where `git status` reported it as one of their changes. `workspace.script` writes
+  a short Python or bash script to `.scratch/` and runs it in one call, under the permission
+  that already covers commands, with the code on the approval card. A named script is
+  rewritten and run again; an unnamed one is named by its code. The folder's own ignore
+  file ignores everything in it, itself included, so scratch work never shows as a change.
+  See [docs/tools.md](docs/tools.md#a-quick-calculation-in-one-call).
 - **The eval harness halts a turn at the first thing wrong.** A watchdog reads the
   transcript on every poll and stops the turn at a failed step, an error in the transcript,
   the same failure twice, or an ask for a call already answered -- before answering it
