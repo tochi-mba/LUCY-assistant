@@ -436,6 +436,22 @@ def test_the_workspace_page_says_when_to_reach_for_a_script() -> None:
     assert "`.scratch/`" in page
 
 
+def test_the_operation_says_what_a_name_may_be_before_a_model_picks_one() -> None:
+    """The bug, named: the description said only "with name, the same file is rewritten and
+    rerun", and a model naming a file called it `growth.py`, which is refused. The rule a
+    name is held to is in the description, where it is read before the call is made."""
+    _sandbox, _capabilities, context = a_workspace()
+    [operation] = [
+        item
+        for item in WorkspacePack("https://workspace.test").operations(context)
+        if item.name == "workspace.script"
+    ]
+
+    assert "no extension" in operation.description
+    assert "letters, digits, - or _" in operation.description
+    assert "python or bash" in operation.description
+
+
 # --- never one of the person's changes ----------------------------------------------------------
 
 

@@ -304,7 +304,8 @@ class WorkspacePack:
                 "script",
                 "Run a short python or bash script in one call: a quick calculation, a check, "
                 "a one-off transformation. It is written to .scratch/, which is yours and never "
-                "among the person's changes; with name, the same file is rewritten and rerun.",
+                "among the person's changes. Give a name (letters, digits, - or _; no extension) "
+                "to rewrite and rerun the same file.",
                 {
                     "language": enum_schema(*LANGUAGES),
                     "code": string_schema(),
