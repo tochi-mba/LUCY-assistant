@@ -48,7 +48,8 @@ is hiding has already leaked it. Without this a private repository checked out b
 others is merely *untracked*, and the next `git add -A` stages the whole thing.
 
 `python scripts/parity.py` reads `.repos.local.txt` and fails any public repository whose
-source, tests, scripts, clients, docs or top-level prose contains a private name — as a
+source, tests, scripts, clients, docs, top-level prose or build files
+(`pyproject.toml`, `Makefile`, `Dockerfile`, `.env.example`) contains a private name — as a
 whole word, case-insensitively, and however its parts are joined: `Example-Tool`,
 `example_tool`, `Example Tool` and `EXAMPLETOOL` are one name, because each is the spelling
 a grep for another would miss. An operator with no private checkouts has nothing to leak and

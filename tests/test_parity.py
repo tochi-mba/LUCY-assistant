@@ -559,3 +559,19 @@ def test_a_file_that_names_a_private_service_twice_is_reported_once(tmp_path: Pa
     private_checkout(tmp_path, '[tool.lucy]\nalso-known-as = ["hushbox"]\n')
     mention(root, "Secret-Tool, also hushbox")
     assert outcome_for(root, "private-names").detail == "src/demo/core/config.py names Secret-Tool"
+
+
+@pytest.mark.parametrize("name", ["pyproject.toml", "Makefile", "Dockerfile", ".env.example"])
+def test_a_build_file_comment_that_names_a_private_service_is_caught(
+    tmp_path: Path, name: str
+) -> None:
+    """The bug, named: two public siblings compared their settings with a private service's
+    by name in a pyproject.toml comment, and the check never read pyproject.toml."""
+    root = write_golden(tmp_path / GOLDEN_NAME)
+    write_text(tmp_path / ".repos.local.txt", PRIVATE_MANIFEST)
+    path = root / name
+    before = path.read_text(encoding="utf-8") if path.is_file() else ""
+    write_text(path, before + "# Relative to Secret-Tool, this stays selected." + NL)
+    result = outcome_for(root, "private-names")
+    assert result.status == parity.FAIL
+    assert result.detail == f"{name} names Secret-Tool"
