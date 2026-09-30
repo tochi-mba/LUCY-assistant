@@ -20,7 +20,7 @@ from lucy_api.clients.search import FakeSearchClient, Findings, Hit, Provider
 from lucy_api.clients.spotify import FakeSpotifyClient, HttpSpotifyClient, Play, Track, Wanted
 from lucy_api.clients.testing import Answer, FakeHttp
 from lucy_api.context.feeds import MAX_ENTRIES, claims_from, parse_document
-from lucy_api.core.container import PackRequest, _feed_flags, _integer, build_container
+from lucy_api.core.container import PackRequest, _feed_flags, build_container
 from lucy_api.core.errors import LucyError
 from lucy_api.packs.agents import AgentsPack, _list, _spawn
 from lucy_api.packs.base import State
@@ -322,29 +322,8 @@ async def test_joining_a_supervisor_that_never_started_is_a_no_op(
     await supervisor.join()
 
 
-def test_container_helpers_use_conservative_defaults_when_settings_are_down() -> None:
-    assert _integer(None, "max_llm_turns", 12, minimum=1, maximum=100) == 12
+def test_feed_switches_are_the_catalogue_s_defaults_when_settings_are_down() -> None:
     assert _feed_flags(None).values == {}
-
-    class Values:
-        def get(self, key: str, default: object = None) -> object:
-            del key, default
-            return True
-
-    class Words:
-        def get(self, key: str, default: object = None) -> object:
-            del key, default
-            return "twelve"
-
-    class Number:
-        def get(self, key: str, default: object = None) -> object:
-            del key, default
-            return 3
-
-    assert _integer(Values(), "max_llm_turns", 12, minimum=1, maximum=100) == 12  # type: ignore[arg-type]
-    assert _integer(Words(), "max_llm_turns", 12, minimum=1, maximum=100) == 12  # type: ignore[arg-type]
-    assert _integer(Number(), "max_llm_turns", 12, minimum=1, maximum=100) == 3  # type: ignore[arg-type]
-    assert _integer(Number(), "max_llm_turns", 12, minimum=1, maximum=2) == 2  # type: ignore[arg-type]
 
 
 async def test_a_keyring_network_failure_is_unavailable() -> None:

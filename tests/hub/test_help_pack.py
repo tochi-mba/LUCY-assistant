@@ -13,7 +13,7 @@ from weftai.schema.types import value
 
 from lucy_api.context.types import Trust
 from lucy_api.mcp.skills import CATALOGUE
-from lucy_api.packs.base import Availability, Bound, Catalogue, SetupPlan, SetupStep, State
+from lucy_api.packs.base import Availability, SetupPlan, SetupStep, State
 from lucy_api.packs.context import Call, NoBrokerError, PackContext, SilentTokens
 from lucy_api.packs.help import (
     HelpPack,
@@ -240,17 +240,6 @@ async def test_operation_returns_the_schema_or_says_the_name_is_unknown() -> Non
     assert "no operation" in empty["error"]
 
 
-async def test_a_summary_line_includes_the_detail_when_there_is_one() -> None:
-    pack = HelpPack()
-    plain = Bound(pack=pack, availability=Availability(state=State.ready)).summary_line()
-    detailed = Bound(
-        pack=pack, availability=Availability(state=State.ready, detail="always available")
-    ).summary_line()
-    assert "[ready]" in plain
-    assert "always available" not in plain
-    assert "always available" in detailed
-
-
 async def test_null_http_and_silent_tokens_fail_closed_without_a_secret() -> None:
     http = NullHttp()
     call = Call(method="GET", url="http://example.test", audience="example-tool")
@@ -270,19 +259,6 @@ async def test_null_http_and_silent_tokens_fail_closed_without_a_secret() -> Non
     first = context.limit("example-tool")
     again = context.limit("example-tool")
     assert first is again
-
-
-def test_offerable_is_only_the_capabilities_that_still_need_setup() -> None:
-    catalogue = Catalogue(
-        bound=(
-            Bound(pack=HelpPack(), availability=Availability(state=State.ready)),
-            Bound(
-                pack=Gadget(),
-                availability=Availability(state=State.not_connected),
-            ),
-        )
-    )
-    assert [item.pack.id for item in catalogue.offerable()] == ["gadget"]
 
 
 def test_remembering_a_capability_twice_does_not_duplicate_it() -> None:

@@ -195,12 +195,6 @@ class Bound:
     def visible_to_model(self) -> bool:
         return self.availability.usable and bool(self.operations)
 
-    def summary_line(self) -> str:
-        """One line for `capabilities.list`, which is all the model gets for free."""
-        state = self.availability.state
-        detail = f" - {self.availability.detail}" if self.availability.detail else ""
-        return f"{self.pack.id}: {self.pack.summary} [{state}]{detail}"
-
 
 CONNECTION_REQUIRED = "connection_required"
 """The status in a tool result that means "not set up", never an HTTP error.
@@ -238,9 +232,6 @@ class Catalogue:
 
     def ready(self) -> tuple[Bound, ...]:
         return tuple(item for item in self.bound if item.visible_to_model)
-
-    def offerable(self) -> tuple[Bound, ...]:
-        return tuple(item for item in self.bound if item.availability.offer_setup)
 
     def operations(self) -> tuple[AnyOperation, ...]:
         return tuple(op for item in self.ready() for op in item.operations)

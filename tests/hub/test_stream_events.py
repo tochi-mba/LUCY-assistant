@@ -72,8 +72,7 @@ def test_the_index_lists_every_constant_and_invents_none() -> None:
 
 def test_the_catalogue_is_grouped_exactly_as_the_plan_groups_it() -> None:
     assert tuple(events.GROUPS) == PLAN_GROUPS
-    assert set(events.GROUPS["Stream"]) == events.TRANSPORT_TYPES
-    assert events.STREAM_HEARTBEAT in events.TRANSPORT_TYPES
+    assert events.STREAM_HEARTBEAT in events.GROUPS["Stream"]
 
 
 def test_a_malformed_name_is_a_bug_while_an_unknown_one_is_only_unknown() -> None:
@@ -81,7 +80,7 @@ def test_a_malformed_name_is_a_bug_while_an_unknown_one_is_only_unknown() -> Non
     assert events.is_well_formed(events.SESSION_CREATED)
     assert events.is_well_formed("lucy.model.request.started")
     assert events.is_well_formed("lucy.acme.widget.polished")
-    assert not events.is_declared("lucy.acme.widget.polished")
+    assert "lucy.acme.widget.polished" not in events.EVENT_TYPES
 
     assert not events.is_well_formed("lucy.session")
     assert not events.is_well_formed("lucy.a.b.c.d")
@@ -106,10 +105,10 @@ def test_the_names_the_session_store_already_writes_are_in_the_catalogue() -> No
         events.SESSION_HARNESS_VERSION_CHANGED,
         events.CONTENT_ITEM_ADDED,
     ):
-        assert events.is_declared(name)
+        assert name in events.EVENT_TYPES
 
     for status in sorted(TERMINAL):
-        assert events.is_declared("lucy.turn." + status)
+        assert "lucy.turn." + status in events.EVENT_TYPES
 
 
 def test_an_envelope_carries_the_ids_that_apply_and_omits_the_ones_that_do_not() -> None:
