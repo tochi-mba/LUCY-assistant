@@ -235,10 +235,12 @@ AGENT_BUDGET_EXHAUSTED = "lucy.agent.budget_exhausted"
 # ends as one of these, and `woke` is the moment a finished piece of work opened a turn of
 # its own because nobody was around to ask. A client that shows "watching…" needs the
 # first to take it down and the second to explain why the assistant started talking.
+# `group.finished` is the last member of a named group ending: one event for the team.
 # --------------------------------------------------------------------------------------
 
 WORK_FINISHED = "lucy.work.finished"
 WORK_WOKE = "lucy.work.woke"
+WORK_GROUP_FINISHED = "lucy.work.group.finished"
 
 
 # --------------------------------------------------------------------------------------
@@ -501,6 +503,7 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
     "Work": (
         WORK_FINISHED,
         WORK_WOKE,
+        WORK_GROUP_FINISHED,
     ),
     "Journal": (
         TASK_CREATED,

@@ -133,7 +133,7 @@ class ChildRuntime:
         self.capabilities = capabilities
         self._wait = asyncio.wait_for
 
-    async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume and schema
+    async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume, schema, group
         self,
         parent: PackContext,
         *,
@@ -142,6 +142,7 @@ class ChildRuntime:
         resume_from: str = "",
         return_schema: str = "",
         guidance: str = "",
+        group: str = "",
     ) -> tuple[str, int]:
         """Persist a helper before its public handle can be returned."""
         delegation = Delegation(
@@ -170,6 +171,7 @@ class ChildRuntime:
                 "guidance": delegation.guidance,
                 "resume_from": delegation.resume_from,
                 "return_schema": delegation.return_schema,
+                **({"group": group} if group else {}),
             },
         )
         task_id = await self.agents.add_task(

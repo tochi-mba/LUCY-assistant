@@ -111,6 +111,7 @@ class AgentsPack:
                 objective=str(run.input.get("objective") or ""),
                 role=str(run.input.get("role") or "helper"),
                 return_schema=str(run.input.get("return_schema") or ""),
+                group=str(run.input.get("group") or ""),
             )
 
         async def run_message(run: RunContext[Any]) -> dict[str, Any]:
@@ -261,6 +262,12 @@ class AgentsPack:
                                 "JSON Schema the helper must return as its whole answer, "
                                 "so you get an object rather than prose."
                             ),
+                            "group": string_schema()
+                            .optional()
+                            .describe(
+                                "A short team name, like reviewers. The team's ending is "
+                                "one notice, once its last member ends."
+                            ),
                         }
                     ),
                     "output": value(object_schema({"id": string_schema()})),
@@ -338,11 +345,13 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
     except AtCapacityError as exc:
         await runtime.discard_setup(context, discard[0], discard[1])
         return {"status": "at_capacity", "message": f"helper queue full: {exc}"}
+    named = {"group": brief.group} if brief.group else {}
     if registry.state_of(handle.id) is State.queued:
         running, queued = _helpers_in_flight(registry, context.session_id)
         return {
             "id": handle.id,
             "role": handle.role,
+            **named,
             "state": "queued",
             "advice": (
                 f"{running} helpers are running, as many as the person allows at once, and "
@@ -350,7 +359,7 @@ async def _begin_helper(  # noqa: PLR0913 - start plus the setup to discard if t
                 "finishes, and its time starts then; work.cancel takes it out of the queue."
             ),
         }
-    return {"id": handle.id, "role": handle.role, "state": "running", "advice": advice}
+    return {"id": handle.id, "role": handle.role, **named, "state": "running", "advice": advice}
 
 
 def _not_attached() -> dict[str, Any]:
@@ -381,6 +390,7 @@ async def _list(registry: Registry, context: PackContext) -> dict[str, Any]:
                 "depth": record.depth,
                 "state": record.state.value,
                 "progress": record.progress or record.detail,
+                **({"group": record.group} if record.group else {}),
             }
             for record in running
         ],
@@ -407,6 +417,7 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
     objective: str,
     role: str,
     return_schema: str = "",
+    group: str = "",
 ) -> dict[str, Any]:
     brief = objective.strip()
     if not brief:
@@ -420,9 +431,10 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
     if runtime is None:
         return _not_attached()
     name = role.strip() or "helper"
+    team = group.strip()
 
     agent_id, task_id = await runtime.prepare(
-        context, objective=brief, role=name, return_schema=return_schema
+        context, objective=brief, role=name, return_schema=return_schema, group=team
     )
 
     async def work() -> dict[str, Any]:
@@ -451,8 +463,9 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             account_id=context.account_id,
             # The main thread's helpers wake an idle session when they finish; a helper's
             # helpers do not, because their parent is still running and is the one that
-            # will read them.
+            # will read them. A member of a group wakes it once, with its group.
             wake=depth == 0,
+            group=team,
         ),
         work_id=agent_id,
         discard=(agent_id, task_id),

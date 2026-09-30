@@ -215,6 +215,22 @@ async def test_helper_items_are_not_in_the_parent_transcript(hub: Hub) -> None:
     roster = await hub.http.get(f"/v1/sessions/{session['id']}/subagents", headers=bearer())
     assert roster.status_code == 200
     assert roster.json()["data"][0]["id"] == agent_id
+    assert roster.json()["data"][0]["group"] is None
+    assert roster.json()["data"][0]["started_at"] is not None
+    grouped = await agents.insert(
+        ACCOUNT,
+        session["id"],
+        role="skeptic",
+        objective="refute it",
+        depth=1,
+        delegation={"group": "skeptics"},
+        status="queued",
+    )
+    queued = await hub.http.get(
+        f"/v1/sessions/{session['id']}/subagents/{grouped}", headers=bearer()
+    )
+    assert (queued.json()["status"], queued.json()["group"]) == ("queued", "skeptics")
+    assert queued.json()["started_at"] is None, "a queued helper has not started"
     one = await hub.http.get(f"/v1/sessions/{session['id']}/subagents/{agent_id}", headers=bearer())
     assert one.status_code == 200
     assert one.json()["role"] == "reviewer"

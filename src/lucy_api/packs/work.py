@@ -258,7 +258,8 @@ def _list(registry: Registry, session_id: str) -> dict[str, Any]:
 
 def _check(registry: Registry, session_id: str) -> dict[str, Any]:
     notices = registry.drain(session_id)
-    return {
+    teams = registry.drain_teams(session_id)
+    checked: dict[str, Any] = {
         "finished": [
             {
                 "id": notice.id,
@@ -269,6 +270,7 @@ def _check(registry: Registry, session_id: str) -> dict[str, Any]:
                 "seconds": round(notice.elapsed_seconds, 1),
                 "result_tokens": notice.tokens,
                 "detail": notice.detail,
+                **({"group": notice.group} if notice.group else {}),
             }
             for notice in notices
         ],
@@ -279,6 +281,12 @@ def _check(registry: Registry, session_id: str) -> dict[str, Any]:
             else "Nothing has finished since you last checked."
         ),
     }
+    if teams:
+        # A group whose last member has ended: every member is done, whichever way.
+        checked["groups"] = [
+            {"group": team.group, "ids": list(team.ids), "line": team.line()} for team in teams
+        ]
+    return checked
 
 
 def _result(registry: Registry, work_id: str) -> dict[str, Any]:

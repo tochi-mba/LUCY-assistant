@@ -98,7 +98,7 @@ class SilentTokens:
 class ChildRuntime(Protocol):
     """Runs one helper and delivers a parent message to its inbox."""
 
-    async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume and schema
+    async def prepare(  # noqa: PLR0913 - the brief is objective, role, resume, schema, group
         self,
         parent: PackContext,
         *,
@@ -107,6 +107,7 @@ class ChildRuntime(Protocol):
         resume_from: str = "",
         return_schema: str = "",
         guidance: str = "",
+        group: str = "",
     ) -> tuple[str, int]: ...
 
     async def run(

@@ -356,11 +356,26 @@ async def test_listing_helpers_and_the_oauth_resource_document(
         hang(),
         Brief(session_id=session, kind=Kind.helper, role="reviewer", objective="wait"),
     )
+    container.work.queue(
+        hang,
+        Brief(
+            session_id=session,
+            kind=Kind.helper,
+            role="skeptic",
+            objective="refute",
+            group="skeptics",
+        ),
+        slots=1,
+        waiting=1,
+    )
     for _ in range(4):
         await asyncio.sleep(0)
     listed = await http.get(f"/v1/sessions/{session}/agents", headers=bearer())
     assert listed.status_code == 200
-    assert listed.json()["data"][0]["role"] == "reviewer"
+    assert [(row["role"], row["state"], row["group"]) for row in listed.json()["data"]] == [
+        ("reviewer", "running", None),
+        ("skeptic", "queued", "skeptics"),
+    ]
     await container.work.shutdown()
     discovery = await http.get("/.well-known/oauth-protected-resource")
     assert discovery.status_code == 200

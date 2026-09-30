@@ -34,7 +34,10 @@ AgentId = Annotated[str, Path(min_length=1, max_length=64)]
     operation_id="list_session_agents",
     summary="Helpers currently running on this conversation",
     responses=_ADDRESSED,
-    description="In-flight helpers only. Finished ones are work notices, not this list.",
+    description=(
+        "In-flight helpers only: `state` is `running`, or `queued` behind the person's cap. "
+        "Finished ones are work notices, not this list."
+    ),
 )
 async def list_session_agents(
     caller: CurrentCallerDep,
@@ -50,6 +53,7 @@ async def list_session_agents(
             "objective": record.objective,
             "depth": record.depth,
             "state": record.state.value,
+            "group": record.group or None,
         }
         for record in container.work.running(session_id)
         if record.kind is Kind.helper
@@ -58,13 +62,17 @@ async def list_session_agents(
 
 
 def _public_agent(row: dict[str, Any]) -> dict[str, Any]:
+    stored = row.get("delegation")
+    group = stored.get("group") if isinstance(stored, dict) else None
     return {
         "id": row["id"],
         "role": row["role"],
         "objective": row["objective"],
         "status": row["status"],
         "depth": row["depth"],
+        "group": group or None,
         "created_at": row["created_at"],
+        "started_at": row.get("started_at"),
         "finished_at": row.get("finished_at"),
         "interrupted_reason": row.get("interrupted_reason"),
     }
