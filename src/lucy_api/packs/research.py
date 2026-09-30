@@ -169,6 +169,7 @@ class ResearchPack:
                         "url": hit.url,
                         "source": urlsplit(hit.url).hostname or "",
                         "rank": hit.rank,
+                        "snippet": hit.snippet,
                         "query": result.query,
                         "summary": _summary(result.summary),
                     }

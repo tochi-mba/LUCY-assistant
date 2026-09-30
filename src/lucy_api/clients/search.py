@@ -5,8 +5,9 @@ all of it was page text. A single scraped article is a few thousand tokens; ten 
 turn nobody can afford and a model that has stopped being able to see the question.
 
 So the projection is the one the plan names: an executive summary, its key points, and URLs.
-A search result keeps its title, its link and its rank -- enough to cite, enough to choose
-what to open -- and its extracted page text does not survive at all. A scrape keeps the text,
+A search result keeps its title, its link, its rank and the result page's own snippet (which
+the service bounds) -- enough to cite, enough to choose what to open -- and its extracted page
+text does not survive at all. A scrape keeps the text,
 because fetching a page and throwing the text away would be absurd, but keeps it in a field
 of its own on `Article`: that is what goes to the workspace and comes back as a reference,
 and `Article.page` is the part a tool result is allowed to carry.
@@ -93,6 +94,8 @@ class Hit:
     title: str
     url: str
     rank: int = 0
+    snippet: str = ""
+    """The few lines a search engine shows under the title; the service bounds its length."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,12 +282,17 @@ def _summary(payload: Any) -> Summary | None:
 
 
 def _findings(row: Any) -> Findings:
-    """One query's outcome, with every result reduced to a title, a link and a rank."""
+    """One query's outcome, each result reduced to a title, a link, a rank and a snippet."""
     return Findings(
         query=text(row, "query"),
         status=text(row, "status", "ok"),
         hits=tuple(
-            Hit(title=text(hit, "title"), url=text(hit, "url"), rank=number(hit, "rank"))
+            Hit(
+                title=text(hit, "title"),
+                url=text(hit, "url"),
+                rank=number(hit, "rank"),
+                snippet=text(hit, "snippet"),
+            )
             for hit in rows(row, "results")
         ),
         summary=_summary(nested(row, "summary")),
