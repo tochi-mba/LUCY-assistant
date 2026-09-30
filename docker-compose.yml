@@ -285,7 +285,7 @@ services:
     environment:
       SPOTIFY_API_KEYRING_BASE_URL: http://keyring:8001
       SPOTIFY_API_KEYRING_ISSUER: "http://127.0.0.1:8001"
-      SPOTIFY_API_KEYRING_AUDIENCE: music-api
+      SPOTIFY_API_KEYRING_AUDIENCE: spotify-api
       SPOTIFY_API_LOG_FORMAT: json
     depends_on:
       keyring:

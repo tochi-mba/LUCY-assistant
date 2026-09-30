@@ -5,12 +5,13 @@ from dataclasses import replace
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.clients.errors import DownstreamError
 from lucy_api.clients.music import CONFIRM_WAIT_SECONDS, Device, FakeMusicClient, Play, Track
+from lucy_api.core.config import Settings
 from lucy_api.packs.base import Availability, Bound, State
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.packs.music import UNCONFIRMED_NOTE, MusicPack, _optional_int
 from lucy_api.packs.registry import limits_for
-from lucy_api.packs.service import Capabilities
+from lucy_api.packs.service import Capabilities, installed_packs
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import SessionScope
 
@@ -255,3 +256,16 @@ def test_a_music_step_outlasts_the_wait_for_a_confirmed_command() -> None:
 def test_a_boolean_year_is_not_treated_as_a_year() -> None:
     assert _optional_int(True) is None
     assert _optional_int(1999) == 1999
+
+
+def test_the_music_audience_is_the_configured_service_s_own() -> None:
+    """An audience names one service. Whatever answers the music contract is asked with a
+    token minted for it, which is configuration and not a constant."""
+    default = next(pack for pack in installed_packs() if pack.id == "music")
+    other = next(
+        pack for pack in installed_packs(music_audience="other-music") if pack.id == "music"
+    )
+    assert isinstance(default, MusicPack)
+    assert isinstance(other, MusicPack)
+    assert (default.audience, other.audience) == ("spotify-api", "other-music")
+    assert Settings(_env_file=None).music_api_audience == "spotify-api"

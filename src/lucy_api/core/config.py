@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     persona_api_base_url: str = "http://127.0.0.1:8004"
     web_search_base_url: str = "http://127.0.0.1:8006"
     music_api_base_url: str = "http://127.0.0.1:8007"
+    music_api_audience: str = "spotify-api"
     environments_api_base_url: str = "http://127.0.0.1:8008"
     memory_api_base_url: str = "http://127.0.0.1:8009"
     memory_api_token: str = ""

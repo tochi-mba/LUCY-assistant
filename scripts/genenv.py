@@ -27,6 +27,11 @@ generator writes itself is refused, so an extra can never replace a secret. A va
 present in the old file that neither the generator nor ``"env"`` provides is reported by
 name when a refresh drops it, because a hand edit that silently vanishes is how a working
 setup stops working after an unrelated regeneration.
+
+**A private service the hub calls for a person names its audience under**
+``"exchange_audiences"``. Keyring mints only the audiences on Lucy's allowlist, the
+allowlist is public, and a private service is never named in a public file (ADR-0011), so
+its audience is added here, on the machine that runs it.
 """
 
 from __future__ import annotations
@@ -73,7 +78,7 @@ LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
     # service refusing every token it is sent -- which it did, on every turn, in its own log.
     "persona",
     "settings",
-    "music-api",
+    "spotify-api",
     "user",
     "user.family",
     "user.finance",
@@ -94,7 +99,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("lucy-api", "lucy-api", ("lucy", "search", "spotify"), "LUCY_SETTINGS_API_TOKEN"),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
-    ("spotify-api", "music-api", ("spotify",), None),
+    ("spotify-api", "spotify-api", ("spotify",), None),
     ("web-search-api", "web-search-api", ("search",), None),
     ("keyring-api", "keyring", ("keyring",), None),
     ("environments-api", "environments-api", ("environments",), None),
@@ -132,6 +137,27 @@ def load_local_extras(
     return _consumers(data.get("keyring_consumers", []), path.name), _grants(
         data.get("settings_grants", []), path.name
     )
+
+
+def load_local_audiences(path: Path | None) -> tuple[str, ...]:
+    """The ``"exchange_audiences"`` list of the local extras file: audiences Lucy may also mint."""
+    if path is None or not path.is_file():
+        return ()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ExtraConfigError(f"{path.name} is not valid JSON") from exc
+    rows = data.get("exchange_audiences", []) if isinstance(data, dict) else []
+    if not isinstance(rows, list) or not all(isinstance(row, str) and row for row in rows):
+        raise ExtraConfigError(
+            f"{path.name}: exchange_audiences must be a list of non-empty strings"
+        )
+    for row in rows:
+        if row in LUCY_EXCHANGE_AUDIENCES:
+            raise ExtraConfigError(
+                f"local extra exchange audience {row!r} duplicates a published audience"
+            )
+    return tuple(rows)
 
 
 def load_local_env(path: Path | None) -> dict[str, str]:
@@ -259,7 +285,8 @@ def build_env(
     keyring_tokens = {name: new_token() for name, _variable in consumers}
     env["KEYRING_SERVICE_TOKENS"] = json.dumps(keyring_tokens, separators=(",", ":"))
     env["KEYRING_EXCHANGE_AUDIENCES"] = json.dumps(
-        {"lucy-api": list(LUCY_EXCHANGE_AUDIENCES)}, separators=(",", ":")
+        {"lucy-api": [*LUCY_EXCHANGE_AUDIENCES, *load_local_audiences(extras_path)]},
+        separators=(",", ":"),
     )
     for name, variable in consumers:
         env[variable] = keyring_tokens[name]

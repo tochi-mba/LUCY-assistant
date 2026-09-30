@@ -128,7 +128,7 @@ class _RoutingHttp:
         return (await self.request_response(call)).body
 
     async def request_response(self, call: Call) -> Any:
-        if call.audience == "music-api":
+        if call.audience == "spotify-api":
             self.slow_calls += 1
             self.started.set()
             await self.release.wait()
@@ -142,7 +142,7 @@ async def test_two_calls_to_the_same_audience_are_serialised() -> None:
     release = asyncio.Event()
     inner = _RoutingHttp(started, release)
     http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
-    call = Call(method="GET", url="https://music.test/v1", audience="music-api")
+    call = Call(method="GET", url="https://music.test/v1", audience="spotify-api")
 
     async def first() -> Any:
         return await http.request_response(call)
@@ -168,7 +168,7 @@ async def test_calls_to_different_audiences_do_not_wait_on_each_other() -> None:
     inner = _RoutingHttp(started, release)
     http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
     leading = asyncio.create_task(
-        http.request_response(Call(method="GET", url="https://a.test/", audience="music-api"))
+        http.request_response(Call(method="GET", url="https://a.test/", audience="spotify-api"))
     )
     await started.wait()
     await http.request_response(Call(method="GET", url="https://b.test/", audience="memory-api"))
@@ -188,7 +188,7 @@ async def test_a_credential_unavailable_response_drops_the_cached_probe() -> Non
         on_disconnect=lambda: dropped.append("yes"),
     )
     response = await http.request_response(
-        Call(method="GET", url="https://music.test/v1/player/devices", audience="music-api")
+        Call(method="GET", url="https://music.test/v1/player/devices", audience="spotify-api")
     )
     assert response.status_code == 502
     assert problem_code(response.json()) in CREDENTIAL_CODES
@@ -205,7 +205,7 @@ async def test_a_502_that_is_not_a_missing_credential_does_not_drop_the_cache() 
         on_disconnect=lambda: dropped.append("yes"),
     )
     await http.request_response(
-        Call(method="GET", url="https://music.test/v1", audience="music-api")
+        Call(method="GET", url="https://music.test/v1", audience="spotify-api")
     )
     assert dropped == []
 
@@ -220,7 +220,7 @@ async def test_an_ordinary_outage_does_not_drop_the_cache() -> None:
         on_disconnect=lambda: dropped.append("yes"),
     )
     await http.request_response(
-        Call(method="GET", url="https://music.test/v1", audience="music-api")
+        Call(method="GET", url="https://music.test/v1", audience="spotify-api")
     )
     assert dropped == []
 
@@ -287,7 +287,7 @@ async def test_changing_a_setting_invalidates_cached_probes() -> None:
 async def test_request_takes_the_same_per_audience_lock() -> None:
     inner = _StatusHttp(200, {"ok": True})
     http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
-    body = await http.request(Call(method="GET", url="https://music.test/", audience="music-api"))
+    body = await http.request(Call(method="GET", url="https://music.test/", audience="spotify-api"))
     assert body == {"ok": True}
 
 
@@ -316,7 +316,9 @@ async def test_a_malformed_502_body_does_not_drop_the_cache() -> None:
         profile="personal",
         on_disconnect=lambda: dropped.append("yes"),
     )
-    await http.request_response(Call(method="GET", url="https://music.test/", audience="music-api"))
+    await http.request_response(
+        Call(method="GET", url="https://music.test/", audience="spotify-api")
+    )
     assert dropped == []
 
 
@@ -328,7 +330,7 @@ async def test_without_a_disconnect_hook_a_missing_credential_is_still_returned(
         profile="personal",
     )
     response = await http.request_response(
-        Call(method="GET", url="https://music.test/", audience="music-api")
+        Call(method="GET", url="https://music.test/", audience="spotify-api")
     )
     assert response.status_code == 502
 

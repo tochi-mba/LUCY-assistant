@@ -49,7 +49,7 @@ def test_lucy_exchange_audiences_are_an_explicit_complete_allowlist() -> None:
         "memory-api",
         "environments-api",
         "web-search-api",
-        "music-api",
+        "spotify-api",
         "settings",
     } <= set(allowlists["lucy-api"])
 
@@ -240,3 +240,39 @@ def test_main_reports_a_file_it_cannot_write(
     monkeypatch.setattr(genenv, "write_env", refuse)
     assert genenv.main(["--output", str(tmp_path / ".env.family")]) == 1
     assert "cannot write .env.family: Permission denied" in capsys.readouterr().err
+
+
+# --- a private service the hub calls for a person brings its own audience --------------------
+
+
+def test_a_local_service_adds_its_own_exchange_audience(tmp_path: Path) -> None:
+    """The bug, named: a local music service was made reachable by renaming the public
+    audience to one two services shared. Keyring reads an audience as one service's name,
+    so the rename broke the public service's credential reads. A local service's audience
+    is added locally instead, and the published list is untouched."""
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text(json.dumps({"exchange_audiences": ["private-api"]}), encoding="utf-8")
+    audiences = json.loads(genenv.build_env(extras)["KEYRING_EXCHANGE_AUDIENCES"])["lucy-api"]
+    assert audiences[-1] == "private-api"
+    assert audiences[:-1] == list(genenv.LUCY_EXCHANGE_AUDIENCES)
+    assert genenv.load_local_audiences(None) == ()
+    extras.write_text("[]", encoding="utf-8")
+    assert genenv.load_local_audiences(extras) == ()
+
+
+@pytest.mark.parametrize(
+    ("body", "complaint"),
+    [
+        ("{not json", "not valid JSON"),
+        ('{"exchange_audiences": "private-api"}', "list of non-empty strings"),
+        ('{"exchange_audiences": [""]}', "list of non-empty strings"),
+        ('{"exchange_audiences": ["memory-api"]}', "duplicates a published audience"),
+    ],
+)
+def test_an_unusable_exchange_audience_is_refused_by_name(
+    tmp_path: Path, body: str, complaint: str
+) -> None:
+    extras = tmp_path / "genenv.local.json"
+    extras.write_text(body, encoding="utf-8")
+    with pytest.raises(genenv.ExtraConfigError, match=complaint):
+        genenv.load_local_audiences(extras)
