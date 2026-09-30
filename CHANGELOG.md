@@ -20,6 +20,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **An eval scenario can change things between turns.** Exploratory conversations, held
+  with `lucy eval run --suite <folder>`, often need the world to move between two things
+  the person says. A turn's `[[turns.before]]` steps run once the previous turn has come to
+  rest: an `op` through the invoke route, as seeds and verify steps run; a `host` command on
+  this machine, through the shell; or a `wait_seconds` pause. A step that does not end as
+  written leaves its turn unsent and the scenario an `error`, and both reports show every
+  step and how it ended. A run whose scenarios have a `host` step refuses to start without
+  the new `--allow-host`, and `--dry-run` lists every command. See
+  [docs/evals.md](docs/evals.md#holding-an-exploratory-conversation).
 - **The eval harness halts a turn at the first thing wrong.** A watchdog reads the
   transcript on every poll and stops the turn at a failed step, an error in the transcript,
   the same failure twice, or an ask for a call already answered -- before answering it
