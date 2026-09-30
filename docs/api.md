@@ -11,14 +11,18 @@ that names an account.
 | `GET` | `/ready` | none | Readiness. Reports each dependency and answers 503 when one is unusable. Point a load balancer here. |
 | `GET` | `/v1/me` | bearer | The account the presented token is for. The first call a client makes. |
 | `GET` | `/v1/setup` | bearer | Deployment readiness and setup guidance for each capability. |
+| `GET` | `/v1/capabilities` | bearer | Every capability, its state for this person (`ready`, `not_connected`, …) and one line each. |
+| `GET` | `/v1/prompt/preview` | bearer | The stable prompt sections, without running a turn. See [prompts.md](prompts.md). |
 | `GET` | `/v1/models` | bearer | Every model provider in three sections: `ready` (checked), `available` (configured, unproven), `unavailable` (with the command that fixes it). `?check=true` proves configured keys now. See [models.md](models.md). |
 | `GET` | `/v1/models/{provider}` | bearer | One provider's standing. An id with no catalogue row is 404, never a guess. |
 | `POST` | `/v1/auth/device` | none | Start passwordless CLI sign-in. |
 | `POST` | `/v1/auth/device/token` | none | Poll a device code using RFC 8628 error words. |
 | `POST` | `/v1/auth/device/authorize` | bearer | Approve or deny a device code from an existing signed-in client. |
 | `GET` | `/v1/connections` | bearer | Provider status, granted scopes and expiry; never credentials. |
+| `GET` | `/v1/connections/{service}` | bearer | The same, for one provider. |
 | `POST` | `/v1/connections/{service}/authorize` | bearer | Create a subject-bound Lucy-origin consent link. |
 | `GET` | `/v1/connections/{service}/authorize/{ticket}` | bearer | Poll provider connection state. |
+| `GET` | `/connect?ticket=…` | bearer | The consent link itself: verifies the browser's subject, spends the ticket once and answers `303` to the provider. Not in the OpenAPI document. See [connections.md](connections.md). |
 | `DELETE` | `/v1/connections/{service}` | bearer | Idempotently disconnect a provider. |
 | `GET` | `/.well-known/oauth-protected-resource` | none | RFC 9728 resource metadata. Where tokens for this API come from. |
 | `POST` | `/mcp` | bearer | JSON-RPC MCP. 2026-07-28 with a 2025-11-25 initialize path. GET and DELETE are 405. |
@@ -72,6 +76,33 @@ A body never echoes the value that was refused: a 4xx body is logged by the call
 handed back to a model, and a value rejected for looking like a credential must not then be
 copied into a log line.
 
+## Sessions, turns and items
+
+[sessions.md](sessions.md) is the shape behind these; this is the list.
+
+| Method | Path | What it is for |
+| --- | --- | --- |
+| `POST` | `/v1/sessions` | Start a conversation. Takes an `Idempotency-Key`. |
+| `GET` | `/v1/sessions` | This person's conversations. Listing also archives idle ones. |
+| `GET` | `/v1/sessions/{id}` | One conversation's state. |
+| `PATCH` | `/v1/sessions/{id}` | Rename it, or change how it behaves; a change that reaches a live turn is a `409` until `apply` says when. |
+| `DELETE` | `/v1/sessions/{id}` | Delete a conversation and its transcript. |
+| `POST` | `/v1/sessions/{id}/fork` | Branch a conversation at a point in its transcript. |
+| `POST` | `/v1/sessions/{id}/inputs` | **The one write path**: a message, an approval or another input. Answers `202`. |
+| `GET` | `/v1/sessions/{id}/events` | Follow a conversation as it changes. Resumable. |
+| `GET` | `/v1/sessions/{id}/items` | The transcript, as typed items. |
+| `GET` | `/v1/items/{item_id}` | One item. |
+| `GET` | `/v1/sessions/{id}/turns` | The units of work in a conversation. |
+| `GET` | `/v1/turns/{turn_id}` | One turn. |
+| `POST` | `/v1/turns/{turn_id}/cancel` | Stop a turn, cooperatively. |
+| `GET` | `/v1/sessions/{id}/context` | The exact prompt the session would send, with per-band token counts. See [context.md](context.md). |
+| `POST` | `/v1/sessions/{id}/compact` | Summarise older turns without rewriting them. |
+| `POST` | `/v1/sessions/{id}/uncompact` | Restore the turns a compaction was standing in for. |
+| `GET` | `/v1/sessions/{id}/results` | Tool results still addressable by reference. |
+| `GET` | `/v1/sessions/{id}/results/{result_id}` | One stored tool result. |
+| `GET` | `/v1/sessions/{id}/usage` | Token and cost totals for the conversation. |
+| `GET` | `/v1/sessions/{id}/agents` | Helpers running on this conversation now, from process memory. `subagents` above is the durable roster. |
+
 Session, turn and item endpoints use the one write path at
 `POST /v1/sessions/{id}/inputs`; streams are resumable. Creating a session provisions its
 dedicated `sessions/<id>` directory in the account/profile environment before returning
@@ -100,7 +131,6 @@ A plan that asks for two writes parks both; answering one leaves the other pendi
 Every grant, refusal, ask, revoke and auto-mode bypass is an append-only `audit` row. The
 row names the permission and never the arguments.
 
-The remaining planned verification is family-wide `make up` against real siblings.
 Files, artifacts, account erasure, session projections and live-turn streaming are on this
 hub:
 
