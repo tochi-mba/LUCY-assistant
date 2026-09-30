@@ -60,6 +60,10 @@ Learning and rewording are `notes.write`; unlearning is `notes.erase`, which ask
 in `auto`. They are offered only where a Persona-api is configured, and never in an
 incognito session.
 
+Lucy keeps what is worth keeping without being asked, and says so once it is kept. When the
+optional Laya decisions are on, `decision_keeping` is a safety net: a turn about to end with
+something worth keeping left unkept is held back once with a notice, and the model decides.
+
 `lucy.memory_write_policy` is `never`, `ask_first` (default), or `automatic`. Confirming is
 always explicit: permanence is what makes a memory store worth attacking, so untrusted
 notes are never auto-retrieved.

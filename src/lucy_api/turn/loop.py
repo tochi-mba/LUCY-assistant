@@ -54,6 +54,7 @@ from lucy_api.context.framing import Origin, as_trust, frame_result
 from lucy_api.context.scrub import SECURITY_EVENT, scrub, scrub_tree
 from lucy_api.model.types import ModelRefusedError, ModelUnavailableError, Reply, Request, Stop
 from lucy_api.turn.claims import UNBACKED, ClaimCheck
+from lucy_api.turn.keeping import UNKEPT, Keeping
 from lucy_api.turn.repetition import Repetition
 from lucy_api.turn.stop import Budget, Spent, Termination, Verdict, should_stop, warning_for
 from lucy_api.turn.window import (
@@ -181,7 +182,9 @@ class Turn:
     on_chunk: Callable[[Chunk], Awaitable[None]] | None = None
     recovery: Recovery | None = None
     claims: ClaimCheck = field(default_factory=ClaimCheck)
-    """Whether a final reply claims work nothing did. The phrase list, unless a decision is live."""
+    """Whether a final reply claims work nothing did. Asked of a decision; off, nothing is."""
+    keeping: Keeping = field(default_factory=Keeping)
+    """Whether the turn is ending with something worth keeping left unkept. Asked likewise."""
     opening_notice: str = ""
     opening_plan: dict[str, Any] | None = None
     """Steps to run before the model is asked anything: the calls a person just approved.
@@ -225,6 +228,8 @@ class _Cycle:
     stops being true the moment the model has read it."""
     claim_checked: bool = False
     """Whether a reply claiming undone work was already held back once this turn."""
+    keeping_checked: bool = False
+    """Whether a reply was already held back once for something left unkept."""
 
 
 async def run_turn(turn: Turn) -> Outcome:
@@ -308,6 +313,17 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
         cycle.claim_checked = True
         outcome.rounds.append(replace(round_, text=""))
         cycle.repair_notice = UNBACKED
+        return None
+    if (
+        reply.plan is None
+        and not cycle.keeping_checked
+        and await turn.keeping.unkept(outcome.rounds)
+    ):
+        # Held back once so the model can keep it in this same turn. What it was about to
+        # say is not lost: it answers again, after keeping it or deciding not to.
+        cycle.keeping_checked = True
+        outcome.rounds.append(replace(round_, text=""))
+        cycle.repair_notice = UNKEPT
         return None
     executor = turn.execute
     acting = reply.plan is not None and executor is not None

@@ -686,6 +686,12 @@ def _decision_knobs() -> tuple[Knob, ...]:
             "Catch a reply that claims work no step did, in any wording.",
             "Only when decisions are enabled. Otherwise replies go out unchecked.",
         ),
+        (
+            "decision_keeping",
+            True,
+            "Notice when something worth keeping was said and nothing kept it.",
+            "Only when decisions are enabled. The write policy and approvals still decide.",
+        ),
     )
     return (
         *tuple(

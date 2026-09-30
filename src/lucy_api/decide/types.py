@@ -92,11 +92,20 @@ CLAIMS = Use(
     "Hold back a reply that claims work no step did.",
 )
 
-USES: tuple[Use, ...] = (CAPABILITIES, MEMORY, RECOVERY, CLAIMS)
+KEEPING = Use(
+    "keeping",
+    "decision_keeping",
+    "advisory",
+    "the model keeps what it notices",
+    "Notice something worth keeping that nothing kept.",
+)
+
+USES: tuple[Use, ...] = (CAPABILITIES, MEMORY, RECOVERY, CLAIMS, KEEPING)
 
 __all__ = [
     "CAPABILITIES",
     "CLAIMS",
+    "KEEPING",
     "MEMORY",
     "RECOVERY",
     "USES",
