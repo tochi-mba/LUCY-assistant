@@ -16,6 +16,7 @@ import posixpath
 import shlex
 import subprocess
 from datetime import UTC, datetime
+from importlib.resources import files
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -31,6 +32,7 @@ from lucy_api.clients.environments import (
 )
 from lucy_api.context.build import Live
 from lucy_api.context.types import Trust
+from lucy_api.mcp.skills import CATALOGUE
 from lucy_api.model.registry import ModelRegistry
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.help import HelpPack
@@ -39,6 +41,7 @@ from lucy_api.packs.workspace import MAX_TIMEOUT_MS, MAX_TOOL_OUTPUT_CHARS, Work
 from lucy_api.permissions.approvals import answer_approval
 from lucy_api.permissions.gate import Grant
 from lucy_api.prompt.docs import read_capability_doc
+from lucy_api.prompt.sections import PACKAGE
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.turns import submit_messages
@@ -434,6 +437,19 @@ def test_the_workspace_page_says_when_to_reach_for_a_script() -> None:
 
     assert "`workspace.script`" in page
     assert "`.scratch/`" in page
+
+
+def test_where_a_model_is_told_to_write_a_script_it_is_told_the_one_call_way() -> None:
+    """The bug, named: the always-on section told a model "write a short script and run it"
+    and the workspace skill listed every operation but this one, so a model that followed
+    either still took `workspace.write` then `workspace.run`, two approvals and a file left
+    among the person's changes, with the one-call operation in the catalogue it never read."""
+    section = files(PACKAGE).joinpath("defaults", "workspace.md").read_text("utf-8")
+    [skill] = [item for item in CATALOGUE if item.name == "workspace"]
+
+    assert "`workspace.script`" in section
+    assert "`workspace.script`" in skill.body
+    assert "`.scratch/`" in skill.body
 
 
 def test_the_operation_says_what_a_name_may_be_before_a_model_picks_one() -> None:

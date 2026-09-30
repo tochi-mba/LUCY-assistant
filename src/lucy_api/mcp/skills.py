@@ -146,6 +146,8 @@ Never invent a host path or another session's id.
 numbered, with a fingerprint. `workspace.edit` matches exact text once; if it
 matches twice, ask rather than guessing. `workspace.write`, `workspace.patch`
 and `workspace.move` change files. `workspace.run` executes inside the subtree.
+`workspace.script` writes a short python or bash script to `.scratch/`, never
+among the person's changes, and runs it in one call under the same permission.
 `workspace.delete` removes a file and still asks in auto unless they already
 allowed `workspace.destroy`.
 """,
