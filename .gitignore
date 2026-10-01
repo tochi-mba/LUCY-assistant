@@ -9,6 +9,7 @@
 /Spotify-api/
 /Environments-api/
 /Memory-api/
+/Github-api/
 
 # Operator-local sibling checkouts and the compose/token extras that wire them.
 # See docs/private-repos.md and docs/adr/0011-private-services-are-extensions.md.
