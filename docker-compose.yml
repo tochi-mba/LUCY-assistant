@@ -322,10 +322,10 @@ services:
       GHAPI_KEYRING_JWKS_URL: http://keyring:8001/.well-known/jwks.json
       GHAPI_KEYRING_ISSUER: "http://127.0.0.1:8001"
       GHAPI_AUDIENCE: github-api
-      GHAPI_DATABASE_PATH: /var/lib/github-api/github-api.sqlite3
+      GHAPI_DATABASE_PATH: /app/var/github-api.sqlite3
       GHAPI_LOG_FORMAT: json
     volumes:
-      - github-data:/var/lib/github-api
+      - github-data:/app/var
     depends_on:
       keyring:
         condition: service_healthy

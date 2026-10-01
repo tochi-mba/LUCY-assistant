@@ -65,6 +65,13 @@ def test_yaml_parses_as_a_mapping() -> None:
     assert "networks" in document
 
 
+def test_github_mounts_the_directory_its_image_makes_writable() -> None:
+    """The bug, named: Compose moved the database to a root-owned volume."""
+    service = load()["services"]["github"]
+    assert service["environment"]["GHAPI_DATABASE_PATH"] == "/app/var/github-api.sqlite3"
+    assert service["volumes"] == ["github-data:/app/var"]
+
+
 def test_every_family_service_is_on_one_network() -> None:
     document = load()
     assert list(document["services"]) == list(FAMILY)
