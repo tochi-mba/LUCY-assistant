@@ -8,6 +8,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Lucy tells the person what happened, not that "the harness" did it.** After a planted
+  file's orders were neutralised she said "the harness flagged and neutralised it": the
+  system's word for its own `[harness: ...]` notices, which the prompt never explained. The
+  safety section now says what such a line is and to describe it in plain words.
 - **A restart is not announced as a cancellation.** Restarting the hub while a helper ran
   told its conversation the helper had been *cancelled* -- the person's own choice, never
   offered for continuing -- so asked what was interrupted, the model said nothing had been.
