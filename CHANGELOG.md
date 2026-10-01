@@ -8,6 +8,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Work cancelled before its first step is recorded as cancelled.** A task cancelled before
+  the loop ran it never entered the registry's runner, so its record said `running` for ever
+  and its coroutine was never awaited.
+
 - **A window smaller than the turn is named as a setting, not as compaction.** With
   `max_context_tokens` at 8,000 and the prompt alone at 19,050, the context line read
   "238% used" and the model told the person on the first turn that the conversation had
@@ -149,6 +153,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   ships a package.
 
 ### Added
+
+- **Work a sibling finishes: subscriptions, ended by a signed signal.** A new kind of work,
+  `subscription`, in the one work registry: same handle, notice, wake and
+  `work.check`/`cancel`/`result` as every other kind, plus a durable row. A sibling ends it
+  with `POST /v1/signals/{id}`, signed `X-Lucy-Signature` with a per-subscription secret.
+  Open rows are taken up again after a restart under their original work id, and a sweep
+  asks siblings about any whose signal was lost. See `docs/jobs.md` and ADR-0015.
+- **A woken turn can act for the person.** A subscription that will wake a session records
+  standing consent -- an offline grant in keyring the person can see and revoke -- and the
+  turn it opens is prepared under it exactly like a turn they sent. A cancel withdraws it.
+- **`clients/python/lucy_signals`**: the sibling's side of the contract (`Signal`,
+  `deliver`, `verify_signature`), held to the hub's signatures by a test.
 
 - **The repository names REX Technologies.** An MIT `LICENSE` file with REX Technologies as
   the copyright holder (the package metadata already said MIT, with no file beside it), the

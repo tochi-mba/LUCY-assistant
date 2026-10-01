@@ -298,6 +298,50 @@ class KeyringExchange:
             headers=_session_headers(session_token),
         )
 
+    async def create_delegated_grant(
+        self,
+        *,
+        profile: str,
+        user_token: str,
+        audiences: Sequence[str],
+        ttl_seconds: int,
+    ) -> OfflineGrant:
+        """Record standing consent for this hub, while the person is present.
+
+        The proof is the person's own token for this hub, presented with the hub's service
+        token -- the same pair every delegated keyring route takes -- so keyring derives the
+        account from the token and the service from the credential, and the body can name
+        neither. The person sees the grant beside every other and can revoke it.
+
+        Raises:
+            As :meth:`exchange`, plus ``GrantNotFoundError`` for an unknown profile.
+        """
+        body = await self._send(
+            "POST",
+            _delegated_grants_path(profile),
+            headers=self._delegated_headers(user_token),
+            json={"audiences": list(audiences), "ttl_seconds": ttl_seconds},
+        )
+        return _grant_from(body)
+
+    async def revoke_delegated_grant(self, *, profile: str, user_token: str, grant_id: str) -> None:
+        """Withdraw standing consent this hub holds, proved by a token for the person.
+
+        The token may be one minted under the grant itself: a grant can be used to give
+        itself up, which is how a subscription cancelled with nobody present lets go.
+
+        Raises:
+            As :meth:`create_delegated_grant`.
+        """
+        await self._send(
+            "DELETE",
+            f"{_delegated_grants_path(profile)}/{quote(grant_id, safe='')}",
+            headers=self._delegated_headers(user_token),
+        )
+
+    def _delegated_headers(self, user_token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._service_token}", USER_TOKEN_HEADER: user_token}
+
     async def aclose(self) -> None:
         """Release the connection pool."""
         await self._http.aclose()
@@ -344,6 +388,11 @@ def _detail_of(response: httpx.Response) -> str:
 def _grants_path(profile: str) -> str:
     """Percent-encoded, so a profile name cannot climb out of the path it is placed in."""
     return f"/v1/profiles/{quote(profile, safe='')}/grants"
+
+
+def _delegated_grants_path(profile: str) -> str:
+    """The delegated twin of :func:`_grants_path`, on keyring's internal surface."""
+    return f"/v1/internal/profiles/{quote(profile, safe='')}/grants"
 
 
 def _session_headers(session_token: str) -> dict[str, str]:

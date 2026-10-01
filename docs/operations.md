@@ -36,6 +36,10 @@ start a process that looks healthy until the first token needs verifying.
 | `LUCY_MODEL_TIMEOUT_SECONDS` | `120` | How long one model call may take. A model that is thinking is not a sibling that is down. |
 | `LUCY_USER_API_BASE_URL` … `LUCY_MEMORY_API_BASE_URL` | the family ports | One base URL per sibling. |
 | `LUCY_MUSIC_API_AUDIENCE` | `spotify-api` | The audience of whatever answers at `LUCY_MUSIC_API_BASE_URL`. See [connections.md](connections.md#music-is-a-contract-not-a-service). |
+| `LUCY_REPOS_API_BASE_URL` | `http://127.0.0.1:8011` | Where the `repos` capability's service answers: Github-api, or any implementation of its contract. See [repos.md](repos.md). |
+| `LUCY_REPOS_API_AUDIENCE` | `github-api` | The audience of whatever answers at `LUCY_REPOS_API_BASE_URL`, as keyring knows it. |
+| `LUCY_SIGNAL_BASE_URL` | `http://127.0.0.1:8000/v1/signals` | This hub's `/v1/signals`, as a sibling reaches it -- in compose, `http://lucy:8000/v1/signals`. See [jobs.md](jobs.md). |
+| `LUCY_SUBSCRIPTION_SWEEP_SECONDS` | `120` | How often to ask siblings about subscriptions whose signal may have been lost. |
 | `LUCY_EXTRA_SERVICES` | `{}` | Operator-local services, keyed by capability id, as JSON; each adds a card to `GET /v1/setup`. See [private-repos.md](private-repos.md). |
 | `LUCY_LAYA_BASE_URL`, `LUCY_LAYA_API_KEY`, `LUCY_LAYA_MODEL`, `LUCY_LAYA_TIMEOUT_MS`, `LUCY_LAYA_MAX_CONCURRENT` | *(empty)*, `5000`, `2` | The optional Laya decision service. See [decisions.md](decisions.md). |
 | `LUCY_SETTINGS_API_TOKEN` | *(empty)* | The hub's service token for settings-api. |

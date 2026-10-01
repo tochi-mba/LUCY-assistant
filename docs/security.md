@@ -33,6 +33,19 @@ the service token never reaches the internal surface. Lucy talks to Memory-api
 only this way: `LUCY_MEMORY_API_TOKEN` as Bearer, a minted `memory-api` JWT as
 `X-Keyring-User-Token`.
 
+**A signal is proved by its signature, and says only that something happened.**
+`POST /v1/signals/{id}` carries no bearer token: a sibling signs the raw body with the
+per-subscription secret Lucy gave it, and Lucy checks it in constant time. A forged signature
+and an unknown id are the same 404, so guessing ids teaches nothing. The body is capped at
+8 KiB and is a summary, never a result. See [jobs.md](jobs.md).
+
+**A woken turn acts under consent the person can see, never a held token.** When a
+subscription will wake a session, Lucy records an offline grant in keyring with the person's
+own token while they are present, for the subscription's life plus fifteen minutes. The person
+can list and revoke it there. The woken turn mints a token for the hub under that grant and
+is prepared like any turn the person sent, under their permission mode and grants; a cancel
+withdraws the grant. Nothing about a person's credential is kept between the two moments.
+
 **Unknown env vars fail startup.** A typo in `KEYRING_MASTER_KEY`'s name would
 otherwise start a sealed vault that looks healthy enough to ship. Each service
 refuses prefixed variables it does not recognise.

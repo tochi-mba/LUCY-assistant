@@ -1,0 +1,16 @@
+[project]
+name = "lucy-signals"
+version = "0.1.0"
+description = "Sign and send the signal that ends a Lucy subscription, and verify one. The sibling side of Lucy's jobs contract."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "REX Technologies" }]
+dependencies = ["httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lucy_signals"]

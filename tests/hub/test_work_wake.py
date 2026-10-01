@@ -21,7 +21,7 @@ from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
 from lucy_api.stream.events import WORK_FINISHED, WORK_WOKE
 from lucy_api.work import Kind, Record, State, Waker, wake_line
-from lucy_api.work.wake import NOTICE_KIND, NOTICE_ROLE, WAKE_INPUT
+from lucy_api.work.wake import NO_STANDING, NOTICE_KIND, NOTICE_ROLE, STANDING, WAKE_INPUT
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
@@ -341,3 +341,86 @@ async def test_the_end_of_turn_hook_notifies_first_and_flushes_second(
 
     assert order == ["notified completed True True"]
     assert harness.woken == 1
+
+
+# --------------------------------------------------------------------------------------
+# A woken turn and the consent its work carried
+# --------------------------------------------------------------------------------------
+
+
+class Lending:
+    """An authority that lends, or fails to lend, and records what it was asked."""
+
+    def __init__(self, *, carries: bool, prepared: object | None) -> None:
+        self._carries = carries
+        self._prepared = prepared
+        self.authorized: list[tuple[str, object]] = []
+
+    def carries(self, ending: Any) -> bool:
+        return self._carries
+
+    async def prepare(self, ending: Any) -> object | None:
+        return self._prepared
+
+    def authorize(self, turn_id: str, prepared: object) -> None:
+        self.authorized.append((turn_id, prepared))
+
+
+async def test_a_woken_turn_with_consent_is_authorized_and_told_what_it_covers(
+    store: SessionStore,
+) -> None:
+    harness = Harness(store)
+    lending = Lending(carries=True, prepared="authority")
+    harness.waker.attach(harness.wake, lending)
+    session = await a_session(store)
+
+    await harness.waker.on_finished(a_record(session, kind=Kind.subscription))
+
+    [turn] = await harness.turns(session)
+    assert lending.authorized == [(turn["id"], "authority")]
+    [item] = await harness.items(session)
+    assert str(item["content"]).endswith(STANDING + "]")
+    assert harness.woken == 1
+
+
+async def test_consent_that_no_longer_works_is_said_and_nothing_is_lent(
+    store: SessionStore,
+) -> None:
+    harness = Harness(store)
+    lending = Lending(carries=True, prepared=None)
+    harness.waker.attach(harness.wake, lending)
+    session = await a_session(store)
+
+    await harness.waker.on_finished(a_record(session, kind=Kind.subscription))
+
+    assert lending.authorized == []
+    [item] = await harness.items(session)
+    assert str(item["content"]).endswith(NO_STANDING + "]")
+
+
+async def test_work_that_carried_no_consent_reads_exactly_as_before(store: SessionStore) -> None:
+    harness = Harness(store)
+    lending = Lending(carries=False, prepared="unused")
+    harness.waker.attach(harness.wake, lending)
+    session = await a_session(store)
+    record = a_record(session)
+
+    await harness.waker.on_finished(record)
+
+    assert lending.authorized == []
+    [item] = await harness.items(session)
+    assert item["content"] == wake_line(record)
+
+
+async def test_attaching_without_an_authority_keeps_the_one_already_given(
+    store: SessionStore,
+) -> None:
+    lending = Lending(carries=True, prepared="kept")
+    harness = Harness(store)
+    harness.waker = Waker(store, harness.events, authority=lending)
+    harness.waker.attach(harness.wake)
+    session = await a_session(store)
+
+    await harness.waker.on_finished(a_record(session, kind=Kind.subscription))
+
+    assert [prepared for _, prepared in lending.authorized] == ["kept"]

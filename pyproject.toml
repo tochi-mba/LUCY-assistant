@@ -126,8 +126,9 @@ convention = "google"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src"]
-mypy_path = ["src"]
+# The signal client beside the hub is held to the hub's bar: strict, and fully covered.
+files = ["src", "clients/python/lucy_signals/src"]
+mypy_path = ["src", "clients/python/lucy_signals/src"]
 explicit_package_bases = true
 strict = true
 warn_unreachable = true
@@ -142,11 +143,12 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["error"]
 testpaths = ["tests"]
+pythonpath = ["clients/python/lucy_signals/src"]
 addopts = "-ra --strict-markers --strict-config"
 
 [tool.coverage.run]
 branch = true
-source = ["lucy_api"]
+source = ["lucy_api", "lucy_signals"]
 omit = ["src/lucy_api/__main__.py"]
 
 [tool.coverage.report]

@@ -560,3 +560,80 @@ async def test_the_block_says_plainly_that_it_is_not_the_result() -> None:
 
     assert "Nothing here is the result itself" in block
     assert "researcher (helper) - Look up the dates - succeeded" in block
+
+
+# --------------------------------------------------------------------------------------
+# Cancelled before it ever ran
+# --------------------------------------------------------------------------------------
+
+
+async def test_work_cancelled_before_its_first_step_ends_cancelled_and_is_told() -> None:
+    """Defect: a task cancelled before the loop first ran it never entered `_run`, so its
+    record said `running` for ever and its coroutine was never awaited."""
+    registry, _ = a_registry()
+    told: list[tuple[str, State]] = []
+
+    async def listener(record: Any) -> None:
+        told.append((record.id, record.state))
+
+    registry.on_finished(listener)
+    ran: list[str] = []
+
+    async def work() -> str:
+        ran.append("ran")
+        return "never"
+
+    handle = registry.start(work(), a_brief(kind=Kind.job, role="job"))
+    registry.cancel(handle.id)
+    await settled()
+
+    assert ran == []
+    assert registry.state_of(handle.id) is State.cancelled
+    assert registry.result(handle.id).detail == "cancelled"
+    assert told == [(handle.id, State.cancelled)]
+    assert registry.running(SESSION) == ()
+
+
+async def test_work_stopped_by_shutdown_before_its_first_step_is_a_restart_not_a_cancel() -> None:
+    registry, _ = a_registry()
+
+    async def work() -> str:
+        return "never"
+
+    handle = registry.start(work(), a_brief(kind=Kind.job, role="job"))
+    await registry.shutdown()
+
+    assert registry.state_of(handle.id) is State.failed
+    assert "restart" in registry.result(handle.id).detail
+
+
+async def test_a_subscription_stopped_by_a_restart_is_left_for_the_next_process() -> None:
+    registry, _ = a_registry()
+    told: list[str] = []
+
+    async def listener(record: Any) -> None:
+        told.append(record.id)
+
+    registry.on_finished(listener)
+    waiting: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    handle = registry.start(waiting, a_brief(kind=Kind.subscription, role="repos"))
+    await settled()
+    await registry.shutdown()
+    await settled()
+
+    assert told == []
+    assert registry.state_of(handle.id) is State.failed
+
+
+async def test_a_subscription_that_expires_reads_as_expired_like_a_watch() -> None:
+    registry, _ = a_registry()
+    waiting: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    handle = registry.start(
+        waiting, a_brief(kind=Kind.subscription, role="repos", timeout_seconds=0.01)
+    )
+    await asyncio.sleep(0.05)
+
+    assert registry.state_of(handle.id) is State.timed_out
+    assert (
+        "without firing; start it again if you still need it" in registry.result(handle.id).detail
+    )

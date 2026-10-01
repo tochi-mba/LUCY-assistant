@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 import secrets
 import time
@@ -13,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from lucy_api.core.errors import LucyError, absent
+from lucy_api.net.signing import sign
 from lucy_api.net.ssrf import assert_public_https
 from lucy_api.sessions.sql_store import encoded, identifier, row_value
 
@@ -101,10 +100,10 @@ class Webhooks:
         hooks = await self._with_secrets(account)
         payload = encoded({"session_id": session_id, "turn_id": turn_id, "status": status}).encode()
         for hook in hooks:
-            signature = hmac.new(str(hook["secret"]).encode(), payload, hashlib.sha256).hexdigest()
+            signature = sign(str(hook["secret"]), payload)
             headers = {
                 "content-type": "application/json",
-                "x-lucy-signature": f"sha256={signature}",
+                "x-lucy-signature": signature,
             }
             try:
                 await self.deliver(str(hook["url"]), headers, payload)

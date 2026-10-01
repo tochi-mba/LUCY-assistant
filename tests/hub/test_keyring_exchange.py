@@ -357,3 +357,50 @@ def test_the_client_satisfies_the_seam_the_broker_depends_on() -> None:
     assert isinstance(
         KeyringExchange(base_url=BASE_URL, service_token=SERVICE_TOKEN), TokenExchange
     )
+
+
+async def test_delegated_consent_is_proved_by_the_service_and_the_persons_token(
+    make_exchange,
+) -> None:
+    """The body names audiences and a lifetime only: keyring takes the account from the
+    token and the service from the credential, so neither is Lucy's to name."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json={**GRANT_BODY, "audiences": ["lucy-api"]})
+
+    grant = await (make_exchange(handler)).create_delegated_grant(
+        profile="work space", user_token=USER_TOKEN, audiences=("lucy-api",), ttl_seconds=4500
+    )
+
+    request = seen[0]
+    assert request.method == "POST"
+    assert request.url.raw_path == b"/v1/internal/profiles/work%20space/grants"
+    assert request.headers["Authorization"] == f"Bearer {SERVICE_TOKEN}"
+    assert request.headers["X-Keyring-User-Token"] == USER_TOKEN
+    assert json.loads(request.content) == {"audiences": ["lucy-api"], "ttl_seconds": 4500}
+    assert grant.audiences == ("lucy-api",)
+
+
+async def test_delegated_consent_is_withdrawn_with_a_token_minted_under_it(make_exchange) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    await (make_exchange(handler)).revoke_delegated_grant(
+        profile="personal", user_token=MINTED, grant_id="dgt/abc"
+    )
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.raw_path == b"/v1/internal/profiles/personal/grants/dgt%2Fabc"
+    assert seen[0].headers["X-Keyring-User-Token"] == MINTED
+
+
+async def test_a_refused_delegated_consent_names_who_must_act(make_exchange) -> None:
+    client = make_exchange(answering(403, json={"detail": "not allowed"}))
+    with pytest.raises(AudienceNotAllowedError):
+        await client.create_delegated_grant(
+            profile="personal", user_token=USER_TOKEN, audiences=("lucy-api",), ttl_seconds=60
+        )

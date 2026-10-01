@@ -54,6 +54,8 @@ services:
       LUCY_MUSIC_API_BASE_URL: http://spotify:8007
       LUCY_ENVIRONMENTS_API_BASE_URL: http://environments:8008
       LUCY_MEMORY_API_BASE_URL: http://memory:8009
+      # Siblings end subscriptions here; inside compose the hub is `lucy`, not 127.0.0.1.
+      LUCY_SIGNAL_BASE_URL: http://lucy:8000/v1/signals
       LUCY_LOG_FORMAT: json
       # One file on the host a person can read and filter: `lucy logs --session ses_...`.
       LUCY_LOG_FILE: /var/log/lucy/lucy.jsonl

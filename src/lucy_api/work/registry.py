@@ -75,6 +75,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+RESUMED_AFTER_RESTART = frozenset({Kind.helper, Kind.subscription})
+"""Kinds the next process picks up again, so a restart is not their ending to announce."""
+
 DEFAULT_TIMEOUT_SECONDS = 600.0
 """How long a piece of work runs before it is stopped and told so.
 
@@ -254,9 +257,9 @@ class Registry:
             raise ValueError(_taken(identifier))
         record = self._new_record(identifier, brief, State.running)
         self._records[record.id] = record
-        self._tasks[record.id] = asyncio.create_task(
-            self._run(record, work), name=f"work:{record.id}"
-        )
+        task = asyncio.create_task(self._run(record, work), name=f"work:{record.id}")
+        task.add_done_callback(lambda done: self._never_ran(record, work, done))
+        self._tasks[record.id] = task
         return _handle(record)
 
     def queue(  # noqa: PLR0913 - the work, its brief, and the three numbers of its lane
@@ -381,6 +384,26 @@ class Registry:
             self._forget_old(record.session_id)
             self._promote(record.session_id)
 
+    def _never_ran(self, record: Record, work: Awaitable[object], task: asyncio.Task[None]) -> None:
+        """End work whose task was cancelled before it took its first step.
+
+        A task cancelled before the loop first runs it never enters `_run`, so nothing records
+        its ending and the record says `running` for ever -- with its work coroutine never
+        awaited. Starting something and cancelling it straight away is ordinary (a sibling
+        that refuses the subscription it was just asked for), so it ends here the way `_run`
+        would have ended it. A task that did run has ended its record already.
+        """
+        if record.state is not State.running or not task.cancelled():
+            return
+        _discard(work)
+        self._tasks.pop(record.id, None)
+        if self._closing:
+            self._stopped_by_restart(record)
+        else:
+            self._finish(record, State.cancelled, detail="cancelled")
+        self._forget_old(record.session_id)
+        self._promote(record.session_id)
+
     @staticmethod
     async def _awaited(record: Record, work: Awaitable[object]) -> object:
         if record.timeout_seconds > 0:
@@ -390,13 +413,16 @@ class Registry:
     def _stopped_by_restart(self, record: Record) -> None:
         """Work this process stops on its way down: an ending nobody chose, not a cancellation.
 
+        A subscription is not told about either: its row is durable and the next process
+        takes it up again (`work.subscriptions`), so announcing it as stopped would be false.
+
         A helper is not told about here at all. Its row stays running, and the next process
         announces it as continuable (`agents.restart`). Told here, it was announced to its
         conversation as cancelled -- the person's own choice, never offered for continuing --
         and the model, asked what was interrupted, said nothing had been. Other work has no
         next process to speak for it, so it is told, as stopped by the restart.
         """
-        if record.kind is Kind.helper:
+        if record.kind in RESUMED_AFTER_RESTART:
             self._finish(record, State.failed, detail=RESTARTED, tell=False)
             return
         self._finish(record, State.failed, detail=RESTARTED)
@@ -726,9 +752,10 @@ def _expired(record: Record) -> str:
 
     A helper or a command that hit its ceiling may well still be running somewhere, and the
     person is owed that doubt. A watch that hit its ceiling simply never saw what it was
-    waiting for, and what the person is owed is the offer to look again.
+    waiting for, and what the person is owed is the offer to look again. So is a
+    subscription: the sibling looked for its whole life and the condition never held.
     """
-    if record.kind is Kind.watch:
+    if record.kind in {Kind.watch, Kind.subscription}:
         return (
             f"expired after {record.timeout_seconds:.0f}s without firing; "
             "start it again if you still need it"

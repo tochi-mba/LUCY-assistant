@@ -25,6 +25,7 @@ from lucy_api.api.routers import (
     permissions,
     prompt,
     sessions,
+    signals,
     webhooks,
     wellknown,
 )
@@ -44,6 +45,7 @@ ROUTERS = (
     economy.router,
     files.router,
     webhooks.router,
+    signals.router,
     agents.router,
     sessions.router,
 )

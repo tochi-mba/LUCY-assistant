@@ -42,6 +42,7 @@ that names an account.
 | `POST` | `/v1/webhooks` | bearer | Register an HTTPS signal destination. Secret is in this response only. |
 | `GET` | `/v1/webhooks` | bearer | Destinations this account registered. Secrets are never listed. |
 | `DELETE` | `/v1/webhooks/{id}` | bearer | Stop signalling a destination. Cross-account is 404. |
+| `POST` | `/v1/signals/{subscription_id}` | `X-Lucy-Signature` | A sibling ends a subscription. HMAC of the raw body with the subscription's secret, at most 8 KiB. Unknown id and bad signature are the same 404; ended is 409. See [jobs.md](jobs.md). |
 
 `/v1/setup` returns `{account_id, services}`. Each service has a stable `id`, `title`,
 `required`, deployment `state` (`ready`, `degraded`, `unavailable`), `connection_state`
