@@ -37,6 +37,7 @@ from lucy_api.clients.memory import (
     Draft,
     HttpMemoryClient,
     MemoryClient,
+    Note,
     as_dict,
 )
 from lucy_api.clients.persona import HttpPersonaClient, PersonaClient
@@ -52,6 +53,7 @@ from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.permissions.gate import INCOGNITO
 from lucy_api.prompt.docs import capability_doc
+from lucy_api.settings.defaults import FLOOR_UNKNOWN, MAX_RECALL, TRUST_FLOORS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -409,12 +411,15 @@ class NotesPack:
             }
         client = self._client(run.ctx)
         blocks = await client.blocks(profile=run.ctx.profile)
-        facts = await client.search(
-            profile=run.ctx.profile, session_id=run.ctx.session_id, limit=DEFAULT_LIMIT
-        )
+        limit = _recall_limit(run.ctx)
+        facts: tuple[Note, ...] = ()
+        if limit:
+            facts = await client.search(
+                profile=run.ctx.profile, session_id=run.ctx.session_id, limit=limit
+            )
         return {
             "blocks": [{"label": block.label, "body": block.body} for block in blocks],
-            "facts": [as_dict(note) for note in facts],
+            "facts": [as_dict(note) for note in _within_floor(run, facts)],
             "account": await self._pinned_account(run.ctx),
         }
 
@@ -439,14 +444,14 @@ class NotesPack:
             run.notice(INCOGNITO)
             return []
         query = str(run.input.get("query") or "")
-        limit = int(run.input.get("limit") or DEFAULT_LIMIT)
+        limit = int(run.input.get("limit") or _recall_limit(run.ctx) or 1)
         notes = await self._client(run.ctx).search(
             query,
             profile=run.ctx.profile,
             session_id=run.ctx.session_id,
-            limit=max(1, min(limit, 20)),
+            limit=max(1, min(limit, MAX_RECALL)),
         )
-        return [as_dict(note) for note in notes]
+        return [as_dict(note) for note in _within_floor(run, notes)]
 
     async def _open_topic(self, run: RunContext[PackContext]) -> list[dict[str, Any]]:
         """The memories inside one topic. The index exists so this is paid for on purpose."""
@@ -549,6 +554,45 @@ class NotesPack:
         except AbsentError:
             return {"status": "not_found", "message": NO_LESSON}
         return {"lesson_id": lesson_id, "status": "unlearned"}
+
+
+def _recall_limit(context: PackContext) -> int:
+    """How many memories a recall brings back when nobody says: the person's, or ours."""
+    chosen = context.defaults.get("notes.limit")
+    return chosen if isinstance(chosen, int) else DEFAULT_LIMIT
+
+
+FLOOR_NOT_KNOWN = (
+    "How far this person lets you rely on what was inferred about them could not be read "
+    "from their settings just now, so nothing was retrieved rather than guessing. Try again "
+    "in a moment."
+)
+
+
+def _within_floor(run: RunContext[PackContext], notes: Sequence[Note]) -> list[Note]:
+    """The memories this person lets a recall rely on, saying how many were left out.
+
+    `memory.retrieval_trust_floor` is `stated`, `observed` or `inferred`: a floor admits
+    itself and everything more trusted. With no floor resolved at all, nothing is filtered,
+    which is what a recall did before it read anybody's settings.
+    """
+    floor = run.ctx.defaults.get("notes.trust_floor", TRUST_FLOORS[-1])
+    if floor == FLOOR_UNKNOWN:
+        run.notice(FLOOR_NOT_KNOWN)
+        return []
+    admitted = TRUST_FLOORS[: TRUST_FLOORS.index(str(floor)) + 1]
+    kept = [note for note in notes if note.trust in admitted]
+    held = len(notes) - len(kept)
+    if held:
+        run.notice(
+            f"{held} more matched and {_was(held)} left out: this person's settings use only "
+            f"what is {floor} or better."
+        )
+    return kept
+
+
+def _was(count: int) -> str:
+    return "was" if count == 1 else "were"
 
 
 def _trust_values(data: object) -> list[object]:

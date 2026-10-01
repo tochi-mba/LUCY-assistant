@@ -139,6 +139,23 @@ The rest of the namespace is the person's standing choices rather than ceilings:
 below, one `feeds_*` toggle per feed field, and the optional Laya switches
 (`decisions` and `decision_*`, see [decisions.md](decisions.md)).
 
+### What a sibling's settings supply when the model does not say
+
+A person's choice in a sibling's namespace becomes the default a model's omission falls
+to. The service owns the setting and the hub only reads it, once per turn, through
+`settings.defaults.pack_defaults`. An outage here supplies nothing and never takes the
+turn down; the hub's own default stands in.
+
+| setting | what it becomes |
+| --- | --- |
+| `search.default_result_count`, `search.search_backend` | How many results a search asks for, and the backend named on the live block |
+| `spotify.default_device` | The device a music action plays on when it names none |
+| `github.default_owner`, `github.default_visibility` | Where a new repository goes and who can see it |
+| `environments.command_timeout_seconds` | How long `workspace.run` and `workspace.script` let a command run when they name no `timeout_ms`. Held to the hub's ten-minute ceiling |
+| `environments.max_output_bytes` | How much of a command's output is captured. It narrows the hub's 64 KiB cap and never widens it |
+| `memory.retrieval_limit` | How many memories `notes.search` brings back when it names no `limit`, and how many facts `notes.aboutMe` lists. Zero lists none; a search is still the asking, and brings back one |
+| `memory.retrieval_trust_floor` | How far down the trust ladder a recall may reach: `stated`, then `observed`, then `inferred`. What is left out is counted in a notice. A floor that cannot be read is never guessed: the recall brings back nothing and says so |
+
 ### The person's own conventions
 
 Five `common` settings, and two of Lucy's own, say how a person wants to be written to. Settings-api merges

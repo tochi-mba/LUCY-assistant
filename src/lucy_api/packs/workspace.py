@@ -550,7 +550,7 @@ class WorkspacePack:
             run.ctx,
             Command(
                 text=str(run.input.get("command") or ""),
-                timeout_ms=_timeout_ms(run.input.get("timeout_ms")),
+                timeout_ms=_timeout_ms(run.input.get("timeout_ms"), run.ctx),
                 tail=run.input.get("show") != "start",
                 wait=wait if isinstance(wait, bool) else True,
                 wait_seconds=None if raw_wait is None else max(0.0, float(raw_wait)),
@@ -582,7 +582,7 @@ class WorkspacePack:
             run.ctx,
             Command(
                 text=script.command,
-                timeout_ms=_timeout_ms(run.input.get("timeout_ms")),
+                timeout_ms=_timeout_ms(run.input.get("timeout_ms"), run.ctx),
                 tail=run.input.get("show") != "start",
             ),
         )
@@ -604,7 +604,7 @@ class WorkspacePack:
                 command.text,
                 cwd=context.workspace_path,
                 timeout_ms=command.timeout_ms,
-                max_output_bytes=DEFAULT_OUTPUT_BYTES,
+                max_output_bytes=_output_bytes(context),
                 tail=command.tail,
             )
             shown = _shown(result.output, tail=result.tail)
@@ -661,9 +661,21 @@ class WorkspacePack:
         return _completed_command(finished.payload, handle.id)
 
 
-def _timeout_ms(asked: Any) -> int:
-    """The ceiling a command is given: what it asked for, from one millisecond to the most."""
-    return max(1, min(int(asked or DEFAULT_TIMEOUT_MS), MAX_TIMEOUT_MS))
+def _timeout_ms(asked: Any, context: PackContext) -> int:
+    """The ceiling a command is given: what it asked for, from one millisecond to the most.
+
+    A command that does not say gets the person's own `environments.command_timeout_seconds`,
+    and this service's default when they have not chosen.
+    """
+    chosen = context.defaults.get("workspace.timeout_ms")
+    default = chosen if isinstance(chosen, int) else DEFAULT_TIMEOUT_MS
+    return max(1, min(int(asked or default), MAX_TIMEOUT_MS))
+
+
+def _output_bytes(context: PackContext) -> int:
+    """How much of a command's output is captured: this service's cap, or less if they chose."""
+    chosen = context.defaults.get("workspace.output_bytes")
+    return min(DEFAULT_OUTPUT_BYTES, chosen) if isinstance(chosen, int) else DEFAULT_OUTPUT_BYTES
 
 
 def _shown(output: str, *, tail: bool) -> str:

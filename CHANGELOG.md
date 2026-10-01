@@ -154,6 +154,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A person's command timeout, output cap, recall size and trust floor are what a turn
+  uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
+  `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,
+  and changed nothing. A command that names no timeout now gets the person's, inside the
+  ten-minute ceiling; the output cap narrows the hub's own and never widens it; a recall
+  that names no size takes theirs. The trust floor is applied to `notes.search` and
+  `notes.aboutMe`: a person who chose `stated` no longer has inferences about them
+  retrieved, and the result says how many were left out. A floor that cannot be read is
+  not guessed: the recall brings back nothing and says why. The hub is granted the
+  `environments` and `memory` namespaces in the generated environment.
 - **Two settings for how a reply is laid out: `formatting` and `emoji`.** `formatting`
   `plain` tells the model to write no Markdown, for a client that shows text as it arrives
   (a voice, an SMS, a terminal with no renderer); `markdown` says the client renders it;

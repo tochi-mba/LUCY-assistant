@@ -96,12 +96,18 @@ LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
 # settings-api ServiceConfig rows. token_var is the consumer's own prefixed name when
 # that service already declares settings_api_token; None means only the grant exists yet.
 SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
-    # The hub reads three namespaces, not one: `lucy` for its own turn policy, and `search`
-    # and `spotify` for the sibling defaults `_optional_namespace` folds into a turn -- the
-    # person's chosen search backend, result count and playback device. Granted only `lucy`,
-    # the other two answered 403 on every turn ever served and `_optional_namespace` swallowed
-    # it by design, so those preferences were silently ignored and nothing said so.
-    ("lucy-api", "lucy-api", ("lucy", "search", "spotify", "github"), "LUCY_SETTINGS_API_TOKEN"),
+    # The hub reads several namespaces, not one: `lucy` for its own turn policy, and `search`,
+    # `spotify`, `github`, `environments` and `memory` for the sibling defaults
+    # `_optional_namespace` folds into a turn: the person's chosen search backend, playback
+    # device, command timeout, recall size. Granted only `lucy`, the others answered 403 on
+    # every turn ever served and `_optional_namespace` swallowed it by design, so those
+    # preferences were silently ignored and nothing said so.
+    (
+        "lucy-api",
+        "lucy-api",
+        ("lucy", "search", "spotify", "github", "environments", "memory"),
+        "LUCY_SETTINGS_API_TOKEN",
+    ),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
     ("spotify-api", "spotify-api", ("spotify",), None),
