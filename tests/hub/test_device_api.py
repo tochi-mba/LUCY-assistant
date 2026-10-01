@@ -73,3 +73,28 @@ async def test_device_approval_requires_an_existing_authenticated_client(
     )
 
     assert response.status_code == 401
+
+
+async def test_the_page_a_waiting_client_is_sent_to_exists_and_says_how_to_approve(
+    client: AsyncClient,
+) -> None:
+    """The bug, named: the hub sent `lucy setup` to `/device` and served nothing there, so the
+    first thing a person signing in saw was a 404."""
+    created = (await client.post("/v1/auth/device")).json()
+    page = await client.get(created["verification_uri_complete"].removeprefix("http://test"))
+
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert page.headers["cache-control"] == "no-store"
+    assert f"lucy approve {created['user_code']}" in page.text
+    assert "<form" not in page.text
+    assert 'type="password"' not in page.text
+
+
+async def test_the_page_never_shows_back_a_code_the_hub_could_not_have_issued(
+    client: AsyncClient,
+) -> None:
+    page = await client.get("/device", params={"user_code": "<script>alert(1)</script>"})
+    assert page.status_code == 200
+    assert "<script>" not in page.text
+    assert "lucy approve CODE" in page.text

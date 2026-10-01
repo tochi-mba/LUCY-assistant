@@ -53,6 +53,7 @@ from lucy_api.cli.base import (
 )
 from lucy_api.cli.config import CONFIG_VAR
 from lucy_api.cli.connect import cmd_connect
+from lucy_api.cli.device import add_parser as add_approve_parser
 from lucy_api.cli.evals import add_parser as add_eval_parser
 from lucy_api.cli.logs import add_parser as add_logs_parser
 from lucy_api.cli.models import cmd_models
@@ -66,6 +67,7 @@ EPILOG = f"""\
 examples:
   lucy setup                     first run: choose how Lucy runs, and sign in
   lucy setup --mode family       family mode: installs the CI GitHub App, then says what to run
+  lucy approve ABCD-EFGH         sign in another client, from this signed-in one
   lucy status                    is the hub alive, ready, and who am I
   lucy status --json             the same, for a script
   lucy doctor                    why isn't this working
@@ -328,6 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect_model.add_argument("provider", help="the provider id; `lucy models` lists them")
     connect_model.set_defaults(run=cmd_models)
 
+    add_approve_parser(sub, after)
     add_eval_parser(sub, after)
     add_logs_parser(sub, after)
 

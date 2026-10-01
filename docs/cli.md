@@ -140,12 +140,13 @@ could not be read this request. Optional services can be skipped.
 The current catalogue uses explicit adapters to the services' readiness routes and setup
 documentation; the sibling services do not yet publish their own setup manifests.
 
-Interactive setup now uses a short-lived browser device flow. Lucy prints a human-readable
-code and opens its subject-bound verification URL, then polls at the interval the hub gave
-it. The browser approval must come from an already authenticated Lucy client; the CLI never
-asks for a password. The resulting `aud=lucy-api` token is written only to the private
-configuration file. For a headless bootstrap, `--token-stdin` remains available; `--yes`
-never opens a browser.
+Interactive setup signs in with a short-lived device code. Lucy prints the code and how to
+approve it, opens the hub's `/device` page (which says the same and asks for nothing), and
+polls at the interval the hub gave it. The approval comes from a client that is already
+signed in as you: `lucy approve ABCD-EFGH` there hands its sign-in to the waiting one, and
+`--deny` refuses it. No step asks for a password. With no other client signed in, a first
+sign-in uses `--token-stdin` with a token from your keyring. The resulting `aud=lucy-api`
+token is written only to the private configuration file. `--yes` never opens a browser.
 
 Music connections use Lucy's `/v1/connections` surface over Keyring's delegated boundary.
 Provider credentials remain in Keyring. A named `connect` command returns 1 while setup
