@@ -135,6 +135,16 @@ def test_the_safety_and_tool_idiom_sections_may_be_neither_overridden_nor_disabl
         assert section_id in str(disable_refused.value)
 
 
+def test_the_safety_section_says_to_tell_the_person_what_happened_not_the_harness() -> None:
+    """The bug, named: a planted file's orders were neutralised, and Lucy told the person "the
+    harness flagged and neutralised it" -- the system's word for its own notices, which means
+    nothing to the person. The section now says what a `[harness: ...]` line is."""
+    text = files(PACKAGE).joinpath("defaults", "safety.md").read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    assert "A `[harness: ...]` line is the system talking to you" in flat
+    assert 'say what happened in plain words, never "the harness"' in flat
+
+
 def test_a_protected_section_is_given_a_floor_equal_to_its_whole_length() -> None:
     rendered = render_all(CONTEXT)
     safety = section(rendered, "safety")
