@@ -167,7 +167,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   `deliver`, `verify_signature`), held to the hub's signatures by a test.
 - **Repositories: the `repos` capability.** Code, pull requests, issues and CI on the GitHub
   account a person connected (the Lucy GitHub App, with all or selected repositories, or a
-  fine-grained token), through the new Github-api sibling on port 8011. Seventeen writes
+  fine-grained token), through the new Github-api sibling on port 8011. Sixteen writes
   under seven permissions split by consequence; deleting a repository or changing who can
   see it asks even in `auto`. `repos.watch` is the first subscription: CI settling or a pull
   request merging wakes the session, which can then merge under the person's standing
