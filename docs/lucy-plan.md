@@ -1,4 +1,4 @@
-# LUCY - the assistant you talk to
+# LUCY — the assistant you talk to
 
 > **This is the original plan, kept for its reasoning.** It was written before the code, and
 > the code has moved on: names, module paths and operation spellings here are the plan's, not
@@ -12,7 +12,7 @@
 
 The family is eight services that each do one thing well and nothing that talks. There is
 no front door: nowhere to send *"play what I had on yesterday, then summarise what changed
-in the repo"*, no session, no memory, no model. Every service was built anticipating this -
+in the repo"*, no session, no memory, no model. Every service was built anticipating this —
 five ship a `docs/mcp.md` describing "the bridge that comes later", every `operation_id` is
 already a tool name pinned by a contract test, every route description is already written
 for a model to read rather than for a person to skim. **Nothing has ever been built on the
@@ -31,7 +31,7 @@ Lucy can act for a person without holding the keys to everything.
 
 Everything below is grounded in three things: the family's own source and its `docs/mcp.md`
 doctrine; weftai's actual API; and the published practice of teams who have already built
-this - Anthropic's agent and context-engineering writing and the Claude Agent SDK, OpenAI's
+this — Anthropic's agent and context-engineering writing and the Claude Agent SDK, OpenAI's
 Agents API, Cognition on single-writer agents, LangGraph and Temporal on durable execution,
 MCP revision **2026-07-28**, and the memory literature (mem0, Letta/MemGPT, Zep,
 LongMemEval, SWE-agent, aider).
@@ -72,9 +72,9 @@ for it and loaded on demand.
 | --- | --- | --- |
 | D1 | **Lucy is `src/lucy_api/` in the meta-repo**, port 8000 | Owner's call: the repo *is* the API. Costs an ADR amending ADR-0001, a self-scoring parity path, and meta CI gaining the service gates. |
 | D2 | **The whole family moves to Python 3.12** | `weftai` needs ≥3.12 (PEP 695 generics: `class RunContext[Ctx]`). CI already runs 3.12 everywhere. |
-| D3 | **Memory-api is a tenth service**, port 8009 | Episodic memory needs decay, supersession, untrusted-source marking and a background surface. Persona forgets by permanent tombstone with no sweeper, has no scopes, and its caps are prompt-budget caps - it is the assistant's *voice*, not its *memory*. |
+| D3 | **Memory-api is a tenth service**, port 8009 | Episodic memory needs decay, supersession, untrusted-source marking and a background surface. Persona forgets by permanent tombstone with no sweeper, has no scopes, and its caps are prompt-budget caps — it is the assistant's *voice*, not its *memory*. |
 | D4 | **Keyring gains token exchange + offline grants** | MCP's authorization spec **forbids token passthrough** outright, and `POST /v1/auth/service-token` needs the person's *session*. Exchange means Lucy never forwards a caller's token and never holds a credential that can do everything. |
-| D5 | **weftai comes from PyPI, pinned exactly** | `weftai[all]==0.2.4` (released 2026-09-16; `requires-python >=3.12`, which is what forces D2). `weftai-testing` is **still unpublished** - W1 stands. Lucy pins a released version; weftai work ships as its own release first, never as a path dependency. |
+| D5 | **weftai comes from PyPI, pinned exactly** | `weftai[all]==0.2.4` (released 2026-09-16; `requires-python >=3.12`, which is what forces D2). `weftai-testing` is **still unpublished** — W1 stands. Lucy pins a released version; weftai work ships as its own release first, never as a path dependency. |
 | D6 | **Capabilities are probed, never assumed** | An unconnected capability is absent from *the model's* tool list. `registry.filter(include)` is weftai's own mechanism. |
 | D7 | **Tool results are data, never instructions** | Every `docs/mcp.md` says so; Persona-api ships the exact framing template. One `Framing` component renders memories, facts, external content and child results as third-person reported claims with inline provenance in a delimited block. |
 | D8 | **Allowlist, never denylist** | Keyring's doctrine: a denylist means the next endpoint added is exposed by default, and the next endpoint added might be `delete_account`. |
@@ -82,24 +82,24 @@ for it and loaded on demand.
 | D10 | **Everything in-process** | `docs/architecture.md`: "one process, SQLite or memory, no extra broker; background work is in-process." |
 | D11 | **Hand-written tool surface, not OpenAPI ingestion** | Both `docs/mcp.md` files argue it: a model needs to be told when *not* to call something, and the framing rule cannot be generated. |
 | D12 | **Capability packs are entry points** | `lucy.capabilities`: a third party can `pip install lucy-capability-x`. (Not built: the hub loads only its own packs; see ADR-0011.) |
-| D13 | **Behaviour is persona notes; knobs are settings** | Settings-api holds only bool/int/str/enum/str_list ≤4096 bytes - a prompt override does not fit. Persona notes are exactly "lessons about how to behave in this profile". |
+| D13 | **Behaviour is persona notes; knobs are settings** | Settings-api holds only bool/int/str/enum/str_list ≤4096 bytes — a prompt override does not fit. Persona notes are exactly "lessons about how to behave in this profile". |
 | D14 | **One loop, not a framework** | `run(session, input) -> AsyncIterator[Event]`. The successful implementations "weren't using complex frameworks or specialized libraries". Everything else is harness. |
 | D15 | **Single writer** | Only the main thread mutates the workspace or calls a mutating tool; children are read-only researchers, reviewers and verifiers. Parallel writers make conflicting implicit decisions the parent cannot reconcile. |
-| D16 | **Append-only items, derived snapshots** | One log gives resume, fork, time-travel and audit. Every item has a `parent_id` from v1 - edit-and-regenerate cannot be retrofitted onto a flat list. |
+| D16 | **Append-only items, derived snapshots** | One log gives resume, fork, time-travel and audit. Every item has a `parent_id` from v1 — edit-and-regenerate cannot be retrofitted onto a flat list. |
 | D17 | **Compaction is a projection, never a mutation** | The transcript stays append-only; compactions are rows; context is computed at send time. A bad summary is regenerable and "why did it think that?" is answerable. |
 | D18 | **A disconnect is not a cancellation** | Generation continues; cancelling is explicit and idempotent. Otherwise a page reload kills an hour of work. |
-| D19 | **Approval before the side effect; the gated step idempotent anyway** | Resume re-runs the step from the top, so a write placed before the gate runs twice. And `approved: true` from a client is an *input*, never an authorization - policy is re-validated server-side. |
+| D19 | **Approval before the side effect; the gated step idempotent anyway** | Resume re-runs the step from the top, so a write placed before the gate runs twice. And `approved: true` from a client is an *input*, never an authorization — policy is re-validated server-side. |
 | D20 | **Deferred tool loading from day one** | Selection accuracy degrades past 30–50 tools; a hub fronting eight services is squarely in that regime. |
 | D21 | **One write path** | `POST /v1/sessions/{id}/inputs` carries messages, tool results, approvals, elicitation responses and cancels. Four endpoints collapse into one a CLI drives with a single code path. |
 | D22 | **No Permissions-api** | Policy is a per-person setting, declaration belongs to the capability that brings it, and the decision is per-session state on the hot path. None of the three wants a service, and an eleventh one would add a network hop to every tool call without being the thing that enforces anything. |
-| D23 | **A refusal can carry an instruction, and it is kept** | *"No - move it to trash instead"* goes back to the model as the tool result *and* becomes a standing persona lesson. A refusal that teaches is worth more than a refusal that only stops. |
-| D24 | **Hide from the model, never from an MCP client** | For Lucy's own loop an unconnected capability is absent. Over MCP the tool stays **listed** with a "needs connecting" description and answers with a URL-mode elicitation - a vanished tool gives a cached client no recovery path, and hiding makes the model unable to explain what it *could* do. |
+| D23 | **A refusal can carry an instruction, and it is kept** | *"No — move it to trash instead"* goes back to the model as the tool result *and* becomes a standing persona lesson. A refusal that teaches is worth more than a refusal that only stops. |
+| D24 | **Hide from the model, never from an MCP client** | For Lucy's own loop an unconnected capability is absent. Over MCP the tool stays **listed** with a "needs connecting" description and answers with a URL-mode elicitation — a vanished tool gives a cached client no recovery path, and hiding makes the model unable to explain what it *could* do. |
 
 ---
 
 ## 3. The meta-repo becomes the hub
 
-`examples/hello-api` is the conformance oracle - meta CI runs its `make check` and
+`examples/hello-api` is the conformance oracle — meta CI runs its `make check` and
 `tests/test_example_parity.py` scores it against every parity check. Copy its skeleton
 verbatim; it buys 6 of the 22 checks.
 
@@ -127,7 +127,7 @@ src/lucy_api/
 ```
 
 - One `LUCY_`-prefixed `Settings` with `extra="forbid"` and `check_for_unknown_env_vars()`.
-  **Every** downstream base URL, timeout and cap is a declared field - an undeclared
+  **Every** downstream base URL, timeout and cap is a declared field — an undeclared
   `LUCY_*` in `.env.family` is a startup crash, and `transport=` injection is how hello-api
   reaches 100% coverage without a live dependency.
 - Makefile gains `install fmt lint type imports test cov check run docker clean` beside
@@ -143,7 +143,7 @@ src/lucy_api/
   version wrote its items. Deploys are gradual traffic shifts, not rolling restarts, because
   hour-long runs will be in flight.
 
-**New documents:** root `AGENTS.md` (CONTRIBUTING already links it - the link is broken
+**New documents:** root `AGENTS.md` (CONTRIBUTING already links it — the link is broken
 today), `docs/adr/0008-the-hub-lives-here.md` (amends ADR-0001 and CONTRIBUTING's "not a
 ninth service"), `0009-ports-8000-and-8009.md`, `0010-in-process-agents.md`,
 `0011-append-only-items.md`, `0012-single-writer-agents.md`, `0013-mcp-revision-target.md`;
@@ -160,7 +160,7 @@ with one hard-coded healthcheck assertion per name), `README.md` service table,
 **genenv rows** (data-driven; `tests/test_genenv.py` iterates them generically):
 `KEYRING_CONSUMERS += ("lucy-api", "LUCY_KEYRING_SERVICE_TOKEN")` and
 `SETTINGS_GRANTS += ("lucy-api", "lucy-api", ("lucy",), "LUCY_SETTINGS_API_TOKEN")`.
-**The grant's `audience_prefix` must equal the keyring service name** - a mismatch fails
+**The grant's `audience_prefix` must equal the keyring service name** — a mismatch fails
 closed and looks exactly like a correctly configured service whose every call is a 401.
 
 ---
@@ -215,11 +215,11 @@ makes that binding a MUST. Lookups are rate-limited against enumeration.
 
 ### 4.3 Device flow, for the CLI
 
-Keyring's only human login is a password, and RFC 8252 forbids embedded user agents - a CLI
+Keyring's only human login is a password, and RFC 8252 forbids embedded user agents — a CLI
 must never prompt for it. Lucy offers `POST /v1/auth/device` →
 `{device_code, user_code, verification_uri, verification_uri_complete, expires_in, interval}`
 and `POST /v1/auth/device/token`, answering with RFC 8628's exact vocabulary
-(`authorization_pending`, `slow_down` - add 5 s, `access_denied`, `expired_token`) and
+(`authorization_pending`, `slow_down` — add 5 s, `access_denied`, `expired_token`) and
 exchanging finally for a keyring session. A loopback redirect on `127.0.0.1` with an
 ephemeral port is also supported, but device code works over SSH where loopback does not.
 
@@ -227,14 +227,14 @@ ephemeral port is also supported, but device code works over SSH where loopback 
 
 ## 5. Capabilities and connections
 
-The answer to *"if Spotify isn't set up, don't give the model the tool - but let the person
+The answer to *"if Spotify isn't set up, don't give the model the tool — but let the person
 set it up from the conversation"*.
 
 ### 5.1 A pack
 
 ```python
 class CapabilityPack(Protocol):
-    id: str                       # "music"  - a product word, never a service name
+    id: str                       # "music"  — a product word, never a service name
     title: str
     docs: Path                    # markdown written for the model, loaded on demand
     def operations(self) -> Sequence[Operation]: ...
@@ -254,7 +254,7 @@ class CapabilityPack(Protocol):
 | `disabled` | the person turned it off | nothing, and no nagging | not listed |
 
 `pending` is the state everyone forgets, and `insufficient_scope` is the one Google's
-partial consent forces on you - the token response's `scope` field is authoritative, never
+partial consent forces on you — the token response's `scope` field is authoritative, never
 the request's.
 
 ### 5.2 Probe sources, cheapest first
@@ -272,7 +272,7 @@ disconnect, a settings change, and on the downstream errors below.
 ### 5.3 One error vocabulary
 
 Beneath it, a deterministic retry and circuit-breaker layer. Above it, a **model-visible
-prose error that steers behaviour** - letting the agent know a tool is failing, *combined
+prose error that steers behaviour** — letting the agent know a tool is failing, *combined
 with* deterministic safeguards, works surprisingly well.
 
 | seen | means | Lucy does |
@@ -340,7 +340,7 @@ button rather than a URL.
 ## 6. The tool layer
 
 One weftai `Registry` per turn, assembled from allowed packs, bound as **several tools**
-sharing one session id - so `$refs` cross tools: `research.search` → `$hits`, then
+sharing one session id — so `$refs` cross tools: `research.search` → `$hits`, then
 `workspace.write(from: $hits)`, and the page text never re-enters the context. Untyped
 `ref()` already supports this. This is the programmatic-tool-calling pattern measured at
 −37% tokens, and it is weftai's whole thesis.
@@ -374,11 +374,11 @@ concurrently and everything else serialises; only idempotent operations are retr
 automatically (backoff with jitter on 429/5xx, never a deterministic 4xx); and
 `destructive`/`requiresApproval` drive the gate.
 
-Descriptions and **argument names** are written as search bait - tool search indexes names,
+Descriptions and **argument names** are written as search bait — tool search indexes names,
 descriptions, argument names and argument descriptions. `music.play(track_uri)` with a
 one-line description is invisible to a query about "music"; *"Start playback of a song on
 the person's active device (music, audio, listening)"* is findable. Argument names are
-`session_id`, `track_uri`, `account_id` - never `id`, `uri`, `user`.
+`session_id`, `track_uri`, `account_id` — never `id`, `uri`, `user`.
 
 Collections (`label`/`key`/`fields`) are declared for tracks, hits, files, notes, memories,
 agents and capabilities, so weftai's `standard_operations` (`filter count countBy distinct
@@ -390,11 +390,11 @@ mostCommon first pick details`) come free. The trickiest operations carry 1–5
 - **Every handler is `async`.** Sync handlers run inline and are immune to `stepTimeoutMs`
   and to cancellation.
 - A read-only tool must pass `allowWrites=False` **explicitly**; omitting it is not `False`.
-- Pass `maxSteps` into `build_plan_schema` - `bind_tool` omits it, so the model discovers
+- Pass `maxSteps` into `build_plan_schema` — `bind_tool` omits it, so the model discovers
   the 20-step cap only by breaking it.
 - Never pass `math.inf` to `maxParallel` (`pool.py` collapses a non-finite limit to one
   worker). Per-service limits are semaphores on `ctx`.
-- Keep **camelCase** on every dict handed to weftai (`maxSteps`, `ttlMs`, `allowWrites`) -
+- Keep **camelCase** on every dict handed to weftai (`maxSteps`, `ttlMs`, `allowWrites`) —
   the TypedDicts are `total=False` and silently drop unknown keys.
 - Raise `stepTimeoutMs` (10 s) and `planTimeoutMs` (60 s) for search; extensions declare
   their own exceptional timeout needs. Override the
@@ -404,7 +404,7 @@ mostCommon first pick details`) come free. The trickiest operations carry 1–5
   model reads a sentence. Use `"abort"` only where partial execution is worse than none.
 - `ctx` is typed (subject, profile, broker, http client, session id, workspace path, agent
   id, depth, semaphores). It reaches `CollectionType.fields(ctx)` and the formatter, so
-  **nothing secret may be reachable from a label** - a test asserts it.
+  **nothing secret may be reachable from a label** — a test asserts it.
 
 ### 6.4 Projection and summarisation boundaries
 
@@ -431,7 +431,7 @@ diffs (errors cluster at the end), truncated at a structural boundary, carrying 
 ### 6.5 Every action says what it is for
 
 Every tool call carries a **one-line description in plain words**, written by the model, of
-what *this* call is for - not a restatement of its arguments. `"Discard the draft folder
+what *this* call is for — not a restatement of its arguments. `"Discard the draft folder
 and start again"`, never `"workspace.delete(path=drafts)"`. It is the difference between a
 log you can read and a log you have to decode.
 
@@ -450,10 +450,10 @@ It then pays for itself everywhere:
 | where | what it becomes |
 | --- | --- |
 | `tool.started` on the stream | *"Searching the web for tour dates"* instead of an opaque call |
-| **an approval prompt** | *"Lucy wants to: delete the draft folder"* - a person can answer that. Nobody can answer a JSON blob. |
+| **an approval prompt** | *"Lucy wants to: delete the draft folder"* — a person can answer that. Nobody can answer a JSON blob. |
 | the item log and the audit log | a readable history of what was done and why |
 | **compaction** | the notes survive as the cheap record of *which tools have already been called with which arguments*, which is the MUST-PRESERVE line that stops loops |
-| a **workspace checkpoint** | the git commit message for the checkpoint taken before a write - so the workspace's own history reads like a changelog |
+| a **workspace checkpoint** | the git commit message for the checkpoint taken before a write — so the workspace's own history reads like a changelog |
 | a script written to `scripts/` | its header comment, so the artifact is self-describing |
 | a sub-agent spawn | the `objective` field of the delegation struct |
 | a memory write | *why* it was worth remembering, stored beside the memory |
@@ -465,7 +465,7 @@ later have to understand carries a sentence saying what it was for.**
 ### 6.6 Idempotency and durable job records
 
 Lucy hashes (subject, operation, canonical input) for a short window and returns the existing
-result - closing a gap every service's docs admit. Downstream job stores are **in-memory and
+result — closing a gap every service's docs admit. Downstream job stores are **in-memory and
 per-process**, so Lucy keeps its own `{tool, job_id, submitted_at}` record and treats a 404
 on poll as *"the downstream restarted"*, not *"the work failed"*.
 
@@ -478,12 +478,12 @@ work: `watch.start` names a workspace file (exists, or matches a pattern), a pub
 command until it exits 0 or matches, under one approval that names the interval and the
 lifetime. A watch has an interval (15 s by default, never under 5), a lifetime (5 min by
 default, an hour at most), fires once with a bounded excerpt of the evidence, and expires
-with one notice and the offer to start again - expiry is a state, not a failure. One failed
+with one notice and the offer to start again — expiry is a state, not a failure. One failed
 check is a line in the live block; five in a row are a broken probe with its error named.
 
 A **wake** is what makes "I'll tell you" true once the person has walked away. Work whose
-brief asks for it - every watch by default, every helper the main thread starts, a command
-run with `wake: true` - opens a turn of its own when it ends and no turn is running. The
+brief asks for it — every watch by default, every helper the main thread starts, a command
+run with `wake: true` — opens a turn of its own when it ends and no turn is running. The
 input is one harness `notice` item whose text says nothing in it came from the person; the
 model reads it on the data channel, acts, and tells them. An ending during a turn is held
 and spent when that turn ends unless the turn already read the result. Every ending is
@@ -515,26 +515,26 @@ evict pinned memory:
 cache-stable **status line** each turn tells the model where it stands ("context 84k/200k ·
 6 tool results pending clearing · last compaction at turn 41"), and Lucy **warns before it
 evicts**, so the model can write a note first. Tokens are measured locally every turn for
-budgeting, and with the provider's `count_tokens` only at decision points - never per turn.
+budgeting, and with the provider's `count_tokens` only at decision points — never per turn.
 
 ### 7.2 The reclamation ladder, cheapest to most lossy
 
 Each rung runs to exhaustion before the next. Only rungs 5 and 6 lose information.
 
-1. **Never put it in context** - the weftai result store and `$refs`, sub-agent summaries,
+1. **Never put it in context** — the weftai result store and `$refs`, sub-agent summaries,
    workspace files.
 2. **Truncate at the tool boundary** with an exact `showing N of M` notice.
-3. **Clear old tool results** - no inference, but it invalidates the cache, so
+3. **Clear old tool results** — no inference, but it invalidates the cache, so
    `clear_at_least` must be meaningful (≥5k, ideally 15k) or frequent small clears cost more
    than they save. Keep the last ~6 tool uses and **exclude the memory tool**, or the agent
    loses track of what it wrote.
 4. **Clear thinking blocks.**
-5. **Compaction** at **70–75%** of the window, not 90% - quality is already degrading by
+5. **Compaction** at **70–75%** of the window, not 90% — quality is already degrading by
    then, and at 95% there is no room for the summarisation call itself.
 6. **A hard session split** with a handoff note.
 
 Cache breakpoints sit on the **stable** system prompt and non-deferred tools, never after
-anything volatile. The thinking configuration is chosen per session and held for its life -
+anything volatile. The thinking configuration is chosen per session and held for its life —
 changing it mid-conversation silently invalidates every breakpoint and quietly pays full
 input cost every turn.
 
@@ -547,7 +547,7 @@ time. `POST /v1/sessions/{id}/uncompact` recomputes the projection; a bad summar
 regenerable with a different prompt without losing a turn. A `compaction` **item** is
 appended so the log stays honest.
 
-The compaction prompt is an explicit **MUST-PRESERVE list** - and where a provider accepts
+The compaction prompt is an explicit **MUST-PRESERVE list** — and where a provider accepts
 custom instructions, note that they **replace** the default prompt entirely, so "focus on
 code" silently discards the goal:
 
@@ -559,7 +559,7 @@ code" silently discards the goal:
 > statements override earlier ones.
 
 Boundaries are **turns**, never messages, and a `tool_use` is never separated from its
-`tool_result` - that split is the commonest source of 400s in hand-rolled compactors. The
+`tool_result` — that split is the commonest source of 400s in hand-rolled compactors. The
 justification for persisting identifiers *before* compaction can fire is a measurement:
 high-level facts survived 3/3, obscure specifics **0/3**.
 
@@ -584,12 +584,12 @@ that is not the instruction block, following persona-api's shipped template:
 
 Load-bearing: third person and past tense; provenance *inline*, not a footnote; `source`
 rendered as a claim, `asserted_by` rendered flatly; a closing line. **Never** concatenate
-note bodies into the system prompt. **Never** strip provenance to save tokens - fetch fewer
+note bodies into the system prompt. **Never** strip provenance to save tokens — fetch fewer
 memories instead.
 
 A **boundary scrubber** runs over every tool result and every child result before the parent
 reads it: neutralise control-tag imitation, escape `Human:`/`Assistant:` turn markers,
-prepend a `[harness: …]` marker naming what matched. **Modify, never delete** - silent
+prepend a `[harness: …]` marker naming what matched. **Modify, never delete** — silent
 deletion hides the attack and breaks legitimate output. Every tool result is tagged with its
 origin (which capability, which URL), and any tool call whose arguments were derived from
 untrusted retrieved content requires explicit confirmation.
@@ -599,7 +599,7 @@ untrusted retrieved content requires explicit confirmation.
 Ordered, versioned, individually budgeted, each with an id and a `render(ctx)`. Overridable
 or disableable from settings **except** safety and tool-idiom. Section text never names a
 service, a port or an HTTP verb. Persistent rules live in a re-injected section, **never in
-early conversation turns** - compaction replaces those, and an instruction from turn 3
+early conversation turns** — compaction replaces those, and an instruction from turn 3
 silently vanishes around turn 80. `GET /v1/prompt/preview` renders a session's prompt
 without running a turn.
 
@@ -652,18 +652,18 @@ cancelled`, with immutable terminal states. **`auth_required` is distinct from
 `input_required`**: one needs a decision, the other needs a credential and routes to the
 connect flow. `turns.termination` ∈ `success | error_max_iterations | error_max_budget |
 error_during_execution`, kept separate from the provider's `stop_reason`
-(`end_turn`/`max_tokens`/`refusal`) - `error_max_iterations` is resumable and `refusal` is
+(`end_turn`/`max_tokens`/`refusal`) — `error_max_iterations` is resumable and `refusal` is
 not, and the client must show them differently.
 
 ### 8.2 The durable result store
 
 `weftai.results.types.ResultStore` is a five-method **sync** Protocol. Lucy implements it
 over the `results` table through **one dedicated worker thread**, the pattern Keyring-api
-already uses for SQLite - no event-loop blocking, no new dependency. `StoredResult.data` is
+already uses for SQLite — no event-loop blocking, no new dependency. `StoredResult.data` is
 arbitrary Python, so the store owns encode/decode and the round trip must be type-preserving.
 TTL and cap come from the `lucy` namespace, not weftai's 30-minute / 200-entry defaults,
 which are tuned for a chat turn rather than a multi-day session. weftai's value is that data
-never goes back through the model - **but that only holds if the store outlives the turn**,
+never goes back through the model — **but that only holds if the store outlives the turn**,
 so `GET /v1/sessions/{id}/results/{ref}` lets a client resolve `$hits[2]` without asking the
 model to re-fetch.
 
@@ -711,7 +711,7 @@ GET    /v1/connections            …/{service}  …/{service}/authorize[/{ticke
 GET    /v1/memory/blocks          GET|PUT|DELETE /v1/memory/blocks/{label}
 GET    /v1/memory                 POST|DELETE /v1/memory/{id}
 POST   /v1/files    GET /v1/files    GET|DELETE /v1/files/{id}   GET /v1/files/{id}/content
-GET    /v1/tools                  the raw registry - what can the model actually see
+GET    /v1/tools                  the raw registry — what can the model actually see
 POST   /v1/tools/{name}/invoke    direct invocation, same approval policy, no tokens burned
 GET    /v1/auth/me   POST /v1/auth/device   POST /v1/auth/device/token
 POST   /v1/webhooks               long-run push: a signal, never a payload
@@ -728,21 +728,21 @@ second tests a tool without burning a single model token.
 **Inbound auth** is fixed by the family: `Authorization: Bearer <keyring JWT>`, `aud` exactly
 `lucy-api`, verified locally by `keyring_client.TokenVerifier` + `ExactAudience` against
 cached JWKS. Missing or invalid is 401; unfetchable keys are **503 with `Retry-After: 5`**,
-never 401 - *"telling a person to log in again when keyring blipped is advice that does not
+never 401 — *"telling a person to log in again when keyring blipped is advice that does not
 help"*. Errors are RFC 9457 `application/problem+json` with `request_id` in the body and
 `X-Request-ID` on the response, and `detail` never echoes the offending value.
 
 **Pagination** is cursor-only, everywhere: `limit` (default 20, max 100), `order` (`asc`
 /`desc`), `after`, `before`, returning `{data, has_more, first_id, last_id}`. Never
-`page`/`offset` - an append-only item log grows while you page it, and offset paging both
+`page`/`offset` — an append-only item log grows while you page it, and offset paging both
 duplicates and skips.
 
 **Idempotency**: required on `POST /v1/sessions`, `/inputs`, `/files` and
 `/connections/{service}/authorize`. Store `(key, account, endpoint, request-body hash) →
 response` for at least an hour; a replay returns the original status and body; a reused key
 with a **different** body is `409`. Keys are 1–256 characters. Keyring's own docs name this
-gap - *"assistants retry… worth adding before this is fronted by anything that retries
-automatically"* - and Lucy is that thing.
+gap — *"assistants retry… worth adding before this is fronted by anything that retries
+automatically"* — and Lucy is that thing.
 
 ### 9.1 The one write path
 
@@ -765,12 +765,12 @@ session on day one; leaving this emergent produces interleaved, corrupted transc
 an `event_id`, resumable with `?starting_after=` (and `Last-Event-ID`). `starting_after` is
 the load-bearing one: a long turn *will* outlive a laptop's wifi, and `Last-Event-ID` alone
 is unreliable across proxies. A **full state snapshot** is sent on connect and reconnect,
-then deltas, so a reconnect after buffer expiry - or a second client joining mid-run - is
+then deltas, so a reconnect after buffer expiry — or a second client joining mid-run — is
 still correct.
 
 **Event grammar**, `lucy.<domain>.<noun>.<verb>`, documented as extensible ("new event types
 may be added; clients must ignore unknown ones"). Every event carries `sequence_number`,
-`event_id`, `session_id`, and - where they apply - `turn_id`, `agent_id`, `trace_id`. The
+`event_id`, `session_id`, and — where they apply — `turn_id`, `agent_id`, `trace_id`. The
 full catalogue, because a taxonomy invented one event at a time never becomes coherent:
 
 **Session** `created` · `updated` (title, model, mode, policy; `during_turn` when applied
@@ -813,7 +813,7 @@ to a live one, `held` when a held change lands) · `in_progress` · `idle` ·
 `agent.interrupted` · `agent.resumed` · `agent.reaped` (roster reconciled on boot) ·
 `agent.depth_refused` · `agent.concurrency_queued` · `agent.budget_exhausted`
 
-**Work** `work.finished` (every ending in the registry: id, kind, state, elapsed, size -
+**Work** `work.finished` (every ending in the registry: id, kind, state, elapsed, size —
 never the payload) · `work.woke` (a finished piece of work opened a turn of its own)
 
 **Journal / task ledger** `task.created` · `task.claimed` · `task.progress` ·
@@ -823,7 +823,7 @@ never the payload) · `work.woke` (a finished piece of work opened a turn of its
 **Memory** `memory.retrieved` (count, tokens spent) · `memory.written` ·
 `memory.updated` · `memory.superseded` · `memory.forgotten` · `memory.rejected` (the
 scrubber refused it, and why) · `memory.decayed` · `memory.consolidation.started|finished`
-- `memory.written` is deliberate UX: **the person sees what Lucy learned, as it learns it.**
+— `memory.written` is deliberate UX: **the person sees what Lucy learned, as it learns it.**
 
 **Context** `context.assembled` (per-band counts) · `context.status` (the status line) ·
 `context.band_warning` (approaching a cap, so the model can write a note) ·
@@ -846,7 +846,7 @@ scrubber refused it, and why) · `memory.decayed` · `memory.consolidation.start
 **Usage** `usage.updated` (cumulative, children rolled up) · `usage.budget_warning` ·
 `usage.budget_exhausted`
 
-**Security** - visible because silence here is the bug: `security.injection_scrubbed`
+**Security** — visible because silence here is the bug: `security.injection_scrubbed`
 (what matched, never the payload) · `security.secret_redacted` · `security.ssrf_blocked` ·
 `security.token_minted` (audience and grant id, never the token) ·
 `security.consent_required`
@@ -866,13 +866,13 @@ unauditable:
 
 Every application log line is one JSON object with `request_id`, `trace_id`, `span_id`,
 `session_id`, `turn_id`, `agent_id`, `parent_agent_id`, `capability`, `operation`,
-`duration_ms`, `outcome` - the family already standardises `LOG_FORMAT=json`, and
+`duration_ms`, `outcome` — the family already standardises `LOG_FORMAT=json`, and
 `parent_agent_id` is the field without which a failed twelve-agent run is undebuggable.
 **Every downstream `request_id` is carried into the session record**, so one failure is
 traceable across ten services from one id.
 
 What is **never** logged, and is covered by a test: any token, credential or secret; a
-memory body; a file's contents; a tool result's payload; the person's message content -
+memory body; a file's contents; a tool result's payload; the person's message content —
 unless they opt in with `lucy.log_message_content`, mirroring user-api's `log_values`
 setting and defaulting off. Counts, shapes, digests and token totals are logged instead:
 `"scrubbed 1 injection marker"`, not the marker; `"tool result 41,203 tokens, spilled to
@@ -893,7 +893,7 @@ turn and kill the wrong one.
 
 **Webhooks** are the third delivery tier for long runs: fired only on significant
 transitions (terminal, `input_required`, `auth_required`), carrying a **signal, not a
-payload** - the client then calls `GET /v1/turns/{id}`, keeping results out of webhook
+payload** — the client then calls `GET /v1/turns/{id}`, keeping results out of webhook
 bodies and third-party logs.
 
 ### 9.3 Permissions
@@ -904,7 +904,7 @@ Permissions have none of those: the *policy* is a per-person choice, which is se
 job; the *declaration* belongs to the capability that brings it, which lives in a pack; and
 the *decision* is per-session state at the moment of a tool call, which is Lucy's hot path.
 An eleventh service would add a network hop to every single tool call to answer a question
-Lucy already has the data to answer - and it would still not be the thing enforcing
+Lucy already has the data to answer — and it would still not be the thing enforcing
 anything, because the only place a permission can be enforced is the agent loop.
 
 So permissions are three pieces that already have homes.
@@ -927,8 +927,8 @@ thing as an operation's annotations (W4). Nobody wants to approve forty operatio
 time; everybody understands "run commands in your workspace".
 
 **2. The mode is a setting; the grants are a ledger.** The mode is a small enum and belongs
-in settings-api under `lucy.permission_mode`. The grants cannot live there - settings-api
-has **no profile column and no way to add one** - and the request here is explicitly for
+in settings-api under `lucy.permission_mode`. The grants cannot live there — settings-api
+has **no profile column and no way to add one** — and the request here is explicitly for
 per-profile scope, so the ledger is a table in Lucy keyed by
 `(account, profile | *, permission)`.
 
@@ -946,14 +946,14 @@ from a sibling is never consent (§11.6).
 
 | answer | lasts | scope |
 | --- | --- | --- |
-| allow once | this call | - |
+| allow once | this call | — |
 | allow for this session | until the session ends | this session |
 | allow always | until revoked | **this profile**, or **every profile on the account** |
-| deny | this call | - |
+| deny | this call | — |
 | deny always | until revoked | this profile, or the account |
 | **deny, with an instruction** | until revoked | this profile, or the account |
 
-That last one is the best idea in the request and it deserves to be first-class. *"No -
+That last one is the best idea in the request and it deserves to be first-class. *"No —
 don't delete anything under `archive/`; move it to `trash/` instead."* The sentence goes
 back to the model as the tool result, so the turn continues intelligently rather than
 dead-ending; and it is **kept**, as a deny row and as a persona "lesson" note, which is
@@ -961,7 +961,7 @@ already the family's home for *how to behave in this profile*. A refusal becomes
 instruction, which is how a person actually teaches an assistant.
 
 **Where it is enforced.** One `PermissionGate`, consulted before any operation whose
-`effects` is `write` or whose annotations say `requiresApproval` - **before the side
+`effects` is `write` or whose annotations say `requiresApproval` — **before the side
 effect**, with the gated step idempotent anyway (D19). What the person is shown is the
 model's plain-language description from §6.5 plus the permission title, never JSON.
 
@@ -976,13 +976,13 @@ in one call.
 
 A pausing turn plus a typed input event, never a separate RPC. The turn enters
 `requires_action`, emits an `approval_request` item
-`{approval_id, tool, description, arguments, reason, policy, is_automatic}` - where
+`{approval_id, tool, description, arguments, reason, policy, is_automatic}` — where
 `description` is the model's plain sentence from §6.5, and is what a client shows; the
-arguments are there for somebody who wants to look, not for somebody who has to - and is
+arguments are there for somebody who wants to look, not for somebody who has to — and is
 unblocked by
 `POST /v1/sessions/{id}/inputs` with `{"type":"input.approval","approval_id":…,"approved":true}`.
 Policy is `always | never | {always:[…], never:[…]}` per tool, settable per session and per
-deployment, and is **re-validated server-side on every approval - the client's
+deployment, and is **re-validated server-side on every approval — the client's
 `approved: true` is an input, not an authorization.** Any subset may be resolved; unresolved
 calls simply pause the turn again. Sticky `always`/`never` for the rest of the turn, and a
 rejection returns to the model as a **tool result** it can route around, never as a throw.
@@ -1015,7 +1015,7 @@ and **shells do not survive a restart** (treat shell ids as ephemeral, prefer on
 ### 10.1 The workspace is also durable memory
 
 Each session workspace is bootstrapped with a fixed shape: `progress.md` (an append-only
-journal), `tasks.json` (**structured, not Markdown** - a model is measurably less willing to
+journal), `tasks.json` (**structured, not Markdown** — a model is measurably less willing to
 overwrite JSON, and the agent gets `append` and `mark_status`, never a whole-file write), and
 a git repository with a baseline commit so edits are independently rewindable. **On resume, a
 re-orientation ritual runs before any new work**: print the working directory, read the
@@ -1029,14 +1029,14 @@ Its files API is exactly list / read(offset,max_bytes) / write today.
 | new | why |
 | --- | --- |
 | `GET /files/search` (grep) and recursive `GET /files?glob=&depth=` | today an agent must `exec grep` and parse merged stdout through a 1 MiB cap |
-| `POST /files/edit` - exact string, must match **exactly once**, returns a diff | the safe edit primitive |
-| `POST /files/patch` - unified diff, reports applied and rejected hunks | the structured-edit primitive |
+| `POST /files/edit` — exact string, must match **exactly once**, returns a diff | the safe edit primitive |
+| `POST /files/patch` — unified diff, reports applied and rejected hunks | the structured-edit primitive |
 | `DELETE /files`, `POST /files/mkdir`, `/move`, `/copy` | only `reset` (destroys everything) exists |
 | `ETag` / `If-Match` on read and write | closes the lost-update race against a shell writing the same file |
 | `is_binary` + a per-**file** encoding decision | today encoding is decided per *chunk*, so a paged read can silently flip to base64 mid-file |
 | stop returning the host `workspace` path in views | an information leak if ever echoed into a context |
 
-### 10.3 How the model reads and edits - the answer to *"how do you do it?"*
+### 10.3 How the model reads and edits — the answer to *"how do you do it?"*
 
 **Search before reading.** `workspace.grep` returns `files_with_matches` by default, with a
 `content` mode carrying `-A/-B/-C` context and a head limit. The truncation notice steers:
@@ -1045,8 +1045,8 @@ Its files API is exactly list / read(offset,max_bytes) / write today.
 **Read a window.** `workspace.read(path, offset, limit)` returns `cat -n`-style **1-indexed
 numbered lines with a tab separator**, defaulting to ~2,000 lines / 2,000 chars per line /
 25,000 tokens (whichever binds first), and ~100 lines in exploratory mode (SWE-agent's
-measured optimum). It returns a **fingerprint** - a content digest of the file and of the
-window - and a notice naming the total: `showing lines 1-200 of 4,312`.
+measured optimum). It returns a **fingerprint** — a content digest of the file and of the
+window — and a notice naming the total: `showing lines 1-200 of 4,312`.
 
 **Edit by content, never by line number.** Line numbers shift the moment anything above
 changes, and models are demonstrably bad at them; aider strips hunk headers for exactly this
@@ -1054,7 +1054,7 @@ reason and OpenAI's V4A format is context-anchored. The stable handle is a hash 
 non-blank lines either side of the anchor, stored with the proposed edit, so a patch computed
 against a slightly stale read can still be located.
 
-**The application ladder** - do not ship exact-match-only; disabling flexible application
+**The application ladder** — do not ship exact-match-only; disabling flexible application
 measured a **9× increase in editing errors**:
 
 1. exact match
@@ -1071,12 +1071,12 @@ near-match as a diff so the model can see the whitespace it got wrong. On a stal
 fingerprint: *"the file changed since you read it; re-read lines 40-80 and reapply."*
 
 **Validate before committing.** Parse/lint the result and reject the write with the error
-message rather than writing a corrupted file - measured +3.0 points. At minimum: JSON, YAML
+message rather than writing a corrupted file — measured +3.0 points. At minimum: JSON, YAML
 and TOML parse plus a Python syntax check.
 
 Binary is refused with its size and type. Nothing truncates silently.
 
-### 10.4 Editing by script - the other half of the pair
+### 10.4 Editing by script — the other half of the pair
 
 A structured edit tool is right for *"change this line in this file"*. It is the wrong shape
 for *"rename this symbol across forty files"*, *"pull the third column out of this CSV and
@@ -1088,7 +1088,7 @@ Lucy gets both, and the tool descriptions say plainly when each wins:
 | --- | --- |
 | `workspace.edit` / `workspace.patch` | a bounded, reviewable change to one file; you want a diff and a fingerprint check |
 | `workspace.write` | the whole file is being replaced and you can see all of it |
-| `workspace.run` (a script) | the change is a **rule** rather than a **list** - many files, a transformation, a filter, a parse |
+| `workspace.run` (a script) | the change is a **rule** rather than a **list** — many files, a transformation, a filter, a parse |
 
 This is also the measured one. Letting a model manipulate data *in code* instead of
 round-tripping every row through tool calls is the "code execution" pattern reported at
@@ -1103,8 +1103,8 @@ Three things make it safe rather than reckless, and all three already exist in t
   a wall of inline shell.
 - **The git baseline is the undo.** A fingerprint protects one file against one stale edit;
   it cannot protect forty files against a bad regex. The per-session git repository (§10.1)
-  is what makes a bulk rewrite rewindable - `workspace.checkpoint` before, `workspace.revert`
-  after a mistake - and a checkpoint is taken automatically before any script that writes.
+  is what makes a bulk rewrite rewindable — `workspace.checkpoint` before, `workspace.revert`
+  after a mistake — and a checkpoint is taken automatically before any script that writes.
 - **One approval covers the whole blast radius, so the approval must say so.** A script that
   writes is a single `requiresApproval` action whose summary names the *script* and the
   *paths it is expected to touch*, not "run a command". A dry-run mode (`--check`, or the
@@ -1120,7 +1120,7 @@ entering the context. Both are `read_only`, so both run concurrently.
 ## 11. Agents
 
 An agent is a child run: its own item log at its own subpath, its own `include` predicate (a
-**subset** of the parent's tools - weftai enforces scope at execution), its own budget, its
+**subset** of the parent's tools — weftai enforces scope at execution), its own budget, its
 own workspace subdirectory, its own durable row. Children are **addressable actors, not
 function calls**: a stable `agent_id` comes back in-band inside the tool result so the parent
 can steer it later.
@@ -1144,7 +1144,7 @@ promptable.
 ### 11.2 Delegation is a typed struct
 
 `objective` · `output_format` · `tool_and_source_guidance` · `boundaries` · `effort_budget`
-(max iterations and max tool calls) · **`decisions_and_constraints`** - the choices already
+(max iterations and max tool calls) · **`decisions_and_constraints`** — the choices already
 made that shaped the task. Passing only a one-line brief destroys the multi-turn nuance that
 produced it; a `fork` mode exists for children that genuinely need the parent's full trace.
 The lead's prompt carries an explicit rubric ("1 agent, 3–10 calls for a lookup; 2–4 agents,
@@ -1152,8 +1152,8 @@ The lead's prompt carries an explicit rubric ("1 agent, 3–10 calls for a looku
 
 ### 11.3 The return contract
 
-A structured result with a **≤2,000-token summary** plus references - workspace paths,
-`$refs`, the child's `agent_id` - never inline content and never a raw transcript. A child
+A structured result with a **≤2,000-token summary** plus references — workspace paths,
+`$refs`, the child's `agent_id` — never inline content and never a raw transcript. A child
 returning 40k tokens of findings is strictly worse than inlining the work. The summariser is
 a hard gate.
 
@@ -1164,7 +1164,7 @@ mid-tool (it corrupts results and half-applies writes), never mid-model-call. If
 idle, the message starts a new turn. A send is reported as delivered only after the inbox
 write succeeds.
 
-Child→parent is **push on transition and push on idle**, never polling - polling burns the
+Child→parent is **push on transition and push on idle**, never polling — polling burns the
 parent's context and scales badly with fan-out. The idle push carries the final answer; an
 API failure pushes the error text. Mid-run progress is an MCP-style progress notification
 with a monotonic counter and a human-readable message. `agents.wait(id, timeout)` exists with
@@ -1177,14 +1177,14 @@ and held queue (100), per-sender rate limiting, and a hop counter on every messa
 
 ### 11.5 The journal is the blackboard
 
-A per-session, file-backed task ledger - `pending | in_progress | completed` with dependency
+A per-session, file-backed task ledger — `pending | in_progress | completed` with dependency
 edges, claimed under a lock with a **lease and a heartbeat** so a dead claimant's task is
 auto-released, and completing a task auto-unblocks its dependents. This is the explicit form
 of the thing you noticed: a sibling seeing what another sibling did, with **no context
 transfer**. Blackboard coordination shows 13–57% relative gains in the literature, and the
 ledger lives at a stable workspace path so it survives resume.
 
-Three veto hooks - `on_task_created`, `on_task_completed`, `on_agent_idle` - take a non-zero
+Three veto hooks — `on_task_created`, `on_task_completed`, `on_agent_idle` — take a non-zero
 exit as "reject, and send this feedback back to the agent". That is how tests, lint, schema
 validation and policy become quality gates without prompting.
 
@@ -1197,7 +1197,7 @@ validation and policy become quality gates without prompting.
   as a ceiling children may only narrow.
 - Caps, all surfaced **to the model as tool results** so it adapts rather than crashing:
   depth 3, 20 concurrent children, a run-level budget children draw from, per-agent wall
-  clock. Start fan-out at 3–5 - "three focused teammates often outperform five scattered
+  clock. Start fan-out at 3–5 — "three focused teammates often outperform five scattered
   ones."
 - **Resume reconciles the roster**: a restarted process cannot resurrect a live child, so
   missing children are marked dead and either respawned or their claimed tasks reassigned.
@@ -1217,7 +1217,7 @@ House style throughout: one SQLite file, ports and adapters, `operation_id`s as 
 provenance split (`asserted_by` derived server-side, `source` a claim), credential refusal
 that names keyring, sparse storage, cursor pagination, RFC 9457, 100% branch coverage.
 
-**Three tiers, three lifetimes.** *Working* memory is a small pinned block in context -
+**Three tiers, three lifetimes.** *Working* memory is a small pinned block in context —
 labelled, agent-editable, hard-capped at 4–6k tokens, and a **first-class REST resource**
 (`GET|PUT /v1/memory/blocks/{label}`), because memory that can only be inspected through the
 model's own answers cannot be operated. *Episodic* memory is the session's items, summaries
@@ -1228,7 +1228,7 @@ to the episode that produced them. **Only semantic memory crosses sessions by de
 nearest, and decide **ADD / UPDATE / DELETE / NOOP** per candidate. Blind appends produce
 near-duplicate contradictory rows, and retrieval then surfaces a stale fact beside its
 correction with no signal about which is current. Consolidation triggers on accumulated
-importance, session end, or an explicit "remember this" - **never every turn**, and **always
+importance, session end, or an explicit "remember this" — **never every turn**, and **always
 in a background worker**, never on the response path.
 
 **Nothing is hard-deleted.** A correction is a new row plus an invalidation
@@ -1237,14 +1237,14 @@ March"*, an audit trail for *"why do you think that?"*, temporal queries, and a 
 `forget`.
 
 **Decay is a ranking signal, not deletion**, and it decays from **last access, not
-creation** - otherwise a stable, frequently-used fact ("home timezone") looks old and is
+creation** — otherwise a stable, frequently-used fact ("home timezone") looks old and is
 evicted while yesterday's one-off survives. Score = relevance (FTS5/bm25, embeddings optional
 behind a Protocol) + recency (exponential from `last_accessed_at`) + importance (rated 1–10
 at write time), min-max normalised. A periodic job merges memories not retrieved in N days
 into a consolidated summary row.
 
 **Untrusted by construction.** Anything distilled from tool output or a web page is
-`trust=untrusted` and is **never auto-retrieved** until confirmed - a memory store is a
+`trust=untrusted` and is **never auto-retrieved** until confirmed — a memory store is a
 prompt-injection *persistence layer*, and permanence is the whole feature. A **write-time
 secret scrubber** rejects API-key shapes, bearer tokens, private keys and long high-entropy
 strings with an actionable error; Lucy sits next to a vault, and the memory path is the
@@ -1257,15 +1257,15 @@ every path (`../`, `..\`, `%2e%2e%2f`).
 **Visible and correctable.** `GET /v1/memory` lists **everything** with provenance, split
 into what the person told Lucy and what Lucy inferred, each independently toggleable, plus an
 incognito session mode that neither reads nor writes. Every inferred memory is listable with
-its source episode - the documented weakness of the best-known consumer design is that its
+its source episode — the documented weakness of the best-known consumer design is that its
 inferred layer is not enumerable, which turns a small extraction error into a permanent,
 invisible, recurring annoyance.
 
 Also: batch write, a two-credential `/v1/internal` surface from day one, and **real
-erasure** - grace period, sweeper, per-memory forget, and `DELETE /v1/memory`.
+erasure** — grace period, sweeper, per-memory forget, and `DELETE /v1/memory`.
 
 Lucy owns **fusion** across Memory, User-api and Persona-api, keeping sections separate and
-never merging incomparable bm25 scores - exactly what persona-api's two-list design argues
+never merging incomparable bm25 scores — exactly what persona-api's two-list design argues
 for.
 
 ---
@@ -1274,14 +1274,14 @@ for.
 
 ### 13.1 Target revision, and why it matters
 
-The current spec is **2026-07-28** - the largest breaking revision since MCP launched. It
+The current spec is **2026-07-28** — the largest breaking revision since MCP launched. It
 **deletes** the `initialize` handshake, protocol sessions and `Mcp-Session-Id`, the HTTP GET
 stream, SSE resumability and `Last-Event-ID`, `ping`, `logging/setLevel`,
 `resources/subscribe` and `roots/list_changed`. MCP is now **stateless request/response**:
 every request carries protocol version and client capabilities in `_meta`, and servers
 **MUST** implement `server/discover`.
 
-Lucy targets 2026-07-28 and keeps **2025-11-25 as a dual-era compatibility path** -
+Lucy targets 2026-07-28 and keeps **2025-11-25 as a dual-era compatibility path** —
 `server/discover` advertises `supportedVersions: ["2026-07-28","2025-11-25"]`, modern
 requests are served statelessly, and a legacy `initialize` handler selects legacy semantics.
 A modern-only server simply fails for every legacy client, so dual-era is not optional if
@@ -1309,7 +1309,7 @@ behind a subprocess, never by downgrading the hub.
   a new session.
 - **A deliberately small surface** (under ~30 tools, workflow-shaped): `lucy_chat`,
   `lucy_list_capabilities`, `lucy_connect`, `lucy_get_session_items`, `lucy_run_plan`,
-  `lucy_get_result`, plus weftai's own three - **whose descriptions must not be patched, they
+  `lucy_get_result`, plus weftai's own three — **whose descriptions must not be patched, they
   are part of the parity contract with the npm package**.
 - **Annotations on every tool.** The schema defaults are `destructiveHint: true` and
   `openWorldHint: true`, so an unannotated tool is advertised as destructive and open-world
@@ -1318,34 +1318,34 @@ behind a subprocess, never by downgrading the hub.
 - **`ttlMs` + `cacheScope`, not `listChanged`, are the real invalidation mechanism.**
   `tools/list` is `cacheScope: "private"` with a 60–300 s TTL because Lucy's tool list varies
   per person; `server/discover` can be public with a long TTL. A per-user filtered list must
-  never be marked public - intermediaries may share public results across authorization
+  never be marked public — intermediaries may share public results across authorization
   contexts. `listChanged` is declared and sent as a best-effort accelerator only; major
   clients demonstrably ignore it, so **every stale-tool call must return a clean,
   self-correcting error.**
 - **Vary the tool set by authorization, never by connection state or prior calls.** The spec
   permits the former and forbids the latter, so hiding `spotify_*` until the person has
-  linked Spotify is sanctioned - as a pure function of the presented token. List ordering is
+  linked Spotify is sanctioned — as a pure function of the presented token. List ordering is
   deterministic so prompt caching still works. On a *transient* outage the tool stays listed
   and returns `isError: true` with actionable text (D22).
 - **`instructions` in `server/discover`** is a real paragraph naming the capability domains.
   It is the documented hook for improving a model's understanding of the surface, and it is
-  what makes tool search find Lucy's families - far cheaper than loading thirty schemas.
+  what makes tool search find Lucy's families — far cheaper than loading thirty schemas.
 - **`outputSchema` + `structuredContent`** for anything parsed downstream, but deliberately:
   the backward-compat rule to also serialise the JSON into a text block **doubles tokens**,
   so large results carry a short readable summary in `content` and the machine payload in
   `structuredContent`.
 - **Tasks** (`io.modelcontextprotocol/tasks`) for long runs, gated on the client declaring
-  the extension - never return a task to a client that did not. The default path is
+  the extension — never return a task to a client that did not. The default path is
   synchronous with `notifications/progress` on the request's own stream.
 - **Skills** (`io.modelcontextprotocol/skills`) for reusable procedures: `skills/list`,
   `skills/get`, `skill://` resources, SHA-256 digests and byte sizes in the manifest, ≤512
   files and ≤16 MiB per skill. Approval binds to the exact set of URIs and digests, so any
-  change revokes approval - precisely the anti-rug-pull property wanted for content a model
+  change revokes approval — precisely the anti-rug-pull property wanted for content a model
   will act on, and precisely the "read a skill in detail" shape.
 - **Authorization**: a fixed canonical resource URI, `/.well-known/oauth-protected-resource`
   per RFC 9728, audience validation on every request, `401` with
   `WWW-Authenticate: Bearer resource_metadata="…", scope="…"`, and `403`
-  `error="insufficient_scope"` listing **every** scope the operation needs in one challenge -
+  `error="insufficient_scope"` listing **every** scope the operation needs in one challenge —
   incremental challenges force multiple round trips and degrade the experience.
 - **Confused-deputy mitigation**, in full: a per-user registry of approved `client_id`s
   checked before any third-party redirect; a Lucy-owned consent page naming the client, the
@@ -1373,19 +1373,19 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 
 ## 14. Family-wide refactors
 
-1. **Python 3.12** everywhere (D2) - `examples/hello-api` first, because the standard says a
+1. **Python 3.12** everywhere (D2) — `examples/hello-api` first, because the standard says a
    family-standard change lands in the oracle first.
 2. **Keyring**: token exchange + offline grants (§4.1); a `GET /v1/connections` across
    profiles so gating is one call rather than one per provider.
 3. **Environments-api**: the primitives in §10.2.
 4. **`Idempotency-Key`** on the non-idempotent writes every service's own docs flag
    (`write_note`, `create_profile`, `create_download_job`, `POST /v1/environments`).
-5. **`wait_seconds` long-poll** on jobs - Web-search and Spotify now hold `GET /jobs/{id}`
+5. **`wait_seconds` long-poll** on jobs — Web-search and Spotify now hold `GET /jobs/{id}`
    open for up to 60 seconds so a caller does not have to poll in a loop.
 6. **A `lucy` and a `memory` settings namespace**: one `SettingDef` module each plus a grant
    row. Every entry declares `on_unavailable`; `use_default` entries declare
    `conservative_values` containing their default. Only bool/int/str/enum/str_list, ≤4096
-   bytes - which is why prompt overrides live in persona notes (D13).
+   bytes — which is why prompt overrides live in persona notes (D13).
 7. **Parity `docs/mcp.md`:** every family service now ships one; the check is in
    `scripts/parity.py`. A hub-gated readiness probe per service is still outstanding.
 8. `user-api ?order=relevance` without `q` is a named 422 (`needs a q`), not a 500.
@@ -1394,7 +1394,7 @@ hand-rolled IP parsing, and route through an egress proxy where one exists.
 `max_context_tokens` · `compaction_trigger_percent` · `memory_write_policy` ·
 `memory_retrieval_limit` · `approval_policy` (floor: destructive always asks) ·
 `permission_mode` · `input_policy` (double-texting) · `enabled_capabilities` ·
-`disabled_capabilities` (refuses on outage - empty would re-enable a ban) ·
+`disabled_capabilities` (refuses on outage — empty would re-enable a ban) ·
 `agent_max_depth` · `agent_max_concurrent` · `session_token_budget` ·
 `max_llm_turns` · `max_subagent_turns` · `max_tool_calls_per_turn` · `max_turn_seconds` ·
 `workspace_retention_hours` · `stream_thinking` · `incognito` · `log_message_content` ·
@@ -1416,18 +1416,18 @@ here is general-purpose**, and every item ships to **both** repos.
 
 | # | Change | General value |
 | --- | --- | --- |
-| ~~W1~~ | ~~testing wheel~~ - **out of scope**: Lucy does not use `weftai-testing`. Its own fakes follow `settings_client`'s Protocol + Fake + `asgi_client` shape, which is the family's idiom anyway. | - |
+| ~~W1~~ | ~~testing wheel~~ — **out of scope**: Lucy does not use `weftai-testing`. Its own fakes follow `settings_client`'s Protocol + Fake + `asgi_client` shape, which is the family's idiom anyway. | — |
 | W2 | Export the **68 type names** (`Runtime`, `ExecutionResult`, `StepResult`, `ResultStore`, `Trace`, …) from the `weftai` root | TS exports them; Python consumers import private paths today |
 | W3 | Fix three drifted `__all__`s (`adapter` omits `format_invalid_plan`/`capabilities_for`; `cli` and `mcp` carry extras) | silent drift in both directions |
-| W4 | **Operation `annotations`** (`readOnly`, `destructive`, `idempotent`, `requiresApproval`, `costHint`) | maps 1:1 onto MCP tool annotations - whose defaults are destructive/open-world, so this is not cosmetic; drives retry, concurrency and approval in any host |
+| W4 | **Operation `annotations`** (`readOnly`, `destructive`, `idempotent`, `requiresApproval`, `costHint`) | maps 1:1 onto MCP tool annotations — whose defaults are destructive/open-world, so this is not cosmetic; drives retry, concurrency and approval in any host |
 | W5 | **Long-form `docs` on an operation** + `describe(detail="names"\|"short"\|"full")` with a token budget | progressive disclosure; the preamble stops growing with the registry |
 | W6 | **`run.progress()`** and step events | any host that streams "calling…" to a person |
 | W7 | **Async result store** protocol | durable stores stop blocking the event loop |
 | W8 | `maxSteps` into the compiled plan schema | today the model learns the cap by breaking it |
 | W9 | MCP server: **revision 2026-07-28** (`server/discover`, stateless, `ttlMs`/`cacheScope`, annotations), multi-session, stored results as **resources** | the current spec deletes what the present implementation assumes; single-session is a real limit |
-| W10 | **A real parity checker** - diff `__all__` against `index.ts`, the 64 catalog rows, the 38 presets, the CLI usage strings, the three MCP tool descriptions, the 13 issue codes | `tools/parity.md` says "CI greps this list" and **nothing does**; every comparison passes today, so the tool starts green and only reports real drift |
+| W10 | **A real parity checker** — diff `__all__` against `index.ts`, the 64 catalog rows, the 38 presets, the CLI usage strings, the three MCP tool descriptions, the 13 issue codes | `tools/parity.md` says "CI greps this list" and **nothing does**; every comparison passes today, so the tool starts green and only reports real drift |
 | W11 | Python `release.yml` runs the gates before publishing | today a tag pushed from a branch that never passed CI publishes to PyPI |
-| W12 | **An optional per-step `note`** on a plan: one plain sentence saying what that step is for | every host needs a human-readable label for a tool call - for an approval prompt, a progress line, a log and a summary. Today a host can only show the operation name and its arguments, which is the one thing a person cannot read at a glance. Cheap (one short string), opt-in, and it makes `describe`'s examples teach the habit. |
+| W12 | **An optional per-step `note`** on a plan: one plain sentence saying what that step is for | every host needs a human-readable label for a tool call — for an approval prompt, a progress line, a log and a summary. Today a host can only show the operation name and its arguments, which is the one thing a person cannot read at a glance. Cheap (one short string), opt-in, and it makes `describe`'s examples teach the habit. |
 
 Cost per capability in lockstep is known: ~2 source files, ~4 test files and ~8 metadata
 files **per repo**, plus a changeset (TS) and a towncrier fragment + version bump (Python).
@@ -1436,7 +1436,7 @@ files **per repo**, plus a changeset (TS) and a towncrier fragment + version bum
 
 ## 16. Edge cases, and the answer to each
 
-**Sessions** - two clients at once → the input policy decides; default `enqueue`. ·
+**Sessions** — two clients at once → the input policy decides; default `enqueue`. ·
 Disconnect → generation continues, events buffer, `starting_after` resumes. · Restart
 mid-turn → recorded steps replay, nothing re-invokes. · Fork → new id, items copied, ids
 remapped (a byte copy leaves dangling references), **workspace not forked**. · Long session →
@@ -1444,7 +1444,7 @@ compaction as a projection, visible in `/context`, reversible with `/uncompact`.
 items, results and workspace go; memory survives with its provenance id until erasure takes
 it too. · Edit-and-regenerate → a new item with the same `parent_id`.
 
-**Capabilities** - connected mid-conversation → probe invalidated,
+**Capabilities** — connected mid-conversation → probe invalidated,
 `lucy.session.capabilities.changed`, tool present next turn, MCP `listChanged` as an
 accelerator. · Consent started and abandoned → `pending`, and Lucy can say so. · Partial
 consent → `insufficient_scope` naming the missing scope. · Breaks mid-turn → the step fails
@@ -1453,7 +1453,7 @@ listed** for MCP. · Multiple profiles → capabilities are per-profile. · Disa
 and the model is told it is disabled so it stops offering. · Two turns refresh one connection
 → serialised by lock, because concurrent refresh is indistinguishable from replay.
 
-**Model** - no model credential → `/ready` says so; the first-run flow is the connect flow. ·
+**Model** — no model credential → `/ready` says so; the first-run flow is the connect flow. ·
 Rate limit → backoff with jitter. · Malformed plan → weftai returns *text* the model can
 correct (`onInvalid="text"`), with capped retries. · The same failing call three times → the
 repetition detector injects a notice and drops that operation for the turn. · Context
@@ -1461,14 +1461,14 @@ overflow → the bands prevent it; if the provider still errors, compact once an
 Thinking config fixed per session. · Termination is discriminated: `error_max_iterations`
 offers resume, `refusal` does not.
 
-**Workspace** - env quota exhausted → the capability degrades, the session still works. ·
+**Workspace** — env quota exhausted → the capability degrades, the session still works. ·
 File too large → a window plus a count. · Edit conflict → fingerprint mismatch names the fix.
 · Ambiguous edit → the line numbers of every occurrence. · Binary → refused with size and
 type. · Command never ends → timeout, then a shell and polling. · Output floods → ring
 buffer, full log still addressable by command id. · Reaper archives the workspace →
 keep-alive, and warn before expiry.
 
-**Agents** - child fails → a structured failure, not an exception. · Child spawns children →
+**Agents** — child fails → a structured failure, not an exception. · Child spawns children →
 the depth cap refuses with a sentence. · Parent turn ends → a background child continues and
 reports at the next turn. · Parent messages a finished child → an error that says so. · Too
 many children → queue at the cap, surfaced to the model. · Child needs approval → it bubbles
@@ -1477,19 +1477,19 @@ dedupe, hop counter. · Child asks a sibling to do what it was denied → refuse
 inter-agent message is not consent. · Restart → roster reconciled, stale claims released by
 lease expiry.
 
-**Memory** - conflicts → `superseded_by`; latest and highest confidence win. · Wrong memory →
+**Memory** — conflicts → `superseded_by`; latest and highest confidence win. · Wrong memory →
 correct or forget, and `GET /v1/memory` shows everything with provenance. · Poisoning →
 `trust=untrusted`, excluded from auto-retrieval. · A credential in a memory → the write-time
 scrubber refuses with an actionable error. · Budget → retrieval capped, decay from last
 access, background consolidation.
 
-**MCP** - legacy client → the dual-era path. · External server down → warn, others register.
+**MCP** — legacy client → the dual-era path. · External server down → warn, others register.
 · External server changes its tools → the hash pin detects it and the person is told. ·
 Cached stale tool called → a clean self-correcting error, never a vanished tool. · Guessed
 task id → refused: ids are bound to the verified subject. · Hostile metadata URL → the SSRF
 guard refuses.
 
-**Security** - credential material never enters a prompt, tool result, event or log (a test
+**Security** — credential material never enters a prompt, tool result, event or log (a test
 asserts it). · Lucy never forwards a caller's token to a sibling. · Tool and child results
 are untrusted, always framed and scrubbed. · A tool call whose arguments came from untrusted
 retrieved content needs confirmation. · Approval sits **before** the side effect and the
@@ -1520,9 +1520,9 @@ The weftai track runs in parallel: **W2, W3 and W10 first** (parity and types, u
 Lucy's typing), then **W4–W9 as 0.3.0**, adopted at M5, with W9 landing before M8.
 
 **Sequencing rule:** ship the single-agent loop over all capabilities, with good tools and
-compaction, and measure where context actually breaks **before** M6. The guidance is blunt -
+compaction, and measure where context actually breaks **before** M6. The guidance is blunt —
 "a well-designed single agent with appropriate tools can accomplish far more than many
-developers expect" - and multi-agent systems cost ~15× the tokens.
+developers expect" — and multi-agent systems cost ~15× the tokens.
 
 ---
 
@@ -1532,8 +1532,8 @@ The family standard is the floor: 100% branch coverage, no `pragma: no cover`,
 `filterwarnings = ["error"]`, mypy strict, import-linter, ruff, no file over 1000 lines.
 Four harnesses this system specifically needs.
 
-1. **Golden transcripts.** A scripted fake model - deterministic tool calls, injected
-   failures, malformed plans, repetition, refusals - drives a full turn while the test
+1. **Golden transcripts.** A scripted fake model — deterministic tool calls, injected
+   failures, malformed plans, repetition, refusals — drives a full turn while the test
    asserts the **exact** item log, the **exact** event stream, the **exact** assembled
    prompt, and the **exact** token accounting. This is the only way an agent loop is
    genuinely tested rather than smoke-tested.
@@ -1547,9 +1547,9 @@ Four harnesses this system specifically needs.
    secret appears in any prompt, tool result, event, log or trace; a confused-deputy suite
    asserting a sibling's message never satisfies a permission prompt; and an SSRF suite
    asserting Lucy refuses to fetch `127.0.0.1:8001` however it is spelled.
-4. **The memory eval, written before the memory system.** LongMemEval's five axes -
+4. **The memory eval, written before the memory system.** LongMemEval's five axes —
    information extraction, multi-session reasoning, temporal reasoning, **knowledge
-   updates**, **abstention** - plus three of our own: post-compaction **identifier survival**
+   updates**, **abstention** — plus three of our own: post-compaction **identifier survival**
    (are all paths, session ids and entity ids still present?), **tool-call non-repetition**
    after compaction, and **cross-user leakage**. Memory regressions are silent: nothing
    crashes when the agent quietly forgets a constraint.

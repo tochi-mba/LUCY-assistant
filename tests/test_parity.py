@@ -261,7 +261,7 @@ def fail(root: Path, check_id: str) -> None:
 
 
 def test_every_declared_check_has_a_failing_case() -> None:
-    """parity.py refuses a check that has no failing case - this is that refusal."""
+    """parity.py refuses a check that has no failing case — this is that refusal."""
     import inspect
 
     source = inspect.getsource(fail)

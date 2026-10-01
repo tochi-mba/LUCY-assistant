@@ -72,7 +72,7 @@ A private service becomes a small package rather than a directory, with an
 now something somebody has to cross deliberately.
 
 `make up` grows an overlay argument. The parity check grows a pass over the tree, which is
-cheap and catches the failure that matters - somebody writing a helpful example.
+cheap and catches the failure that matters — somebody writing a helpful example.
 
 The existing prose mentions are replaced with a generic illustration rather than a different
 real service, because picking another real service is how this happens again.

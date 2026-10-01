@@ -1,4 +1,4 @@
-"""The live memory index is the ranked, trusted prefix - never the untrusted remainder."""
+"""The live memory index is the ranked, trusted prefix — never the untrusted remainder."""
 
 from __future__ import annotations
 

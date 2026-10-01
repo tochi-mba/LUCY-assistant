@@ -30,7 +30,7 @@ a router that wanted its own name.
 ## What it costs
 
 Occasional extra files and imports. A generated snapshot might need to live
-outside the scanned directories if a catalogue dump genuinely cannot split -
+outside the scanned directories if a catalogue dump genuinely cannot split —
 we have not met one yet. Counting physical lines (not statements) means a
 short file of blank lines can still trip the gate; that is accepted.
 

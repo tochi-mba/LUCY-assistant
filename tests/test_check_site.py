@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import check_site  # noqa: E402
 
-GOOD = """<!doctype html><html lang="en"><head><title>Thing - REX Technologies</title>
+GOOD = """<!doctype html><html lang="en"><head><title>Thing — REX Technologies</title>
 <link rel="stylesheet" href="styles.css"></head>
 <body><a href="#top">top</a><main id="top"><img src="mark.svg" alt="">
 <a href="https://github.com/tochi-mba/Thing">source</a></main>

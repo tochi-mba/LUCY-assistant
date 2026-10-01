@@ -254,7 +254,7 @@ def new_token() -> str:
 
 
 def new_master_key() -> str:
-    """Base64 of 32 random bytes - the shape keyring's ``KEYRING_MASTER_KEY`` requires."""
+    """Base64 of 32 random bytes — the shape keyring's ``KEYRING_MASTER_KEY`` requires."""
     return base64.b64encode(os.urandom(MASTER_KEY_BYTES)).decode("ascii")
 
 

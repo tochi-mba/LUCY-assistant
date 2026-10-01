@@ -112,7 +112,7 @@ always receives a fresh directory rather than sharing its parent's files. A prov
 
 `input.message` starts a turn. `input.approval` answers a parked write: Lucy records a
 grant (once, this session, this profile, or the whole account) and re-queues the turn.
-The client's `approved: true` is an input, not an authorization - the gate re-checks the
+The client's `approved: true` is an input, not an authorization — the gate re-checks the
 ledger before the tool runs. A denial is a transcript item plus a grant the model will
 see as "not allowed", never an exception.
 
@@ -132,7 +132,7 @@ grants. `PUT /v1/permissions` records a decision. `DELETE /v1/permissions/{id}` 
 that permission to "not yet asked". The bearer token always selects the account, so one
 person cannot name or inspect another person's grants.
 
-`GET /v1/tools` is the bound registry for this turn - names the model can actually call,
+`GET /v1/tools` is the bound registry for this turn — names the model can actually call,
 after deferred loading. `POST /v1/tools/{name}/invoke` runs one of those operations without
 starting a model turn. The gate is the same: a write that still needs a person is `409`.
 Grant it through `/v1/permissions` or answer `input.approval` on the session, then retry.

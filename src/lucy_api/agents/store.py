@@ -3,7 +3,7 @@
 The work registry is process memory: it dies on restart. These tables are how a restarted
 process knows which helpers were running, which messages were waiting, and which journal
 tasks a dead claimant had locked. Every lookup that names a person's data carries the
-account, and a miss is `absent()` - the same 404-not-403 rule as the session store.
+account, and a miss is `absent()` — the same 404-not-403 rule as the session store.
 """
 
 from __future__ import annotations

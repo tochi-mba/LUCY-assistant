@@ -201,7 +201,7 @@ class NotesPack:
                     "name": "notes.search",
                     "description": (
                         "Find remembered notes worth putting in front of the model. This "
-                        "is memory only - pinned account fields are on notes.aboutMe, not "
+                        "is memory only — pinned account fields are on notes.aboutMe, not "
                         "here, because the scores are not comparable. Untrusted and "
                         "forgotten notes are excluded (search, recall, remember, lookup)."
                     ),

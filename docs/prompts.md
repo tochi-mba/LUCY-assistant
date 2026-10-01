@@ -56,7 +56,7 @@ the two cannot drift.
 
 ## Trust channels
 
-Only authored instructions - the section bodies - use the provider's system channel.
+Only authored instructions — the section bodies — use the provider's system channel.
 Persona fields, pinned account facts, memory, tool results, live feeds, and the transcript
 are data messages: third-person reported claims with provenance inline, inside a delimited
 block. Concatenating a remembered note into the system prompt is how a web page from last

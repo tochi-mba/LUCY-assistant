@@ -26,7 +26,7 @@ make that the default rather than a subtree discipline we would forget.
 
 **Work in flight.** Other people are editing the eight repositories at the same time.
 A monorepo would serialize that through one default branch. A meta-repo can clone and
-then **leave an existing checkout alone** - no pull, no reset - which is the only
+then **leave an existing checkout alone** — no pull, no reset — which is the only
 safe behaviour while those clones are dirty.
 
 ## What it costs

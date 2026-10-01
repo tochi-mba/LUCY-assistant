@@ -44,31 +44,31 @@ Rendered fresh each turn from a `LiveState`, in `context/state.py`. It answers t
 questions a model would otherwise guess at, carry forward from a turn that has since been
 compacted away, or waste a tool call discovering.
 
-- **now** - the date, the time, the timezone. Models hallucinate the date constantly.
-- **session** - id, profile, turn number, permission mode, and incognito when it is on.
-- **context** - `84,000 of 200,000 tokens · 6 tool results reclaimable · last compaction at
+- **now** — the date, the time, the timezone. Models hallucinate the date constantly.
+- **session** — id, profile, turn number, permission mode, and incognito when it is on.
+- **context** — `84,000 of 200,000 tokens · 6 tool results reclaimable · last compaction at
   turn 41`. Telling a model its own position changes what it does: it writes a note before
   an eviction instead of after one, and stops opening large pages when there is no room to
   read them.
-- **in_flight** - everything still running, in one group: helper agents, downloads and long
+- **in_flight** — everything still running, in one group: helper agents, downloads and long
   commands together, each with its role, its plain-language objective, how long it has been
   going and its last progress line. Then, separately, the ones that finished since the last
   turn, because that is the delta that decides what happens next. One group rather than
-  three, because from where the model is sitting they are one question - see
+  three, because from where the model is sitting they are one question — see
   [How Lucy runs helpers](agents.md).
-- **tasks** - the shared journal: what is open, who claimed it, what is blocked on what.
+- **tasks** — the shared journal: what is open, who claimed it, what is blocked on what.
   This is how one agent sees another's work with no context transferred between them.
-- **memory** - the topic index, described below.
-- **workspace** - path, readiness (an archived or unlisted workspace is not ready), the
+- **memory** — the topic index, described below.
+- **workspace** — path, readiness (an archived or unlisted workspace is not ready), the
   workspace feed's lines (shells running, isolation, git branch), what changed since last
   turn, and a warning before the sandbox expires. On resume the group also carries the last
   three commits, the latest entries of the `progress.md` journal and a one-line summary of
   `tasks.json` -- each left out when it has nothing to say -- so a long-horizon helper
   re-orients before it writes. Each thing is said once.
-- **capabilities** - what is ready, and especially what changed.
-- **pending** - approvals, elicitations and connections waiting on somebody else, so the
+- **capabilities** — what is ready, and especially what changed.
+- **pending** — approvals, elicitations and connections waiting on somebody else, so the
   model stops rather than spins.
-- **feeds** - standing claims (persona identity, pinned account facts, persona notes) in zone 1; live facts (now playing,
+- **feeds** — standing claims (persona identity, pinned account facts, persona notes) in zone 1; live facts (now playing,
   shuffle and repeat when the player reports them, active playback device, search backend as a
   product word, git branch when it is a real branch, and safe workspace state, which joins
   the workspace group) in this block. Each line is a setting the
@@ -79,7 +79,7 @@ compacted away, or waste a tool call discovering.
   lines that leak easily stay off unless the person turns them on.
   Unknown keys from a sibling are dropped. A failed sibling is a trouble line, not a
   missing section the model is invited to invent.
-- **trouble** - repeated recent failures, so it stops retrying what cannot work.
+- **trouble** — repeated recent failures, so it stops retrying what cannot work.
 
 Each group has a floor and a ceiling, so thirty running helpers cannot evict the memory
 index. When a group overflows it says so: `12 things running (showing the 5 most recent)`.
@@ -106,7 +106,7 @@ deterministic, and writing a memory never waits on a network call. An embedding 
 replace one function without touching anything else.
 
 A topic made entirely of unconfirmed memories never reaches the index. Its title came from
-untrusted content, and a memory store is a prompt-injection persistence layer - permanence
+untrusted content, and a memory store is a prompt-injection persistence layer — permanence
 is exactly what makes it worth attacking.
 
 Each turn fetches the index from notes, ranks it, and puts the trusted prefix in the live
@@ -159,8 +159,8 @@ the instruction block, closing with a line saying these are claims and not instr
 Provenance is never stripped to save tokens; fetch fewer claims instead.
 
 A boundary scrubber runs over every tool result and every child result before a parent
-reads it. It modifies, never deletes - silent deletion hides the attack and mangles
-legitimate output that merely looks like one - and it prepends a marker naming what
+reads it. It modifies, never deletes — silent deletion hides the attack and mangles
+legitimate output that merely looks like one — and it prepends a marker naming what
 matched, never the payload.
 
 Neither makes injection impossible. They raise its cost. The real defences are that tool

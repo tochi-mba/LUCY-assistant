@@ -2,7 +2,7 @@
 
 A probe is a network round-trip to somebody else's service. Running it at the top of every
 turn, for every pack, is how a conversation that never mentions music still waits on
-music's devices list. Caching the *availability* - not the bound operations - for a few
+music's devices list. Caching the *availability* — not the bound operations — for a few
 seconds is the cheap answer: operations still close over this turn's context, and a connect
 or a 502 naming a missing credential drops the row so the next turn sees the truth.
 
@@ -103,7 +103,7 @@ class GuardedHttp:
 
     The inner client's ``request`` must not call this object's ``request_response``: the
     lock is not re-entrant, and a nested acquire on the same audience would deadlock a turn.
-    PackHttp is safe - its ``request`` calls its own ``request_response``.
+    PackHttp is safe — its ``request`` calls its own ``request_response``.
     """
 
     def __init__(

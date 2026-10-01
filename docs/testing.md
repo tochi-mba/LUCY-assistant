@@ -6,8 +6,8 @@ make matrix     # optional: the suite on 3.12 and 3.13
 make cov        # an HTML report in htmlcov/
 ```
 
-`make check` has four gates and does not grow a fifth. Anything else - an eval suite, a
-live-model smoke test - is its own verb, so the default run stays deterministic and
+`make check` has four gates and does not grow a fifth. Anything else — an eval suite, a
+live-model smoke test — is its own verb, so the default run stays deterministic and
 offline. The conversation regressions are not pytest at all: they are
 `lucy eval run` (or `make evals MODEL=...`), held on demand against a running hub, and
 only the harness's own logic is tested here, against a fake hub. See
@@ -34,7 +34,7 @@ Everything runs in-process. `create_app(settings, transport=...)` is the seam: p
 keyring that mints real RSA-signed tokens. No network, no live dependency, and no reason
 for a test to know a port number.
 
-Fakes follow `settings_client`'s shape - a `Protocol` at the seam, a hand-written `Fake`
+Fakes follow `settings_client`'s shape — a `Protocol` at the seam, a hand-written `Fake`
 that satisfies it, and the real client exercised against the real app in-process. A fake
 that drifts from its Protocol is a test that passes while the code is broken.
 
@@ -45,8 +45,8 @@ that drifts from its Protocol is a test that passes while the code is broken.
 | `tests/hub/` | The hub itself. Under coverage. |
 | `tests/test_*.py` | The family desk: compose, parity, bootstrap, installers, the reusable workflow, retarget, the connect flow, build secrets. |
 
-The desk's tests are not under `lucy_api` coverage - they exercise scripts and
-configuration, not the wheel - but they run in the same command, because a broken
+The desk's tests are not under `lucy_api` coverage — they exercise scripts and
+configuration, not the wheel — but they run in the same command, because a broken
 `docker-compose.yml` is as much a defect as a broken route.
 
 `tests/test_setup_scripts.py` runs both installers with fake `uv` and `lucy` commands.

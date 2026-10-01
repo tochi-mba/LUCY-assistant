@@ -314,7 +314,7 @@ async def test_a_full_window_drops_old_tool_results_and_confesses() -> None:
 
 async def test_the_model_is_told_how_full_its_window_actually_is() -> None:
     """`BudgetSnapshot(used=0, ...)` was hardcoded here, so every prompt ever built said
-    `context 0 of 200,000 tokens (0% used)` - including one whose history band was 9,415
+    `context 0 of 200,000 tokens (0% used)` — including one whose history band was 9,415
     tokens. `context/types.py` says why the line exists at all: "Telling a model its own
     context position changes what it does: it writes a note before an eviction rather than
     after one." A constant zero tells it nothing and is worse than saying nothing.

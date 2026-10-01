@@ -1,6 +1,6 @@
 """Whether a write may run without asking, in one place.
 
-A permission is the unit a person can answer - "run commands in your workspace" - never
+A permission is the unit a person can answer — "run commands in your workspace" — never
 one operation. The gate is consulted before a plan executes, and an uncovered write is
 allowed: only declared permissions are asked about, so adding a tool cannot silently
 invent a prompt. Getting that wrong in the permissive direction for a *declared*
