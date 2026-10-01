@@ -141,10 +141,11 @@ Github-api about any signal it might have missed.
 `scripts/genenv.py` registers `github-api` as a keyring consumer (`GHAPI_KEYRING_SERVICE_TOKEN`),
 an exchange audience, and a settings reader of namespace `github`.
 
-**Not yet in compose or `repos.txt`.** Github-api joins `repos.txt`, `repos.lock`,
-`docker-compose.yml` (service `github`, port 8011) and the workspace file in the same change
-that publishes the repository, so a fresh `make bootstrap` never clones a repository that is
-not there. Until then the capability probes as `unavailable` and binds nothing.
+In compose the service is `github` on 8011, built from `./Github-api` (`repos.txt`,
+`repos.lock`), with its own `github-data` volume for subscriptions. Its keyring service
+token (`GHAPI_KEYRING_SERVICE_TOKEN`) and settings token come from `.env.family`, which
+`scripts/genenv.py` writes. Keyring's `providers.json` needs the `github` provider before a
+person can connect.
 
 ## Testing
 
