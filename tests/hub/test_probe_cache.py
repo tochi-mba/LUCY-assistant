@@ -99,6 +99,50 @@ async def test_another_account_or_profile_does_not_share_the_cache() -> None:
     assert gadget.probes == 3
 
 
+class SessionBound(Counting):
+    """Ready only in a session, as the workspace is ready only where one is attached."""
+
+    async def probe(self, context: Any) -> Availability:
+        self.probes += 1
+        if not context.session_id:
+            return Availability(state=State.not_connected, detail="no workspace is attached")
+        return Availability(state=State.ready, detail="attached")
+
+
+def _in(capabilities: Capabilities, session_id: str) -> Any:
+    return capabilities.context_for(
+        SessionScope(account_id="acct_a", profile="personal", session_id=session_id)
+    )
+
+
+async def test_a_probe_made_outside_a_session_does_not_answer_for_one() -> None:
+    """The bug, named: the capability listing probed the workspace with no session, cached
+    "no workspace is attached" for the person, and every session of theirs lost its
+    workspace from its tool list until the entry aged out."""
+    pack = SessionBound()
+    capabilities = _capabilities(pack)
+
+    outside = await capabilities.probe(_in(capabilities, ""))
+    inside = await capabilities.probe(_in(capabilities, "ses_a"))
+
+    assert outside.get("gadget").availability.state is State.not_connected
+    assert inside.get("gadget").availability.state is State.ready
+    assert pack.probes == 2
+
+
+async def test_each_session_is_answered_by_its_own_probe_and_forgetting_reaches_them_all() -> None:
+    pack = SessionBound()
+    capabilities = _capabilities(pack)
+    for session in ("ses_a", "ses_b", "ses_a", "ses_b"):
+        await capabilities.probe(_in(capabilities, session))
+    assert pack.probes == 2
+
+    capabilities.forget_probes("acct_a", "personal", "gadget")
+    for session in ("ses_a", "ses_b"):
+        await capabilities.probe(_in(capabilities, session))
+    assert pack.probes == 4
+
+
 async def test_operations_still_run_locally_on_a_cache_hit() -> None:
     gadget = Counting()
     capabilities = _capabilities(gadget)

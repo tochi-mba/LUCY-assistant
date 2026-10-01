@@ -8,6 +8,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A capability probe answers for its own session.** Probe results were cached per person
+  and capability, but the workspace is ready only in a session that has one attached. One
+  probe made outside a session -- the capability listing, or a session not yet provisioned --
+  cached "no workspace is attached" for every session of that person for fifteen seconds,
+  and their workspace vanished from the tool list, neither callable nor deferred. Found by
+  the eval harness, whose read-back after a turn was refused. The cache is now keyed by
+  session too; forgetting a capability still clears it in every session.
 - **A search hit carries its snippet.** The hit collection declared `site` and `snippet`
   and `research.search` filled neither, so filtering or picking by them read empty text.
   Each hit now has the snippet the search service sends; `site`, which the service never
