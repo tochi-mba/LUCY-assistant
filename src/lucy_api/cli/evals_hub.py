@@ -14,17 +14,21 @@ request can never start a second session or say a message twice.
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 import uuid
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import httpx
 
 from lucy_api.cli.base import headers
+from lucy_api.cli.setup import MAX_TOKEN_CHARS
 from lucy_api.evals.hub import HubError, HubUnreachable
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 PAGE = 100
 """The largest page the hub serves; a transcript is read in as few requests as it allows."""
@@ -35,10 +39,21 @@ ERROR_FROM = 400
 class HttpHub:
     """The routes a conversation needs, on one authenticated client."""
 
-    def __init__(self, client: httpx.Client, url: str, token: str) -> None:
+    def __init__(
+        self,
+        client: httpx.Client,
+        url: str,
+        token: str,
+        *,
+        renew: Callable[[], str] | None = None,
+    ) -> None:
+        """``renew`` is asked for a fresh token when the hub refuses the one in use: a keyring
+        token lives fifteen minutes, and a conversation with helpers and restarts outlives it.
+        It is asked once per refusal; refused again, the run stops as it always did."""
         self._client = client
         self._url = url.rstrip("/")
         self._token = token
+        self._renew = renew
 
     def health(self) -> dict[str, Any]:
         return self._object("GET", "/healthy")
@@ -143,24 +158,80 @@ class HttpHub:
         params: Mapping[str, Any] | None = None,
         idempotent: bool = False,
     ) -> httpx.Response:
+        response = self._request(method, path, body=body, params=params, idempotent=idempotent)
+        if response.status_code == HTTPStatus.UNAUTHORIZED and self._renew is not None:
+            # Refused before anything was done, so sending it again under a fresh token
+            # cannot do it twice. Refused again, it stops the run as before.
+            self._token = self._renew()
+            response = self._request(method, path, body=body, params=params, idempotent=idempotent)
+        if response.status_code >= ERROR_FROM:
+            answered = _body(response)
+            raise HubError(
+                _problem(method, path, response, answered),
+                status=response.status_code,
+                problem=_kind(answered),
+            )
+        return response
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None,
+        params: Mapping[str, Any] | None,
+        idempotent: bool,
+    ) -> httpx.Response:
         sent = headers(self._token)
         if idempotent:
             sent["Idempotency-Key"] = str(uuid.uuid4())
         try:
-            response = self._client.request(
+            return self._client.request(
                 method, f"{self._url}{path}", headers=sent, json=body, params=params
             )
         except httpx.HTTPError as exc:
             message = f"cannot reach Lucy at {self._url}"
             raise HubUnreachable(message) from exc
-        if response.status_code >= ERROR_FROM:
-            body = _body(response)
-            raise HubError(
-                _problem(method, path, response, body),
-                status=response.status_code,
-                problem=_kind(body),
+
+
+TOKEN_COMMAND_SECONDS = 60.0
+"""How long ``--token-command`` may take to print a token."""
+
+
+def renewed_token(command: str) -> str:
+    """A fresh token from the operator's own ``--token-command``, held in memory only.
+
+    Whatever the command prints is the token, so nothing here ever repeats its output: a
+    command that fails is named by its exit status alone. A failure is a refusal, which
+    stops the run the way an expired token always has.
+    """
+    # Into a file, not a pipe: at the timeout only the shell is killed, and a program it
+    # started would hold a pipe open -- and this call with it -- for as long as it ran.
+    with tempfile.TemporaryFile() as sink:
+        try:
+            ended = subprocess.run(  # noqa: S602 - the operator's own command, named on the command line
+                command,
+                shell=True,
+                stdin=subprocess.DEVNULL,
+                stdout=sink,
+                stderr=subprocess.DEVNULL,
+                timeout=TOKEN_COMMAND_SECONDS,
+                check=False,
             )
-        return response
+        except subprocess.TimeoutExpired as exc:
+            message = f"the token command did not finish in {TOKEN_COMMAND_SECONDS:.0f}s"
+            raise HubError(message, status=HTTPStatus.UNAUTHORIZED) from exc
+        sink.seek(0)
+        token = sink.read(MAX_TOKEN_CHARS + 1).decode("utf-8", errors="replace").strip()
+    if (
+        ended.returncode != 0
+        or not token
+        or len(token) > MAX_TOKEN_CHARS
+        or any(character.isspace() for character in token)
+    ):
+        message = f"the token command exited {ended.returncode} without printing one token"
+        raise HubError(message, status=HTTPStatus.UNAUTHORIZED)
+    return token
 
 
 def _body(response: httpx.Response) -> dict[str, Any]:
@@ -189,4 +260,4 @@ def _segment(value: str) -> str:
     return quote(value, safe="")
 
 
-__all__ = ["HttpHub"]
+__all__ = ["HttpHub", "renewed_token"]
