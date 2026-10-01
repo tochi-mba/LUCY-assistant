@@ -14,3 +14,7 @@ lands" is something you can promise.
 
 The result is that it fired, plus a short excerpt of the evidence -- never the whole file.
 Read it with `work.result` if the excerpt matters; often the notice is enough.
+
+A watch is for something Lucy can see from here. For CI, a merge or a review, `repos.watch`
+has the repository service do the watching, for up to a week. For a *time* rather than an
+event, `work.checkin` comes back then on its own.
