@@ -3,7 +3,7 @@
 A REX Technologies product. Site: <https://tochi-mba.github.io/LUCY-assistant/>
 
 Lucy is the assistant hub in `src/lucy_api/`. This repository also holds the **family
-desk**: tools and documentation for eight public sibling services, each in its own git
+desk**: tools and documentation for nine public sibling services, each in its own git
 repository. `scripts/bootstrap.sh` clones those checkouts beside this file. Operator-local
 services attach through the documented extension points and a private Compose overlay.
 

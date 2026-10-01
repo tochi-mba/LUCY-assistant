@@ -97,7 +97,7 @@ it lives here rather than in a tenth sibling repository, and what that costs.
 **The family desk.** Bootstrap, parity, compose, the reusable workflow, the token broker,
 family docs, ADRs about the family, and a teaching example under `examples/`.
 
-Not a copier template. Not copies of the eight services — those are still eight separate
+Not a copier template. Not copies of the nine services — those are still nine separate
 git repositories, cloned beside this file and gitignored. Not `.env.family`, and not a
 GitHub token. `make test` runs the hub's suite and the desk's together.
 
