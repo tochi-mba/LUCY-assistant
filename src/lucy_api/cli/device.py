@@ -1,4 +1,9 @@
-"""Browser-assisted device sign-in for the command-line client."""
+"""Device sign-in for the command-line client, and approving one from another client.
+
+A client that is not signed in asks the hub for a code and waits. The approval comes from a
+client that already is -- ``lucy approve CODE`` -- which hands its own sign-in to the waiting
+one. Nothing here asks for a password, and no page does either.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +12,20 @@ import webbrowser
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.cli.base import REFUSED, TIMEOUT_SECONDS, UNREACHABLE, CliError
+from lucy_api.cli.base import (
+    OK,
+    REFUSED,
+    TIMEOUT_SECONDS,
+    UNREACHABLE,
+    USAGE,
+    CliError,
+    headers,
+    unreachable,
+)
 
 if TYPE_CHECKING:
+    import argparse
+
     from lucy_api.cli.base import Context
 
 PENDING = "authorization_pending"
@@ -51,14 +67,14 @@ def sign_in(ctx: Context, url: str) -> str:
             verification = str(body["verification_uri_complete"])
             interval = max(1, int(body["interval"]))
             deadline = time.monotonic() + max(1, int(body["expires_in"]))
-            ctx.say(f"Sign in in your browser with code {user_code}")
-            ctx.say(verification)
+            ctx.say(f"To sign in, approve code {user_code} from a Lucy client signed in as you:")
+            ctx.say(f"  lucy approve {user_code}")
+            ctx.say(f"({verification} says the same.) With no other client signed in, run")
+            ctx.say("`lucy setup --token-stdin` with a token from your keyring instead.")
             webbrowser.open(verification, new=2)
             while time.monotonic() < deadline:
                 time.sleep(interval)
-                response = client.post(
-                    f"{url}/v1/auth/device/token", json={"device_code": device_code}
-                )
+                response = _poll(client, f"{url}/v1/auth/device/token", device_code)
                 payload = _object(response)
                 if response.status_code == HTTPStatus.OK and isinstance(
                     payload.get("access_token"), str
@@ -82,4 +98,63 @@ def sign_in(ctx: Context, url: str) -> str:
     raise CliError(message, REFUSED, hint="run `lucy setup --force` to try again")
 
 
-__all__ = ["sign_in"]
+def _poll(client: Any, endpoint: str, device_code: str) -> Any:
+    """One poll, asked again once if the hub dropped the connection as it was reused.
+
+    The hub closes a connection that has been idle for as long as the interval between
+    polls, so a poll could land on one closing under it: sign-in ended as "cannot reach
+    Lucy" while the hub was up and waiting. A poll changes nothing, so asking twice is safe.
+    """
+    import httpx  # noqa: PLC0415 - `lucy --help` must stay instant
+
+    try:
+        return client.post(endpoint, json={"device_code": device_code})
+    except httpx.RemoteProtocolError:
+        return client.post(endpoint, json={"device_code": device_code})
+
+
+def cmd_approve(ctx: Context) -> int:
+    """Approve, or refuse, another client's sign-in from this signed-in one."""
+    import httpx  # noqa: PLC0415 - `lucy --help` must stay instant
+
+    if not ctx.token:
+        message = "this client is not signed in, so it has no sign-in to hand over"
+        raise CliError(message, USAGE, hint="approve from a client that is signed in")
+    code = str(ctx.args.code).strip().upper()
+    approve = not ctx.args.deny
+    try:
+        with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
+            response = client.post(
+                f"{ctx.url}/v1/auth/device/authorize",
+                json={"user_code": code, "approve": approve},
+                headers=headers(ctx.token),
+            )
+    except httpx.HTTPError as exc:
+        raise unreachable(ctx.url, exc) from exc
+    if response.status_code == HTTPStatus.NO_CONTENT:
+        said = (
+            f"Approved: the client showing {code} is now signed in as you."
+            if approve
+            else f"Refused: the client showing {code} will not be signed in."
+        )
+        ctx.emit({"user_code": code, "approved": approve}, said)
+        return OK
+    if response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+        message = "the hub refused this client's own token"
+        raise CliError(message, USAGE, hint="run `lucy setup --force` here first")
+    body = _object(response)
+    detail = body.get("error_description") or body.get("detail") or f"HTTP {response.status_code}"
+    message = f"the hub did not take code {code}: {detail}"
+    raise CliError(message, REFUSED)
+
+
+def add_parser(sub: Any, after: argparse.ArgumentParser) -> None:
+    approve = sub.add_parser(
+        "approve", parents=[after], help="approve another client's sign-in from this one"
+    )
+    approve.add_argument("code", help="the code the waiting client shows, like ABCD-EFGH")
+    approve.add_argument("--deny", action="store_true", help="refuse it instead")
+    approve.set_defaults(run=cmd_approve)
+
+
+__all__ = ["add_parser", "cmd_approve", "sign_in"]

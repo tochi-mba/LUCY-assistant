@@ -8,6 +8,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Signing in with a device code can be finished.** `lucy setup` sent the person to the
+  hub's `/device` page, which did not exist, and nothing could approve the code: approval
+  must come from a client already signed in, and no client could give one. `lucy approve
+  CODE` (or `--deny`) now does, from a signed-in client; `/device` says how and asks for
+  nothing; setup says so, and that a first sign-in with no other client uses
+  `--token-stdin`. A poll that landed on a connection the hub was closing as idle ended
+  sign-in as "cannot reach Lucy"; it is asked again.
 - **Notes Lucy has just found can be forgotten, corrected or confirmed in the same plan.**
   Asked to forget everything it knew about the person, the model found the notes and wrote
   `notes.forget {"memory_id": "$found[1]"}`; `memory_id` is plain text, so weftai refused
