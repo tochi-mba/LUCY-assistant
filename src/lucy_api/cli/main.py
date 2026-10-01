@@ -337,6 +337,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def utf8(stream: TextIO) -> TextIO:
+    """The stream, writing UTF-8 whatever this machine's locale says.
+
+    On Windows a pipe gets the locale's code page, cp1252 here, and Lucy's replies are not
+    limited to it: `lucy talk` piped a reply holding one emoji and died on a
+    UnicodeEncodeError with the reply lost. A character that still cannot be written is
+    replaced, never raised: the answer matters more than one glyph of it.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="replace")
+    return stream
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -345,8 +359,8 @@ def main(
     in_: TextIO | None = None,
     environ: dict[str, str] | None = None,
 ) -> int:
-    stdout = out if out is not None else sys.stdout
-    stderr = err if err is not None else sys.stderr
+    stdout = out if out is not None else utf8(sys.stdout)
+    stderr = err if err is not None else utf8(sys.stderr)
     stdin = in_ if in_ is not None else sys.stdin
     env = environ if environ is not None else dict(os.environ)
     parser = build_parser()

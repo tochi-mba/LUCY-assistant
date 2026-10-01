@@ -505,3 +505,36 @@ def test_version_handles_malformed_server_json_without_echoing_it(patched, body)
     assert code == OK
     assert json.loads(out) == {"client": __version__, "hub": None}
     assert "secret-malformed" not in out + err
+
+
+# --- what the CLI writes is UTF-8, whatever the console's code page ----------------------------
+
+
+def test_the_cli_writes_utf_8_to_a_console_whose_code_page_cannot_hold_a_reply() -> None:
+    """The bug, named: on Windows a pipe gets cp1252, Lucy replied with one emoji, and
+    `lucy talk` died on a UnicodeEncodeError with the whole reply lost."""
+    from lucy_api.cli.main import utf8
+
+    raw = io.BytesIO()
+    console = io.TextIOWrapper(raw, encoding="cp1252", newline="")
+    stream = utf8(console)
+    stream.write("café — 🎵 ✓")
+    stream.flush()
+    assert raw.getvalue() == "café — 🎵 ✓".encode()
+    assert stream is console
+
+
+def test_a_stream_that_cannot_be_reconfigured_is_left_as_it_is() -> None:
+    from lucy_api.cli.main import utf8
+
+    plain = io.StringIO()
+    assert utf8(plain) is plain
+
+
+def test_main_puts_the_real_console_into_utf_8(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    err = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr("sys.stdout", out)
+    monkeypatch.setattr("sys.stderr", err)
+    assert cli_main([], in_=io.StringIO(), environ={}) == 0
+    assert (out.encoding, err.encoding) == ("utf-8", "utf-8")
