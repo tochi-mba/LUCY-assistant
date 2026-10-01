@@ -8,6 +8,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Notes Lucy has just found can be forgotten, corrected or confirmed in the same plan.**
+  Asked to forget everything it knew about the person, the model found the notes and wrote
+  `notes.forget {"memory_id": "$found[1]"}`; `memory_id` is plain text, so weftai refused
+  the plan and nothing could act on what had just been found. `notes.forget`,
+  `notes.correct` and `notes.confirm` now take `memory`, a reference to what `notes.search`
+  or `notes.openTopic` found. Forget takes every note it names and answers per note, so a
+  failure part way still says which are gone. (Not `note`: that is a step's own field, and
+  Lucy strips it from every input.)
 - **A setting changed through Lucy applies to the very next turn.** `settings.set` writes
   through settings-api's person-facing routes, and a turn reads its settings through the
   settings client, which caches them for a minute per token and was never told. With

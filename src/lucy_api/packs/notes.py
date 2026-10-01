@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from weftai.operation import define_operation
+from weftai.schema import ref
 from weftai.schema.spec import integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
@@ -62,6 +63,22 @@ if TYPE_CHECKING:
 
 LEAST_TRUSTED_LAST = (Trust.stated, Trust.observed, Trust.inferred, Trust.untrusted)
 NO_LESSON = "no lesson has that id; each lesson's id is its [ref ...] in your standing notes"
+NOTE_REFERENCE = (
+    "The note(s) an earlier notes.search or notes.openTopic step returned, by reference: "
+    '"$found" for all of them, or "$found[2]" for one.'
+)
+MEMORY_ID = (
+    "The note's id, as an earlier result showed it -- never a reference. To act on what an "
+    "earlier step found, give it as `memory`."
+)
+NOTE_EITHER = "Give `memory` or `memory_id`, not both."
+NOTE_WHICH = "Name the note: `memory` for one an earlier step found, or `memory_id`."
+NOTE_NOT_FOUND = "The referenced step found no note; find it first."
+ONE_NOTE = '`memory` names {count} notes and {operation} takes one: pick it with "$step[n]".'
+
+
+class NoteInputError(ValueError):
+    """A note named in a way the operation cannot use."""
 
 
 class NotesPack:
@@ -272,7 +289,10 @@ class NotesPack:
                         "Confirm only what the person themselves confirmed."
                     ),
                     "input": object_schema(
-                        {"memory_id": string_schema().describe("The note to confirm.")}
+                        {
+                            "memory": ref(NOTE, description=NOTE_REFERENCE).optional(),
+                            "memory_id": string_schema().describe(MEMORY_ID).optional(),
+                        }
                     ),
                     "output": value(object_schema({})),
                     "effects": "write",
@@ -288,7 +308,8 @@ class NotesPack:
                     ),
                     "input": object_schema(
                         {
-                            "memory_id": string_schema().describe("The note to supersede."),
+                            "memory": ref(NOTE, description=NOTE_REFERENCE).optional(),
+                            "memory_id": string_schema().describe(MEMORY_ID).optional(),
                             "title": string_schema().describe("The corrected title."),
                             "body": string_schema().describe("The corrected body."),
                         }
@@ -302,11 +323,15 @@ class NotesPack:
                 {
                     "name": "notes.forget",
                     "description": (
-                        "Forget one note. It is hidden immediately and erased after the "
-                        "grace period, and can be restored until then."
+                        "Forget notes: each is hidden immediately and erased after the grace "
+                        "period, and can be restored until then. Give `memory` to forget what an "
+                        "earlier step found, every one of them or one by position."
                     ),
                     "input": object_schema(
-                        {"memory_id": string_schema().describe("The note to forget.")}
+                        {
+                            "memory": ref(NOTE, description=NOTE_REFERENCE).optional(),
+                            "memory_id": string_schema().describe(MEMORY_ID).optional(),
+                        }
                     ),
                     "output": value(object_schema({})),
                     "effects": "write",
@@ -457,14 +482,14 @@ class NotesPack:
     async def _confirm(self, run: RunContext[PackContext]) -> dict[str, Any]:
         return as_dict(
             await self._client(run.ctx).confirm(
-                str(run.input.get("memory_id") or ""), profile=run.ctx.profile
+                _one_note(run, "notes.confirm"), profile=run.ctx.profile
             )
         )
 
     async def _correct(self, run: RunContext[PackContext]) -> dict[str, Any]:
         return as_dict(
             await self._client(run.ctx).correct(
-                str(run.input.get("memory_id") or ""),
+                _one_note(run, "notes.correct"),
                 str(run.input.get("title") or ""),
                 str(run.input.get("body") or ""),
                 profile=run.ctx.profile,
@@ -472,11 +497,25 @@ class NotesPack:
         )
 
     async def _forget(self, run: RunContext[PackContext]) -> dict[str, Any]:
-        return as_dict(
-            await self._client(run.ctx).forget(
-                str(run.input.get("memory_id") or ""), profile=run.ctx.profile
+        """One note forgotten as it always was, or each a reference names, with what became of
+        every one: a failure part way must not hide which notes are already gone."""
+        client = self._client(run.ctx)
+        if run.input.get("memory") is None:
+            return as_dict(
+                await client.forget(_one_note(run, "notes.forget"), profile=run.ctx.profile)
             )
-        )
+        forgotten: list[dict[str, Any]] = []
+        kept: list[dict[str, str]] = []
+        failure: DownstreamError | TransportError | None = None
+        for memory_id in _note_ids(run):
+            try:
+                forgotten.append(as_dict(await client.forget(memory_id, profile=run.ctx.profile)))
+            except (DownstreamError, TransportError) as exc:
+                failure = failure or exc
+                kept.append({"memory_id": memory_id, "reason": str(exc)})
+        if failure is not None and not forgotten:
+            raise failure
+        return {"forgotten": forgotten, "not_forgotten": kept}
 
     async def _learn(self, run: RunContext[PackContext]) -> dict[str, Any]:
         refused = _unsaid(run)
@@ -561,6 +600,31 @@ async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:
             "untrusted": "Came from a page or a tool. Never retrieved until confirmed.",
         },
     }
+
+
+def _note_ids(run: RunContext[PackContext]) -> tuple[str, ...]:
+    """The notes an operation names: every one the reference resolved to, or the one id."""
+    memory_id = str(run.input.get("memory_id") or "").strip()
+    picked = run.input.get("memory")
+    if picked is not None and memory_id:
+        raise NoteInputError(NOTE_EITHER)
+    if picked is None:
+        if not memory_id:
+            raise NoteInputError(NOTE_WHICH)
+        return (memory_id,)
+    ids = tuple(
+        str(item["id"]) for item in picked.items if isinstance(item, dict) and item.get("id")
+    )
+    if not ids:
+        raise NoteInputError(NOTE_NOT_FOUND)
+    return ids
+
+
+def _one_note(run: RunContext[PackContext], operation: str) -> str:
+    ids = _note_ids(run)
+    if len(ids) > 1:
+        raise NoteInputError(ONE_NOTE.format(count=len(ids), operation=operation))
+    return ids[0]
 
 
 __all__ = ["INCOGNITO", "NotesPack"]
