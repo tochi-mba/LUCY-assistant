@@ -141,7 +141,7 @@ below, one `feeds_*` toggle per feed field, and the optional Laya switches
 
 ### The person's own conventions
 
-Five `common` settings say how a person wants to be written to. Settings-api merges
+Five `common` settings, and two of Lucy's own, say how a person wants to be written to. Settings-api merges
 `common` underneath every namespace, so they arrive with the `lucy` values, are read
 once when a turn is prepared, and apply to helpers as they do to the main turn.
 
@@ -152,6 +152,8 @@ once when a turn is prepared, and apply to helpers as they do to the main turn.
 | `units` | `metric` | `imperial` says to give distances, weights and temperatures in imperial units |
 | `time_format` | `24h` | `12h` says to write clock times as 2:20 pm |
 | `currency` | none | Give costs in this currency |
+| `lucy.formatting` | `auto` | `plain` says to write no Markdown, for a client that shows text as it arrives (a voice, an SMS); `markdown` says the client renders it |
+| `lucy.emoji` | on | Off says to use none |
 
 A setting left alone says nothing: the model follows how the person writes, which is the
 better guide until somebody has chosen otherwise. What was chosen is its own prompt section,
