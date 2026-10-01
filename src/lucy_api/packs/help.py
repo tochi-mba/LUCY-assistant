@@ -72,7 +72,8 @@ class HelpPack:
                     "name": "capabilities.list",
                     "description": (
                         "List every capability, its state, and one line each (capabilities, "
-                        "tools, what is connected, music, research, notes, workspace)."
+                        "tools, what is connected, music, research, notes, workspace, "
+                        "repositories)."
                     ),
                     "input": object_schema({}),
                     "output": value(

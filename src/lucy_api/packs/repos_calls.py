@@ -98,6 +98,30 @@ async def read_pull(run: RunContext[PackContext], client: ReposClient) -> dict[s
     }
 
 
+async def changes(run: RunContext[PackContext], client: ReposClient) -> list[dict[str, Any]]:
+    page = await client.changes(
+        run.ctx.profile,
+        full_name(run.input),
+        int(run.input["number"]),
+        limit=limit(run.input.get("limit")),
+    )
+    _confess(run, page.notice)
+    cut = [item.path for item in page.items if item.patch_truncated]
+    if cut:
+        run.notice(f"patch cut short for {', '.join(cut)}; repos.read shows the whole file")
+    return [
+        {
+            "path": item.path,
+            "status": item.status,
+            "additions": item.additions,
+            "deletions": item.deletions,
+            "patch": item.patch,
+            **({"previous_path": item.previous_path} if item.previous_path else {}),
+        }
+        for item in page.items
+    ]
+
+
 async def issues(run: RunContext[PackContext], client: ReposClient) -> list[dict[str, Any]]:
     page = await client.issues(
         run.ctx.profile,

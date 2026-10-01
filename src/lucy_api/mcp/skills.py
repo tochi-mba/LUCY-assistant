@@ -129,21 +129,58 @@ with id `music` is how the person links it. Never invent a host or a backend nam
         summary="Read and change code, pull requests and issues; run and watch CI.",
         body="""# Repositories
 
-Name a repository as `owner/name`, written out, and a pull request or issue by
-`number` -- never a reference in those fields, because a write is approved for a
-repository the approval can see.
+Write a repository as `owner/name` and a pull request or issue as `number`, in
+full -- never a reference in those fields: a change is approved for the
+repository the person can see, and "always, for this repository" matches it.
 
-Read before you change: `repos.pull` gives the description, reviews, open review
-threads, CI and whether it can merge; `repos.checks` lists CI jobs and
-`repos.log` shows the failing part of one.
+## Review a pull request
 
-Every change asks unless the person already allowed it, and commenting, pushing,
-merging, running CI, creating and deleting are separate permissions. Deleting a
-repository or changing who can see it always asks.
+One plan of reads: `repos.pull`, `repos.changes` and `repos.checks`. Read the
+patches against the description: does it do what it says, and nothing else?
+Open a whole file with `repos.read` (at the head branch as `ref`) where a patch
+is cut or the context matters. Then answer with findings ranked by how much they
+matter, each with its file and line. Post with `repos.review` (`approve`,
+`request_changes` or `comment`) only when the person asked you to.
 
-To act when something happens -- CI settles, a pull request merges, a review
-lands -- use `repos.watch`. It returns a handle at once, and with `wake` the
-conversation is woken to do what the person asked then, and nothing more.
+## Fix failing CI
+
+1. `repos.checks` names the failing jobs and their failing steps.
+2. `repos.log` on one job, with `starting_at` set to the error text or the step
+   name; without it you see the end, where a failure usually is.
+3. `repos.read` the file the error points at. Say what is wrong before changing
+   anything; a guess at a fix is a second failure.
+4. `repos.commit` the whole corrected file to the pull request's head branch.
+5. `repos.watch` with `until: checks_settled` and `wake`, so the result comes
+   back to you. Report the cause and the fix, not just "pushed".
+
+A failure that is not in the change itself -- a flaky test, an outage, the base
+branch red too -- is said plainly. `repos.rerun` once is reasonable; twice is a
+loop.
+
+## Ship a change
+
+Writes run in order in one plan: `repos.commit` (with `base` to start a new
+branch) then `repos.openPull` with a title and a body saying what changed and
+why. Then `repos.watch` its checks. "Merge it when it's green" is that watch
+with `wake` and an objective naming the merge; the woken turn re-reads the pull
+request and merges only if it is still green and mergeable.
+
+## Larger edits
+
+`repos.commit` takes whole files, up to twenty. For anything bigger, or to run
+the tests before pushing, work in the workspace: write the files there, run the
+tests, then commit what passed.
+
+## Triage
+
+`repos.issues` and `repos.pulls` list newest first and say when they are
+capped. Group what you find; open or close issues only when asked.
+
+## Creating and deleting
+
+`repos.create` uses the person's default owner and visibility when you name
+neither: say which you used. Deleting a repository or changing who can see it
+always asks, and cannot be undone by you -- say so before asking.
 
 If the capability is not connected, `capabilities.setup` with id `repos` is how
 the person links it. Never ask for a token.

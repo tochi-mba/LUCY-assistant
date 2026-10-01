@@ -117,7 +117,7 @@ New repositories go to the person's default owner and visibility from settings n
 ## Watching: CI can wake a session
 
 `repos.watch` is the first capability on [jobs and signals](jobs.md). It asks Github-api for
-a subscription (`checks_settled`, `pr_merged`, `review_submitted`, `run_completed`), hands it
+a subscription (`checks_settled`, `pull_merged`, `review_submitted`, `run_completed`), hands it
 a signal URL and a fresh secret, and returns a `subscription` handle at once. When it
 happens, Github-api signs and posts the signal; the hub ends the work and, with `wake`, opens
 a turn on the idle session.
