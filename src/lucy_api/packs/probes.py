@@ -33,7 +33,14 @@ invalidation is a stale turn rather than a stale minute."""
 
 
 class ProbeCache:
-    """Availability keyed by (account, profile, pack), with a monotonic clock."""
+    """Availability keyed by (account, profile, session, pack), with a monotonic clock.
+
+    The session is in the key because a probe can depend on it: the workspace is ready only
+    in a session that has one attached. Keyed by person and pack alone, one probe made
+    outside a session -- the capability listing, or a session not yet provisioned -- cached
+    "no workspace is attached" for every session of that person for the whole TTL, and the
+    workspace vanished from their tool lists. Dropping a row still reaches every session.
+    """
 
     def __init__(
         self,
@@ -43,10 +50,12 @@ class ProbeCache:
     ) -> None:
         self._ttl = ttl_seconds
         self._now = now or time.monotonic
-        self._rows: dict[tuple[str, str, str], tuple[float, Availability]] = {}
+        self._rows: dict[tuple[str, str, str, str], tuple[float, Availability]] = {}
 
-    def get(self, account_id: str, profile: str, pack_id: str) -> Availability | None:
-        key = (account_id, profile, pack_id)
+    def get(
+        self, account_id: str, profile: str, pack_id: str, *, session_id: str = ""
+    ) -> Availability | None:
+        key = (account_id, profile, session_id, pack_id)
         row = self._rows.get(key)
         if row is None:
             return None
@@ -56,14 +65,25 @@ class ProbeCache:
             return None
         return availability
 
-    def put(self, account_id: str, profile: str, pack_id: str, availability: Availability) -> None:
-        self._rows[(account_id, profile, pack_id)] = (self._now() + self._ttl, availability)
+    def put(
+        self,
+        account_id: str,
+        profile: str,
+        pack_id: str,
+        availability: Availability,
+        *,
+        session_id: str = "",
+    ) -> None:
+        key = (account_id, profile, session_id, pack_id)
+        self._rows[key] = (self._now() + self._ttl, availability)
 
     def drop(self, account_id: str, profile: str, pack_id: str | None = None) -> None:
-        if pack_id is not None:
-            self._rows.pop((account_id, profile, pack_id), None)
-            return
-        stale = [key for key in self._rows if key[0] == account_id and key[1] == profile]
+        """Forget this person's answers for one pack, or for all of them, in every session."""
+        stale = [
+            key
+            for key in self._rows
+            if key[0] == account_id and key[1] == profile and (pack_id is None or key[3] == pack_id)
+        ]
         for key in stale:
             del self._rows[key]
 

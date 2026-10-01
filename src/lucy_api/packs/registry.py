@@ -143,7 +143,9 @@ async def probe_all(
     async def one(pack: CapabilityPack) -> Bound:
         cached = None
         if context.probes is not None:
-            cached = context.probes.get(context.account_id, context.profile, pack.id)
+            cached = context.probes.get(
+                context.account_id, context.profile, pack.id, session_id=context.session_id
+            )
         if cached is not None:
             availability = cached
         else:
@@ -163,7 +165,13 @@ async def probe_all(
                     checked_at=time.time(),
                 )
             if context.probes is not None:
-                context.probes.put(context.account_id, context.profile, pack.id, availability)
+                context.probes.put(
+                    context.account_id,
+                    context.profile,
+                    pack.id,
+                    availability,
+                    session_id=context.session_id,
+                )
         operations = tuple(pack.operations(context)) if availability.usable else ()
         return Bound(pack=pack, availability=availability, operations=operations)
 
