@@ -5,7 +5,7 @@ description = "The LUCY assistant hub: sessions, capabilities, memory and sub-ag
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "tochi-mba" }]
+authors = [{ name = "REX Technologies" }]
 keywords = ["assistant", "agent", "fastapi", "keyring", "lucy", "mcp", "weftai"]
 classifiers = [
     "Framework :: FastAPI",
