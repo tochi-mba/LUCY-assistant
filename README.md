@@ -1,5 +1,7 @@
 # LUCY-assistant
 
+Site: <https://tochi-mba.github.io/LUCY-assistant/>
+
 Lucy is the assistant hub in `src/lucy_api/`. This repository also holds the **family
 desk**: tools and documentation for eight public sibling services, each in its own git
 repository. `scripts/bootstrap.sh` clones those checkouts beside this file. Operator-local
