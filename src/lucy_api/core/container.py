@@ -92,9 +92,11 @@ from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.settings.catalogue import DEFAULT_MODEL
 from lucy_api.settings.defaults import (
+    MEMORY_NAMESPACE,
     MUSIC_NAMESPACE,
     REPOS_NAMESPACE,
     SEARCH_NAMESPACE,
+    WORKSPACE_NAMESPACE,
     pack_defaults,
 )
 from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
@@ -128,7 +130,13 @@ logger = logging.getLogger(__name__)
 OWN_NAMESPACE = "lucy"
 """The hub's own settings: the turn policy, and everything `TurnPolicy` clamps."""
 
-SIBLING_NAMESPACES = (SEARCH_NAMESPACE, MUSIC_NAMESPACE, REPOS_NAMESPACE)
+SIBLING_NAMESPACES = (
+    SEARCH_NAMESPACE,
+    MUSIC_NAMESPACE,
+    REPOS_NAMESPACE,
+    WORKSPACE_NAMESPACE,
+    MEMORY_NAMESPACE,
+)
 """Namespaces owned by a sibling that the hub nonetheless resolves.
 
 Named rather than spelled inline at the call site, because settings-api grants namespaces
