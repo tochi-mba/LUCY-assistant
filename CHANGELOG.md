@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The eval watchdog lets the model repair a plan.** A plan the hub sends back to be
+  repaired is written to the transcript as an `invalid_plan` error, and the watchdog halted
+  the turn on it: asked to start a helper and stop it at once, haiku put the spawn's handle
+  where `work.cancel` takes text, the hub sent the plan back, and the run ended before the
+  repair with four turns unsaid. A repair notice is no longer a halt; the same plan sent
+  back twice is (`repaired-again`).
 - **Signing in with a device code can be finished.** `lucy setup` sent the person to the
   hub's `/device` page, which did not exist, and nothing could approve the code: approval
   must come from a client already signed in, and no client could give one. `lucy approve

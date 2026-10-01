@@ -14,6 +14,7 @@ from lucy_api.evals.watch import (
     ASKED_AGAIN,
     ERROR_ITEM,
     FAILED_AGAIN,
+    REPAIRED_AGAIN,
     RULES,
     SHOWN,
     STEP_ERROR,
@@ -58,7 +59,7 @@ def test_a_turn_with_nothing_wrong_is_not_halted() -> None:
         asks=(Ask("apr_1", "workspace.delete", answer="denied", call="workspace.delete:{}"),),
     )
     assert watch(quiet) is None
-    assert RULES == (STEP_ERROR, ERROR_ITEM, FAILED_AGAIN, ASKED_AGAIN)
+    assert RULES == (STEP_ERROR, ERROR_ITEM, FAILED_AGAIN, ASKED_AGAIN, REPAIRED_AGAIN)
 
 
 # --- step-error ---------------------------------------------------------------------------
@@ -115,6 +116,34 @@ def test_two_different_failures_of_an_allowed_operation_are_not_halted() -> None
 
 def test_an_error_the_hub_wrote_into_the_transcript_halts() -> None:
     assert watch(exchange(errors=("model_error: the model stopped",))) == Halt(
+        ERROR_ITEM, "model_error: the model stopped"
+    )
+
+
+SENT_BACK = (
+    "invalid_plan: The previous plan was invalid: Step 'cancel_counter': input.work_id holds "
+    "the reference '$spawn_counter', but this field does not take one"
+)
+
+
+def test_a_plan_sent_back_to_the_model_to_repair_is_not_a_halt() -> None:
+    """The bug, named: asked to start a helper and stop it at once, the model put the spawn's
+    handle where `work.cancel` takes plain text. The hub sent the plan back to be repaired --
+    the loop working as designed -- and the watchdog halted the turn on that notice, so the
+    repair never happened and four later turns were never said."""
+    assert watch(exchange(errors=(SENT_BACK,))) is None
+    assert watch(exchange(errors=(SENT_BACK, "invalid_plan: another plan, another fix"))) is None
+
+
+def test_the_same_plan_sent_back_twice_halts() -> None:
+    halt = watch(exchange(errors=(SENT_BACK, SENT_BACK)))
+    assert halt is not None
+    assert halt.rule == REPAIRED_AGAIN
+    assert halt.detail.startswith("the same plan was sent back twice: invalid_plan:")
+
+
+def test_a_real_error_after_a_repair_notice_still_halts() -> None:
+    assert watch(exchange(errors=(SENT_BACK, "model_error: the model stopped"))) == Halt(
         ERROR_ITEM, "model_error: the model stopped"
     )
 
