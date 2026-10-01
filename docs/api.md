@@ -127,6 +127,14 @@ approves exactly those calls, each by its own arguments, and nothing in a later 
 Calls under different permissions are different cards, answered one at a time. A card for a
 single call is unchanged: no `steps`, and its `arguments` are the call's.
 
+A permission that counts by a field (`tally`: a repository, a helper's role) puts
+`limit: {field, values}` on its card, the whole values from the calls it covers. An
+`input.approval` with `lifetime: "profile"` or `"account"` and `only: [<value>, ...]` is
+"always, for this repository": the grant covers those values and asks again elsewhere.
+Repeat answers add values; an unlimited yes clears them; `only` with `once` or with a
+denial is `400`. `PUT /v1/permissions` takes the same `only`, and `GET /v1/permissions`
+shows it on each grant ([ADR-0016](adr/0016-repos-capability-and-port-8011.md)).
+
 `GET /v1/permissions?profile=personal` lists every permission declared by an installed
 capability and its effective grant, if any. Profile grants override account-wide (`*`)
 grants. `PUT /v1/permissions` records a decision. `DELETE /v1/permissions/{id}` returns

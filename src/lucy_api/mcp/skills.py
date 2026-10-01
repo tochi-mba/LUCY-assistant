@@ -277,6 +277,13 @@ looked — it names the size, never the payload. `work.result` reads one.
 `agents.spawn` starts a helper with a clean transcript and no write permission.
 Past the person's cap it is queued and starts on its own. Prefer finishing your
 answer and saying what is still running over waiting.
+
+To be told when something *happens*, watch it rather than looking in a loop:
+`watch.start` for a file, an address or another piece of work; `watch.command`
+for a command's verdict; `repos.watch` for CI, a merge or a review. To come back
+at a *time* -- look again in an hour, a backstop in case a notice never comes --
+`work.checkin` wakes the conversation then with the objective you wrote, and can
+act under the person's standing consent. `work.list` shows when each is due.
 """,
     ),
     Skill(
@@ -368,6 +375,12 @@ The client's `approved: true` is an input, not an authorization. Lucy records a
 grant (once, this session, this profile, or the whole account) and re-checks the
 ledger before the tool runs. A denial is a transcript item plus a grant the
 model will see as "not allowed", never an exception.
+
+A card whose permission counts by a field -- a repository, a helper's role --
+carries `limit: {field, values}`. Answering with `lifetime: "profile"` and
+`only: [<value>]` is "always, for this repository": the grant covers those
+values and asks again elsewhere. Repeat answers add values; an unlimited yes
+clears them; a no cannot be limited.
 
 Do not retry a parked write as if it failed. Wait for the person, or explain
 what is waiting.

@@ -256,7 +256,7 @@ async def test_an_existing_database_gains_the_column(tmp_path: Any) -> None:
 # --------------------------------------------------------------------------------------
 
 
-async def parked(store: SessionStore) -> tuple[str, str, str]:
+async def parked(store: SessionStore, repo: str = "octo/hello") -> tuple[str, str, str]:
     created = await store.create(OWNER, CreateSession(), identifier("key"))
     session = str(created["id"])
     turn = await open_turn(store, OWNER, session, {"events": [{"type": "input.message"}]})
@@ -270,10 +270,22 @@ async def parked(store: SessionStore) -> tuple[str, str, str]:
             permission="repos.merge",
             operation="repos.merge",
             description="Merge #1",
-            arguments={"repo": "octo/hello", "number": 1},
+            arguments={"repo": repo, "number": 1},
+            limit_field="repo",
+            limit_values=(repo,),
         ),
     )
     return session, str(turn["id"]), approval
+
+
+async def test_the_card_offers_the_whole_value_a_limited_yes_would_match(
+    sessions_store: SessionStore,
+) -> None:
+    session, _, _ = await parked(sessions_store, LONG)
+    items = await sessions_store.records(OWNER, session, "items")
+    [card] = [item for item in items if item["type"] == "approval_request"]
+    assert card["content"]["limit"] == {"field": "repo", "values": [LONG]}
+    assert len(LONG) > 40, "longer than the label a card counts by"
 
 
 async def test_always_for_this_repository_is_recorded_from_the_card(

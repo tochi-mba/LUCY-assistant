@@ -52,6 +52,11 @@ class Blocked:
     """The permission as a person names it: "Start a helper"."""
     label: str = ""
     """What tells this call from another of the same permission, by the permission's `tally`."""
+    limit_field: str = ""
+    """The permission's `tally` field, when it has one: what a standing yes may be limited by."""
+    limit: str = ""
+    """This call's whole value of that field -- never the cut `label` -- so a card can offer
+    "always, for this repository" with the value a grant would have to match."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +196,8 @@ class PermissionGate:
                     step=str(step.get("id") or ""),
                     title=permission.title,
                     label=_label(permission, arguments),
+                    limit_field=permission.tally,
+                    limit=_tally(permission, arguments),
                 )
                 blocked.append(item)
                 if first is None:

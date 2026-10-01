@@ -85,6 +85,11 @@ class Ask:
     calls: tuple[AskedCall, ...] = ()
     """Every call this card covers, when it covers more than one; each is approved, recorded
     and replayed by its own arguments. Empty for the card that asks about one call."""
+    limit_field: str = ""
+    """The permission's `tally` field, when a standing yes may be limited by it."""
+    limit_values: tuple[str, ...] = ()
+    """The whole values of that field across the calls on the card, first seen first: what
+    "always, for this repository" would be limited to."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +155,10 @@ async def open_approval(
             "is_automatic": False,
             "permission": ask.permission,
         }
+        if ask.limit_field:
+            # A client offering "always, for this repository" needs the field and the
+            # whole values, not the cut labels the sentence counts by.
+            body["limit"] = {"field": ask.limit_field, "values": list(ask.limit_values)}
         if ask.calls:
             body["count"] = len(ask.calls)
             body["steps"] = [
