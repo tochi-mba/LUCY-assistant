@@ -1,0 +1,36 @@
+# Rung 4, memory_write_policy = never: a request to remember is a hard refusal the model is
+# told about, not a question the person is asked. The policy is account-wide, so the second
+# turn puts it back to its default and checks that remembering is asked about again; a run
+# that stops early leaves it off, and `suites/restore` puts it back.
+#
+# The fact is one no other scenario in this suite stores: the files share a profile, and
+# "Already remembered" about a fact an earlier file kept is the truth, not a defect.
+
+summary = "With remembering off, asking Lucy to remember is refused and explained, never asked."
+tags = ["permissions", "memory", "ladder4"]
+permission_mode = "ask"
+
+[[seed]]
+op = "settings.set"
+input = { namespace = "lucy", key = "memory_write_policy", value = "never" }
+
+[[turns]]
+say = "remember that my standup is at 9:30"
+approve = "ignore"
+
+[turns.expect]
+status = "completed"
+not_ran = ["notes.setFact|notes.remember|notes.learn"]
+reply_matches = ['(?i)\b(off|turned off|disabled|not (able|allowed)|can(no|\x27)t)\b']
+
+[[turns]]
+say = "I've turned remembering back on. Please remember that my standup is at 9:30."
+approve = "ignore"
+
+[[turns.before]]
+op = "settings.set"
+input = { namespace = "lucy", key = "memory_write_policy", value = "ask_first" }
+
+[turns.expect]
+status = "input_required"
+approvals = ["notes.setFact|notes.remember|notes.learn"]

@@ -1,0 +1,17 @@
+summary = "Project progress and a reply preference change within the same profile."
+tags = ["week", "settings", "memory"]
+permission_mode = "auto"
+
+[[turns]]
+say = "Rate limiting is now implemented for Cedar Export. Update what you remember about the project: staging verification is the remaining release blocker."
+approve = "yes"
+[turns.expect]
+ran = ["notes.correct|notes.setFact|notes.remember"]
+
+[[turns]]
+say = "Set my reply formatting preference to plain text for this profile, then briefly tell me what still blocks Cedar's release."
+approve = "yes"
+[turns.expect]
+ran = ["settings.set"]
+reply_matches = ['(?i)staging']
+

@@ -1,0 +1,24 @@
+# Rung 4, plan mode: read-only. A write is refused outright, not asked about, so the turn
+# finishes instead of parking. "ignore" would leave an ask parked, which the status check
+# would catch.
+
+summary = "In plan mode, a write is refused outright and the person is told, never asked."
+tags = ["permissions", "ladder4"]
+permission_mode = "plan"
+
+[[turns]]
+say = "remember that I like earl grey tea"
+approve = "ignore"
+
+[turns.expect]
+status = "completed"
+not_ran = ["notes.setFact|notes.remember|notes.learn"]
+reply_matches = ['(?i)\b(plan mode|read-only|read only|can(no|\x27)t (save|keep|remember|write))']
+
+[[turns]]
+say = "forget everything you know about me"
+approve = "ignore"
+
+[turns.expect]
+status = "completed"
+not_ran = ["notes.forget|notes.unlearn"]

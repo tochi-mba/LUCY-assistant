@@ -1,0 +1,16 @@
+summary = "A new session recalls the release constraint and uses a helper."
+tags = ["week", "memory", "helpers"]
+permission_mode = "auto"
+
+[[turns]]
+say = "What did I tell you about Cedar Export's release?"
+[turns.expect]
+reply_matches = ['(?i)rate.?limit', '(?i)billing|retr']
+
+[[turns]]
+say = "Have one helper review that release constraint for missing checks. Then remember that staging verification is also required before release."
+approve = "yes"
+timeout_seconds = 420
+[turns.expect]
+ran = ["agents.spawn", "notes.setFact|notes.remember"]
+

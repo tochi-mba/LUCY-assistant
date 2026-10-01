@@ -1,0 +1,25 @@
+# Rung 4, accept_edits: accepting file edits is not accepting memory writes or erasure.
+
+summary = "In accept_edits mode, keeping a fact and forgetting everything still ask first."
+tags = ["permissions", "ladder4"]
+permission_mode = "accept_edits"
+
+[[seed]]
+op = "notes.remember"
+input = { title = "Coffee", body = "Drinks black coffee in the morning" }
+
+[[turns]]
+say = "remember that I like earl grey tea"
+approve = "ignore"
+
+[turns.expect]
+approvals = ["notes.setFact|notes.remember|notes.learn"]
+not_ran = ["notes.setFact|notes.remember|notes.learn"]
+
+[[turns]]
+say = "actually never mind that. forget everything you know about me"
+approve = "no"
+
+[turns.expect]
+approvals = ["notes.forget|notes.unlearn"]
+not_ran = ["notes.forget|notes.unlearn"]

@@ -1,0 +1,77 @@
+# Rung 3: helpers under pressure. A team is started, watched, steered, cut short, read back,
+# interrupted by a hub restart, and continued -- in one conversation, as a person would.
+
+summary = "Helpers started as a team, steered, stopped, read back, interrupted by a restart and continued."
+tags = ["explore", "helpers", "ladder3"]
+permission_mode = "auto"
+
+[[seed]]
+op = "workspace.write"
+input = { path = "progress.md", content = "# Progress\n\n- Shipped the login page\n- TODO: write the migration for user roles\n- TODO: add rate limiting to the export endpoint\n" }
+
+[[seed]]
+op = "workspace.write"
+input = { path = "tasks.json", content = "{\"open\": [\"roles migration\", \"export rate limit\", \"billing webhook retries\"], \"done\": [\"login page\"]}\n" }
+
+[[seed]]
+op = "notes.setFact"
+input = { title = "Release", body = "The person wants the export endpoint rate-limited before the Friday release." }
+
+[[turns]]
+say = "Audit where my project stands with two helpers at once: one reads progress.md and tasks.json in my workspace, the other reads what you have in your notes about me. Then put what they find together for me."
+timeout_seconds = 420
+
+[turns.expect]
+ran = ["agents.spawn"]
+allow_errors = ["agents.*", "work.*"]
+
+[[turns]]
+say = "What are your helpers doing right now?"
+
+[turns.expect]
+allow_errors = ["agents.*", "work.*"]
+reply_avoids = ['\b0 helpers\b']
+
+[[turns]]
+say = "Start one more helper to count the TODOs in progress.md, and then stop it straight away -- I changed my mind."
+timeout_seconds = 300
+
+[turns.expect]
+ran = ["agents.spawn", "work.cancel"]
+allow_errors = ["agents.*", "work.*"]
+
+[[turns]]
+say = "What had that last helper done before you stopped it?"
+
+[turns.expect]
+ran = ["agents.read|work.check|work.list"]
+allow_errors = ["agents.*", "work.*"]
+
+[[turns]]
+say = "Start a helper that reads tasks.json and answers with JSON: a field open_count with how many tasks are open, and a field next with the one it would do first."
+timeout_seconds = 300
+
+[turns.expect]
+ran = ["agents.spawn"]
+allow_errors = ["agents.*", "work.*"]
+
+[[turns]]
+say = "Did anything get interrupted? If a helper stopped part way, pick it back up."
+timeout_seconds = 420
+
+[[turns.before]]
+host = "docker restart lucy-family-lucy-1"
+timeout_seconds = 120
+
+[[turns.before]]
+wait_seconds = 40
+
+[turns.expect]
+allow_errors = ["agents.*", "work.*"]
+
+[[turns]]
+say = "So where does my project stand, and what should I do before Friday?"
+timeout_seconds = 300
+
+[turns.expect]
+reply_matches = ['(?i)rate.?limit|export']

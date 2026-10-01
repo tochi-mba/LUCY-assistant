@@ -601,6 +601,11 @@ scenario can take several minutes a turn; give it a `timeout_seconds` to match.
 
 ## Limits worth knowing
 
+The optional [conversation ladder](eval-suites/README.md) is stored in this repository,
+separate from the shipped default suite. It includes service outages and hub restarts and
+must only be run explicitly, with a dedicated profile. Its README records the checks still
+awaiting live verification.
+
 - **Helpers are invisible per turn.** Items a helper agent writes carry no turn id, so
   checks see the parent conversation. Prove a helper's effect with `verify`.
 - **One process, one run at a time.** Two runs against the same hub measure each other.

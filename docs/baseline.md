@@ -397,3 +397,52 @@ find, and it played: 17 of 17 checks held.
 
 The scratch runner these conversations were held with is retired: conversations are held
 through `lucy eval run --suite <folder>`, where the watchdog applies.
+
+### Rungs 3–8: recorded findings and the remaining reruns
+
+The exploratory scenarios now live in [eval-suites](eval-suites/README.md), rather than a
+temporary scratch directory. Their prior findings led to the following merged fixes:
+
+- Rung 3, helpers under pressure: token renewal for long conversations, a watchdog that
+  allows one plan repair, and a restart notice that distinguishes interruption from a
+  person's cancellation. The complete post-fix conversation still needs two clean runs.
+- Rung 4, permissions: notes can reference earlier search results, and changing settings
+  invalidates the person's cached namespace. The outward-action cell still requires a
+  connected music player and a live rerun.
+- Rung 5, context: the minimum window is 32,000 tokens and an over-window prompt says that
+  nothing was dropped merely to fit it. The preserved scenario uses 48,000 tokens and
+  ten prompts. Its completed compaction behavior still needs live verification.
+- Rung 6, outages: the harness can expect a settings refusal, distinguish it from a failed
+  turn, and continue once settings recover. The earlier cold-cache outage scenarios passed;
+  they have not been repeated on the final customization deployment.
+- Rung 7, trust: safety notices use plain language, and the helper scenario uses a mode
+  that actually starts a helper. The corrected helper case still needs a live rerun.
+- Rung 8, CLI: UTF-8 output, the device approval command, and session-scoped capability
+  probes are merged. CLI command checks were previously performed; live talk is paused.
+
+### Customization verification, 1 October 2026
+
+The family catalogue contains 147 entries, including 87 Lucy settings. Implemented additions
+include timezone, locale, units, clock format, currency, reply formatting and emoji; search
+safe-search and recency; playback shuffle, repeat and explicit-track filtering; and command
+timeout, captured output size, memory recall size and recall trust floor. Catalogue entries
+identify proposed mechanisms separately; a stored proposal is not evidence of behavior.
+
+The hub's full local coverage run passed 3,865 tests with 100% branch coverage. Eighteen
+platform or opt-in integration tests were skipped. Settings-api passed 3,060 tests with
+100% branch coverage. Targeted tests for the subsequent GitHub environment and Compose
+fixes passed, and their CI passed before merge. Lint, formatting, strict types and import
+contracts passed. All twelve family repositories passed the 23 parity checks. All twelve
+public product sites returned HTTP 200 and included REX Technologies attribution.
+
+Deployment checking found that GitHub was handed an undeclared settings variable and its
+database volume did not use the image's writable directory. Both were fixed with failing
+regression tests first. All ten Compose services subsequently became healthy. Service tokens
+were refreshed without printing them, and the existing keyring master key was preserved.
+
+No new successful live evaluation is claimed here. A direct one-word model probe was
+refused by the model subscription's session limit. The owner then explicitly paused talking
+to Lucy; no further conversations or retries were attempted. The outstanding reruns and the
+five-session week are prepared, not passed. The week suite provides ten prompts covering
+cross-session project memory, helpers, an incognito detour and a profile preference; watch
+continuity and model switching remain additional manual acceptance checks.

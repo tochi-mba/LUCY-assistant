@@ -1,0 +1,26 @@
+# Rung 4, auto mode: a write runs without asking, and a destructive erase still asks,
+# because destructive_always_asks is a floor auto mode cannot lower.
+
+summary = "In auto mode, keeping a fact runs without asking; forgetting everything still asks."
+tags = ["permissions", "ladder4"]
+permission_mode = "auto"
+
+[[seed]]
+op = "notes.remember"
+input = { title = "Coffee", body = "Drinks black coffee in the morning" }
+
+[[turns]]
+say = "remember that I like earl grey tea"
+approve = "ignore"
+
+[turns.expect]
+status = "completed"
+ran = ["notes.setFact|notes.remember|notes.learn"]
+
+[[turns]]
+say = "forget everything you know about me"
+approve = "ignore"
+
+[turns.expect]
+approvals = ["notes.forget|notes.unlearn"]
+not_ran = ["notes.forget|notes.unlearn"]

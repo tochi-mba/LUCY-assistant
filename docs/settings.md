@@ -1,6 +1,6 @@
 # Settings, through Lucy
 
-Behind Lucy are eight services, each with its own settings namespace. A person should never
+Behind Lucy are nine services, each with its own settings namespace. A person should never
 have to know that. They should be able to say *"stop remembering things on your own"* in a
 conversation, or flip it in a client, without learning that memory has a namespace, that the
 namespace is called `memory`, or that a service called settings-api exists at all.

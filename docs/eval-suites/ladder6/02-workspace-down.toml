@@ -1,0 +1,32 @@
+summary = "With the workspace service down, Lucy says it cannot be reached rather than calling it empty; with it back, she lists it."
+tags = ["explore", "outage"]
+
+[[seed]]
+op = "workspace.write"
+input = { path = "plan.md", content = "# Plan\n" }
+
+[[turns]]
+say = "What's in my workspace?"
+
+[[turns.before]]
+host = "docker stop lucy-family-environments-1"
+timeout_seconds = 90
+
+[turns.expect]
+allow_errors = ["workspace.*"]
+reply_avoids = ['\b(is|looks) empty\b', '\bno files\b']
+reply_matches = ['unavailable|down|reach|offline|couldn.?t|can.?t|not (available|ready|responding)']
+
+[[turns]]
+say = "It should be back now. What's in my workspace?"
+
+[[turns.before]]
+host = "docker start lucy-family-environments-1"
+timeout_seconds = 90
+
+[[turns.before]]
+wait_seconds = 20
+
+[turns.expect]
+ran = ["workspace.*"]
+reply_matches = ['plan\.md']
