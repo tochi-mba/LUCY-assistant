@@ -58,6 +58,8 @@ class Resolved(Protocol):
 def pack_defaults(resolved: Mapping[str, Resolved | None]) -> dict[str, object]:
     """Every default the resolved namespaces supply. A namespace that is ``None`` supplies none."""
     defaults: dict[str, object] = {}
+    if MEMORY_NAMESPACE in resolved and resolved[MEMORY_NAMESPACE] is None:
+        defaults["notes.trust_floor"] = FLOOR_UNKNOWN
     for namespace, supply in _SUPPLIERS:
         values = resolved.get(namespace)
         if values is not None:
