@@ -236,9 +236,9 @@ async def test_turn_limits_are_resolved_once_with_the_live_feed_policy(
         assert prepared.pack_context.policy.max_tool_calls == 44
         assert prepared.live.flags is not None
         assert prepared.live.flags.flag("feeds_music") is False
-        # One resolve per namespace the turn reads: lucy, then the three sibling namespaces
+        # One resolve per namespace the turn reads: lucy, then the five sibling namespaces
         # whose knobs the packs may use when the model omits them. Never one per knob.
-        assert preferences.resolves == 4
+        assert preferences.resolves == 6
         assert prepared.live.sources is not None
         assert prepared.live.sources.topics is not None
         assert prepared.live.sources.in_flight is not None
@@ -282,6 +282,7 @@ async def test_omitted_pack_arguments_take_the_person_s_sibling_defaults(
             "research.limit": 20,
             "research.backend": "searxng",
             "music.device_id": "kitchen",
+            "notes.trust_floor": "inferred",
         }
     finally:
         await container.aclose()
@@ -301,7 +302,9 @@ async def test_nonsensical_sibling_defaults_are_omitted_rather_than_guessed(
     await container.preferences.aclose()
     container.preferences = preferences
     try:
-        assert await container._pack_defaults("a.verified.jwt", "personal") == {}
+        assert await container._pack_defaults("a.verified.jwt", "personal") == {
+            "notes.trust_floor": "inferred"
+        }
     finally:
         await container.aclose()
 
@@ -338,6 +341,7 @@ async def test_sibling_namespaces_supply_pack_defaults(keyring: FakeKeyring) -> 
             "research.limit": 2,
             "research.backend": "google",
             "music.device_id": "bedroom",
+            "notes.trust_floor": "inferred",
         }
     finally:
         await container.aclose()
@@ -351,7 +355,9 @@ async def test_a_sibling_settings_outage_does_not_take_the_turn_down(
     await container.preferences.aclose()
     container.preferences = SiblingOutage(SettingsUnavailable("down"))
     try:
-        assert await container._pack_defaults("a.verified.jwt", "personal") == {}
+        assert await container._pack_defaults("a.verified.jwt", "personal") == {
+            "notes.trust_floor": "unknown"
+        }
     finally:
         await container.aclose()
 
@@ -359,7 +365,9 @@ async def test_a_sibling_settings_outage_does_not_take_the_turn_down(
     await container.preferences.aclose()
     container.preferences = SiblingOutage(SettingsRejected(403, "forbidden"))
     try:
-        assert await container._pack_defaults("a.verified.jwt", "work") == {}
+        assert await container._pack_defaults("a.verified.jwt", "work") == {
+            "notes.trust_floor": "unknown"
+        }
     finally:
         await container.aclose()
 

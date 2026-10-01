@@ -57,6 +57,11 @@ def test_the_hub_reads_and_is_granted_both_namespaces() -> None:
     assert set(SIBLING_NAMESPACES) < set(NAMESPACES_READ)
 
 
+def test_an_unavailable_memory_namespace_never_restores_inferred_retrieval() -> None:
+    """The bug, named: a namespace outage silently removed the person's trust floor."""
+    assert pack_defaults({MEMORY_NAMESPACE: None}) == {"notes.trust_floor": FLOOR_UNKNOWN}
+
+
 def test_a_command_timeout_and_an_output_cap_become_workspace_defaults() -> None:
     chosen = {WORKSPACE_NAMESPACE: {"command_timeout_seconds": 300, "max_output_bytes": 8_192}}
 

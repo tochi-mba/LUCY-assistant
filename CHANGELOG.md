@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- If the memory settings namespace cannot be read, recall refuses to guess its trust
+  floor rather than silently admitting inferred notes.
+
+### Fixed
+
 - **Work cancelled before its first step is recorded as cancelled.** A task cancelled before
   the loop ran it never entered the registry's runner, so its record said `running` for ever
   and its coroutine was never awaited.
