@@ -19,6 +19,24 @@ from lucy_api.permissions.gate import PermissionGate
 from lucy_api.sessions.scope import SessionScope
 
 
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every name resolves to one public address, here rather than on the network.
+
+    A call to a pinned server checks that its address is public first, and that check
+    resolves the name. Left to the machine's resolver, the call was made with a network
+    and refused as unroutable without one.
+    """
+
+    def records(
+        host: str, port: int, *args: Any, **kwargs: Any
+    ) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        del host, args, kwargs
+        return [(2, 1, 6, "", ("93.184.215.14", port))]
+
+    monkeypatch.setattr("lucy_api.net.ssrf.socket.getaddrinfo", records)
+
+
 class MemoryServers:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.rows = rows
