@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from lucy_api.work import Brief, Kind, Record, Registry, State, UnknownWorkError, WorkError, new_id
+from lucy_api.work.registry import RESTARTED
 
 SESSION = "ses_1"
 START = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
@@ -106,7 +107,7 @@ async def test_shutdown_waits_for_deliveries_so_no_ending_goes_unannounced() -> 
         heard.append(record.state)
 
     registry.on_finished(slow_listener)
-    registry.start(asyncio.Event().wait(), a_brief())
+    registry.start(asyncio.Event().wait(), a_brief(kind=Kind.command))
     await settled()
 
     closing = asyncio.create_task(registry.shutdown())
@@ -115,7 +116,47 @@ async def test_shutdown_waits_for_deliveries_so_no_ending_goes_unannounced() -> 
     gate.set()
     await closing
 
-    assert heard == [State.cancelled]
+    assert heard == [State.failed]
+
+
+async def test_a_restart_is_not_announced_as_anybody_s_cancellation() -> None:
+    """The bug, named: the hub was restarted while a helper ran, and its conversation was told
+    the helper had been cancelled -- the person's own choice, never offered for continuing.
+    Asked what was interrupted, the model said nothing had been. A helper is now left for the
+    next process to announce as continuable, and other work is told it was stopped by the
+    restart, which is what happened."""
+    registry = Registry(now=Clock())
+    told: list[tuple[str, State, str]] = []
+
+    async def listener(record: Record) -> None:
+        told.append((record.kind.value, record.state, record.detail))
+
+    registry.on_finished(listener)
+    helper = registry.start(asyncio.Event().wait(), a_brief())
+    command = registry.start(asyncio.Event().wait(), a_brief(kind=Kind.command))
+    await settled()
+
+    await registry.shutdown()
+
+    assert told == [("command", State.failed, RESTARTED)]
+    assert registry.result(helper.id).state is State.failed
+    assert registry.result(command.id).state is State.failed
+
+
+async def test_work_somebody_cancels_is_still_said_to_be_cancelled() -> None:
+    registry = Registry(now=Clock())
+    told: list[State] = []
+
+    async def listener(record: Record) -> None:
+        told.append(record.state)
+
+    registry.on_finished(listener)
+    handle = registry.start(asyncio.Event().wait(), a_brief())
+    await settled()
+    registry.cancel(handle.id)
+    await settled()
+
+    assert told == [State.cancelled]
 
 
 # --------------------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from lucy_api.work import (
     UnknownWorkError,
     notices_block,
 )
+from lucy_api.work.registry import RESTARTED
 
 SESSION = "ses_1"
 START = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
@@ -465,7 +466,8 @@ async def test_shutdown_leaves_nothing_running_and_nothing_without_an_ending() -
     await registry.shutdown()
 
     assert registry.running(SESSION) == ()
-    assert all(registry.result(handle.id).state is State.cancelled for handle in handles)
+    assert all(registry.result(handle.id).state is State.failed for handle in handles)
+    assert all(registry.result(handle.id).detail == RESTARTED for handle in handles)
 
 
 async def test_shutdown_waits_out_work_that_fails_on_its_way_down() -> None:
