@@ -1,7 +1,7 @@
 """Turning capabilities into the tools one turn may use.
 
 This is where the plan's central bet is cashed in. The model does not get a list of
-functions to call one at a time; it gets a **registry**, and it answers with a *plan* - a
+functions to call one at a time; it gets a **registry**, and it answers with a *plan* — a
 handful of steps where a later step references an earlier one's result by name. The data
 those steps produce never passes through the model's context on its way between them.
 
@@ -331,7 +331,7 @@ def build_runtime(
     """The runtime that executes a plan.
 
     `failure` stays `continue`. One dead service should fail its own step, skip whatever
-    depended on it, and let the model read a sentence about it - not abandon four unrelated
+    depended on it, and let the model read a sentence about it — not abandon four unrelated
     steps that had already succeeded. `abort` is for the rare plan where partial execution
     is worse than none, and that is a per-plan decision rather than a default.
     """
@@ -365,7 +365,7 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     """The JSON schema the model answers with.
 
     `maxSteps` is passed explicitly. weftai's tool binding leaves it out, so a model that is
-    never told the cap discovers it by exceeding it - which costs a whole turn to learn
+    never told the cap discovers it by exceeding it — which costs a whole turn to learn
     something a single line of schema could have said.
     """
     steps = (policy or TurnPolicy()).max_steps

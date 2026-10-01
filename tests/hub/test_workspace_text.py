@@ -1,4 +1,4 @@
-"""Fingerprints, numbered windows, and the edit ladder - no sandbox required."""
+"""Fingerprints, numbered windows, and the edit ladder — no sandbox required."""
 
 from __future__ import annotations
 

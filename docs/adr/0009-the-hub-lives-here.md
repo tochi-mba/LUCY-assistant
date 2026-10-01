@@ -6,9 +6,9 @@ service"
 
 ## Context
 
-The family is eight services and no front door. The assistant - the thing that runs a
+The family is eight services and no front door. The assistant — the thing that runs a
 model, holds a conversation, decides which capabilities a person actually has, and calls
-the other eight on their behalf - had nowhere to live.
+the other eight on their behalf — had nowhere to live.
 
 ADR-0001 says this repository clones the services and contains none of them, and
 CONTRIBUTING says the same: *"a teaching example under `examples/` (not a ninth service)…
@@ -44,7 +44,7 @@ to Lucy. Anything else needs a paragraph of explanation, and a design that needs
 paragraph to explain where the product is has already lost.
 
 **The reasons for ADR-0001 do not apply to the hub.** A vault, a sandbox and a headless
-browser do not share a release cycle, a threat model or a dependency tree - that is why
+browser do not share a release cycle, a threat model or a dependency tree — that is why
 they are separate. The hub shares all three with the desk that describes it: they are
 released together, they are read together, and a change to the family standard is usually a
 change to both.
@@ -63,8 +63,8 @@ reusable workflow (`uses: ./.github/workflows/service.yml`). `docker-compose.yml
 `Dockerfile`, a `CHANGELOG.md`, an `AGENTS.md` and a documentation set it did not need when
 it held no code.
 
-Anyone who assumed "this repository contains no Python package" - a script, a CI job, a
-mental model - has to stop assuming it.
+Anyone who assumed "this repository contains no Python package" — a script, a CI job, a
+mental model — has to stop assuming it.
 
 ## What would change our minds
 

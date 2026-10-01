@@ -168,7 +168,7 @@ allowed `workspace.destroy`.
 
 Persona is the assistant's voice. Memory is what is remembered. Account is the
 pinned fields they asked to keep in view. `notes.aboutMe` returns those as
-`blocks`, `facts` and `account` - three keys, never one ranking.
+`blocks`, `facts` and `account` — three keys, never one ranking.
 
 `notes.search` is memory only. Untrusted notes stay out of search until
 `notes.confirm`. `notes.remember` writes a new note. `notes.forget` removes one
@@ -205,7 +205,7 @@ notice at the next tool boundary, a result you fetch on purpose, a timeout that
 says it timed out, a cancel that is explicit.
 
 `work.list` is what is running. `work.check` is what finished since you last
-looked - it names the size, never the payload. `work.result` reads one.
+looked — it names the size, never the payload. `work.result` reads one.
 `work.wait` has a deadline and does not stop the work when it gives up.
 `work.cancel` is safe to call twice.
 

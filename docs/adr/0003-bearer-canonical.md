@@ -45,5 +45,5 @@ remain unauthenticated because a load balancer cannot hold a token.
 
 An MCP OAuth 2.1 authorization-server flow in front of keyring would still present
 as Bearer to the family. A different header would mean every service, every
-client, and every piece of middleware changes at once - which is the cost that
+client, and every piece of middleware changes at once — which is the cost that
 makes this sticky.

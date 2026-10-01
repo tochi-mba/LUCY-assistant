@@ -1,7 +1,7 @@
 """The `lucy` command's contract.
 
 A CLI is a user interface and an API for scripts, so both halves are tested: what a person
-reads, and what a script can depend on - the exit code, the stream, and the JSON.
+reads, and what a script can depend on — the exit code, the stream, and the JSON.
 """
 
 from __future__ import annotations
@@ -518,9 +518,9 @@ def test_the_cli_writes_utf_8_to_a_console_whose_code_page_cannot_hold_a_reply()
     raw = io.BytesIO()
     console = io.TextIOWrapper(raw, encoding="cp1252", newline="")
     stream = utf8(console)
-    stream.write("café - 🎵 ✓")
+    stream.write("café — 🎵 ✓")
     stream.flush()
-    assert raw.getvalue() == "café - 🎵 ✓".encode()
+    assert raw.getvalue() == "café — 🎵 ✓".encode()
     assert stream is console
 
 

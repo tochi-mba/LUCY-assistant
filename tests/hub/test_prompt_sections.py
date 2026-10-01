@@ -538,7 +538,7 @@ def test_the_defaults_are_read_from_package_data_so_an_installed_wheel_works() -
 
 def test_a_held_back_capability_is_named_as_held_back_not_as_ready() -> None:
     """The prompt used to be handed every *ready* capability while the schema was built from
-    the *bound* ones, so the model was told it had abilities it could not call - against the
+    the *bound* ones, so the model was told it had abilities it could not call — against the
     one rule the identity section states plainly: "Your abilities are exactly the capabilities
     you have been given this turn, and no more." Asked about it, a real model said it could
     see the mismatch and "haven't confirmed which ones are actually deferred"."""

@@ -5,7 +5,7 @@
 ## Context
 
 Every repository pinned `.python-version` to 3.11, targeted `py311` in ruff, ran mypy at
-3.11 and built on a `python:3.11-slim` base - while CI already ran the test matrix on 3.12
+3.11 and built on a `python:3.11-slim` base — while CI already ran the test matrix on 3.12
 everywhere. So 3.12 was tested but never trusted.
 
 The hub being built in this repository depends on `weftai`, which declares
@@ -43,7 +43,7 @@ two. The rules did not create work; they surfaced work that was already owed.
 
 ## What it costs
 
-Anybody with a 3.11 virtualenv re-creates it - `uv sync` does that on its own, and
+Anybody with a 3.11 virtualenv re-creates it — `uv sync` does that on its own, and
 `scripts/bootstrap.sh` now installs 3.12 and 3.13. Every `uv.lock` was regenerated, which is
 one large diff per repository, once. Deployments that pinned a `python:3.11` base image pull
 a new one. Nothing about the wire, the storage, or the tokens changes.

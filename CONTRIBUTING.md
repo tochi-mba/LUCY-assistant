@@ -19,7 +19,7 @@ bash scripts/bootstrap.sh
 # or: pwsh scripts/bootstrap.ps1
 ```
 
-Idempotent. Existing checkouts are left alone - no `git pull`, no `fetch`, no
+Idempotent. Existing checkouts are left alone — no `git pull`, no `fetch`, no
 `reset`, no `checkout`. Docker is reported, never installed. Pass `--no-install` to
 skip `make install`. Pass `--dry-run` to print the plan. `--check` runs `make check`
 per checkout and prints a table; Environments-api is marked `needs Linux` when the
@@ -55,7 +55,7 @@ fail is not a check; `tests/test_parity.py` refuses one.
   import-linter contracts; `[dependency-groups] dev` not an extra named `dev`.
 - **Config:** an `env_prefix`, `extra="forbid"`, and `check_for_unknown_env_vars` so a
   typo is a startup error.
-- **Health:** `/healthy` is liveness - no I/O, and it never fails, because an orchestrator
+- **Health:** `/healthy` is liveness — no I/O, and it never fails, because an orchestrator
   restarts a container whose liveness check fails. `/ready` reports each dependency and
   answers 503 when one is unusable. Web-search-api and environments-api also answer their
   older `/health` and `/health/ready` spellings as aliases, kept for the runbooks already
@@ -82,22 +82,22 @@ Do not add `pragma: no cover`. 100% means every line is tested.
    something the family cares about (Makefile, pyproject, health routes, config).
 
 Commits are conventional (`feat(scope):`, `fix(scope):`, `chore:`), imperative, no
-trailing period. The body explains **why**. Write an ADR in the service - or here, if
-the decision is about the family - for anything future-you would otherwise re-litigate.
+trailing period. The body explains **why**. Write an ADR in the service — or here, if
+the decision is about the family — for anything future-you would otherwise re-litigate.
 
 ## What this repository may contain
 
 Two things, and knowing which one you are touching is most of the job.
 
 **The hub.** `src/lucy_api/` is Lucy, the API a person holds a conversation with. It is a
-family service like any other and is held to the same gates - `python scripts/parity.py`
+family service like any other and is held to the same gates — `python scripts/parity.py`
 scores it beside its siblings. [ADR-0009](docs/adr/0009-the-hub-lives-here.md) records why
 it lives here rather than in a tenth sibling repository, and what that costs.
 
 **The family desk.** Bootstrap, parity, compose, the reusable workflow, the token broker,
 family docs, ADRs about the family, and a teaching example under `examples/`.
 
-Not a copier template. Not copies of the eight services - those are still eight separate
+Not a copier template. Not copies of the eight services — those are still eight separate
 git repositories, cloned beside this file and gitignored. Not `.env.family`, and not a
 GitHub token. `make test` runs the hub's suite and the desk's together.
 
