@@ -277,7 +277,7 @@ class TurnPolicy:
             ),
             incognito=_flag(read("incognito", False), False),
             max_context_tokens=_clamp(
-                read("max_context_tokens", 200_000), 200_000, minimum=8_000, maximum=1_000_000
+                read("max_context_tokens", 200_000), 200_000, minimum=32_000, maximum=1_000_000
             ),
             reserve_percent=_clamp(read("reserve_percent", 13), 13, minimum=5, maximum=40),
             warn_at_percent=_clamp(read("warn_at_percent", 60), 60, minimum=10, maximum=95),

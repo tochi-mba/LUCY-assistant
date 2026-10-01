@@ -443,6 +443,14 @@ def _session_line(state: LiveState) -> str:
     )
 
 
+OVER_THE_WINDOW = (
+    "over the window: this turn's prompt alone needs more than max_context_tokens allows, "
+    "so nothing of the conversation was dropped to fit it; the setting is too small"
+)
+"""What the context line adds when the window is smaller than the turn, so the figure is
+read as a setting to raise rather than as compaction that happened."""
+
+
 def _context_line(state: LiveState) -> str:
     """Where the model stands in its own window, which changes what it chooses to do."""
     budget = state.budget
@@ -456,8 +464,13 @@ def _context_line(state: LiveState) -> str:
         if budget.last_compaction_turn is not None
         else ""
     )
+    # Past 100% the number alone invites a story: read "238% used", a model said the
+    # conversation "has been compressed to fit" on its first turn, when nothing had been
+    # dropped and the prompt alone was bigger than the window somebody had set.
+    over = OVER_THE_WINDOW if budget.used > budget.window else ""
     return _label("context") + _joined(
         f"{budget.used:,} of {budget.window:,} tokens ({budget.percent}% used)",
+        over,
         reclaimable,
         compaction,
     )

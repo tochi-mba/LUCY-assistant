@@ -60,7 +60,7 @@ def test_context_reclamation_knobs_are_bounded_settings() -> None:
     assert window is not None
     assert kept is not None
     assert history is not None
-    assert (window.default, window.minimum, window.maximum) == (200_000, 8_000, 1_000_000)
+    assert (window.default, window.minimum, window.maximum) == (200_000, 32_000, 1_000_000)
     assert (kept.default, kept.minimum, kept.maximum) == (3, 0, 50)
     assert (history.default, history.minimum, history.maximum) == (4, 0, 100)
     for key in ("reserve_percent", "warn_at_percent", "compaction_trigger_percent"):
