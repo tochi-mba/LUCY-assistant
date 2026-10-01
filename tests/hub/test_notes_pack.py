@@ -675,3 +675,135 @@ async def test_a_deny_without_an_instruction_uses_the_permission_title() -> None
     )
     assert result["issues"][0]["code"] == "permission_denied"
     assert "not allowed" in result["issues"][0]["message"]
+
+
+# --- a note found and acted on by reference ---------------------------------------------------
+
+FOUND = [
+    {"id": "mem_1", "title": "coffee", "body": "black", "kind": "fact", "trust": "stated"},
+    {"id": "mem_2", "title": "coffee", "body": "oat milk", "kind": "fact", "trust": "stated"},
+]
+
+
+def _found_and(step: dict[str, object]) -> dict[str, object]:
+    return {
+        "steps": [
+            {"id": "found", "op": "notes.search", "input": {"query": "coffee"}},
+            {"id": "act", **step},
+        ]
+    }
+
+
+async def _held(*answers: Answer, plan: dict[str, object]) -> tuple[dict[str, object], FakeHttp]:
+    http = FakeHttp(Answer(body={"data": []}), Answer(body={"data": FOUND}), *answers)
+    capabilities, context = _capabilities(http, permission_mode="auto")
+    context.grants["notes.erase"] = Grant("notes.erase", "allow", "*")
+    context.grants["notes.write"] = Grant("notes.write", "allow", "*")
+    await capabilities.probe(context)
+    return await capabilities.execute(plan, context), http
+
+
+def _forgot(http: FakeHttp) -> list[str]:
+    return [call.url.rsplit("/", 2)[-2] for call in http.calls if call.url.endswith("/forget")]
+
+
+async def test_what_a_search_found_is_forgotten_by_reference_and_each_note_reported() -> None:
+    """The bug, named: asked to forget everything it knew about the person, the model found
+    the notes and planned `notes.forget {"memory_id": "$found[1]"}`. `memory_id` is plain
+    text, so the plan was refused, and there was no way to forget what had just been found."""
+    result, http = await _held(
+        Answer(body=FOUND[0]),
+        Answer(body=FOUND[1]),
+        plan=_found_and({"op": "notes.forget", "input": {"memory": "$found"}}),
+    )
+    data = result["steps"][1]["data"]
+    assert [note["id"] for note in data["forgotten"]] == ["mem_1", "mem_2"]
+    assert data["not_forgotten"] == []
+    assert _forgot(http) == ["mem_1", "mem_2"]
+
+
+async def test_a_forget_that_fails_part_way_says_which_notes_are_gone() -> None:
+    result, _http = await _held(
+        Answer(body=FOUND[0]),
+        problem(404, code="not-found", detail="no such note"),
+        plan=_found_and({"op": "notes.forget", "input": {"memory": "$found"}}),
+    )
+    data = result["steps"][1]["data"]
+    assert [note["id"] for note in data["forgotten"]] == ["mem_1"]
+    assert [row["memory_id"] for row in data["not_forgotten"]] == ["mem_2"]
+    assert data["not_forgotten"][0]["reason"]
+
+
+async def test_a_forget_that_fails_for_every_note_is_a_failed_step() -> None:
+    result, _http = await _held(
+        problem(503, detail="memory is down"),
+        problem(503, detail="memory is down"),
+        plan=_found_and({"op": "notes.forget", "input": {"memory": "$found"}}),
+    )
+    assert result["steps"][1]["status"] == "error"
+
+
+async def test_one_found_note_is_corrected_or_confirmed_by_its_position() -> None:
+    corrected = {**FOUND[1], "body": "oat milk, no sugar"}
+    # A correction is two calls -- the note is read, then superseded -- and a confirm one.
+    result, http = await _held(
+        Answer(body=corrected),
+        Answer(body=corrected),
+        Answer(body=corrected),
+        plan={
+            "steps": [
+                {"id": "found", "op": "notes.search", "input": {"query": "coffee"}},
+                {
+                    "id": "fix",
+                    "op": "notes.correct",
+                    "input": {
+                        "memory": "$found[2]",
+                        "title": "coffee",
+                        "body": "oat milk, no sugar",
+                    },
+                },
+                {"id": "vouch", "op": "notes.confirm", "input": {"memory": "$found[2]"}},
+            ]
+        },
+    )
+    assert [step["status"] for step in result["steps"]] == ["ok", "ok", "ok"]
+    assert all("/mem_2" in call.url for call in http.calls[-3:])
+
+
+@pytest.mark.parametrize(
+    ("step", "said"),
+    [
+        (
+            {"op": "notes.correct", "input": {"memory": "$found", "title": "t", "body": "b"}},
+            '`memory` names 2 notes and notes.correct takes one: pick it with "$step[n]".',
+        ),
+        (
+            {"op": "notes.forget", "input": {"memory": "$found", "memory_id": "mem_1"}},
+            "Give `memory` or `memory_id`, not both.",
+        ),
+        (
+            {"op": "notes.confirm", "input": {}},
+            "Name the note: `memory` for one an earlier step found, or `memory_id`.",
+        ),
+    ],
+)
+async def test_a_note_named_in_a_way_the_operation_cannot_use_is_refused_with_the_fix(
+    step: dict[str, object], said: str
+) -> None:
+    result, _http = await _held(plan=_found_and(step))
+    act = result["steps"][1]
+    assert act["status"] == "error"
+    assert str(act["error"]).endswith(said)
+
+
+async def test_a_reference_to_a_search_that_found_nothing_is_refused_with_the_fix() -> None:
+    http = FakeHttp(Answer(body={"data": []}), Answer(body={"data": []}))
+    capabilities, context = _capabilities(http, permission_mode="auto")
+    context.grants["notes.erase"] = Grant("notes.erase", "allow", "*")
+    await capabilities.probe(context)
+    result = await capabilities.execute(
+        _found_and({"op": "notes.forget", "input": {"memory": "$found"}}), context
+    )
+    assert str(result["steps"][1]["error"]).endswith(
+        "The referenced step found no note; find it first."
+    )
