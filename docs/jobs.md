@@ -111,6 +111,32 @@ that ends normally lets it expire, because the turn it opens is still using it.
 - **Cancel.** `work.cancel` ends the record `cancelled`; the capability's `on_release` and the
   consent withdrawal run, best effort, and a late signal is a 409.
 
+## Check-ins: a subscription the hub ends itself
+
+"Look at the pull request again at nine" needs no sibling: the condition is a time. A
+check-in (`work.checkin`) is a subscription row like any other -- durable, with a handle,
+cancelled with `work.cancel`, carrying standing consent -- whose ending comes from a timer in
+the hub's own process rather than a signal from outside. The row records `due_at`; the
+record's tags carry it, so the live block and `work.list` say "due in 47m".
+
+What a check-in promises, and how each promise is kept:
+
+| | |
+| --- | --- |
+| It fires at the time | a timer per open check-in, armed when it is opened |
+| It survives a restart | `restore` arms the timer again for what is left |
+| One missed while the hub was down still fires | `restore` gives it its grace again and fires it at once; the signal says `It was time 600s ago` |
+| Nothing fires twice | the row ends once (`UPDATE ... WHERE state='running'`); a timer that loses that race is logged and does nothing |
+| A cancel stops it | the timer is cancelled, the row ends `cancelled`, consent is withdrawn |
+| A shutdown loses nothing | `aclose` cancels every timer and leaves every row running |
+| The sweep never asks anybody about it | a check-in has no sibling id, and the sweep skips rows without one |
+
+Bounds: at least a minute away (sooner is `work.wait`), at most a week. The time is `at`,
+ISO 8601 with its offset, or `in_seconds`; a naive time is refused rather than guessed at,
+since the live block already tells the model the time and zone. A fired subscription's
+notice -- any subscription's -- now carries its summary, so the woken turn reads "It is
+time" or "CI on #42: success" rather than "succeeded".
+
 ## The sibling side of the contract
 
 A service that runs work for Lucy past a request implements three routes, authenticated like
@@ -154,7 +180,7 @@ X-Lucy-Signature: sha256=<hex HMAC-SHA256 of the raw body, keyed with signal.sec
 | --- | --- |
 | `work/registry.py` | every kind's handle, notice, cancel, timeout and restart rule |
 | `work/wake.py` | opening a turn on an idle session, and the consent line in its notice |
-| `work/subscriptions.py` | rows, signals, restore, sweep, release, and the per-turn seam |
+| `work/subscriptions.py` | rows, signals, check-in timers, restore, sweep, release, and the per-turn seam |
 | `core/standing.py` | recording, using and withdrawing standing consent |
 | `api/routers/signals.py` | `POST /v1/signals/{id}` |
 | `net/signing.py` | the one signature scheme, for webhooks out and signals in |
