@@ -169,6 +169,35 @@ async def test_a_service_token_lets_packs_mint_instead_of_forwarding(
 
 
 @pytest.mark.asyncio
+async def test_a_changed_setting_is_forgotten_for_the_person_who_changed_it(
+    keyring: FakeKeyring,
+) -> None:
+    """The cache a turn reads its settings through is told, by the person's own token; a
+    change to ``common`` makes every namespace stale, because it is merged into each."""
+    container = build_container(
+        build_settings(keyring_service_token="s" * 32), transport=keyring.transport()
+    )
+    await container.preferences.aclose()
+    preferences = FakeSettingsClient()
+    container.preferences = preferences
+    try:
+        context = container.pack_context(
+            PackRequest(
+                caller=VerifiedCaller(account_id="acct_a", audience=AUDIENCE),
+                user_token="a.verified.jwt",
+                profile="personal",
+                session_id="ses_a",
+            )
+        )
+        assert context.forget_settings is not None
+        context.forget_settings("lucy")
+        context.forget_settings("common")
+        assert preferences.forgotten == [("a.verified.jwt", "lucy"), ("a.verified.jwt", None)]
+    finally:
+        await container.aclose()
+
+
+@pytest.mark.asyncio
 async def test_turn_limits_are_resolved_once_with_the_live_feed_policy(
     keyring: FakeKeyring,
 ) -> None:

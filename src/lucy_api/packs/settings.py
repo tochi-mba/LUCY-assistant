@@ -148,14 +148,17 @@ class SettingsPack:
         return _resource(setting)
 
     async def _set(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        namespace = str(run.input.get("namespace") or "")
         setting = await self._client(run.ctx).set(
-            str(run.input.get("namespace") or ""),
+            namespace,
             str(run.input.get("key") or ""),
             run.input.get("value"),
             profile=run.ctx.profile,
         )
         if run.ctx.probes is not None:
             run.ctx.probes.drop(run.ctx.account_id, run.ctx.profile)
+        if run.ctx.forget_settings is not None:
+            run.ctx.forget_settings(namespace)
         return _resource(setting)
 
 

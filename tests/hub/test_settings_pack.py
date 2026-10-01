@@ -87,6 +87,29 @@ async def test_settings_describe_get_and_set_preserve_value_types() -> None:
     assert all("capability" in item for item in result["steps"][0]["data"]["settings"])
 
 
+async def test_a_settings_write_tells_the_turn_settings_reader_what_changed() -> None:
+    """The bug, named: a person turned remembering off through Lucy, and the next turn still
+    asked to remember something. The write went through settings-api's person-facing routes
+    and the turn's settings came from another client's minute-long cache, which nobody told."""
+    _fake, capabilities, context = setup()
+    changed: list[str] = []
+    context.forget_settings = changed.append
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {
+                    "id": "set",
+                    "op": "settings.set",
+                    "input": {"namespace": "lucy", "key": "max_llm_turns", "value": 9},
+                }
+            ]
+        },
+        context,
+    )
+    assert not result["issues"]
+    assert changed == ["lucy"]
+
+
 async def test_a_settings_write_without_a_probe_cache_still_returns_the_setting() -> None:
     fake, capabilities, context = setup()
     context.probes = None
