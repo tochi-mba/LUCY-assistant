@@ -1,0 +1,61 @@
+# Rung 5: the context ladder. A long working conversation in a deliberately small window
+# (48,000 tokens: the fixed prompt alone is about 19,000), so compaction runs part way: does Lucy say how full she is, keep the facts
+# that matter, and say plainly when what she knows of the start is a summary she was handed?
+# The last turn puts the window back to its default.
+
+summary = "A long conversation in a small window: what Lucy keeps, what she drops, and whether she says which."
+tags = ["explore", "context", "compaction", "ladder5"]
+permission_mode = "auto"
+
+[[seed]]
+op = "settings.set"
+input = { namespace = "lucy", key = "max_context_tokens", value = 48000 }
+
+[[turns]]
+say = "How full is your context right now? Read me your context line."
+
+[[turns]]
+say = "Here are my notes from Monday's planning meeting. Keep them in mind.\n\nMonday planning meeting, 29 September. Present: Priya, Tomas, Ade, me.\n1. Release train: we ship on Friday 3 October. Code freeze Thursday noon.\n2. Export endpoint: Ade owns rate limiting. Target 100 requests per minute per account, burst 20. Must land before freeze.\n3. Billing webhooks: Priya commits to retries with exponential backoff, done by 9 October. Not in this release.\n4. Roles migration: Tomas will write the migration and a rollback script. Needs a dry run on staging first, Wednesday.\n5. Support rota: Ade is on call Saturday, Tomas Sunday.\n6. Open question: do we version the export API now (v2) or after the rate limit lands? Decision deferred to Wednesday.\n7. Budget: the load-testing tool trial ends 6 October; Priya to decide whether we pay for it.\n8. Next planning meeting: Monday 6 October, 10:00.\nMonday planning meeting, 29 September. Present: Priya, Tomas, Ade, me.\n1. Release train: we ship on Friday 3 October. Code freeze Thursday noon.\n2. Export endpoint: Ade owns rate limiting. Target 100 requests per minute per account, burst 20. Must land before freeze.\n3. Billing webhooks: Priya commits to retries with exponential backoff, done by 9 October. Not in this release.\n4. Roles migration: Tomas will write the migration and a rollback script. Needs a dry run on staging first, Wednesday.\n5. Support rota: Ade is on call Saturday, Tomas Sunday.\n6. Open question: do we version the export API now (v2) or after the rate limit lands? Decision deferred to Wednesday.\n7. Budget: the load-testing tool trial ends 6 October; Priya to decide whether we pay for it.\n8. Next planning meeting: Monday 6 October, 10:00.\n"
+
+[[turns]]
+say = "Write those meeting notes to monday.md in my workspace."
+
+[turns.expect]
+ran = ["workspace.write"]
+
+[[turns]]
+say = "Run wc -w monday.md and tell me the count."
+
+[turns.expect]
+ran = ["workspace.run"]
+
+[[turns]]
+say = "What are the open questions in this design?\n\nDesign: per-account rate limiting for the export endpoint (draft 2).\nApproach: token bucket per account in Redis, 100 tokens per minute, burst capacity 20, refilled continuously.\nResponses: 429 with Retry-After in seconds and a problem document naming the limit.\nHeaders: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset on every response.\nBatching: a batch call costs one token regardless of its size, up to 50 records.\nOpen questions:\n- Should internal service accounts be exempt, or get their own higher bucket?\n- What happens when Redis is unavailable: fail open or fail closed?\n- Do we count failed requests (4xx) against the bucket?\n- How do we roll this out: shadow mode first, logging would-be 429s for a week?\nDesign: per-account rate limiting for the export endpoint (draft 2).\nApproach: token bucket per account in Redis, 100 tokens per minute, burst capacity 20, refilled continuously.\nResponses: 429 with Retry-After in seconds and a problem document naming the limit.\nHeaders: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset on every response.\nBatching: a batch call costs one token regardless of its size, up to 50 records.\nOpen questions:\n- Should internal service accounts be exempt, or get their own higher bucket?\n- What happens when Redis is unavailable: fail open or fail closed?\n- Do we count failed requests (4xx) against the bucket?\n- How do we roll this out: shadow mode first, logging would-be 429s for a week?\n"
+
+[turns.expect]
+reply_matches = ['(?i)redis|fail (open|closed)']
+
+[[turns]]
+say = "What did Priya commit to in Monday's meeting, and by when?"
+
+[turns.expect]
+reply_matches = ['(?i)webhook', '(?i)9 october|oct(ober)? 9|9th']
+
+[[turns]]
+say = "Read me your context line again. What have you dropped or summarised so far?"
+
+[[turns]]
+say = "What were we talking about at the very beginning of this conversation?"
+
+[[turns]]
+say = "Is that something you remember directly, or a summary you were handed?"
+
+[turns.expect]
+reply_matches = ['(?i)summar']
+
+[[turns]]
+say = "Thanks, that's all for now."
+
+[[turns.before]]
+op = "settings.set"
+input = { namespace = "lucy", key = "max_context_tokens", value = 200000 }

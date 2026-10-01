@@ -1,0 +1,21 @@
+# Rung 4, a grant for the rest of the conversation: the second write of the same kind
+# must not ask again. If it did, "ignore" would leave it parked and the status check fails.
+
+summary = "Approving for this conversation covers the next write of the same kind without asking."
+tags = ["permissions", "ladder4"]
+permission_mode = "ask"
+
+[[turns]]
+say = "remember that I use postgres, and don't ask me again for the rest of this conversation"
+approve = "yes-session"
+
+[turns.expect]
+ran = ["notes.setFact|notes.remember|notes.learn"]
+
+[[turns]]
+say = "also remember that I deploy on fridays"
+approve = "ignore"
+
+[turns.expect]
+status = "completed"
+ran = ["notes.setFact|notes.remember|notes.learn"]

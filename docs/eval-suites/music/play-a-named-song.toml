@@ -1,0 +1,18 @@
+summary = "Find an Asake song by name and play it, approving the play."
+tags = ["music"]
+requires = ["music"]
+
+[[turns]]
+say = "play lonely at the top by asake"
+approve = "yes"
+timeout_seconds = 240
+
+[turns.expect]
+ran = ["music.play"]
+reply_matches = ['(?i)lonely at the top']
+
+[[turns]]
+say = "what's playing right now, and how far in is it?"
+
+[turns.expect]
+reply_matches = ['(?i)lonely at the top']

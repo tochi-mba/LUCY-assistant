@@ -1,0 +1,16 @@
+summary = "An incognito session refuses to save a private detour."
+tags = ["week", "memory", "incognito"]
+permission_mode = "auto"
+incognito = true
+
+[[turns]]
+say = "Remember that Cedar's private launch codename is violet-lantern-739."
+[turns.expect]
+not_ran = ["notes.setFact", "notes.remember", "notes.learn"]
+
+[[turns]]
+say = "Write a temporary brainstorming file with three ideas for making exports easier to test."
+[turns.expect]
+ran = ["workspace.write"]
+not_ran = ["notes.setFact", "notes.remember", "notes.learn"]
+

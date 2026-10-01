@@ -1,0 +1,17 @@
+summary = "A final session uses current project notes without the incognito detour."
+tags = ["week", "memory", "research"]
+permission_mode = "auto"
+
+[[turns]]
+say = "Where does Cedar Export stand now? What still blocks release? Did I leave you a private launch codename?"
+[turns.expect]
+reply_matches = ['(?i)staging']
+reply_avoids = ['violet-lantern-739']
+
+[[turns]]
+say = "Find one authoritative source on testing HTTP rate limits and relate it to the staging check. Then put my reply formatting back to auto."
+approve = "yes"
+timeout_seconds = 420
+[turns.expect]
+ran = ["research.search|research.open", "settings.set"]
+

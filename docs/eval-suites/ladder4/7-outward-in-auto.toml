@@ -1,0 +1,15 @@
+# Rung 4, an outward action in auto mode: playback is something other people can hear, so
+# confirm_outward_actions still asks even in auto. Needs a connected music service.
+
+summary = "In auto mode, playing music still asks first, because other people can hear it."
+tags = ["permissions", "music", "ladder4"]
+permission_mode = "auto"
+requires = ["music"]
+
+[[turns]]
+say = "play terminator by asake"
+approve = "ignore"
+
+[turns.expect]
+approvals = ["music.play"]
+not_ran = ["music.play"]

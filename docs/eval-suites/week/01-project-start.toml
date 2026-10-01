@@ -1,0 +1,16 @@
+summary = "Start a project and keep its release constraint across sessions."
+tags = ["week", "memory", "workspace"]
+permission_mode = "auto"
+
+[[turns]]
+say = "My project is Cedar Export. Remember that it must rate-limit exports before release, and that billing retries belong to the next release. Write a release checklist in cedar.md."
+approve = "yes"
+[turns.expect]
+ran = ["notes.setFact|notes.remember", "workspace.write"]
+
+[[turns]]
+say = "Read cedar.md back and tell me which work blocks this release."
+[turns.expect]
+ran = ["workspace.read"]
+reply_matches = ['(?i)rate.?limit']
+

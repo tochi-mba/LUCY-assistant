@@ -1,0 +1,33 @@
+summary = "With memory down, Lucy says she cannot reach what she knows; with it back, she recalls it."
+tags = ["explore", "outage"]
+
+[[seed]]
+op = "notes.remember"
+input = { title = "Role", body = "The person is a backend engineer who reviews their week on Friday afternoons." }
+
+# The first time it is asked is with memory down: asked once before, the answer is already in
+# the conversation, and reciting it says nothing about whether Lucy noticed memory was gone.
+[[turns]]
+say = "What do you know about me?"
+
+[[turns.before]]
+host = "docker stop lucy-family-memory-1"
+timeout_seconds = 90
+
+[turns.expect]
+allow_errors = ["notes.*"]
+reply_avoids = ['\b0 memories', "I (don't|do not) (know|have) anything about you"]
+reply_matches = ['(memory|notes|remember)[\s\S]{0,160}(unavailable|down|reach|offline|not (available|responding|working)|couldn.?t|can.?t)|(unavailable|down|reach|offline|couldn.?t|can.?t)[\s\S]{0,160}(memory|notes)']
+
+[[turns]]
+say = "Memory should be back now. What do you know about me?"
+
+[[turns.before]]
+host = "docker start lucy-family-memory-1"
+timeout_seconds = 90
+
+[[turns.before]]
+wait_seconds = 20
+
+[turns.expect]
+reply_matches = ['backend|friday']

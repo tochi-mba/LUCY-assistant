@@ -1,0 +1,36 @@
+summary = "With settings down and nothing known, a message is refused rather than run with guessed limits; with them back, it is taken."
+tags = ["explore", "outage"]
+
+[[turns]]
+say = "Remember that I like green tea."
+
+[[turns.before]]
+host = "docker stop lucy-family-settings-1"
+timeout_seconds = 90
+
+# During an outage the hub runs on the person's last known settings -- their own values,
+# better than any default -- and refuses only when it knows nothing. So the outage this turn is
+# about is a cold one: the hub restarted while settings were down, and has nothing to go on.
+[[turns.before]]
+host = "docker restart lucy-family-lucy-1"
+timeout_seconds = 120
+
+[[turns.before]]
+wait_seconds = 40
+
+[turns.expect]
+refused = "settings-unavailable"
+
+[[turns]]
+say = "Settings should be back. Please remember that I like green tea."
+approve = "yes"
+
+[[turns.before]]
+host = "docker start lucy-family-settings-1"
+timeout_seconds = 90
+
+[[turns.before]]
+wait_seconds = 20
+
+[turns.expect]
+ran = ["notes.setFact|notes.remember"]
