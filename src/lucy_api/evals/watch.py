@@ -15,7 +15,11 @@ of these is true:
     A turn whose scenario expects a failure the model should recover from names that
     operation in ``allow_errors``.
 ``error-item``
-    The hub wrote an error into the transcript: the turn itself failed.
+    The hub wrote an error into the transcript: the turn itself failed. A plan sent back to
+    the model to repair is not one: the turn is working as designed, and the loop limits
+    how many repairs it takes. Running out of them is an error the hub writes, and halts.
+``repaired-again``
+    The same invalid plan was sent back twice in one turn: the model is not repairing it.
 ``failed-again``
     The same operation failed with the same cause twice in one turn. Halts even when the
     operation is in ``allow_errors``: a recovery that repeats the failure is not a recovery.
@@ -50,7 +54,14 @@ STEP_ERROR = "step-error"
 ERROR_ITEM = "error-item"
 FAILED_AGAIN = "failed-again"
 ASKED_AGAIN = "asked-again"
-RULES = (STEP_ERROR, ERROR_ITEM, FAILED_AGAIN, ASKED_AGAIN)
+REPAIRED_AGAIN = "repaired-again"
+RULES = (STEP_ERROR, ERROR_ITEM, FAILED_AGAIN, ASKED_AGAIN, REPAIRED_AGAIN)
+
+REPAIR = "invalid_plan: "
+"""How a repair notice reads in the transcript: the plan, and what to change in it, sent back
+to the model. It used to halt the turn like any error, so a weak model that put a step's
+handle where a field takes plain text -- refused, and repairable in the next round -- was
+stopped before it could repair it, and the rest of the conversation was never held."""
 
 FAILED = "error"
 """The step status that means the operation ran and failed. ``denied`` is a person's answer,
@@ -79,8 +90,12 @@ def watch(
     exchange: Exchange, *, allowed: Sequence[OpMatch] = (), expecting_failure: bool = False
 ) -> Halt | None:
     """The first reason to stop this turn, or ``None`` while nothing has gone wrong."""
-    if exchange.errors and not expecting_failure:
-        return Halt(ERROR_ITEM, _short(exchange.errors[0]))
+    stopped = [error for error in exchange.errors if not error.startswith(REPAIR)]
+    if stopped and not expecting_failure:
+        return Halt(ERROR_ITEM, _short(stopped[0]))
+    repaired = _repaired_again(exchange.errors)
+    if repaired is not None:
+        return repaired
     failed = _failed(exchange.results, allowed, expecting_failure=expecting_failure)
     if failed is not None:
         return failed
@@ -166,6 +181,17 @@ def _failed(
     return None
 
 
+def _repaired_again(errors: Sequence[str]) -> Halt | None:
+    seen: set[str] = set()
+    for error in errors:
+        if not error.startswith(REPAIR):
+            continue
+        if error in seen:
+            return Halt(REPAIRED_AGAIN, f"the same plan was sent back twice: {_short(error)}")
+        seen.add(error)
+    return None
+
+
 def _asked_again(asks: Sequence[Ask]) -> Halt | None:
     answered: set[str] = set()
     for ask in asks:
@@ -189,6 +215,8 @@ __all__ = [
     "ASKED_AGAIN",
     "ERROR_ITEM",
     "FAILED_AGAIN",
+    "REPAIR",
+    "REPAIRED_AGAIN",
     "RULES",
     "STEP_ERROR",
     "Halt",

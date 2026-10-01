@@ -142,13 +142,14 @@ these is true:
 | Rule | Halts when |
 | --- | --- |
 | `step-error` | A step ended `error`. Name an operation in the turn's `allow_errors` when the scenario expects it to fail and the model to recover. |
-| `error-item` | The hub wrote an error into the transcript: the turn itself failed. |
+| `error-item` | The hub wrote an error into the transcript: the turn itself failed. A plan the hub sent back for the model to repair (`invalid_plan`) is not one: that is the loop working, and it caps the repairs itself. |
 | `failed-again` | The same operation failed with the same cause twice in one turn -- even when it is in `allow_errors`, because a recovery that repeats the failure is not one. |
 | `asked-again` | The turn asked for a call it had already been given an answer to in this turn: the same operation with the same arguments. The harness never answers it a second time. |
+| `repaired-again` | The same invalid plan was sent back twice in one turn: the model is not repairing it. |
 
 A turn whose `status` is expected to be `failed` is not halted for `step-error` or
 `error-item` -- failing is what the scenario is waiting to see -- but is still halted for
-`failed-again` and `asked-again`.
+`failed-again`, `asked-again` and `repaired-again`.
 
 A halt **cancels the turn**, fails the check `ran without the watchdog halting it` with the
 rule and its evidence, and **ends the scenario**: its later turns would be said into a
