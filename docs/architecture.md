@@ -1,9 +1,9 @@
 # Architecture
 
-The assistant is a hub and eight processes, not one. This document is the map. Each service's
+The assistant is a hub and nine processes, not one. This document is the map. Each service's
 own `docs/architecture.md` is the street view.
 
-## Why eight repositories
+## Why nine repositories
 
 A vault, a notes store, a headless browser, and a sandbox that runs arbitrary commands
 do not share a release cycle, a threat model, or a dependency tree. Putting them in one
