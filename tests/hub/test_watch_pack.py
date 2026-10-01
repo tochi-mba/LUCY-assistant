@@ -89,6 +89,25 @@ class Sleeper:
         await settled()
 
 
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every name resolves to one public address, here rather than on the network.
+
+    A url watch checks that its address is public before it starts, and that check
+    resolves the name. Left to the machine's resolver, these tests passed with a network
+    and refused `https://example.com` as unroutable without one. An address written as
+    digits is never looked up, so the private-address refusals are untouched.
+    """
+
+    def records(
+        host: str, port: int, *args: Any, **kwargs: Any
+    ) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        del host, args, kwargs
+        return [(2, 1, 6, "", ("93.184.215.14", port))]
+
+    monkeypatch.setattr("lucy_api.net.ssrf.socket.getaddrinfo", records)
+
+
 class Web:
     """A fetch that answers from a script; the address is recorded, never dialled."""
 
