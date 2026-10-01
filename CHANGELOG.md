@@ -8,6 +8,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The CLI writes UTF-8 whatever the console's code page.** On Windows a pipe gets the
+  locale's code page (cp1252 here), and `lucy talk` died on a UnicodeEncodeError the moment
+  a reply held one emoji, with the whole reply lost. stdout and stderr are reconfigured to
+  UTF-8, replacing rather than raising on anything that still cannot be written.
 - **Lucy tells the person what happened, not that "the harness" did it.** After a planted
   file's orders were neutralised she said "the harness flagged and neutralised it": the
   system's word for its own `[harness: ...]` notices, which the prompt never explained. The
