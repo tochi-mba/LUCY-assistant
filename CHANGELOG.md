@@ -154,6 +154,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **Two settings for how a reply is laid out: `formatting` and `emoji`.** `formatting`
+  `plain` tells the model to write no Markdown, for a client that shows text as it arrives
+  (a voice, an SMS, a terminal with no renderer); `markdown` says the client renders it;
+  `auto`, the default, says nothing. `emoji` off asks for none, for a screen reader that
+  reads each one out. Both are stated in the `preferences` section with the person's other
+  choices, and helpers are told the same.
 - **A person's time zone, language, units, clock and currency reach the model.**
   `common.timezone`, `locale`, `units`, `time_format` and `currency` could be set and read
   back, and changed nothing. The live block's `now` line is now the person's clock, with

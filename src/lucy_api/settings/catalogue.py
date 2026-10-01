@@ -179,6 +179,23 @@ def _core() -> tuple[Knob, ...]:
             "Does not replace persona notes. Notes teach taste; this caps length.",
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
+        _enum(
+            "formatting",
+            "auto",
+            ("auto", "plain", "markdown"),
+            "Whether replies are Markdown, plain text, or as Lucy sees fit.",
+            "Plain is for a client that shows text as it arrives: a voice, an SMS. Auto "
+            "says nothing to the model.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _bool(
+            "emoji",
+            True,
+            "Whether Lucy may use emoji in what it writes.",
+            "On says nothing to the model. Off asks for none, for a screen reader that "
+            "reads each one out by name.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
         _bool(
             "stream_thinking",
             False,

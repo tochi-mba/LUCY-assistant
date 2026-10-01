@@ -112,6 +112,10 @@ def test_a_zone_the_tz_database_does_not_have_is_utc(zone: object) -> None:
         ("units", "cubits"),
         ("units", True),
         ("time_format", "13h"),
+        ("formatting", "html"),
+        ("formatting", 1),
+        ("emoji", "no"),
+        ("emoji", None),
     ],
 )
 def test_a_value_that_cannot_be_used_is_treated_as_not_chosen(key: str, value: object) -> None:
@@ -154,7 +158,21 @@ def test_each_choice_is_one_sentence_and_only_the_chosen_ones_are_said() -> None
     assert conventions(currency="GBP").hint() == (
         "This person chose how they are written to. Give costs in GBP."
     )
+    assert conventions(formatting="plain").hint() == (
+        "This person chose how they are written to. Write plain text: no Markdown "
+        "headings, lists, tables or emphasis marks. What they read you on shows text "
+        "exactly as it arrives."
+    )
+    assert conventions(formatting="markdown").hint() == (
+        "This person chose how they are written to. What they read you on renders "
+        "Markdown, so use headings, lists and tables where they make an answer easier "
+        "to read."
+    )
+    assert conventions(emoji=False).hint() == (
+        "This person chose how they are written to. Do not use emoji."
+    )
     assert conventions(timezone="Asia/Tokyo").hint() == ""
+    assert conventions(formatting="auto", emoji=True).hint() == ""
 
 
 def test_the_choices_are_a_section_of_their_own_and_whole() -> None:

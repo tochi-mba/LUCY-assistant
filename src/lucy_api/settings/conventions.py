@@ -2,16 +2,18 @@
 
 These five live in the `common` namespace, because every service would otherwise ask them
 separately. Settings-api merges `common` underneath every namespace it resolves, so they
-arrive with the `lucy` values and need no second round trip.
+arrive with the `lucy` values and need no second round trip. Two of Lucy's own sit beside
+them, because they answer the same question: `formatting` and `emoji`.
 
-Two of them change what the model is told on every turn, and three only when the person
+One of them changes what the model is told on every turn, and the rest only when the person
 chose something:
 
 - The time zone decides the clock on the live block's `now` line. "Remind me at nine" is a
   question about the person's nine, and a model shown only UTC answers with its own.
-- A language, imperial units, the 12-hour clock and a currency are stated in the prompt
-  when they were chosen. Left alone they say nothing, and the model follows how the person
-  writes, which is the better guide of the two until somebody has said otherwise.
+- A language, imperial units, the 12-hour clock, a currency, plain text or Markdown, and
+  no emoji are stated in the prompt when they were chosen. Left alone they say nothing, and
+  the model follows how the person writes, which is the better guide of the two until
+  somebody has said otherwise.
 
 A value that cannot be used (a zone the tz database does not have, a tag that is not a
 language tag) is treated as not chosen. Settings-api validates every write, so this is the
@@ -39,6 +41,7 @@ _CURRENCY = re.compile(r"^[A-Z]{3}$")
 
 UNITS = frozenset({"metric", "imperial"})
 CLOCKS = frozenset({"24h", "12h"})
+LAYOUTS = frozenset({"auto", "plain", "markdown"})
 
 
 def _zone_name(value: object) -> str:
@@ -66,13 +69,15 @@ def _one_of(value: object, allowed: frozenset[str], default: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Conventions:
-    """One person's five choices, already checked. The defaults are "nothing chosen"."""
+    """One person's choices, already checked. The defaults are "nothing chosen"."""
 
     timezone: str = DEFAULT_ZONE
     locale: str = ""
     units: str = "metric"
     time_format: str = "24h"
     currency: str = ""
+    formatting: str = "auto"
+    emoji: bool = True
 
     @classmethod
     def from_reader(cls, read: Callable[[str, Any], Any]) -> Conventions:
@@ -83,6 +88,8 @@ class Conventions:
             units=_one_of(read("units", "metric"), UNITS, "metric"),
             time_format=_one_of(read("time_format", "24h"), CLOCKS, "24h"),
             currency=_matching(read("currency", ""), _CURRENCY),
+            formatting=_one_of(read("formatting", "auto"), LAYOUTS, "auto"),
+            emoji=read("emoji", True) is not False,
         )
 
     def zone(self) -> tzinfo:
@@ -108,12 +115,24 @@ class Conventions:
             chosen.append("Write clock times on the 12-hour clock, as 2:20 pm.")
         if self.currency:
             chosen.append(f"Give costs in {self.currency}.")
+        if self.formatting == "plain":
+            chosen.append(
+                "Write plain text: no Markdown headings, lists, tables or emphasis marks. "
+                "What they read you on shows text exactly as it arrives."
+            )
+        if self.formatting == "markdown":
+            chosen.append(
+                "What they read you on renders Markdown, so use headings, lists and tables "
+                "where they make an answer easier to read."
+            )
+        if not self.emoji:
+            chosen.append("Do not use emoji.")
         if not chosen:
             return ""
         return "This person chose how they are written to. " + " ".join(chosen)
 
 
 NOTHING_CHOSEN = Conventions()
-"""What a person who has set none of the five has. Frozen, so one value serves everyone."""
+"""What a person who has set none of them has. Frozen, so one value serves everyone."""
 
-__all__ = ["CLOCKS", "DEFAULT_ZONE", "NOTHING_CHOSEN", "UNITS", "Conventions"]
+__all__ = ["CLOCKS", "DEFAULT_ZONE", "LAYOUTS", "NOTHING_CHOSEN", "UNITS", "Conventions"]
