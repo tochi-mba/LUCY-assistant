@@ -115,7 +115,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("keyring-api", "keyring", ("keyring",), None),
     ("environments-api", "environments-api", ("environments",), None),
     ("memory-api", "memory-api", ("memory",), None),
-    ("github-api", "github-api", ("github",), "GHAPI_SETTINGS_API_TOKEN"),
+    ("github-api", "github-api", ("github",), None),
 )
 
 LOCAL_EXTRAS = META_ROOT / "scripts" / "genenv.local.json"

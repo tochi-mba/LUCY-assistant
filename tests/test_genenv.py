@@ -67,6 +67,12 @@ def test_settings_services_match_settings_api_shape() -> None:
             assert env[token_var] == row["token"]
 
 
+def test_github_receives_no_settings_variable_it_does_not_declare() -> None:
+    """The bug, named: the generated settings token stopped GitHub at startup."""
+    names = set(genenv.build_env(extras_path=None))
+    assert "GHAPI_SETTINGS_API_TOKEN" not in names
+
+
 def test_settings_and_keyring_tokens_are_not_shared() -> None:
     env = genenv.build_env(extras_path=None)
     keyring = set(json.loads(env["KEYRING_SERVICE_TOKENS"]).values())
