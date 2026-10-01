@@ -251,9 +251,13 @@ async def test_a_plan_s_calls_under_one_permission_are_one_card_counted_by_role(
         ("d", "Di"),
         ("e", "Ed"),
     ]
+    assert hiring["limit"] == {"field": "role", "values": ["researcher", "reviewer"]}, (
+        "a card counted by a field offers that field, once per value, for a limited yes"
+    )
     assert paying["permission"] == "crew.pay", "another permission is another card"
     assert "steps" not in paying
     assert paying["arguments"] == {"name": "Ada"}
+    assert "limit" not in paying, "a permission without a tally offers no limit"
     events = await store.records(ACCOUNT, talk.session, "events")
     requested = [row["data"] for row in events if row["type"] == "lucy.approval.requested"]
     assert [row["count"] for row in requested if "count" in row] == [5]

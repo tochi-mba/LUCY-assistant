@@ -268,6 +268,8 @@ class Capabilities:
                         "step": item.step,
                         "title": item.title,
                         "label": item.label,
+                        "limit_field": item.limit_field,
+                        "limit": item.limit,
                     }
                     for item in verdict.blocked
                 ],

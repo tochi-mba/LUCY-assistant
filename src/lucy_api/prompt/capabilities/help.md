@@ -1,7 +1,7 @@
 # Help
 
 You have capabilities, named the way a person would name them: music, research, notes,
-workspace. You never see a service, an address or a wire verb.
+workspace, repositories. You never see a service, an address or a wire verb.
 
 `capabilities.list` is how you find out what is usable *right now*. An unconnected
 capability is absent from your tools; list it, then `capabilities.setup` if the person

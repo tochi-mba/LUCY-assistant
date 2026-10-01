@@ -539,6 +539,8 @@ class TurnSupervisor:
             for card in cards(asks):
                 calls = tuple(asked(ask) for ask in card)
                 operations = {call.operation for call in calls}
+                limits = (str(ask.get("limit") or "") for ask in card)
+                limit_values = tuple(dict.fromkeys(limit for limit in limits if limit))
                 await open_approval(
                     self._store,
                     account=claimed.account_id,
@@ -556,6 +558,8 @@ class TurnSupervisor:
                         stop_reason=result.stop_reason.value,
                         needs=calls[0].needs if len(calls) == 1 else None,
                         calls=calls if len(calls) > 1 else (),
+                        limit_field=str(card[0].get("limit_field") or ""),
+                        limit_values=limit_values,
                     ),
                 )
             await self._store.record_spend(claimed.account_id, claimed.id, _spend(result))
