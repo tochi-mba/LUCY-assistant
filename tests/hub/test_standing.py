@@ -216,3 +216,92 @@ def test_a_grant_for_another_account_is_an_authentication_failure_by_name() -> N
     from lucy_api.core.standing import NOT_THIS_ACCOUNT
 
     assert str(AuthenticationError(NOT_THIS_ACCOUNT)) == "the grant is for another account"
+
+
+# --------------------------------------------------------------------------------------
+# Serving capabilities that watch through a sibling
+# --------------------------------------------------------------------------------------
+
+
+class Hooks:
+    """The two registrations `serve` makes on `Subscriptions`, recorded by capability."""
+
+    def __init__(self) -> None:
+        self.release: dict[str, Any] = {}
+        self.check: dict[str, Any] = {}
+
+    def on_release(self, capability: str, handler: Any) -> None:
+        self.release[capability] = handler
+
+    def on_check(self, capability: str, handler: Any) -> None:
+        self.check[capability] = handler
+
+
+class Watching:
+    """A capability that watches through its sibling, recording the seam it was handed."""
+
+    id = "watching"
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, Any, dict[str, Any]]] = []
+
+    async def release_subscription(self, http: Any, row: Any) -> None:
+        self.seen.append(("release", http, dict(row)))
+
+    async def check_subscription(self, http: Any, row: Any) -> str:
+        self.seen.append(("check", http, dict(row)))
+        return "checked"
+
+
+class HalfWatching:
+    id = "half"
+
+    async def release_subscription(self, http: Any, row: Any) -> None:
+        raise AssertionError
+
+
+class Nameless(Watching):
+    id = ""
+
+
+def served(client: Any) -> tuple[Any, Hooks, Watching]:
+    container = client._transport.app.state.container
+    hooks = Hooks()
+    pack = Watching()
+    container.standing.serve(hooks, (pack, HalfWatching(), Nameless(), object()))
+    return container, hooks, pack
+
+
+async def test_only_a_capability_with_both_hooks_and_a_name_is_served(client: Any) -> None:
+    _, hooks, _ = served(client)
+    assert set(hooks.release) == set(hooks.check) == {"watching"}
+
+
+async def test_a_subscription_without_consent_never_reaches_its_sibling(client: Any) -> None:
+    _, hooks, pack = served(client)
+    row = {"grant_id": "", "account_id": ACCOUNT, "profile": "work"}
+    assert await hooks.check["watching"](row) is None
+    assert await hooks.release["watching"](row) is None
+    assert pack.seen == []
+
+
+async def test_a_consented_subscription_reaches_its_sibling_as_its_person(client: Any) -> None:
+    from lucy_api.packs.probes import GuardedHttp
+
+    container, hooks, pack = served(client)
+    row = {"grant_id": "dgt_1", "account_id": ACCOUNT, "profile": "work"}
+    assert await hooks.check["watching"](row) == "checked"
+    await hooks.release["watching"](row)
+
+    [(first, http, seen), (second, _, _)] = pack.seen
+    assert (first, second) == ("check", "release")
+    assert seen == row
+    assert isinstance(http, GuardedHttp)
+    assert (http._account_id, http._profile) == (ACCOUNT, "work")
+
+    forgotten: list[tuple[str, str]] = []
+    container.capabilities.forget_probes = lambda account, profile: forgotten.append(
+        (account, profile)
+    )
+    http._on_disconnect()
+    assert forgotten == [(ACCOUNT, "work")]

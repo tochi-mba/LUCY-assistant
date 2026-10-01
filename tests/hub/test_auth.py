@@ -236,9 +236,9 @@ async def test_turn_limits_are_resolved_once_with_the_live_feed_policy(
         assert prepared.pack_context.policy.max_tool_calls == 44
         assert prepared.live.flags is not None
         assert prepared.live.flags.flag("feeds_music") is False
-        # One resolve per namespace the turn reads: lucy, then the two sibling namespaces
+        # One resolve per namespace the turn reads: lucy, then the three sibling namespaces
         # whose knobs the packs may use when the model omits them. Never one per knob.
-        assert preferences.resolves == 3
+        assert preferences.resolves == 4
         assert prepared.live.sources is not None
         assert prepared.live.sources.topics is not None
         assert prepared.live.sources.in_flight is not None

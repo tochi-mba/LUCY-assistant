@@ -70,6 +70,12 @@ GROUPS: tuple[SettingGroup, ...] = (
         ("environments",),
         "How long a sandbox lives, command limits, and which shell facts the model sees.",
     ),
+    SettingGroup(
+        "repos",
+        "Repositories",
+        ("github",),
+        "Where new repositories are created, and whether they start private.",
+    ),
 )
 
 NAMESPACE_TO_GROUP: dict[str, str] = {
@@ -90,6 +96,7 @@ PUBLIC_SERVICE_NAMES = frozenset(
         "user-api",
         "keyring",
         "keyring-api",
+        "github-api",
     }
 )
 """The names a prompt must never contain, for the services this build knows about.

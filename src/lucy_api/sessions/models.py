@@ -64,6 +64,11 @@ class InputEvent(BaseModel):
     approved: bool | None = None
     instruction: str | None = Field(default=None, max_length=4096)
     lifetime: Literal["once", "session", "profile", "account"] = "once"
+    only: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=50
+    )
+    """Limit a standing yes to calls whose tally value -- a repository, say -- is one of
+    these: "always, for this repository"."""
     call_id: str | None = None
 
 

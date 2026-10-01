@@ -27,6 +27,7 @@ def test_every_capability_group_has_a_product_name_not_a_service_name() -> None:
         "music",
         "research",
         "workspace",
+        "repos",
     )
     for item in GROUPS:
         assert item.id not in SERVICE_NAMES

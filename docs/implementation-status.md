@@ -200,7 +200,12 @@ machine is listed as in progress, however finished it looks.
   separate: persona standing feed, pinned account standing feed, memory retrieval. Their
   scores are never merged. `notes.aboutMe` returns `blocks`, `facts` and `account`;
   `notes.search` is memory only.
-- W2–W12 upstream weftai and agentweft changes: pending. W1 is excluded by the plan.
+- W4 (operation annotations) and W12 (per-step `note`) ship in weftai 0.6.0, npm and PyPI in
+  lockstep; the hub adopts them once 0.6.0 is published. Other W items remain pending; W1 is
+  excluded by the plan.
+- Repositories: the hub capability, scoped grants and the jobs-and-signals path are complete
+  and tested against the contract's fake. Github-api joins `repos.txt`, compose and
+  `repos.lock` when its repository is published ([repos.md](repos.md)).
 
 ## Known gaps, stated plainly
 

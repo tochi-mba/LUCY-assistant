@@ -84,11 +84,13 @@ into the next message.
     Skill(
         name="capabilities",
         title="What Lucy can do",
-        summary="Product names: music, research, workspace, notes, settings, work, helpers.",
+        summary=(
+            "Product names: music, research, workspace, repos, notes, settings, work, helpers."
+        ),
         body="""# Capabilities
 
 Lucy sees capabilities, never services. The names are music, research, workspace,
-notes, settings, work and helpers. An unconnected capability stays listed so you
+repos, notes, settings, work and helpers. An unconnected capability stays listed so you
 can explain what it could do; `lucy_connect` is how the person links it. Pass the
 capability id (`music`), never a backend name.
 
@@ -119,6 +121,32 @@ same way and answers per track. `music.pause` stops what is playing.
 Playback is something other people can hear, so it asks unless they already
 allowed `music.control`. If the capability is not connected, `capabilities.setup`
 with id `music` is how the person links it. Never invent a host or a backend name.
+""",
+    ),
+    Skill(
+        name="repos",
+        title="Work with repositories",
+        summary="Read and change code, pull requests and issues; run and watch CI.",
+        body="""# Repositories
+
+Name a repository as `owner/name`, written out, and a pull request or issue by
+`number` -- never a reference in those fields, because a write is approved for a
+repository the approval can see.
+
+Read before you change: `repos.pull` gives the description, reviews, open review
+threads, CI and whether it can merge; `repos.checks` lists CI jobs and
+`repos.log` shows the failing part of one.
+
+Every change asks unless the person already allowed it, and commenting, pushing,
+merging, running CI, creating and deleting are separate permissions. Deleting a
+repository or changing who can see it always asks.
+
+To act when something happens -- CI settles, a pull request merges, a review
+lands -- use `repos.watch`. It returns a handle at once, and with `wake` the
+conversation is woken to do what the person asked then, and nothing more.
+
+If the capability is not connected, `capabilities.setup` with id `repos` is how
+the person links it. Never ask for a token.
 """,
     ),
     Skill(

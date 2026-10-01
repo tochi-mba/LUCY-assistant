@@ -123,6 +123,22 @@ class Grant:
     profile: str
     instruction: str = ""
     source: str = "person"
+    only: tuple[str, ...] = ()
+    """The values of the permission's `tally` field this allow is limited to -- "always, for
+    this repository" -- or empty for the whole permission. A call outside it is not yet asked,
+    never denied."""
+    wider: Grant | None = None
+    """The broader grant this one overlays (profile over account, session over profile), for
+    a call outside `only`: a narrow allow for one repository must not hide a wide allow."""
+
+    def covering(self, value: str) -> Grant | None:
+        """The narrowest grant in this chain that covers a call whose tally value is `value`."""
+        grant: Grant | None = self
+        while grant is not None:
+            if not grant.only or value in grant.only:
+                return grant
+            grant = grant.wider
+        return None
 
 
 class PermissionGate:
@@ -162,6 +178,7 @@ class PermissionGate:
                 grants=grants,
                 floors=floors,
                 once=grants.get(once_key(name, arguments)),
+                tally=_tally(permission, arguments),
             )
             if not verdict.allowed:
                 item = Blocked(
@@ -197,6 +214,16 @@ def once_key(operation: str, arguments: Mapping[str, object]) -> str:
     return f"{ONCE_PREFIX}{operation}:{digest}"
 
 
+def _tally(permission: Permission, arguments: Mapping[str, object]) -> str:
+    """The whole value of the permission's tally field in this call, for `Grant.only`.
+
+    Not `_label`, which is cut for a card: "always, for this repository" has to match the
+    repository, however long its name.
+    """
+    value = arguments.get(permission.tally) if permission.tally else None
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _label(permission: Permission, arguments: Mapping[str, object]) -> str:
     """The value of the permission's tally field in this call, when it is a plain word."""
     value = arguments.get(permission.tally) if permission.tally else None
@@ -208,21 +235,24 @@ def _is_gated(permission: Permission, name: str, catalogue: Catalogue | None) ->
     return effects in WRITE_EFFECTS or permission.risk in {"execute", "destructive", "spend"}
 
 
-def _decide(
+def _decide(  # noqa: PLR0913 - the permission, and the five things its answer depends on
     permission: Permission,
     *,
     mode: str,
     grants: Mapping[str, Grant],
     floors: Floors,
     once: Grant | None = None,
+    tally: str = "",
 ) -> Verdict:
     """`once` is the person's answer to this exact call, when there is one. It stands in for
     the permission's standing grant and goes through the same floors in the same order, so a
-    one-time yes can never lift a floor a standing yes could not."""
+    one-time yes can never lift a floor a standing yes could not. `tally` is the call's value of
+    the permission's tally field, which a standing grant limited by `only` has to cover."""
     floor = _denied_by_floor(permission, floors)
     if floor is not None:
         return floor
-    grant = once or grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
+    standing = grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
+    grant = once or (standing.covering(tally) if standing is not None else None)
     if grant is not None and grant.decision.startswith("deny"):
         message = grant.instruction or f"{permission.title} is not allowed."
         return Verdict(False, message, permission.id, permission.title, denied=True)

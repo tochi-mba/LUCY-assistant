@@ -165,6 +165,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   turn it opens is prepared under it exactly like a turn they sent. A cancel withdraws it.
 - **`clients/python/lucy_signals`**: the sibling's side of the contract (`Signal`,
   `deliver`, `verify_signature`), held to the hub's signatures by a test.
+- **Repositories: the `repos` capability.** Code, pull requests, issues and CI on the GitHub
+  account a person connected (the Lucy GitHub App, with all or selected repositories, or a
+  fine-grained token), through the new Github-api sibling on port 8011. Seventeen writes
+  under seven permissions split by consequence; deleting a repository or changing who can
+  see it asks even in `auto`. `repos.watch` is the first subscription: CI settling or a pull
+  request merging wakes the session, which can then merge under the person's standing
+  consent. See `docs/repos.md` and ADR-0016.
+- **Always, for this repository.** A standing answer to a permission with a `tally` field
+  may be limited to the values it was asked about (`only` on `input.approval` and
+  `PUT /v1/permissions`). Limits join, an unlimited allow clears one, a deny cannot be
+  limited, and a narrow grant never hides a wider one beneath it.
+- **Sibling settings defaults** moved out of the composition root into
+  `lucy_api.settings.defaults`, with `github.default_owner` and `default_visibility` read for
+  new repositories.
 
 - **The repository names REX Technologies.** An MIT `LICENSE` file with REX Technologies as
   the copyright holder (the package metadata already said MIT, with no file beside it), the

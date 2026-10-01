@@ -35,6 +35,7 @@ same placement. The mapping lives in `lucy_api.settings.groups` and nowhere else
 | **Music** | `spotify`, plus `lucy.feeds_music*` | Market, device, shuffle, repeat, and which now-playing lines the model may see |
 | **Research** | `search`, plus `lucy.feeds_research*` | Providers, result count, recency, and whether the live block names the backend |
 | **Workspace** | `environments`, plus `lucy.feeds_workspace*` | Idle TTLs, shell, history, command timeout, output cap, and which shell facts the model sees |
+| **Repositories** | `github` | Default owner and visibility for new repositories ([repos.md](repos.md)) |
 | **Installed extensions** | discovered namespaces and matching `lucy.feeds_*` keys | Settings contributed by operator-installed capabilities without naming them in the public family |
 
 A pack does not invent a second mapping. Prompt-feed toggles are stored on `lucy` because

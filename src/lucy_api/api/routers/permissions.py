@@ -43,6 +43,8 @@ class GrantBody(BaseModel):
     decision: str = Field(min_length=1, max_length=32)
     profile: str = Field(default="personal", min_length=1, max_length=128)
     instruction: str = Field(default="", max_length=500)
+    only: list[str] = Field(default_factory=list, max_length=50)
+    """Limit an allow to calls whose tally value is one of these, e.g. a repository."""
 
 
 @router.get(
@@ -110,6 +112,7 @@ async def remember_grant(
         profile=body.profile,
         decision=body.decision,
         instruction=body.instruction,
+        only=body.only,
     )
 
 

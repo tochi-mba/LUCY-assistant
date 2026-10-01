@@ -317,6 +317,7 @@ verified, what remains unresolved, and the artifacts produced.
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
 | [Memory-api](https://github.com/tochi-mba/Memory-api) | What the assistant has learned about the person: provenance, history, and a topic index. | 8009 | `MEMORY_` | `/healthy`, `/ready` |
+| Github-api *(publishing; see [docs/repos.md](docs/repos.md))* | The `repos` capability's service: GitHub for the person who connected it. Holds no GitHub credential. | 8011 | `GHAPI_` | `/healthy`, `/ready` |
 
 Every public service listens on its assigned port, so the hub and its siblings run on one
 host without a collision. Compose maps each host port to the same number inside the
@@ -380,7 +381,7 @@ flowchart LR
 
 User-api, Persona-api, Settings-api and Memory-api never call keyring at request time
 except to fetch public keys. They have **no** entry in `KEYRING_SERVICE_TOKENS`. Spotify-api,
-Web-search-api, and Environments-api do: they resolve credentials per request.
+Web-search-api, Environments-api and Github-api do: they resolve credentials per request.
 Settings grants exist for credential consumers so wiring a settings client is a
 deployment choice, not a settings-api release.
 

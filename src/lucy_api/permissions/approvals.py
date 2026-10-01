@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 from lucy_api.core.errors import absent, conflict
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant
 from lucy_api.permissions.replay import needs as needs_of_plan
-from lucy_api.permissions.store import SESSION_PROFILE_PREFIX, calls_of
+from lucy_api.permissions.store import SESSION_PROFILE_PREFIX, calls_of, upsert_grant
 from lucy_api.sessions.sql_store import (
     IdempotentWrite,
     NewItem,
@@ -52,6 +52,10 @@ TURN_MOVED = "This turn is no longer running."
 NEED_APPROVAL_ID = "This input needs an `approval_id`."
 NEED_APPROVED = "This input needs `approved` to be true or false."
 NOT_WAITING = "This approval is not waiting on an answer."
+ONLY_NEEDS = (
+    "`only` limits a standing yes to some calls: it needs `approved: true` and a `lifetime` of "
+    "session, profile or account."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +205,9 @@ async def answer_approval(
         raise conflict(NEED_APPROVED)
     lifetime = str(event.get("lifetime") or "once")
     instruction = str(event.get("instruction") or "")
+    only = tuple(str(value) for value in event.get("only") or ())
+    if only and (lifetime == "once" or not approved):
+        raise conflict(ONLY_NEEDS)
 
     def apply(db: sqlite3.Connection) -> dict[str, Any]:
         current = session_row(db, account, session_id)
@@ -236,6 +243,7 @@ async def answer_approval(
                 "permission": permission,
                 "lifetime": lifetime,
                 "approval_id": approval_id,
+                **({"only": list(only)} if only else {}),
             },
         )
         waiting = db.execute(
@@ -258,6 +266,7 @@ async def answer_approval(
             "permission": permission,
             "lifetime": lifetime,
             "instruction": instruction,
+            **({"only": list(only)} if only else {}),
         }
         item_row(db, session_id, NewItem("approval_response", "user", body, turn=turn_id))
         event_row(
@@ -268,7 +277,7 @@ async def answer_approval(
             turn_id,
         )
         if lifetime != "once":
-            _store_grant(
+            upsert_grant(
                 db,
                 account,
                 Grant(
@@ -276,6 +285,7 @@ async def answer_approval(
                     decision="allow" if approved else "deny",
                     profile=_storage_profile(lifetime, str(current["profile"]), session_id),
                     instruction=instruction,
+                    only=only,
                 ),
                 now,
             )
@@ -297,25 +307,6 @@ def _payload(raw: object) -> dict[str, Any]:
         return {}
     loaded = json.loads(raw)
     return loaded if isinstance(loaded, dict) else {}
-
-
-def _store_grant(db: sqlite3.Connection, account: str, grant: Grant, now: float) -> None:
-    db.execute(
-        "INSERT INTO permission_grants "
-        "(account_id, profile, permission, decision, instruction, granted_at, source) "
-        "VALUES (?,?,?,?,?,?,?) ON CONFLICT(account_id, profile, permission) DO UPDATE SET "
-        "decision=excluded.decision, instruction=excluded.instruction, "
-        "granted_at=excluded.granted_at, source=excluded.source",
-        (
-            account,
-            grant.profile,
-            grant.permission,
-            grant.decision,
-            grant.instruction,
-            now,
-            "person",
-        ),
-    )
 
 
 def _storage_profile(lifetime: str, profile: str, session_id: str) -> str:

@@ -257,6 +257,23 @@ as its input, and Lucy tells the person. `watch.start` does the same for a works
 or another piece of work (`work_id`). The result is that it fired plus a short excerpt,
 never the log; `work.result` reads it when the excerpt matters.
 
+When the thing to watch is on a repository, the sibling that can see it does the watching:
+
+```json
+{"steps": [
+  {"id": "w", "op": "repos.watch",
+   "input": {"repo": "octo/hello", "until": "checks_settled", "number": 42, "wake": true,
+             "objective": "Merge #42 once CI is green"},
+   "note": "Wait for CI on #42, then merge it"}
+]}
+```
+
+→ A `subscription` handle and one approval under `repos.watch`, which also records standing
+consent for the life of the watch. Nothing polls from the hub: Github-api signals when CI
+settles, the session wakes, and the woken turn reads `repos.pull` and merges under the same
+gate as any turn -- an approval card if merges were never allowed. It survives a hub restart
+([jobs.md](jobs.md), [repos.md](repos.md)).
+
 ### Named docs, loaded on purpose
 
 *"How do I wait on a long job without polling?"*
@@ -464,7 +481,10 @@ the default, not something each caller has to remember to pass.
 When the mode is `ask` and no grant covers the write, the turn parks instead of failing.
 An `approval_request` item names the permission in a sentence a person can answer. The next
 `input.approval` on the one write path records a grant — once, this session, this profile,
-or the whole account — and re-queues the same turn. The client's `approved: true` is an
+or the whole account — and re-queues the same turn. A standing answer to a permission with a
+`tally` field may be limited to the values it was asked about (`"only": ["octo/hello"]`:
+*always, for this repository*); a call outside the limit is asked about, not refused
+([ADR-0016](adr/0016-repos-capability-and-port-8011.md)). The client's `approved: true` is an
 input; the gate re-checks the ledger before the tool runs. A denial is a transcript item
 and a grant the model will see as "not allowed", never an exception.
 
