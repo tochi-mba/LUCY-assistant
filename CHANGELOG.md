@@ -8,6 +8,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A window smaller than the turn is named as a setting, not as compaction.** With
+  `max_context_tokens` at 8,000 and the prompt alone at 19,050, the context line read
+  "238% used" and the model told the person on the first turn that the conversation had
+  been compressed to fit; nothing had been dropped. The line now says the window is over,
+  that nothing was dropped to fit it, and that the setting is too small. The setting's
+  floor is 32,000: below the prompt and schema, nothing fits and nothing can be compacted.
+  Found by Rung 5 of the live ladder.
 - **The CLI writes UTF-8 whatever the console's code page.** On Windows a pipe gets the
   locale's code page (cp1252 here), and `lucy talk` died on a UnicodeEncodeError the moment
   a reply held one emoji, with the whole reply lost. stdout and stderr are reconfigured to

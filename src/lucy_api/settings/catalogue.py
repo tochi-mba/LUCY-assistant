@@ -267,8 +267,9 @@ def _core() -> tuple[Knob, ...]:
             "max_context_tokens",
             200_000,
             "The model's effective window, as Lucy budgets it.",
-            "Band shares are fractions of this number.",
-            minimum=8_000,
+            "Band shares are fractions of this number. The prompt and schema alone take about "
+            "20,000; below that, nothing fits and nothing can be compacted.",
+            minimum=32_000,
             maximum=1_000_000,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),

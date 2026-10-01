@@ -260,6 +260,18 @@ def test_the_context_line_says_nothing_about_a_compaction_that_has_not_happened(
     assert rendered == "84,000 of 200,000 tokens (42% used)"
 
 
+def test_a_window_smaller_than_the_turn_is_named_as_a_setting_not_as_compaction() -> None:
+    """The bug, named: with the window set to 8,000 and the prompt alone at 19,050, the line
+    read "238% used" and the model told the person, on the first turn, that the conversation
+    had been compressed to fit. Nothing had been dropped; the setting was too small."""
+    rendered = headline(body_of(a_state(budget=a_budget(used=19_050, window=8_000))), "context")
+
+    assert rendered.startswith("19,050 of 8,000 tokens (238% used) - over the window:")
+    assert "nothing of the conversation was dropped" in rendered
+    assert "the setting is too small" in rendered
+    assert "over the window" not in headline(body_of(a_state()), "context")
+
+
 def test_one_reclaimable_result_is_reported_in_the_singular() -> None:
     state = a_state(budget=a_budget(reclaimable=1, last_compaction_turn=0))
 
