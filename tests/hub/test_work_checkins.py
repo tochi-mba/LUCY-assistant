@@ -33,9 +33,11 @@ from lucy_api.work.subscriptions import (
     CHECKIN_GRACE_SECONDS,
     CHECKIN_ROLE,
     MAX_LIFETIME_SECONDS,
+    MAX_OPEN_CHECKINS,
     MIN_CHECKIN_SECONDS,
     STANDING_MARGIN_SECONDS,
     TOO_FAR,
+    TOO_MANY,
     TOO_SOON,
     Subscriptions,
     SubscriptionSeam,
@@ -123,8 +125,8 @@ class Harness:
         )
 
 
-async def a_session(store: SessionStore) -> str:
-    created = await store.create(ACCOUNT, CreateSession(model="scripted:demo"), "key")
+async def a_session(store: SessionStore, key: str = "key") -> str:
+    created = await store.create(ACCOUNT, CreateSession(model="scripted:demo"), key)
     return str(created["id"])
 
 
@@ -279,6 +281,38 @@ async def test_a_time_outside_the_bounds_is_refused_before_anything_is_written(
     assert (refused.value.status, str(refused.value)) == (400, message)
     assert await rows(store) == []
     assert harness.registry.running(session) == ()
+    await harness.registry.shutdown()
+
+
+async def test_a_session_may_hold_only_so_many_checkins_and_a_fired_one_frees_a_place(
+    store: SessionStore,
+) -> None:
+    clock = Clock()
+    harness = Harness(store, clock)
+    session = await a_session(store)
+    seam = harness.seam(session)
+    opened = [
+        await seam.checkin(objective=f"#{n}", due_at=clock.stamp() + 600 + n, delay_seconds=600)
+        for n in range(MAX_OPEN_CHECKINS)
+    ]
+
+    with pytest.raises(LucyError) as refused:
+        await seam.checkin(objective="one more", due_at=clock.stamp() + 600, delay_seconds=600)
+    assert (refused.value.status, str(refused.value)) == (400, TOO_MANY)
+    assert len(await rows(store)) == MAX_OPEN_CHECKINS
+
+    other = await a_session(store, key="other")
+    await harness.seam(other).checkin(
+        objective="elsewhere", due_at=clock.stamp() + 600, delay_seconds=600
+    )
+
+    harness.registry.cancel(opened[0].handle.id)
+    await settled()
+    again = await seam.checkin(
+        objective="after a cancel", due_at=clock.stamp() + 600, delay_seconds=600
+    )
+    assert again.handle.id in {r.id for r in harness.registry.running(session)}
+    await harness.subscriptions.aclose()
     await harness.registry.shutdown()
 
 

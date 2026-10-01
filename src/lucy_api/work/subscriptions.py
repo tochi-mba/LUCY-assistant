@@ -95,10 +95,19 @@ that was down across the due time, and the length of the "late" a restart may an
 MIN_CHECKIN_SECONDS = 60.0
 """Sooner than this is not a check-in but a wait, and `work.wait` is for waiting."""
 
+MAX_OPEN_CHECKINS = 20
+"""How many check-ins one session may have waiting. A conversation that needs more is one
+that is looping; a timer per row is cheap, and twenty thousand of them are not."""
+
 TOO_SOON = f"A check-in is at least {MIN_CHECKIN_SECONDS:.0f} seconds away; to wait less, wait."
 TOO_FAR = f"A check-in is at most {MAX_LIFETIME_SECONDS / 86400:.0f} days away."
+TOO_MANY = (
+    f"This conversation already has {MAX_OPEN_CHECKINS} check-ins waiting; cancel one with "
+    "work.cancel, or let one fire, before setting another."
+)
 CHECKIN_TOO_SOON = "checkin-too-soon"
 CHECKIN_TOO_FAR = "checkin-too-far"
+CHECKIN_TOO_MANY = "checkin-too-many"
 
 ENDED = "This subscription has already ended."
 MALFORMED = (
@@ -294,13 +303,16 @@ class Subscriptions:
 
         Raises:
             LucyError: 400 when the time is sooner than a check-in is for, or further away
-                than one may live. The message names the bound.
+                than one may live, or the session already has as many waiting as it may.
+                The message names the bound.
         """
         delay = due_at - self._clock()
         if delay < MIN_CHECKIN_SECONDS:
             raise LucyError(CHECKIN_TOO_SOON, TOO_SOON, 400)
         if delay > MAX_LIFETIME_SECONDS:
             raise LucyError(CHECKIN_TOO_FAR, TOO_FAR, 400)
+        if await self._open_checkins(session_id) >= MAX_OPEN_CHECKINS:
+            raise LucyError(CHECKIN_TOO_MANY, TOO_MANY, 400)
         return await self.open(
             account_id=account_id,
             session_id=session_id,
@@ -313,6 +325,19 @@ class Subscriptions:
             role=CHECKIN_ROLE,
             due_at=due_at,
         )
+
+    async def _open_checkins(self, session_id: str) -> int:
+        """How many check-ins one session has waiting, by the rows: the registry forgets."""
+
+        def read(db: sqlite3.Connection) -> int:
+            row = db.execute(
+                "SELECT COUNT(*) FROM subscriptions WHERE session_id=? AND state=? "
+                "AND due_at IS NOT NULL",
+                (session_id, State.running.value),
+            ).fetchone()
+            return int(row[0])
+
+        return await self._store.worker.call(read)
 
     def _start(self, subscription_id: str, *, work_id: str, brief: Brief) -> Handle:
         waiting: asyncio.Future[Signal] = asyncio.get_running_loop().create_future()
@@ -735,11 +760,13 @@ __all__ = [
     "ENDED",
     "MALFORMED",
     "MAX_LIFETIME_SECONDS",
+    "MAX_OPEN_CHECKINS",
     "MAX_SIGNAL_BYTES",
     "MIN_CHECKIN_SECONDS",
     "STANDING_MARGIN_SECONDS",
     "TOO_FAR",
     "TOO_LARGE",
+    "TOO_MANY",
     "TOO_SOON",
     "Opened",
     "Signal",
