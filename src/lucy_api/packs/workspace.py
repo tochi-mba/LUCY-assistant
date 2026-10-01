@@ -202,39 +202,53 @@ class WorkspacePack:
         return (
             self._operation(
                 "list",
-                "List files and directories in this session.",
-                {"path": string_schema().optional()},
+                "List the files and directories under one directory of this conversation's "
+                "sandbox (its root when `path` is omitted).",
+                {"path": string_schema().optional().describe("A directory, relative to the root.")},
                 FILE,
                 self._list,
             ),
             self._operation(
                 "grep",
-                "Search workspace files for literal text.",
-                {"pattern": string_schema(), "path": string_schema().optional()},
+                "Find which files, and which lines, contain some literal text. Search first, "
+                "then read the part that matched.",
+                {
+                    "pattern": string_schema().describe("Literal text, not a regular expression."),
+                    "path": string_schema().optional().describe("Only under this directory."),
+                },
                 value(object_schema({})),
                 self._grep,
             ),
             self._operation(
                 "read",
-                "Read a bounded UTF-8 file window.",
+                "Read part of a text file with numbered lines, and how many lines it has. Its "
+                "`file_fingerprint` goes in `if_match` on a later write, so a stale write is "
+                "refused rather than overwriting someone else's change.",
                 {
                     "path": string_schema(),
-                    "offset": integer_schema().optional(),
-                    "max_bytes": integer_schema().optional(),
-                    "start_line": integer_schema().optional(),
-                    "limit": integer_schema().optional(),
+                    "start_line": integer_schema().optional().describe("First line shown (1)."),
+                    "limit": integer_schema().optional().describe("How many lines to show."),
+                    "offset": integer_schema()
+                    .optional()
+                    .describe("For a file too large to load whole: the byte to start from."),
+                    "max_bytes": integer_schema()
+                    .optional()
+                    .describe("For a file too large to load whole: how many bytes to load."),
                 },
                 value(object_schema({})),
                 self._read,
             ),
             self._operation(
                 "write",
-                "Write or append a UTF-8 workspace file.",
+                "Write a whole text file, creating it if needed, or add to its end. To change "
+                "part of an existing file, edit it instead.",
                 {
                     "path": string_schema(),
                     "content": string_schema(),
-                    "mode": string_schema().optional(),
-                    "if_match": string_schema().optional(),
+                    "mode": enum_schema("overwrite", "append").optional(),
+                    "if_match": string_schema()
+                    .optional()
+                    .describe("The file_fingerprint from your last read; refused if it changed."),
                 },
                 value(object_schema({})),
                 self._write,
@@ -242,12 +256,16 @@ class WorkspacePack:
             ),
             self._operation(
                 "edit",
-                "Replace one exact occurrence; ambiguity is refused.",
+                "Change part of a file by quoting the text to replace, exactly and with enough "
+                "around it to match once; a quote that matches twice or nowhere is refused "
+                "with where it did match, or the nearest text.",
                 {
                     "path": string_schema(),
                     "old_string": string_schema(),
                     "new_string": string_schema(),
-                    "if_match": string_schema().optional(),
+                    "if_match": string_schema()
+                    .optional()
+                    .describe("The file_fingerprint from your last read; refused if it changed."),
                 },
                 value(object_schema({})),
                 self._edit,
@@ -255,11 +273,14 @@ class WorkspacePack:
             ),
             self._operation(
                 "patch",
-                "Apply a single-file unified patch and report rejected hunks.",
+                "Apply a unified diff to one file, for several changes at once; hunks that do "
+                "not apply are reported, not forced.",
                 {
                     "path": string_schema(),
                     "patch": string_schema(),
-                    "if_match": string_schema().optional(),
+                    "if_match": string_schema()
+                    .optional()
+                    .describe("The file_fingerprint from your last read; refused if it changed."),
                 },
                 value(object_schema({})),
                 self._patch,
@@ -267,7 +288,8 @@ class WorkspacePack:
             ),
             self._operation(
                 "delete",
-                "Delete one workspace path; recursive must be explicit.",
+                "Delete one file, or a directory with `recursive`. Asks unless deletions are "
+                "already allowed.",
                 {"path": string_schema(), "recursive": boolean_schema().optional()},
                 value(object_schema({})),
                 self._delete,
@@ -275,7 +297,7 @@ class WorkspacePack:
             ),
             self._operation(
                 "move",
-                "Move one regular file without overwriting its destination.",
+                "Move or rename one file. An existing destination is refused, never overwritten.",
                 {"source": string_schema(), "destination": string_schema()},
                 value(object_schema({})),
                 self._move,

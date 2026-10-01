@@ -23,7 +23,16 @@ from lucy_api.clients.errors import (
     RateLimitedError,
     UnavailableError,
 )
-from lucy_api.clients.repos import CheckRun, Issue, Pull, PullDetail, Repo, Review, Thread
+from lucy_api.clients.repos import (
+    ChangedFile,
+    CheckRun,
+    Issue,
+    Pull,
+    PullDetail,
+    Repo,
+    Review,
+    Thread,
+)
 from lucy_api.clients.repos_fake import FakeReposClient
 from lucy_api.context.types import Trust
 from lucy_api.net.signing import sign
@@ -196,6 +205,7 @@ async def test_every_operation_is_bound_when_connected() -> None:
         "repos.inspect",
         "repos.pulls",
         "repos.pull",
+        "repos.changes",
         "repos.issues",
         "repos.checks",
         "repos.log",
@@ -285,6 +295,38 @@ async def test_reads_answer_with_narrow_projections_on_the_sessions_profile() ->
     assert {profile for _, profile, _ in fake.calls} == {"work"}
     issue_call = next(call for call in fake.calls if call[0] == "issues")
     assert issue_call[2]["state"] == "all"
+
+
+async def test_what_a_pull_request_changes_says_which_patches_were_cut() -> None:
+    fake = seeded()
+    fake.changed[(HELLO, 42)] = (
+        ChangedFile(path="src/a.py", status="modified", additions=2, deletions=1, patch="+a"),
+        ChangedFile(
+            path="src/big.py",
+            status="renamed",
+            patch="+b",
+            patch_truncated=True,
+            previous_path="src/old.py",
+        ),
+    )
+    result = await run(fake, step("repos.changes", repo=HELLO, number=42, limit=1))
+    [changes] = result["steps"]
+    assert changes["data"][0] == {
+        "path": "src/a.py",
+        "status": "modified",
+        "additions": 2,
+        "deletions": 1,
+        "patch": "+a",
+    }
+    assert "showing 1 of 2" in changes["notices"]
+    assert not any("cut short" in notice for notice in changes["notices"])
+
+    every = await run(fake, step("repos.changes", repo=HELLO, number=42))
+    assert every["steps"][0]["data"][1]["previous_path"] == "src/old.py"
+    assert any("src/big.py" in notice for notice in every["steps"][0]["notices"])
+
+    absent = await run(fake, step("repos.changes", repo=HELLO, number=9))
+    assert "no pull request" in absent["steps"][0]["error"]
 
 
 async def test_find_uses_the_persons_default_owner_when_none_is_named() -> None:

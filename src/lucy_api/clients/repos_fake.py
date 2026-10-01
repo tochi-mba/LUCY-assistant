@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from lucy_api.clients.errors import AbsentError, ConflictError, NotConnectedError
 from lucy_api.clients.repos import (
     SERVICE,
+    ChangedFile,
     CheckRun,
     Excerpt,
     Identity,
@@ -53,6 +54,7 @@ class FakeReposClient:
         self.identity = Identity(login=login, kind="app", selection="selected", repositories=0)
         self.repos: dict[str, Repo] = {}
         self.pull_requests: dict[tuple[str, int], PullDetail] = {}
+        self.changed: dict[tuple[str, int], tuple[ChangedFile, ...]] = {}
         self.issue_list: dict[tuple[str, int], Issue] = {}
         self.check_runs: dict[tuple[str, str], tuple[str, tuple[CheckRun, ...]]] = {}
         self.logs: dict[tuple[str, str], str] = {}
@@ -161,6 +163,15 @@ class FakeReposClient:
         if detail is None:
             raise _missing(PULL_REQUEST)
         return detail
+
+    async def changes(
+        self, profile: str, full_name: str, number: int, *, limit: int = 20
+    ) -> Page[ChangedFile]:
+        self._call("changes", profile, full_name=full_name, number=number)
+        if (full_name, number) not in self.pull_requests:
+            raise _missing(PULL_REQUEST)
+        found = self.changed.get((full_name, number), ())
+        return Page(items=found[:limit], total=len(found))
 
     async def open_pull(self, profile: str, full_name: str, fields: Mapping[str, Any]) -> Pull:
         self._call("open_pull", profile, full_name=full_name, **dict(fields))

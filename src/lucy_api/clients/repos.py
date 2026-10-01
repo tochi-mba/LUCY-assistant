@@ -12,8 +12,8 @@ None of it helps a model say "#42 is green and mergeable". So every read is proj
 a narrow dataclass and nothing else survives the boundary; a field the service starts sending
 tomorrow cannot reach a prompt by accident.
 
-The probe is `connected`: `GET /v1/me`, read only for whether the service refused it for a
-missing credential (`502 credential-*`), which is what moves the capability to
+The probe is `me`: `GET /v1/me`, and a refusal for a missing credential
+(`502 credential-*`, raised as `NotConnectedError`) is what moves the capability to
 `not_connected` and gets the person a link instead of an apology.
 """
 
@@ -117,6 +117,20 @@ class CheckRun:
 
 
 @dataclass(frozen=True, slots=True)
+class ChangedFile:
+    """One file a pull request changes, with as much of its patch as the service sends."""
+
+    path: str
+    status: str = ""
+    """`added`, `modified`, `removed` or `renamed`."""
+    additions: int = 0
+    deletions: int = 0
+    patch: str = ""
+    patch_truncated: bool = False
+    previous_path: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class PullDetail:
     """A pull request with what a reviewer reads before deciding."""
 
@@ -180,6 +194,9 @@ class ReposClient(Protocol):
         self, profile: str, full_name: str, *, state: str, limit: int = DEFAULT_LIMIT
     ) -> Page[Pull]: ...
     async def pull(self, profile: str, full_name: str, number: int) -> PullDetail: ...
+    async def changes(
+        self, profile: str, full_name: str, number: int, *, limit: int = DEFAULT_LIMIT
+    ) -> Page[ChangedFile]: ...
     async def open_pull(self, profile: str, full_name: str, fields: Mapping[str, Any]) -> Pull: ...
     async def update_pull(
         self, profile: str, full_name: str, number: int, changes: Mapping[str, Any]
@@ -293,6 +310,17 @@ class HttpReposClient:
             profile=profile,
         )
         return _page(payload, "pulls", _pull)
+
+    async def changes(
+        self, profile: str, full_name: str, number: int, *, limit: int = DEFAULT_LIMIT
+    ) -> Page[ChangedFile]:
+        payload = await self._api.send(
+            "GET",
+            _path(full_name, "pulls", str(number), "files"),
+            params={"limit": _limit(limit)},
+            profile=profile,
+        )
+        return _page(payload, "files", _changed_file)
 
     async def pull(self, profile: str, full_name: str, number: int) -> PullDetail:
         payload = await self._api.send(
@@ -601,6 +629,18 @@ def _pull(payload: Any) -> Pull:
     )
 
 
+def _changed_file(payload: Any) -> ChangedFile:
+    return ChangedFile(
+        path=text(payload, "path"),
+        status=text(payload, "status"),
+        additions=whole(payload, "additions"),
+        deletions=whole(payload, "deletions"),
+        patch=text(payload, "patch"),
+        patch_truncated=flag(payload, "patch_truncated"),
+        previous_path=text(payload, "previous_path"),
+    )
+
+
 def _issue(payload: Any) -> Issue:
     return Issue(
         repo=text(payload, "repo"),
@@ -639,6 +679,7 @@ __all__ = [
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
     "SERVICE",
+    "ChangedFile",
     "CheckRun",
     "Excerpt",
     "HttpReposClient",

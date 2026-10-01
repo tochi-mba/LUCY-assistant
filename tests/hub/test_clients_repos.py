@@ -338,3 +338,26 @@ async def test_refusals_arrive_in_the_family_vocabulary(answer: Answer, error: t
     repos, _ = client(answer)
     with pytest.raises(error):
         await repos.pull("work", REPO, 1)
+
+
+async def test_what_a_pull_request_changes_is_projected_file_by_file() -> None:
+    changed = {
+        "path": "src/b.py",
+        "status": "renamed",
+        "additions": 3,
+        "deletions": 1,
+        "patch": "@@ -1 +1 @@\n-a\n+b",
+        "patch_truncated": True,
+        "previous_path": "src/a.py",
+        "blob_url": "https://example.test/blob",
+    }
+    repos, http = client(Answer(body={"files": [changed], "total": 31}))
+    page = await repos.changes("work", REPO, 42, limit=500)
+
+    assert_call(http, "GET", "/v1/repos/octo/hello%20world/pulls/42/files")
+    assert http.last.params == {"limit": 100}
+    [item] = page.items
+    assert (item.path, item.status, item.previous_path) == ("src/b.py", "renamed", "src/a.py")
+    assert (item.additions, item.deletions, item.patch_truncated) == (3, 1, True)
+    assert not hasattr(item, "blob_url")
+    assert page.notice == "showing 1 of 31"

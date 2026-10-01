@@ -102,8 +102,9 @@ class ResearchPack:
                 {
                     "name": "research.search",
                     "description": (
-                        "Search the web for one or more questions and return ranked, citable "
-                        "sources plus bounded summaries; page text stays out of context."
+                        "Search the web for one question and return ranked, citable sources "
+                        "plus a bounded summary; page text stays out of context. Several "
+                        "searches in one plan run together."
                     ),
                     "input": object_schema(
                         {
@@ -124,7 +125,11 @@ class ResearchPack:
                         "not the unbounded page body."
                     ),
                     "input": object_schema(
-                        {"url": string_schema().describe("A URL returned by research.search.")}
+                        {
+                            "url": string_schema().describe(
+                                "A link research.search found, or one the person gave."
+                            )
+                        }
                     ),
                     "output": value(object_schema({})),
                     "effects": "read",

@@ -331,6 +331,13 @@ class ReposPack:
                 calls.read_pull,
             ),
             self._op(
+                "repos.changes",
+                "What a pull request changes: each file with its status, lines added and "
+                "removed, and its patch. A large patch is cut, and says so.",
+                {"repo": repo, "number": number, "limit": limit},
+                calls.changes,
+            ),
+            self._op(
                 "repos.issues",
                 "List issues on a repository, newest first.",
                 {"repo": repo, "state": state, "limit": limit},
