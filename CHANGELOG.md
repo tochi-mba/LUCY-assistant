@@ -150,6 +150,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **The repository names REX Technologies.** An MIT `LICENSE` file with REX Technologies as
+  the copyright holder (the package metadata already said MIT, with no file beside it), the
+  package author, and the README's first line.
 - **A GitHub Pages site.** `site/` is a plain static page in the REX ink/signal style the
   other REX product sites use: what Lucy does, how a plan becomes actions, the family of
   services, how to run it, and the safety rules. `.github/workflows/pages.yml` publishes it
