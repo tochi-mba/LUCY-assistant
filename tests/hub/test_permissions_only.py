@@ -8,6 +8,7 @@ untouched; and every surface that records a grant carries the limit.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
@@ -227,7 +228,9 @@ def test_only_reads_back_lists_of_strings_and_nothing_else() -> None:
 
 async def test_an_existing_database_gains_the_column(tmp_path: Any) -> None:
     path = str(tmp_path / "old.sqlite3")
-    with sqlite3.connect(path) as db:
+    # `with sqlite3.connect(...)` commits but never closes: the warning for the leaked
+    # connection then lands on whichever test the collector happens to run next.
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "CREATE TABLE permission_grants (account_id TEXT NOT NULL, profile TEXT NOT NULL, "
             "permission TEXT NOT NULL, decision TEXT NOT NULL, instruction TEXT, "
