@@ -577,14 +577,19 @@ async def test_run_sweeps_sweeps_on_its_interval_until_cancelled(store: SessionS
     work = registry()
     subscriptions = Subscriptions(store, work, signal_base_url=SIGNALS)
     swept: list[int] = []
+    twice = asyncio.Event()
 
     async def counting() -> int:
         swept.append(1)
+        if len(swept) == 2:
+            twice.set()
         return 0
 
     subscriptions.sweep = counting  # type: ignore[method-assign]
     task = asyncio.create_task(subscriptions.run_sweeps(0.001))
-    await asyncio.sleep(0.02)
+    # Wait for the second sweep, not for a length of time: a Windows timer ticks every
+    # 15 ms or so, and on a busy machine twenty milliseconds held one sweep, not two.
+    await asyncio.wait_for(twice.wait(), timeout=5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
