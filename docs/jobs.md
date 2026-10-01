@@ -144,9 +144,9 @@ every other person-scoped route (a minted token for its audience, `X-Keyring-Pro
 
 | Route | Body / answer |
 | --- | --- |
-| `POST /v1/subscriptions` | `{kind, target, expires_at, signal: {url, secret}}` → `201 {id, state}`. Refuse a `kind` you do not know with a 422 naming the ones you do. |
+| `POST /v1/subscriptions` | `{kind, target, expires_in_seconds, signal: {url, secret}}` → `201 {id, state}`. Cap the lifetime at what you can honour (the hub never asks for more than a week). Refuse a `kind` you do not know with a 422 naming the ones you do. |
 | `GET /v1/subscriptions/{id}` | `{state: running\|fired\|failed\|expired, summary?, facts?, excerpt?}`. Another account's id is 404. |
-| `DELETE /v1/subscriptions/{id}` | `204`, idempotent. Stop looking. |
+| `DELETE /v1/subscriptions/{id}` | `204`. Stop looking. A second delete, or another account's id, may be 404: the hub reads either as gone. |
 
 When the condition holds -- or cannot, or the subscription expires -- POST **one signal** to
 `signal.url`:
