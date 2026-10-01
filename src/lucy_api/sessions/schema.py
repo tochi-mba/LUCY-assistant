@@ -12,6 +12,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("turns", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("approvals", "executed_at", "REAL"),
     ("permission_grants", "only_json", "TEXT"),
+    ("subscriptions", "due_at", "REAL"),
 )
 """(table, column, definition) for every column that post-dates the table."""
 
@@ -188,7 +189,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
  profile TEXT NOT NULL, work_id TEXT NOT NULL, capability TEXT NOT NULL, sibling_id TEXT,
  secret TEXT NOT NULL, grant_id TEXT, objective TEXT NOT NULL, wake INTEGER NOT NULL,
  state TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL NOT NULL, ended_at REAL,
- result_json TEXT
+ result_json TEXT, due_at REAL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS subscriptions_open ON subscriptions(state,created_at);
 CREATE TABLE IF NOT EXISTS webhooks (

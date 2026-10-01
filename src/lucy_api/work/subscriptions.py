@@ -27,16 +27,25 @@ adds is only what the registry cannot do on its own:
 A signal carries *that* the condition held, with a one-line summary, a few small facts and a
 bounded excerpt -- the `Check` shape a watch returns. It is never the result itself: the woken
 turn reads that through the capability, which frames it as untrusted like any other result.
+
+A **check-in** is a subscription the hub ends itself, at a time: "come back at 19:24 and look
+at the pull request again". No sibling is involved. The row is the same row, so a restart
+takes it up and a check-in that fell due while Lucy was down fires as soon as she is back,
+saying how late it is; the ending is the same ending, so the notice, the wake and the standing
+consent it carries are what every subscription gets. What differs is only who ends it: a timer
+in this process rather than a signal from outside.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from lucy_api.core.errors import LucyError, absent, conflict
@@ -71,6 +80,25 @@ MAX_LIFETIME_SECONDS = 7 * 24 * 3600.0
 on purpose, not something a conversation leaves behind."""
 
 DEFAULT_SWEEP_SECONDS = 120.0
+
+CHECKIN_CAPABILITY = "work"
+"""The capability a check-in belongs to: the hub's own bookkeeping, not a sibling's."""
+
+CHECKIN_ROLE = "check-in"
+"""What a check-in is called in a notice and the live block, where `work` would say nothing."""
+
+CHECKIN_GRACE_SECONDS = 900.0
+"""How long after its due time a check-in may still fire before it is given up as missed. A
+timer in a healthy process fires within a second of due; this is the net under a process
+that was down across the due time, and the length of the "late" a restart may announce."""
+
+MIN_CHECKIN_SECONDS = 60.0
+"""Sooner than this is not a check-in but a wait, and `work.wait` is for waiting."""
+
+TOO_SOON = f"A check-in is at least {MIN_CHECKIN_SECONDS:.0f} seconds away; to wait less, wait."
+TOO_FAR = f"A check-in is at most {MAX_LIFETIME_SECONDS / 86400:.0f} days away."
+CHECKIN_TOO_SOON = "checkin-too-soon"
+CHECKIN_TOO_FAR = "checkin-too-far"
 
 ENDED = "This subscription has already ended."
 MALFORMED = (
@@ -133,11 +161,14 @@ class Subscriptions:
         *,
         signal_base_url: str,
         clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._store = store
         self._registry = registry
         self._signal_base_url = signal_base_url.rstrip("/")
         self._clock = clock
+        self._sleep = sleep
+        self._timers: dict[str, asyncio.Task[None]] = {}
         self._waiting: dict[str, asyncio.Future[Signal]] = {}
         self._releases: dict[str, Release] = {}
         self._checks: dict[str, Check] = {}
@@ -169,11 +200,14 @@ class Subscriptions:
         timeout_seconds: float,
         wake: bool = True,
         grant_id: str = "",
+        role: str = "",
+        due_at: float | None = None,
     ) -> Opened:
         """Record a subscription and start waiting on it. The sibling is told separately.
 
         The row is written before the record is started, so a signal that arrives before this
-        returns -- a fast sibling -- finds a row to end.
+        returns -- a fast sibling -- finds a row to end. One with a `due_at` is a check-in:
+        a timer in this process ends it then, and nothing outside is told.
         """
         lifetime = max(1.0, min(float(timeout_seconds), MAX_LIFETIME_SECONDS))
         subscription_id = identifier("sub")
@@ -185,7 +219,8 @@ class Subscriptions:
             db.execute(
                 "INSERT INTO subscriptions (id, account_id, session_id, profile, work_id, "
                 "capability, sibling_id, secret, grant_id, objective, wake, state, created_at, "
-                "expires_at, ended_at, result_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "expires_at, ended_at, result_json, due_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     subscription_id,
                     account_id,
@@ -203,6 +238,7 @@ class Subscriptions:
                     now + lifetime,
                     None,
                     None,
+                    due_at,
                 ),
             )
 
@@ -213,14 +249,16 @@ class Subscriptions:
             brief=Brief(
                 session_id=session_id,
                 kind=Kind.subscription,
-                role=capability,
+                role=role or capability,
                 objective=objective,
                 timeout_seconds=lifetime,
                 account_id=account_id,
                 wake=wake,
-                tags=_tags(capability, subscription_id, grant_id),
+                tags=_tags(capability, subscription_id, grant_id, due_at),
             ),
         )
+        if due_at is not None:
+            self._arm(subscription_id, due_at)
         return Opened(
             handle=handle,
             subscription_id=subscription_id,
@@ -242,10 +280,82 @@ class Subscriptions:
         """End a subscription nobody will signal, as cancelled, releasing what it holds."""
         self._registry.cancel(opened.handle.id)
 
+    async def checkin(  # noqa: PLR0913 - who, where, what, when, and under what consent
+        self,
+        *,
+        account_id: str,
+        session_id: str,
+        profile: str,
+        objective: str,
+        due_at: float,
+        grant_id: str = "",
+    ) -> Opened:
+        """Open a check-in: a subscription this process ends at `due_at`, waking the session.
+
+        Raises:
+            LucyError: 400 when the time is sooner than a check-in is for, or further away
+                than one may live. The message names the bound.
+        """
+        delay = due_at - self._clock()
+        if delay < MIN_CHECKIN_SECONDS:
+            raise LucyError(CHECKIN_TOO_SOON, TOO_SOON, 400)
+        if delay > MAX_LIFETIME_SECONDS:
+            raise LucyError(CHECKIN_TOO_FAR, TOO_FAR, 400)
+        return await self.open(
+            account_id=account_id,
+            session_id=session_id,
+            profile=profile,
+            capability=CHECKIN_CAPABILITY,
+            objective=objective,
+            timeout_seconds=delay + CHECKIN_GRACE_SECONDS,
+            wake=True,
+            grant_id=grant_id,
+            role=CHECKIN_ROLE,
+            due_at=due_at,
+        )
+
     def _start(self, subscription_id: str, *, work_id: str, brief: Brief) -> Handle:
         waiting: asyncio.Future[Signal] = asyncio.get_running_loop().create_future()
         self._waiting[subscription_id] = waiting
         return self._registry.start(_until(waiting), brief, work_id=work_id)
+
+    # ---------------------------------------------------------------- check-in timers
+
+    def _arm(self, subscription_id: str, due_at: float) -> None:
+        """Start the timer that ends a check-in when it falls due."""
+        self._timers[subscription_id] = asyncio.get_running_loop().create_task(
+            self._fire(subscription_id, due_at), name=f"checkin:{subscription_id}"
+        )
+
+    async def _fire(self, subscription_id: str, due_at: float) -> None:
+        """Sleep until due, then end the check-in as fired, saying how late it is if at all.
+
+        A check-in whose row ended first -- cancelled, or taken up and fired by another path
+        -- is a conflict here and nothing else: the row's ending was the whole ending.
+        """
+        await self._sleep(max(0.0, due_at - self._clock()))
+        now = self._clock()
+        late = max(0, round(now - due_at))
+        try:
+            await self._end(subscription_id, checkin_signal(due_at, now, late))
+        except LucyError:
+            logger.info("checkin_already_ended", extra={"subscription_id": subscription_id})
+
+    def _disarm(self, subscription_id: str) -> None:
+        """Forget a check-in's timer, cancelling it unless it is the one running now."""
+        timer = self._timers.pop(subscription_id, None)
+        if timer is not None and timer is not asyncio.current_task():
+            timer.cancel()
+
+    async def aclose(self) -> None:
+        """Stop every timer. The rows stay open; the next process arms them again."""
+        timers = list(self._timers.values())
+        self._timers.clear()
+        for timer in timers:
+            timer.cancel()
+        for timer in timers:
+            with contextlib.suppress(asyncio.CancelledError):
+                await timer
 
     # ---------------------------------------------------------------- ending
 
@@ -286,6 +396,7 @@ class Subscriptions:
 
         if not await self._store.transaction(apply):
             raise conflict(ENDED)
+        self._disarm(subscription_id)
         # Only this method resolves a waiting future, and it pops it first, so one that is
         # here has not been resolved. One that is not here belongs to a row this process
         # has not taken up yet (`restore`): the row is ended, and that is the whole ending.
@@ -303,6 +414,7 @@ class Subscriptions:
             return
         subscription_id = record.tags.get("subscription", "")
         self._waiting.pop(subscription_id, None)
+        self._disarm(subscription_id)
         now = self._clock()
 
         def apply(db: sqlite3.Connection) -> dict[str, Any] | None:
@@ -339,27 +451,38 @@ class Subscriptions:
 
         Each comes back under its own work id with what is left of its lifetime, so the handle
         the model was given still works. One already past its deadline is registered with a
-        moment to live, so it ends `timed_out` and is told like any other expiry.
+        moment to live, so it ends `timed_out` and is told like any other expiry -- except a
+        check-in, which is given its grace again and fires at once, saying how late it is: a
+        person who asked to be told at nine is owed "it is ten past, and here I am" rather
+        than silence.
         """
         rows = await self.open_rows()
         now = self._clock()
         for row in rows:
             remaining = max(0.01, float(row["expires_at"]) - now)
             subscription_id = str(row["id"])
+            due_at = row.get("due_at")
+            due = float(due_at) if due_at is not None else None
+            if due is not None:
+                remaining = max(remaining, CHECKIN_GRACE_SECONDS)
             self._start(
                 subscription_id,
                 work_id=str(row["work_id"]),
                 brief=Brief(
                     session_id=str(row["session_id"]),
                     kind=Kind.subscription,
-                    role=str(row["capability"]),
+                    role=CHECKIN_ROLE if due is not None else str(row["capability"]),
                     objective=str(row["objective"]),
                     timeout_seconds=remaining,
                     account_id=str(row["account_id"]),
                     wake=bool(row["wake"]),
-                    tags=_tags(str(row["capability"]), subscription_id, str(row["grant_id"] or "")),
+                    tags=_tags(
+                        str(row["capability"]), subscription_id, str(row["grant_id"] or ""), due
+                    ),
                 ),
             )
+            if due is not None:
+                self._arm(subscription_id, due)
         return len(rows)
 
     async def open_rows(self) -> list[dict[str, Any]]:
@@ -460,13 +583,7 @@ class SubscriptionSeam:
         self, *, capability: str, objective: str, timeout_seconds: float, wake: bool = True
     ) -> Opened:
         """Open one subscription for this turn's person and session."""
-        grant_id = ""
-        if wake and self._consent is not None:
-            lifetime = min(float(timeout_seconds), MAX_LIFETIME_SECONDS) + STANDING_MARGIN_SECONDS
-            try:
-                grant_id = await self._consent(lifetime)
-            except Exception as exc:
-                logger.info("standing_consent_failed", extra={"error": type(exc).__name__})
+        grant_id = await self._consented(timeout_seconds) if wake else ""
         return await self._subscriptions.open(
             account_id=self._account_id,
             session_id=self._session_id,
@@ -477,6 +594,33 @@ class SubscriptionSeam:
             wake=wake,
             grant_id=grant_id,
         )
+
+    async def checkin(self, *, objective: str, due_at: float, delay_seconds: float) -> Opened:
+        """Open a check-in at `due_at` for this turn's person and session, with consent.
+
+        `delay_seconds` is how far away that is by the caller's clock; consent is recorded
+        for that long plus the grace a late check-in gets, so the turn it opens can act.
+        """
+        grant_id = await self._consented(delay_seconds + CHECKIN_GRACE_SECONDS)
+        return await self._subscriptions.checkin(
+            account_id=self._account_id,
+            session_id=self._session_id,
+            profile=self._profile,
+            objective=objective,
+            due_at=due_at,
+            grant_id=grant_id,
+        )
+
+    async def _consented(self, timeout_seconds: float) -> str:
+        """Record standing consent for a lifetime, or ``""`` when there is none to record."""
+        if self._consent is None:
+            return ""
+        lifetime = min(float(timeout_seconds), MAX_LIFETIME_SECONDS) + STANDING_MARGIN_SECONDS
+        try:
+            return await self._consent(lifetime)
+        except Exception as exc:
+            logger.info("standing_consent_failed", extra={"error": type(exc).__name__})
+            return ""
 
     async def attach(self, opened: Opened, sibling_id: str) -> None:
         """Record the sibling's id for a subscription it accepted."""
@@ -549,24 +693,58 @@ async def _until(waiting: asyncio.Future[Signal]) -> dict[str, Any]:
     return signal.payload()
 
 
-def _tags(capability: str, subscription_id: str, grant_id: str) -> dict[str, str]:
+def checkin_signal(due_at: float, fired_at: float, late_seconds: int) -> Signal:
+    """What a check-in says when it fires: that it is time, and whether it is late.
+
+    The objective is already on the record and in every line about it, so the summary says
+    only what is new: that the moment has come, and -- after a restart that crossed it --
+    how long ago it came.
+    """
+    summary = "It is time" if late_seconds < 1 else f"It was time {late_seconds}s ago"
+    return Signal(
+        state="fired",
+        summary=summary,
+        facts={
+            "due_at": _iso(due_at),
+            "fired_at": _iso(fired_at),
+            "late_seconds": late_seconds,
+        },
+    )
+
+
+def _iso(stamp: float) -> str:
+    return datetime.fromtimestamp(stamp, tz=UTC).isoformat(timespec="seconds")
+
+
+def _tags(
+    capability: str, subscription_id: str, grant_id: str, due_at: float | None = None
+) -> dict[str, str]:
     tags = {"capability": capability, "subscription": subscription_id}
     if grant_id:
         tags["grant"] = grant_id
+    if due_at is not None:
+        tags["due"] = repr(float(due_at))
     return tags
 
 
 __all__ = [
+    "CHECKIN_CAPABILITY",
+    "CHECKIN_GRACE_SECONDS",
+    "CHECKIN_ROLE",
     "DEFAULT_SWEEP_SECONDS",
     "ENDED",
     "MALFORMED",
     "MAX_LIFETIME_SECONDS",
     "MAX_SIGNAL_BYTES",
+    "MIN_CHECKIN_SECONDS",
     "STANDING_MARGIN_SECONDS",
+    "TOO_FAR",
     "TOO_LARGE",
+    "TOO_SOON",
     "Opened",
     "Signal",
     "SubscriptionSeam",
     "Subscriptions",
+    "checkin_signal",
     "parse_signal",
 ]

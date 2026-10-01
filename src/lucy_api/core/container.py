@@ -701,6 +701,7 @@ class Container:
             self._sweeping.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._sweeping
+        await self.subscriptions.aclose()
         try:
             await self.work.shutdown()
         finally:

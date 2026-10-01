@@ -165,6 +165,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   turn it opens is prepared under it exactly like a turn they sent. A cancel withdraws it.
 - **`clients/python/lucy_signals`**: the sibling's side of the contract (`Signal`,
   `deliver`, `verify_signature`), held to the hub's signatures by a test.
+- **Check-ins: Lucy comes back at a time, on her own.** `work.checkin` opens a durable
+  subscription the hub ends itself at `at` or `in_seconds` from now (a minute to a week),
+  waking the conversation with the objective and the person's standing consent, so "look at
+  the pull request again at nine and merge it if CI passed" needs nobody present at nine. The
+  live block and `work.list` say when each is due; `work.cancel` calls one off; a restart
+  takes them up again, and one that fell due while the hub was down fires at once saying how
+  late it is. Fired subscriptions now carry their summary in the notice.
 - **Repositories: the `repos` capability.** Code, pull requests, issues and CI on the GitHub
   account a person connected (the Lucy GitHub App, with all or selected repositories, or a
   fine-grained token), through the new Github-api sibling on port 8011. Sixteen writes

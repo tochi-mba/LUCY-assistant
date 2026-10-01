@@ -378,7 +378,7 @@ class Registry:
         except Exception as exc:
             self._finish(record, State.failed, detail=type(exc).__name__)
         else:
-            self._finish(record, State.succeeded, payload=payload)
+            self._finish(record, State.succeeded, payload=payload, detail=_said(record, payload))
         finally:
             self._tasks.pop(record.id, None)
             self._forget_old(record.session_id)
@@ -584,12 +584,16 @@ class Registry:
                     kind=record.kind.value,
                     depth=record.depth,
                     elapsed_seconds=record.elapsed(now),
-                    progress=record.progress or record.detail,
+                    progress=record.progress or record.detail or _due_line(record, now),
                     finished_since_last_turn=fresh,
                     group=record.group,
                 )
             )
         return tuple(snapshots)
+
+    def now(self) -> datetime:
+        """The registry's clock, for a caller saying how far away a due time is."""
+        return self._now()
 
     def running(self, session_id: str) -> tuple[Record, ...]:
         """What is still going for one session, in the order it was started.
@@ -745,6 +749,42 @@ def _handle(record: Record) -> Handle:
 
 def _taken(identifier: str) -> str:
     return f"work {identifier} is already registered"
+
+
+def _said(record: Record, payload: object) -> str:
+    """The sentence a succeeded subscription's notice carries: its signal's summary.
+
+    A helper's result is read on purpose, so its notice says only that there is one. A
+    subscription's result *is* a sentence -- "CI on #42: success", "Time to: look at #3
+    again" -- and the notice is where the model reads it; without this, every fired
+    subscription would say "succeeded" and nothing else.
+    """
+    if record.kind is not Kind.subscription or not isinstance(payload, dict):
+        return ""
+    return str(payload.get("summary") or "")
+
+
+def _due_line(record: Record, now: datetime) -> str:
+    """For a check-in still waiting: how long until it is due, in the live block's words."""
+    due = record.tags.get("due")
+    if due is None or record.state.finished:
+        return ""
+    left = float(due) - now.timestamp()
+    return "due now" if left < 1 else f"due in {_short(left)}"
+
+
+def _short(seconds: float) -> str:
+    whole = int(seconds)
+    minutes, rest = divmod(whole, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    if days:
+        return f"{days}d{hours:02d}h"
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{rest:02d}s"
+    return f"{rest}s"
 
 
 def _expired(record: Record) -> str:

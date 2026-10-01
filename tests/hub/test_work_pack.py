@@ -402,13 +402,19 @@ async def test_cancelling_an_invented_id_says_so() -> None:
 # --------------------------------------------------------------------------------------
 
 
-def test_stopping_something_is_a_permission_a_person_can_reason_about() -> None:
+def test_stopping_something_and_coming_back_later_are_permissions_a_person_can_reason_about() -> (
+    None
+):
     """Nobody wants to approve five operations. Everybody understands "stop something"."""
-    (permission,) = WorkPack().permissions()
+    stop, later = WorkPack().permissions()
 
-    assert permission.id == "work.stop"
-    assert permission.covers == ("work.cancel",)
-    assert permission.risk == "write"
+    assert stop.id == "work.stop"
+    assert stop.covers == ("work.cancel",)
+    assert stop.risk == "write"
+    assert later.id == "work.checkin"
+    assert later.covers == ("work.checkin",)
+    assert later.risk == "write"
+    assert "standing consent" in later.description
 
 
 def test_it_has_no_setup_because_there_is_nothing_to_connect() -> None:
