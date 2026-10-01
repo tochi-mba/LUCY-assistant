@@ -41,7 +41,7 @@ isolation and collides the moment compose starts.
 Applied 2026-09-16: every repository's default now matches the table, in its
 config, its Dockerfile, its `make run`, its `.env.example` and its
 documentation. Four services moved, so anybody with a bookmark, a script or a
-reverse proxy pointing at the old number has to change it once — Persona-api
+reverse proxy pointing at the old number has to change it once - Persona-api
 from 8002, Web-search-api and Spotify-api from 8000, and
 Environments-api from 8080. Each move is recorded in that repository's
 changelog as a breaking change.

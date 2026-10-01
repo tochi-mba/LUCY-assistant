@@ -13,7 +13,7 @@ reasons that only show up once you have built it.
 A run can take minutes. Blocking the parent means a person watching a conversation sees
 nothing happen, and a parent that could have done useful work in parallel does not.
 
-A parent often needs to **change its mind mid-run** — narrow the question, add a constraint
+A parent often needs to **change its mind mid-run** - narrow the question, add a constraint
 it only just thought of, or stop the child because the answer arrived another way. A
 function call has nowhere to put that.
 
@@ -31,7 +31,7 @@ file half-written. Never mid-model-call, because the request has already been se
 
 A message to a child that has already finished is refused, with a pointer to its result;
 continuing it is `agents.reopen`, below. A send reports *delivered* only once the write to
-the inbox succeeded — a parent that believes it steered a child that never heard it is worse
+the inbox succeeded - a parent that believes it steered a child that never heard it is worse
 off than one that knows the send failed.
 
 The channel is capped from the first version, because two models politely acknowledging
@@ -43,7 +43,7 @@ three agents terminates.
 ## The hand-back is a report, not a transcript
 
 When a child finishes it returns a **structured result**: a summary under two thousand
-tokens, plus references — workspace paths, result refs, its own agent id. Never inline
+tokens, plus references - workspace paths, result refs, its own agent id. Never inline
 content, never a raw transcript.
 
 This is the single most important property in the design. A child that returns forty
@@ -117,7 +117,7 @@ A per-session task ledger: pending, in progress, completed, with dependency edge
 is claimed under a **lease with a heartbeat**, so a dead claimant's task is released
 automatically rather than blocking forever, and completing a task unblocks its dependents.
 
-This is how one helper knows what another did **with no context transferred between them** —
+This is how one helper knows what another did **with no context transferred between them** -
 which is the whole trick. Passing a sibling's findings through the parent's context costs
 the parent tokens it did not need to spend.
 
@@ -130,7 +130,7 @@ validation and policy into quality gates. They are not built.
 A child runs in the background unless the parent's very next action depends on its result
 and nothing else could usefully happen meanwhile. The parent is notified when it finishes.
 
-The rule matters because the alternative — blocking by default — trains a parent to
+The rule matters because the alternative - blocking by default - trains a parent to
 serialise work that had no reason to be serial, and because a person watching the
 conversation should see progress rather than a pause.
 
@@ -145,8 +145,8 @@ Build the clean-context verifier first. It needs almost no infrastructure and it
 cheapest quality win available: a second model that has not seen the reasoning is far better
 at spotting that the reasoning was wrong.
 
-The lead's prompt carries an explicit rubric — one helper for a lookup, a few for a
-comparison, more only when the work has that many separate parts — because without one,
+The lead's prompt carries an explicit rubric - one helper for a lookup, a few for a
+comparison, more only when the work has that many separate parts - because without one,
 leads over-delegate.
 
 ## A team
@@ -224,7 +224,7 @@ the call is not built: the interrupted run is ended rather than resumed.
 A child inherits its parent's account, profile and session, gets its own subtree beneath the
 session's workspace, and may **narrow** its permission mode but never widen it. There is one
 function that makes a child scope and it cannot express escalation, which is why "a child
-escalated" is not a failure mode that needs testing for — it is not representable.
+escalated" is not a failure mode that needs testing for - it is not representable.
 
 See `src/lucy_api/sessions/scope.py`.
 
@@ -244,7 +244,7 @@ handle is stable, survives the end of the turn, and is what everything else addr
 says what is still running. "The download is going, I will tell you when it lands" is a
 complete reply, and a person prefers it to a four-minute silence.
 
-**Completion arrives as a notice at the next tool boundary** — the same delivery rule as a
+**Completion arrives as a notice at the next tool boundary** - the same delivery rule as a
 message from a child, for the same reason: never mid-tool, never mid-model-call.
 
 **The result is fetched, not pushed.** A notice says a thing finished and roughly how big the
@@ -254,7 +254,7 @@ log does not arrive uninvited in the context.
 **A timeout fires and says so.** Nothing waits forever, and the thing a person is told is
 that it timed out rather than nothing at all.
 
-**The live state block lists what is running** — helpers, jobs, commands, together, with what
+**The live state block lists what is running** - helpers, jobs, commands, together, with what
 each was for and how long it has been going. That is one group rather than four, because from
 where the model is sitting they are one question: what is still in flight?
 
@@ -262,8 +262,8 @@ Cancelling is the same everywhere too: explicit, idempotent, and never a side ef
 client disconnecting.
 
 The only difference between a child agent and a long job is what produced the result. A child
-summarises; a job returns what it produced. Everything around them — the handle, the notice,
-the fetch, the timeout, the cancel, the state-block line — is shared.
+summarises; a job returns what it produced. Everything around them - the handle, the notice,
+the fetch, the timeout, the cancel, the state-block line - is shared.
 
 ### Watching, and being woken
 
@@ -277,8 +277,8 @@ approval that says as much. A failed check is a line in the live block, not a fa
 five failed checks in a row are a broken probe, and the watch says which error.
 
 A **wake** is what makes "I'll tell you when it lands" true after the person walks away.
-Work that asked for it in its brief — every watch by default, every helper the main thread
-starts, a command run with `wake: true` — opens a turn of its own when it ends and no turn
+Work that asked for it in its brief - every watch by default, every helper the main thread
+starts, a command run with `wake: true` - opens a turn of its own when it ends and no turn
 is running. The turn's input is one harness notice, rendered as a `notice` item with the
 role `harness`, and its text says out loud that nothing in it came from the person. An
 ending that arrives while a turn is running is held: the running turn sees it in its live
@@ -305,7 +305,7 @@ rather than an argument list because the same description is read in several unr
 places: the live-state line, the completion notice, `work.list`, `agents.list`, the
 `/agents` route and MCP's task list.
 
-The registry is deliberately dull — no database, no socket, no model. It holds records and
+The registry is deliberately dull - no database, no socket, no model. It holds records and
 asyncio tasks, which is what makes every property above testable without any of those, and
 it is why "a cancellation cannot be mistaken for a timeout" is a test rather than a hope.
 
@@ -314,7 +314,7 @@ What the model gets is five operations and no way to start anything:
 | | |
 | --- | --- |
 | `work.list` | what is running, all kinds together |
-| `work.check` | what finished since last time — how it went and how big the answer is, never the answer |
+| `work.check` | what finished since last time - how it went and how big the answer is, never the answer |
 | `work.result` | read one, deliberately |
 | `work.wait` | wait, with a ceiling, and giving up does not stop the work |
 | `work.cancel` | stop one; safe to call twice; the only operation here that is a write |

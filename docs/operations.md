@@ -2,7 +2,7 @@
 
 ## Host and port
 
-The hub listens on **8000** — below the family block, because it is the front door and the
+The hub listens on **8000** - below the family block, because it is the front door and the
 other eight are what it calls. See [ADR-0004](adr/0004-port-assignments.md) and
 [ADR-0010](adr/0010-ports-8000-and-8009.md).
 
@@ -46,8 +46,8 @@ start a process that looks healthy until the first token needs verifying.
 | `LUCY_DATABASE_PATH` | `var/lucy.sqlite3` | The one SQLite file. `:memory:` is accepted (tests). |
 | `LUCY_BLOBS_PATH` | *(empty)* | Uploaded files and session artifacts. Empty means a `blobs` directory beside the database, or a process-owned temp tree when the database is `:memory:`. |
 
-A fact about a **person** — which model they prefer, how much context goes to memory,
-whether a destructive tool may run without asking — is not configuration. It belongs in
+A fact about a **person** - which model they prefer, how much context goes to memory,
+whether a destructive tool may run without asking - is not configuration. It belongs in
 settings-api under the `lucy` namespace.
 
 ## Health
@@ -60,7 +60,7 @@ does not fix the service it depends on.
 and `model` (at least one model provider is configured) -- and answers 503 when one is
 unusable. A fresh checkout with no model key is therefore alive and not ready. Neither route is
 authenticated, and neither reports a name, an account, or a count that moves when one
-person acts — a counter that moves when one person acts is an oracle.
+person acts - a counter that moves when one person acts is an oracle.
 
 ## In compose
 

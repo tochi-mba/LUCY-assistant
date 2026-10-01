@@ -12,7 +12,7 @@ which is where the mistakes come from.
 
 ## The model never sees a service
 
-It sees **capabilities** with product names — `music`, `research`, `workspace`, `notes` — and
+It sees **capabilities** with product names - `music`, `research`, `workspace`, `notes` - and
 never `spotify-api`, never a port, never an HTTP verb. Behind one capability there may be one
 service, three, or none.
 
@@ -23,7 +23,7 @@ prompts for service names, ports and verbs.
 
 Operations are **workflow-shaped, not route-shaped**. `music.play` fans out to a
 credential lookup, a device and a provider internally. Exposing `getTrack`, `getAlbum` and `getArtist`
-instead makes the model do the joining, in context, one round trip at a time — which is
+instead makes the model do the joining, in context, one round trip at a time - which is
 exactly the cost plans exist to avoid.
 
 ## What this looks like in practice
@@ -67,7 +67,7 @@ what the transcript says about the step afterwards.
 
 → `me` comes back with **three keys**: `blocks` (memory), `facts` (ranked memories), and
 `account` (pinned fields the person asked to keep in view). Those lists are not one ranking.
-A later `notes.search` still queries memory only — mixing its scores with account pins
+A later `notes.search` still queries memory only - mixing its scores with account pins
 would hide a name the person asked to keep in view.
 
 The product names stay `notes` and `account`. No host, no port, no `/v1/user`.
@@ -359,8 +359,8 @@ fingerprint are what the read showed it:
   {"id": "fixed", "op": "workspace.edit",
    "input": {
      "path": "dates.txt",
-     "old_string": "Berlin — 12 March",
-     "new_string": "Berlin — 14 March",
+     "old_string": "Berlin - 12 March",
+     "new_string": "Berlin - 14 March",
      "if_match": "9c1d4e7a20b3f658"
    },
    "note": "Move the Berlin date by two days"}
@@ -371,7 +371,7 @@ fingerprint are what the read showed it:
 `file_fingerprint`, which the edit carries as `if_match`. `workspace.write` and
 `workspace.patch` take `if_match` the same way. If another write landed first, `fixed` does
 **not** apply: it returns
-`replaced: false` and names the fix — re-read, then reapply. Ambiguous `old_string` lists
+`replaced: false` and names the fix - re-read, then reapply. Ambiguous `old_string` lists
 every line number it matched. A near-miss shows the closest window as a diff.
 
 The model never edits by line number. Line numbers in the read are for the person watching,
@@ -390,7 +390,7 @@ not a handle.
 ]}
 ```
 
-→ If `hits` fails, `best` is **skipped** — it depended on it — and says so. `note` still
+→ If `hits` fails, `best` is **skipped** - it depended on it - and says so. `note` still
 runs, because it did not. The model gets a sentence about the failure and two useful
 results, rather than nothing.
 
@@ -409,7 +409,7 @@ A **collection** is declared with three things, and each unlocks something:
 | `fields` | what may be filtered, grouped and detailed by. Without it the free operations refuse outright, with a message saying so. |
 
 `fields` is also the access boundary. A field that is not declared cannot be filtered on,
-grouped by, or pulled out — so a record carrying an account id does not expose it merely by
+grouped by, or pulled out - so a record carrying an account id does not expose it merely by
 passing through. The declarations live in one module, `packs/collections.py`, so that "does
 any label expose something it should not" is a question somebody can answer by reading one
 screen.
@@ -427,7 +427,7 @@ for on every turn, in tokens and in wrong choices.
 ## References
 
 `$stepId` is the whole result. `$stepId[1,3]` is specific positions, **1-based**, and they
-index the full result rather than the lines that happened to be rendered — so a step can act
+index the full result rather than the lines that happened to be rendered - so a step can act
 on something the model never actually read.
 
 A field only accepts a reference if it was declared with `ref()`: the `from` of every
@@ -440,7 +440,7 @@ the model needs from a result, it reads, and writes into the next plan.
 
 ## Every call says what it is for
 
-Each step carries one plain sentence saying what *that* call is for — not a restatement of
+Each step carries one plain sentence saying what *that* call is for - not a restatement of
 its arguments. *"Discard the draft folder and start again"*, never
 `workspace.delete(path=drafts)`.
 
@@ -457,14 +457,14 @@ permission. A missing note is never an error.
 Read-only steps in one plan run concurrently. Anything with `effects: "write"` runs on its
 own, after what it depends on, in the order written.
 
-A plan containing a write is **refused whole** when the turn does not allow writes — before
+A plan containing a write is **refused whole** when the turn does not allow writes - before
 anything runs, not part-way through. That is what makes a read-only mode trustworthy: it is
 the default, not something each caller has to remember to pass.
 
 When the mode is `ask` and no grant covers the write, the turn parks instead of failing.
 An `approval_request` item names the permission in a sentence a person can answer. The next
-`input.approval` on the one write path records a grant — once, this session, this profile,
-or the whole account — and re-queues the same turn. The client's `approved: true` is an
+`input.approval` on the one write path records a grant - once, this session, this profile,
+or the whole account - and re-queues the same turn. The client's `approved: true` is an
 input; the gate re-checks the ledger before the tool runs. A denial is a transcript item
 and a grant the model will see as "not allowed", never an exception.
 
@@ -479,13 +479,13 @@ allowing ordinary writes does not also allow a delete.
 | | |
 | --- | --- |
 | `read` | 2,000 tokens of a rendered result |
-| `preview` | 400 — most of the time a model wants to know *which* of forty things it has |
+| `preview` | 400 - most of the time a model wants to know *which* of forty things it has |
 | `total` | 8,000 for the whole plan's rendering |
 | one result | hard-capped at 25,000 tokens before it spills |
 
 The total bounds the **rendering**, not the data. Everything is still stored and still
 addressable; what is bounded is how much of it becomes tokens. Overflow spills to the result
-store and comes back as a reference, with exact counts — never dropped.
+store and comes back as a reference, with exact counts - never dropped.
 
 Step and plan timeouts are widened for capabilities that are legitimately slow. A long
 extension job taking twelve seconds is not a bug, and failing it at ten only produces a
@@ -498,7 +498,7 @@ and lets the model read a sentence about it. Four unrelated steps that already s
 not thrown away.
 
 A malformed plan comes back as **text describing what was wrong**, naming the step and the
-field, and the model corrects it. Twice at most — a model that cannot answer the schema after
+field, and the model corrects it. Twice at most - a model that cannot answer the schema after
 two tries has misunderstood the task, not the format.
 
 The same call with the same arguments, returning the same answer twice in a row, is a model
@@ -522,7 +522,7 @@ A capability without a credential returns a fixed, machine-readable body: the se
 missing scopes, a connect link, and a sentence telling the model not to ask for a password.
 A model handed a 502 apologises and retries. A model handed this offers the person a link.
 
-For Lucy's own loop an unusable capability is **absent** — not in the registry, so it cannot
+For Lucy's own loop an unusable capability is **absent** - not in the registry, so it cannot
 be called or half-called. Over MCP the tool stays **listed** with a "needs connecting"
 description, because a client that cached a tool list has no way back from one that vanished.
 Different audience, different answer.

@@ -53,7 +53,7 @@ SUBJECT_HEADER = "X-Keyring-User-Token"
 Memory-api's internal surface (and Keyring's) take two credentials: the calling service in
 ``Authorization``, the person as subject proof in this header. PackHttp is the only place
 that header is set, so a pack that copies an inbound request cannot put the caller's JWT
-there — :data:`NEVER_FORWARDED` strips it first.
+there - :data:`NEVER_FORWARDED` strips it first.
 """
 
 NEVER_FORWARDED = frozenset(

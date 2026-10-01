@@ -43,13 +43,13 @@ somebody crosses deliberately rather than by writing a helpful example.
 
 `bash scripts/bootstrap.sh` writes each private checkout's name into `.git/info/exclude`,
 which is per-clone and never committed. Putting the name in `.gitignore` instead would keep
-the directory untracked and publish the name doing it — a denylist that names the thing it
+the directory untracked and publish the name doing it - a denylist that names the thing it
 is hiding has already leaked it. Without this a private repository checked out beside the
 others is merely *untracked*, and the next `git add -A` stages the whole thing.
 
 `python scripts/parity.py` reads `.repos.local.txt` and fails any public repository whose
 source, tests, scripts, clients, docs, top-level prose or build files
-(`pyproject.toml`, `Makefile`, `Dockerfile`, `.env.example`) contains a private name — as a
+(`pyproject.toml`, `Makefile`, `Dockerfile`, `.env.example`) contains a private name - as a
 whole word, case-insensitively, and however its parts are joined: `Example-Tool`,
 `example_tool`, `Example Tool` and `EXAMPLETOOL` are one name, because each is the spelling
 a grep for another would miss. An operator with no private checkouts has nothing to leak and
@@ -100,7 +100,7 @@ GitHub lets your account clone them, and CI on those repositories already uses t
 owner's app.
 
 If you copied the family under *your* GitHub account, local runs still use your `gh`
-login. For CI, install the same public app on *your* repositories — see
+login. For CI, install the same public app on *your* repositories - see
 [Your own copy](#your-own-copy).
 
 ## Sign in once
@@ -205,7 +205,7 @@ callers should still reference the canonical public reusable workflow at
 `tochi-mba/LUCY-assistant/.github/workflows/service.yml@v1`; public reusable workflows
 can be called by private repositories. The canonical meta repository stays public
 because it contains the audited workflow, broker client action, bootstrap, and
-documentation—not service code or credentials.
+documentation-not service code or credentials.
 
 ## Check the image boundary
 

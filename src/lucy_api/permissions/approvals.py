@@ -2,7 +2,7 @@
 
 The gate decides that a write may not run yet. This module is the other half: a durable
 approval row, an item a client can show, and the one input event that unblocks the turn.
-The client's `approved: true` is an input, not an authorization — the grant is recorded
+The client's `approved: true` is an input, not an authorization - the grant is recorded
 here, and the next claim of the turn re-runs the gate against it.
 
 One card per permission per plan. A plan that starts five helpers used to put five cards in

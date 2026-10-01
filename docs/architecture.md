@@ -10,8 +10,8 @@ do not share a release cycle, a threat model, or a dependency tree. Putting them
 repository would make every change a change to all of them, and every deploy a deploy
 of all of them. [ADR-0001](adr/0001-meta-repo-not-monorepo.md).
 
-Shared behaviour that *must not* fork — verifying a Bearer token, resolving a person's
-settings — lives as a client **inside the hub that owns the protocol**
+Shared behaviour that *must not* fork - verifying a Bearer token, resolving a person's
+settings - lives as a client **inside the hub that owns the protocol**
 ([ADR-0002](adr/0002-shared-clients-live-in-the-hub.md)): `keyring_client` in
 Keyring-api, `settings_client` in Settings-api. Consuming services depend on the
 client; they do not vendor a copy.

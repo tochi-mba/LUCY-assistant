@@ -569,7 +569,7 @@ async def test_an_oversized_tool_result_keeps_its_head_and_tail() -> None:
 
 
 async def test_a_unique_show_from_starts_the_spilled_window_at_the_fingerprint() -> None:
-    """The model re-runs, points at a snippet, and sees from there — then head+tail of that."""
+    """The model re-runs, points at a snippet, and sees from there - then head+tail of that."""
     huge = "head-" + ("x" * 80_000) + "MID-MARKER" + ("y" * 120_000) + "-tail"
     plan = {
         "steps": [

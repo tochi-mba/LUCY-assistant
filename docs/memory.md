@@ -13,10 +13,10 @@ is the fusion: what reaches the prompt, and what must not be mixed.
 A turn may put three kinds of standing knowledge in front of the model. Their scores are
 not comparable, so they are never merged:
 
-1. **Persona** — who Lucy is in this profile. Identity and pinned notes, as a live feed.
-2. **Account pins** — facts the person asked to keep in view, from the account record.
+1. **Persona** - who Lucy is in this profile. Identity and pinned notes, as a live feed.
+2. **Account pins** - facts the person asked to keep in view, from the account record.
    A standing feed of their own, not mixed into retrieval.
-3. **Memory retrieval** — the topic index from Memory-api, ranked, with untrusted topics
+3. **Memory retrieval** - the topic index from Memory-api, ranked, with untrusted topics
    held back. `notes.openTopic` expands one. `notes.search` is this store only.
 
 `notes.aboutMe` returns `blocks`, `facts`, and `account` as separate lists. Combining them

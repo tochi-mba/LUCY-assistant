@@ -71,9 +71,9 @@ Every line a sibling may put in front of the model is a boolean in the `lucy` na
 named `feeds_<capability>_<field>`. There is also a switch for the whole capability
 (`feeds_music`) and three masters:
 
-- `prompt_feeds_enabled` — off removes every feed
-- `prompt_hide_personal_feeds` — incognito hides feeds marked personal (default on)
-- `prompt_allow_unknown_feed_fields` — a sibling may invent keys Lucy does not know (default off, and an assistant may never turn it on)
+- `prompt_feeds_enabled` - off removes every feed
+- `prompt_hide_personal_feeds` - incognito hides feeds marked personal (default on)
+- `prompt_allow_unknown_feed_fields` - a sibling may invent keys Lucy does not know (default off, and an assistant may never turn it on)
 
 Defaults hide the easy leaks (next track, last shell command, search backend, download
 progress) and keep the lines that stop the model guessing (now playing, git branch, active job).
@@ -200,8 +200,8 @@ not an error, and showing a person a setting they cannot reach is worse than not
 once it is connected. Answering "use Brave for search" before connecting search is a
 perfectly reasonable order to do things in.
 
-**A stored value that no longer validates** — because the catalogue narrowed a range under
-it — is shown as needing attention, with the reason, and is **not** silently coerced. Quietly
+**A stored value that no longer validates** - because the catalogue narrowed a range under
+it - is shown as needing attention, with the reason, and is **not** silently coerced. Quietly
 moving somebody's choice to the nearest legal value is how a person ends up with a setting
 they never chose.
 
@@ -212,7 +212,7 @@ it.
 **A setting only the account owner may write** is shown read-only to everybody else, with the
 reason. Hiding it makes the behaviour it controls inexplicable.
 
-**A deprecated setting** is shown with its successor, and a retired one is not shown at all —
+**A deprecated setting** is shown with its successor, and a retired one is not shown at all -
 it cannot affect anything, so it is noise.
 
 **A write that names a profile other than the session's** is refused at Lucy. The model

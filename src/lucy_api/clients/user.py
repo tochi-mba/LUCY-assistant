@@ -4,7 +4,7 @@ User-api stores named fields and notes. Memory-api stores retrieval. Their ranki
 are not comparable, so Lucy never merges the two lists. This client only reads the
 always-load set (`pinned=true`) under the bare `user` audience, which is the unscoped
 block: a `user.home` token would miss it, and a fused search would be the other way to
-lose it — by burying it under a bm25 that means something else.
+lose it - by burying it under a bm25 that means something else.
 
 Sensitive entries are dropped here. Sensitivity is a volunteering hint, not access control,
 and the standing prompt is exactly volunteering. A pack that dumped the raw page would

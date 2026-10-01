@@ -48,7 +48,7 @@ hubs.
 Optional: wire a **public** service into `docker-compose.yml`, `scripts/genenv.py`,
 and `LUCY-assistant.code-workspace` when it should run with the rest of the family.
 A private checkout is listed only in gitignored `.repos.local.txt` and, for the
-editor, in a gitignored `*.local.code-workspace` — never in the committed workspace.
+editor, in a gitignored `*.local.code-workspace` - never in the committed workspace.
 Family ports are 8000–8009, and every number in that block is assigned or reserved
 ([ADR-0004](adr/0004-port-assignments.md), [ADR-0010](adr/0010-ports-8000-and-8009.md)).
 A new service that runs in compose needs a number outside it -- 8010 is the optional Laya
