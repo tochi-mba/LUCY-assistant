@@ -143,6 +143,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A GitHub Pages site.** `site/` is a plain static page in the REX ink/signal style the
+  other REX product sites use: what Lucy does, how a plan becomes actions, the family of
+  services, how to run it, and the safety rules. `.github/workflows/pages.yml` publishes it
+  on every change, after `scripts/check_site.py` has checked the page for a broken anchor,
+  a missing asset, an image without alt text, draft text, or a link off the family's
+  GitHub; the test suite runs the same check. Live at
+  https://tochi-mba.github.io/LUCY-assistant/.
 - **A long eval run renews its own token.** `lucy eval run --token-command CMD` runs the
   command when the hub refuses the token in use, keeps what it prints in memory, and sends
   the request again. A keyring token lives fifteen minutes, and a conversation with helpers

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Lucy is an assistant hub that turns a request into a plan of named operations, asks before it acts, remembers with provenance, and runs helpers, watches and a workspace. A REX Technologies product.">
+<meta name="robots" content="index,follow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#080A09">
+<meta property="og:title" content="LUCY — an assistant that plans, asks, then acts — REX Technologies">
+<meta property="og:description" content="A request becomes a plan of named operations. A write that changes something waits for the person. Memory keeps where every fact came from.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tochi-mba.github.io/LUCY-assistant/">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://tochi-mba.github.io/LUCY-assistant/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script>document.documentElement.classList.replace("no-js","js");</script>
+<noscript><style>@media(max-width:760px){.site-nav{display:flex!important;position:static!important;flex-direction:column}.menu-button{display:none!important}}</style></noscript>
+<title>LUCY — an assistant that plans, asks, then acts — REX Technologies</title>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="ambient ambient-one" aria-hidden="true"></div>
+<div class="ambient ambient-two" aria-hidden="true"></div>
+
+<header class="site-header">
+  <div class="container nav-wrap">
+    <a class="brand" href="#top" aria-label="LUCY, by REX Technologies">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9 7v18h14"/><circle cx="23" cy="9" r="2.5"/></svg></span>
+      <span class="brand-lockup"><span class="brand-company">REX Technologies</span><span class="brand-name">LUCY</span></span>
+    </a>
+    <button class="menu-button" type="button" aria-expanded="false" aria-controls="site-nav"><span class="sr-only">Toggle navigation</span><span></span><span></span></button>
+    <nav id="site-nav" class="site-nav" aria-label="Primary navigation">
+      <a href="#how">How it works</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#family">The family</a>
+      <a href="#install">Run it</a>
+      <a href="#safety">Safety</a>
+      <a href="#docs">Docs</a>
+      <a class="nav-github" href="https://github.com/tochi-mba/LUCY-assistant">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero container" id="top">
+    <div class="hero-copy">
+      <p class="eyebrow signal">Assistant hub · self-hosted</p>
+      <h1>An assistant that <span>plans</span>, asks, then acts.</h1>
+      <p class="hero-lede">
+        Lucy turns what you ask into a plan of named operations. A step that only reads runs at
+        once. A step that changes something waits for you. What she remembers keeps where it came
+        from, and nothing she reads is ever an order.
+      </p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="#install">Run it on your machine</a>
+        <a class="button button-secondary" href="https://github.com/tochi-mba/LUCY-assistant">Source on GitHub</a>
+      </div>
+      <div class="hero-meta">
+        <span>Python 3.12+</span>
+        <span>Your own model keys</span>
+        <span>No telemetry</span>
+        <span>MIT licensed</span>
+      </div>
+    </div>
+    <pre class="console" aria-label="A conversation with Lucy"><code><span class="you">you ›</span> play lonely at the top by asake
+
+<span class="k">plan</span>  found  music.find   {"name": "Lonely At The Top", "artist": "Asake"}
+      play   music.play   {"track": "$found"}
+
+<span class="s">asks</span>  Play what music.find found on your default speaker?
+<span class="you">you ›</span> yes
+
+<span class="k">ran</span>   music.find → 1 track · music.play → playing
+Playing Lonely At The Top by Asake on Study PC.</code></pre>
+  </section>
+
+  <section class="trust-strip">
+    <div class="container trust-grid">
+      <div><strong>Plans, not tool spam</strong><span>One plan, named steps, results passed by reference.</span></div>
+      <div><strong>Asks before it changes anything</strong><span>Reads run; writes park on an approval card.</span></div>
+      <div><strong>Memory with provenance</strong><span>Every fact says who said it and when.</span></div>
+      <div><strong>Your keys, your box</strong><span>Model keys stay in your keyring. Nothing phones home.</span></div>
+    </div>
+  </section>
+
+  <section class="section container" id="how">
+    <div class="section-heading">
+      <p class="eyebrow signal">How it works</p>
+      <h2>A request becomes a plan. The plan is checked before any of it runs.</h2>
+      <p>Lucy is built on <a href="https://github.com/tochi-mba/weftai">weftai</a>: the model writes a declarative plan of named steps, the hub validates it, and results flow between steps by name without travelling back through the model.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="step-number">01</span>
+        <h3>The model writes a plan</h3>
+        <p>Named steps with real operations and typed inputs. A later step reads an earlier result as <code>$found</code>, never by copying it. A bad reference is sent back to be repaired, not run.</p>
+      </div>
+      <div class="step">
+        <span class="step-number">02</span>
+        <h3>The gate decides who may run it</h3>
+        <p>Reads run at once. A write parks the turn on an approval card that says, in the step's own words, what will change. Plan mode is read-only; auto mode still asks about anything destructive or outward.</p>
+      </div>
+      <div class="step">
+        <span class="step-number">03</span>
+        <h3>Results come back as data</h3>
+        <p>What a tool, a page, a memory or a helper returns is framed as a report, with its trust and source. Text that says “ignore your instructions” is a quotation Lucy points out, not a command.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section container" id="capabilities">
+    <div class="section-heading">
+      <p class="eyebrow signal">Capabilities</p>
+      <h2>What Lucy can do, as packs she loads when they matter.</h2>
+      <p>Each capability is a pack with its own operations, permissions and documentation. Deferred packs are named in the prompt and bound on demand, so the model is never offered a tool it does not hold.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card"><h3>Notes and memory</h3><p>Facts, episodes and lessons about you, kept in <a href="https://github.com/tochi-mba/Memory-api">Memory-api</a> with where each came from. Correct rather than overwrite; history is the point.</p></div>
+      <div class="feature-card"><h3>Workspace</h3><p>A sandboxed workspace per session: read, write, edit with fingerprints, run commands, and a scratchpad for throwaway scripts.</p></div>
+      <div class="feature-card"><h3>Research</h3><p>Search, open and summarise pages with sources, through <a href="https://github.com/tochi-mba/Web-search-api">Web-search-api</a>. A page is data; what it asks for is reported, not done.</p></div>
+      <div class="feature-card"><h3>Helpers</h3><p>Spawn a helper, or a team with groups, with a written brief. Steer it, stop it, read what it did, and continue one a restart interrupted.</p></div>
+      <div class="feature-card"><h3>Watches and long work</h3><p>Keep an eye on a file, a command or a page. Work that outlives a step wakes the conversation when it lands.</p></div>
+      <div class="feature-card"><h3>Music</h3><p>Find and play tracks through the music contract: <a href="https://github.com/tochi-mba/Spotify-api">Spotify-api</a>, or any service that implements it.</p></div>
+      <div class="feature-card"><h3>Settings</h3><p>How Lucy behaves for you, per profile: memory policy, approval policy, window size, which capabilities are on.</p></div>
+      <div class="feature-card"><h3>MCP, both ways</h3><p>Lucy serves her capabilities over MCP and can use an external MCP server's tools as a pack.</p></div>
+      <div class="feature-card"><h3>Command line</h3><p><code>lucy talk</code>, <code>lucy status</code>, <code>lucy doctor</code>, <code>lucy eval</code>: the same API, from a terminal.</p></div>
+    </div>
+  </section>
+
+  <section class="section container" id="family">
+    <div class="section-heading">
+      <p class="eyebrow signal">The family</p>
+      <h2>One hub, eight small services, each with one job.</h2>
+      <p>Every service authenticates against the keyring, exposes health and readiness, and is held to the same four gates: lint, types, import contracts, and tests at 100% branch coverage. This repository is also the family desk: it clones, builds and checks all of them together.</p>
+    </div>
+    <div class="feature-grid">
+      <a class="feature-card link" href="https://tochi-mba.github.io/Keyring-api/"><span class="meta">:8001</span><h3>Keyring-api</h3><p>Accounts, profiles and credentials: the vault the rest of the services authenticate against.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/User-api/"><span class="meta">:8002</span><h3>User-api</h3><p>Structured facts about the person: name, timezone, household, allergies, what they are working on.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Settings-api/"><span class="meta">:8003</span><h3>Settings-api</h3><p>One place a person decides how every service behaves for them.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Persona-api/"><span class="meta">:8004</span><h3>Persona-api</h3><p>The assistant's model of itself: what it is called, how it speaks, the lessons it has learned.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Web-search-api/"><span class="meta">:8006</span><h3>Web-search-api</h3><p>Search results and pages, with a synthesised summary from the model provider of your choice.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Spotify-api/"><span class="meta">:8007</span><h3>Spotify-api</h3><p>Resolves loosely specified tracks and controls playback, with every command confirmed on the device.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Environments-api/"><span class="meta">:8008</span><h3>Environments-api</h3><p>Sandboxed workspaces and shells as an API.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/Memory-api/"><span class="meta">:8009</span><h3>Memory-api</h3><p>Where what the assistant learns about a person goes, so a fact told on Monday is still true on Friday.</p></a>
+      <a class="feature-card link" href="https://tochi-mba.github.io/clyde/"><span class="meta">model</span><h3>clyde</h3><p>Claude Code as an OpenAI-compatible model provider on localhost, for running Lucy on your own login.</p></a>
+    </div>
+  </section>
+
+  <section class="section container" id="install">
+    <div class="section-heading">
+      <p class="eyebrow signal">Run it</p>
+      <h2>The whole family on one machine, in four commands.</h2>
+      <p>You need Python 3.12 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, Docker, and the GitHub CLI signed in. Everything runs locally; model keys go into your own keyring.</p>
+    </div>
+    <ol class="install-steps">
+      <li>Clone the hub and let it fetch its siblings beside it.
+        <div class="command-row"><code>git clone https://github.com/tochi-mba/LUCY-assistant.git &amp;&amp; cd LUCY-assistant &amp;&amp; make bootstrap</code><button class="copy-button" type="button" data-copy="git clone https://github.com/tochi-mba/LUCY-assistant.git && cd LUCY-assistant && make bootstrap">Copy</button></div>
+      </li>
+      <li>Generate the family's environment, with one secret per service.
+        <div class="command-row"><code>uv run python scripts/genenv.py</code><button class="copy-button" type="button" data-copy="uv run python scripts/genenv.py">Copy</button></div>
+      </li>
+      <li>Build and start every service.
+        <div class="command-row"><code>make up</code><button class="copy-button" type="button" data-copy="make up">Copy</button></div>
+      </li>
+      <li>Sign in, connect a model, and talk.
+        <div class="command-row"><code>uv run lucy setup &amp;&amp; uv run lucy models connect anthropic &amp;&amp; uv run lucy talk "hello"</code><button class="copy-button" type="button" data-copy='uv run lucy setup && uv run lucy models connect anthropic && uv run lucy talk "hello"'>Copy</button></div>
+      </li>
+    </ol>
+    <p class="install-note"><code>lucy doctor</code> says what is missing. <code>lucy models</code> lists every provider it can use and what each needs, including a local runtime. The <a href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/operations.md">operations guide</a> covers running it for more than one person.</p>
+    <p id="copy-status" class="sr-only" aria-live="polite"></p>
+  </section>
+
+  <section class="section container" id="safety">
+    <div class="section-heading">
+      <p class="eyebrow signal">Safety</p>
+      <h2>Only the person grants permission.</h2>
+    </div>
+    <div class="faq">
+      <details open>
+        <summary>What happens when something Lucy reads tells her what to do?</summary>
+        <p>Everything that reaches her from somewhere other than you is data: a tool result, a note, a page, a helper's report. Instructions inside it are quoted, named for where they came from, and not followed. Turn markers, fake system tags and forged notices are neutralised before the model sees them, and Lucy says so in plain words.</p>
+      </details>
+      <details>
+        <summary>Can a note or a helper approve something on my behalf?</summary>
+        <p>No. A helper has no write permission, and a note that claims you already approved a deletion grants nothing. In ask mode the deletion is still asked for; a refusal with an instruction attached is followed, not worked around.</p>
+      </details>
+      <details>
+        <summary>Does the model ever see my credentials?</summary>
+        <p>No. Lucy exchanges your keyring token for short-lived, audience-bound tokens per service, and never forwards or repeats a credential. An instruction to collect a secret is itself treated as an attack.</p>
+      </details>
+      <details>
+        <summary>What if a service goes down mid-conversation?</summary>
+        <p>Lucy says which capability cannot be reached rather than pretending it is empty. If her settings service is down and she has nothing to go on, the message is refused outright: she will not guess the limits a turn should run under.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="section container" id="docs">
+    <div class="section-heading">
+      <p class="eyebrow signal">Docs</p>
+      <h2>Written for the person who has to run it.</h2>
+    </div>
+    <div class="feature-grid">
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/architecture.md"><h3>Architecture</h3><p>The turn loop, the gate, context bands and compaction.</p></a>
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/tools.md"><h3>Tools and plans</h3><p>Real plans for every capability, as the model writes them.</p></a>
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/security.md"><h3>Security</h3><p>The trust boundary, the permission gate, and what is never stored.</p></a>
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/evals.md"><h3>Evals</h3><p>Conversations held against a real model, with a watchdog that stops a turn the moment it goes wrong.</p></a>
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/baseline.md"><h3>Baseline</h3><p>What real conversations turned up, what broke, and what was fixed.</p></a>
+      <a class="feature-card link" href="https://github.com/tochi-mba/LUCY-assistant/blob/main/docs/adr/README.md"><h3>Decisions</h3><p>Architecture decision records, including why the hub lives with the desk.</p></a>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-wrap">
+    <span>© <span id="year">2026</span> REX Technologies · LUCY</span>
+    <span>Built on <a href="https://github.com/tochi-mba/weftai">weftai</a>. MIT licensed.</span>
+    <span class="footer-links">
+      <a href="https://github.com/tochi-mba/LUCY-assistant/blob/main/CHANGELOG.md">What's new <span aria-hidden="true">↗</span></a>
+      <a href="#top">Back to top <span aria-hidden="true">↑</span></a>
+    </span>
+  </div>
+</footer>
+<script src="app.js" defer></script>
+</body>
+</html>
