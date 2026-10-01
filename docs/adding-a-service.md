@@ -52,7 +52,9 @@ editor, in a gitignored `*.local.code-workspace` — never in the committed work
 Family ports are 8000–8009, and every number in that block is assigned or reserved
 ([ADR-0004](adr/0004-port-assignments.md), [ADR-0010](adr/0010-ports-8000-and-8009.md)).
 A new service that runs in compose needs a number outside it -- 8010 is the optional Laya
-service's -- chosen in an ADR that amends ADR-0010.
+service's and 8011 is Github-api's ([ADR-0016](adr/0016-repos-capability-and-port-8011.md))
+-- chosen in an ADR that amends ADR-0010. A service with work that outlives a request
+speaks the [jobs and signals](jobs.md) contract and depends on `lucy_signals`.
 
 ## 4. CI caller
 

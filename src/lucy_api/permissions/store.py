@@ -12,16 +12,22 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.core.errors import absent
+from lucy_api.core.errors import LucyError, absent
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant, once_key
-from lucy_api.sessions.sql_store import audit_row
+from lucy_api.sessions.sql_store import audit_row, row_value
+
+BAD_REQUEST = "bad-request"
+ONLY_ALLOWS = (
+    "`only` narrows an allow to some of a permission's calls; a deny covers the whole "
+    "permission. Send `decision: deny` without `only`."
+)
 
 SESSION_PROFILE_PREFIX = "session:"
 """Grants that last for one conversation. Distinct from the keyring profile name."""
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from lucy_api.sessions.sql_store import SessionStore
 
@@ -39,8 +45,8 @@ async def grants_for(
     def read(db: sqlite3.Connection) -> dict[str, Grant]:
         wanted = set(_profiles(profile, session_id))
         rows = db.execute(
-            "SELECT permission, profile, decision, instruction, source FROM permission_grants "
-            "WHERE account_id=? ORDER BY profile",
+            "SELECT permission, profile, decision, instruction, source, only_json "
+            "FROM permission_grants WHERE account_id=? ORDER BY profile",
             (account,),
         ).fetchall()
         found: dict[str, Grant] = {}
@@ -53,9 +59,12 @@ async def grants_for(
                 profile=str(row["profile"]),
                 instruction=str(row["instruction"] or ""),
                 source=str(row["source"]),
+                only=only_of(row["only_json"]),
+                wider=found.get(str(row["permission"])),
             )
             # ORDER BY profile puts `*` first, then the named profile, then `session:{id}`.
-            # Last write wins, so a narrower grant overlays a broader one.
+            # A narrower grant overlays a broader one, and keeps it as `wider` for a call its
+            # `only` does not cover.
             found[grant.permission] = grant
         if turn_id:
             found.update(_oneshots(db, turn_id, profile))
@@ -124,11 +133,11 @@ def calls_of(
 async def list_grants(store: SessionStore, account: str) -> list[dict[str, object]]:
     def read(db: sqlite3.Connection) -> list[dict[str, object]]:
         rows = db.execute(
-            "SELECT permission, profile, decision, instruction, source, granted_at "
+            "SELECT permission, profile, decision, instruction, source, granted_at, only_json "
             "FROM permission_grants WHERE account_id=? ORDER BY permission, profile",
             (account,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**row_value(row), "only": list(only_of(row["only_json"]))} for row in rows]
 
     return await store.worker.call(read)
 
@@ -142,23 +151,30 @@ async def put_grant(  # noqa: PLR0913 - the unique key is three columns; collaps
     decision: str,
     instruction: str = "",
     source: str = "person",
+    only: Sequence[str] = (),
 ) -> dict[str, object]:
     now = time.time()
+    grant = Grant(
+        permission=permission,
+        decision=decision,
+        profile=profile,
+        instruction=instruction,
+        source=source,
+        only=tuple(only),
+    )
 
     def apply(db: sqlite3.Connection) -> dict[str, object]:
-        db.execute(
-            "INSERT INTO permission_grants "
-            "(account_id, profile, permission, decision, instruction, granted_at, source) "
-            "VALUES (?,?,?,?,?,?,?) ON CONFLICT(account_id, profile, permission) DO UPDATE SET "
-            "decision=excluded.decision, instruction=excluded.instruction, "
-            "granted_at=excluded.granted_at, source=excluded.source",
-            (account, profile, permission, decision, instruction, now, source),
-        )
+        kept = upsert_grant(db, account, grant, now)
         audit_row(
             db,
             account,
             "permission.granted" if decision == "allow" else "permission.denied",
-            detail={"permission": permission, "profile": profile, "source": source},
+            detail={
+                "permission": permission,
+                "profile": profile,
+                "source": source,
+                **({"only": list(kept)} if kept else {}),
+            },
         )
         return {
             "permission": permission,
@@ -167,9 +183,62 @@ async def put_grant(  # noqa: PLR0913 - the unique key is three columns; collaps
             "instruction": instruction,
             "source": source,
             "granted_at": now,
+            "only": list(kept),
         }
 
     return await store.transaction(apply)
+
+
+def upsert_grant(db: sqlite3.Connection, account: str, grant: Grant, now: float) -> tuple[str, ...]:
+    """Record one answer, and return the `only` it leaves in force.
+
+    One row per (account, profile, permission), so a second "always, for this repository" has
+    to join the first rather than replace it: both are allows limited to a set, and the set is
+    their union. An unrestricted allow clears the limit; a deny replaces whatever was there.
+
+    Raises:
+        LucyError: a deny limited to some values. A deny is for the permission, never for a
+            few of its calls, because "never, but only for this one" leaves the rest unasked.
+    """
+    if grant.decision != "allow" and grant.only:
+        raise LucyError(BAD_REQUEST, ONLY_ALLOWS, 400)
+    only = tuple(dict.fromkeys(value.strip() for value in grant.only if value.strip()))
+    existing = db.execute(
+        "SELECT decision, only_json FROM permission_grants "
+        "WHERE account_id=? AND profile=? AND permission=?",
+        (account, grant.profile, grant.permission),
+    ).fetchone()
+    if existing is not None and only and str(existing["decision"]) == "allow":
+        before = only_of(existing["only_json"])
+        only = tuple(dict.fromkeys((*before, *only))) if before else ()
+    db.execute(
+        "INSERT INTO permission_grants "
+        "(account_id, profile, permission, decision, instruction, granted_at, source, only_json) "
+        "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(account_id, profile, permission) DO UPDATE SET "
+        "decision=excluded.decision, instruction=excluded.instruction, "
+        "granted_at=excluded.granted_at, source=excluded.source, only_json=excluded.only_json",
+        (
+            account,
+            grant.profile,
+            grant.permission,
+            grant.decision,
+            grant.instruction,
+            now,
+            grant.source,
+            json.dumps(list(only)) if only else None,
+        ),
+    )
+    return only
+
+
+def only_of(raw: object) -> tuple[str, ...]:
+    """The stored `only`, or nothing. A value that is not a list of strings limits nothing."""
+    if not isinstance(raw, str) or not raw:
+        return ()
+    loaded = json.loads(raw)
+    if not isinstance(loaded, list):
+        return ()
+    return tuple(str(value) for value in loaded if isinstance(value, str) and value)
 
 
 async def delete_grant(store: SessionStore, account: str, permission: str, *, profile: str) -> None:
@@ -191,10 +260,13 @@ async def delete_grant(store: SessionStore, account: str, permission: str, *, pr
 
 
 __all__ = [
+    "ONLY_ALLOWS",
     "SESSION_PROFILE_PREFIX",
     "calls_of",
     "delete_grant",
     "grants_for",
     "list_grants",
+    "only_of",
     "put_grant",
+    "upsert_grant",
 ]

@@ -59,6 +59,7 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
     ("spotify-api", "SPOTIFY_API_KEYRING_SERVICE_TOKEN"),
     ("web-search-api", "WSA_KEYRING_SERVICE_TOKEN"),
     ("environments-api", "ENVAPI_KEYRING_SERVICE_TOKEN"),
+    ("github-api", "GHAPI_KEYRING_SERVICE_TOKEN"),
 )
 # Memory-api is deliberately not here. It verifies keyring's JWTs (`check_service_token`,
 # `MEMORY_KEYRING_JWKS_URL`) but never calls keyring's /v1/internal, so it declares no
@@ -72,6 +73,7 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
 # silently give the hub authority to call it for a person.
 LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
     "environments-api",
+    "github-api",
     # Lucy itself: a woken turn mints a token for the hub under the standing consent the
     # person recorded, and is then prepared like any turn they sent (docs/jobs.md).
     "lucy-api",
@@ -99,7 +101,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     # person's chosen search backend, result count and playback device. Granted only `lucy`,
     # the other two answered 403 on every turn ever served and `_optional_namespace` swallowed
     # it by design, so those preferences were silently ignored and nothing said so.
-    ("lucy-api", "lucy-api", ("lucy", "search", "spotify"), "LUCY_SETTINGS_API_TOKEN"),
+    ("lucy-api", "lucy-api", ("lucy", "search", "spotify", "github"), "LUCY_SETTINGS_API_TOKEN"),
     ("user-api", "user", ("user",), None),
     ("persona-api", "persona", ("persona",), None),
     ("spotify-api", "spotify-api", ("spotify",), None),
@@ -107,6 +109,7 @@ SETTINGS_GRANTS: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("keyring-api", "keyring", ("keyring",), None),
     ("environments-api", "environments-api", ("environments",), None),
     ("memory-api", "memory-api", ("memory",), None),
+    ("github-api", "github-api", ("github",), "GHAPI_SETTINGS_API_TOKEN"),
 )
 
 LOCAL_EXTRAS = META_ROOT / "scripts" / "genenv.local.json"

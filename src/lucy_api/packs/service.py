@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.clients.music import AUDIENCE as MUSIC_AUDIENCE
+from lucy_api.clients.repos import AUDIENCE as REPOS_AUDIENCE
 from lucy_api.core.errors import LucyError, conflict
 from lucy_api.packs.agents import AgentsPack
 from lucy_api.packs.context import PackContext, SilentTokens
@@ -26,6 +27,7 @@ from lucy_api.packs.registry import (
     plan_schema_for,
     probe_all,
 )
+from lucy_api.packs.repos import ReposPack
 from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.settings import SettingsPack
 from lucy_api.packs.work import WorkPack
@@ -58,6 +60,8 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
     settings_base_url: str = "http://127.0.0.1:8003",
     environments_base_url: str = "http://127.0.0.1:8008",
     persona_base_url: str = "",
+    repos_base_url: str = "http://127.0.0.1:8011",
+    repos_audience: str = REPOS_AUDIENCE,
 ) -> tuple[CapabilityPack, ...]:
     """What this build ships. Third-party packs arrive through entry points later.
 
@@ -76,6 +80,7 @@ def installed_packs(  # noqa: PLR0913 -- one base URL per sibling this build shi
         MusicPack(music_base_url, audience=music_audience),
         SettingsPack(settings_base_url),
         WorkspacePack(environments_base_url),
+        ReposPack(repos_base_url, audience=repos_audience),
         WorkPack(),
         AgentsPack(),
     )

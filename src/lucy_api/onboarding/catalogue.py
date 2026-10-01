@@ -172,6 +172,22 @@ def manifests(settings: Settings) -> tuple[SetupManifest, ...]:
             connection_service="spotify",
         ),
         SetupManifest(
+            id="repos",
+            title="GitHub repositories",
+            base_url=settings.repos_api_base_url,
+            documentation=REPOSITORIES + "LUCY-assistant/blob/main/docs/repos.md",
+            instructions=(
+                "Optional: connect a GitHub account in the browser through Lucy (lucy connect "
+                "repos), choosing every repository or a few; or store a fine-grained token for "
+                "this profile in the identity vault. What GitHub grants is the most Lucy can "
+                "do, and Lucy still asks before each kind of change until you say otherwise. "
+                "Never paste a password or token here."
+            ),
+            checks=("keyring", "github", "settings"),
+            connection_state="unknown",
+            connection_service="github",
+        ),
+        SetupManifest(
             id="workspace",
             title="Workspace",
             base_url=settings.environments_api_base_url,

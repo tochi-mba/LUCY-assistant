@@ -11,6 +11,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "pending_changes_json", "TEXT"),
     ("turns", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("approvals", "executed_at", "REAL"),
+    ("permission_grants", "only_json", "TEXT"),
 )
 """(table, column, definition) for every column that post-dates the table."""
 
@@ -136,6 +137,7 @@ CREATE INDEX IF NOT EXISTS approvals_open ON approvals(session_id,status,request
 CREATE TABLE IF NOT EXISTS permission_grants (
  account_id TEXT NOT NULL, profile TEXT NOT NULL, permission TEXT NOT NULL,
  decision TEXT NOT NULL, instruction TEXT, granted_at REAL NOT NULL, source TEXT NOT NULL,
+ only_json TEXT,
  PRIMARY KEY(account_id,profile,permission)
 ) STRICT;
 

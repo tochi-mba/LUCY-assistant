@@ -22,6 +22,7 @@ from lucy_api.core.container import (
     MUSIC_NAMESPACE,
     NAMESPACES_READ,
     OWN_NAMESPACE,
+    REPOS_NAMESPACE,
     SEARCH_NAMESPACE,
 )
 
@@ -65,7 +66,7 @@ def test_the_hub_is_not_granted_namespaces_it_never_reads() -> None:
     assert set(grants()[HUB]) == set(NAMESPACES_READ)
 
 
-@pytest.mark.parametrize("namespace", [SEARCH_NAMESPACE, MUSIC_NAMESPACE])
+@pytest.mark.parametrize("namespace", [SEARCH_NAMESPACE, MUSIC_NAMESPACE, REPOS_NAMESPACE])
 def test_a_sibling_still_owns_the_namespace_the_hub_borrows(namespace: str) -> None:
     """Reading a sibling's namespace does not take it from the sibling: the service whose
     settings they are must still be granted them, or it cannot write its own defaults."""

@@ -158,6 +158,55 @@ TOPIC: CollectionType[Any, Any] = collection(
     fields=_fields("id", "title", "summary", "count", "trust"),
 )
 
+REPO: CollectionType[Any, Any] = collection(
+    "repo",
+    dict,
+    label=lambda item: _clip(
+        f"{_get(item, 'repo')} ({'private' if _get(item, 'private') == 'True' else 'public'}"
+        f", CI {_get(item, 'ci') or 'none'})"
+    ),
+    key=lambda item: _get(item, "repo"),
+    description="A repository the connected account can reach.",
+    fields=_fields("repo", "private", "ci", "open_pulls", "open_issues", "default_branch"),
+)
+
+PULL: CollectionType[Any, Any] = collection(
+    "pull",
+    dict,
+    label=lambda item: _clip(
+        f"{_get(item, 'repo')}#{_get(item, 'number')}: {_get(item, 'title')} "
+        f"({_get(item, 'state')}, checks {_get(item, 'checks') or 'none'})"
+    ),
+    key=lambda item: f"{_get(item, 'repo')}#{_get(item, 'number')}",
+    description="A pull request: what it changes, where it stands, whether it can go in.",
+    fields=_fields(
+        "repo", "number", "title", "state", "author", "draft", "checks", "mergeable", "base"
+    ),
+)
+
+ISSUE: CollectionType[Any, Any] = collection(
+    "issue",
+    dict,
+    label=lambda item: _clip(
+        f"{_get(item, 'repo')}#{_get(item, 'number')}: {_get(item, 'title')} "
+        f"({_get(item, 'state')})"
+    ),
+    key=lambda item: f"{_get(item, 'repo')}#{_get(item, 'number')}",
+    description="An issue on a repository.",
+    fields=_fields("repo", "number", "title", "state", "author", "labels"),
+)
+
+CHECK: CollectionType[Any, Any] = collection(
+    "check",
+    dict,
+    label=lambda item: _clip(
+        f"{_get(item, 'name')}: {_get(item, 'conclusion') or _get(item, 'status')}"
+    ),
+    key=lambda item: _get(item, "run"),
+    description="One CI job on a commit or pull request, and how it ended.",
+    fields=_fields("repo", "run", "name", "status", "conclusion", "workflow"),
+)
+
 ALL: tuple[CollectionType[Any, Any], ...] = (
     NOTE,
     HIT,
@@ -166,6 +215,10 @@ ALL: tuple[CollectionType[Any, Any], ...] = (
     CAPABILITY,
     HELPER,
     TOPIC,
+    REPO,
+    PULL,
+    ISSUE,
+    CHECK,
 )
 """Every declared collection, so the registry can generate the free operations for each."""
 
@@ -173,11 +226,15 @@ ALL: tuple[CollectionType[Any, Any], ...] = (
 __all__ = [
     "ALL",
     "CAPABILITY",
+    "CHECK",
     "FILE",
     "HELPER",
     "HIT",
+    "ISSUE",
     "MAX_LABEL",
     "NOTE",
+    "PULL",
+    "REPO",
     "TOPIC",
     "TRACK",
 ]

@@ -99,8 +99,11 @@ Short on purpose: this runs before every turn, and a person waiting on a reply s
 be paying for a service that has stopped answering. Not answering in time is the same
 answer as being down."""
 
-SLOW_SERVICES = frozenset({"research", "mcp", "music"})
+SLOW_SERVICES = frozenset({"research", "mcp", "music", "repos"})
 """Built-in capabilities whose steps and probes are allowed longer.
+
+Repositories are here because one pull request read is several calls to the provider --
+the pull, its reviews, its threads and its checks -- each on somebody else's rate limit.
 
 A page fetch taking twelve seconds is not a bug, and failing it at ten only produces a
 retry that takes twelve too. Music is here because a play answers only once the player has

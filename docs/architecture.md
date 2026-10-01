@@ -69,7 +69,9 @@ client is a deployment choice, not a settings-api release.
 Family assignments are 8000–8009, and every repository's default now matches:
 config, Dockerfile, `make run`, `.env.example` and documentation. Compose
 publishes each port on the host and the image listens on the same number
-inside. [ADR-0004](adr/0004-port-assignments.md).
+inside. [ADR-0004](adr/0004-port-assignments.md). Outside that block, 8010 is the optional
+Laya service's and 8011 is Github-api's, the `repos` capability's service
+([ADR-0016](adr/0016-repos-capability-and-port-8011.md)).
 
 ## Process shape
 

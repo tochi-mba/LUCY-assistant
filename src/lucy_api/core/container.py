@@ -91,6 +91,12 @@ from lucy_api.sessions.scope import (
 from lucy_api.sessions.snapshot import SessionSnapshotter
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.settings.catalogue import DEFAULT_MODEL
+from lucy_api.settings.defaults import (
+    MUSIC_NAMESPACE,
+    REPOS_NAMESPACE,
+    SEARCH_NAMESPACE,
+    pack_defaults,
+)
 from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, NewEvent, SqlEventLog
@@ -122,13 +128,7 @@ logger = logging.getLogger(__name__)
 OWN_NAMESPACE = "lucy"
 """The hub's own settings: the turn policy, and everything `TurnPolicy` clamps."""
 
-SEARCH_NAMESPACE = "search"
-"""web-search's namespace, read for the person's backend and result count."""
-
-MUSIC_NAMESPACE = "spotify"
-"""spotify's namespace, read for the person's default playback device."""
-
-SIBLING_NAMESPACES = (SEARCH_NAMESPACE, MUSIC_NAMESPACE)
+SIBLING_NAMESPACES = (SEARCH_NAMESPACE, MUSIC_NAMESPACE, REPOS_NAMESPACE)
 """Namespaces owned by a sibling that the hub nonetheless resolves.
 
 Named rather than spelled inline at the call site, because settings-api grants namespaces
@@ -634,21 +634,12 @@ class Container:
 
     async def _pack_defaults(self, user_token: str, profile: str | None) -> dict[str, object]:
         """Sibling knobs the packs may use when the model omitted them. Never secrets."""
-        defaults: dict[str, object] = {}
-        search = await self._optional_namespace(SEARCH_NAMESPACE, user_token, profile)
-        if search is not None:
-            limit = search.get("default_result_count", 8)
-            if isinstance(limit, int) and not isinstance(limit, bool):
-                defaults["research.limit"] = min(20, max(1, limit))
-            backend = search.get("search_backend", "google")
-            if isinstance(backend, str) and backend:
-                defaults["research.backend"] = backend
-        music = await self._optional_namespace(MUSIC_NAMESPACE, user_token, profile)
-        if music is not None:
-            device = music.get("default_device", None)
-            if isinstance(device, str) and device:
-                defaults["music.device_id"] = device
-        return defaults
+        return pack_defaults(
+            {
+                namespace: await self._optional_namespace(namespace, user_token, profile)
+                for namespace in SIBLING_NAMESPACES
+            }
+        )
 
     async def _optional_namespace(
         self, namespace: str, user_token: str, profile: str | None
@@ -831,6 +822,8 @@ def build_container(
                 settings_base_url=settings.settings_api_base_url,
                 environments_base_url=settings.environments_api_base_url,
                 persona_base_url=settings.persona_api_base_url,
+                repos_base_url=settings.repos_api_base_url,
+                repos_audience=settings.repos_api_audience,
             ),
             WatchPack(settings.environments_api_base_url, fetch=httpx_fetch(outbound)),
             McpPack(mcp_servers, httpx_call(outbound)),
@@ -902,6 +895,7 @@ def build_container(
     )
     container.standing = Standing(container)
     subscriptions.on_consent_release(container.standing.withdraw)
+    container.standing.serve(subscriptions, capabilities.packs)
     waker.attach(turns.wake, container.standing)
     return container
 

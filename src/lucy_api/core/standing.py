@@ -24,18 +24,24 @@ the store and the supervisor, and nothing below the composition root should know
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.auth.broker import Delegation, TokenBroker
 from lucy_api.auth.exchange import ExchangeError
 from lucy_api.auth.verifier import AuthenticationError, KeyringUnreachableError
 from lucy_api.core.errors import LucyError
+from lucy_api.packs.http import PackHttp
+from lucy_api.packs.probes import GuardedHttp
 from lucy_api.turn.supervisor import PreparedTurn
 from lucy_api.work.types import Kind, Record
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from lucy_api.core.container import Container, PackRequest
+    from lucy_api.packs.context import Http
+    from lucy_api.work.subscriptions import Subscriptions
     from lucy_api.work.wake import Ending
 
 logger = logging.getLogger(__name__)
@@ -101,6 +107,60 @@ class Standing:
         )
         await container.exchange.revoke_delegated_grant(
             profile=str(row["profile"]), user_token=minted.token, grant_id=grant_id
+        )
+
+    def serve(self, subscriptions: Subscriptions, packs: Sequence[object]) -> None:
+        """Let each capability that watches through its sibling release and sweep its own.
+
+        A capability opts in by having `release_subscription(http, row)` and
+        `check_subscription(http, row)`. Both run with nobody present, so the seam they are
+        handed acts under the subscription's own grant; one opened without consent has no
+        way to reach its sibling afterwards, and is left to expire there.
+        """
+        for pack in packs:
+            release = getattr(pack, "release_subscription", None)
+            check = getattr(pack, "check_subscription", None)
+            capability = str(getattr(pack, "id", ""))
+            if release is None or check is None or not capability:
+                continue
+            subscriptions.on_release(capability, partial(self._under_grant, release))
+            subscriptions.on_check(capability, partial(self._under_grant, check))
+
+    async def _under_grant(
+        self,
+        call: Callable[[Http, Mapping[str, Any]], Awaitable[Any]],
+        row: Mapping[str, Any],
+    ) -> Any:
+        """Run `call` with a seam that acts for the row's person under its grant, if it has one."""
+        grant_id = str(row.get("grant_id") or "")
+        if not grant_id:
+            return None
+        return await call(
+            self.http_under(grant_id, str(row["account_id"]), str(row["profile"])), row
+        )
+
+    def http_under(self, grant_id: str, account_id: str, profile: str) -> Http:
+        """The sibling seam a foreground request gets, with the grant as its authority."""
+        # The composition root imports this module, so it is read here, at call time.
+        from lucy_api.core.container import _sibling_service_tokens  # noqa: PLC0415
+
+        container = self._container
+        broker = TokenBroker(
+            exchange=container.exchange,
+            delegation=Delegation.for_grant(grant_id),
+            cache=container.token_cache,
+        )
+        return GuardedHttp(
+            PackHttp(
+                tokens=broker,
+                timeout_seconds=container.settings.http_timeout_seconds,
+                client=container.outbound,
+                service_tokens=_sibling_service_tokens(container.settings),
+            ),
+            container.capabilities.providers,
+            account_id=account_id,
+            profile=profile,
+            on_disconnect=lambda: container.capabilities.forget_probes(account_id, profile),
         )
 
     async def _request_under(self, grant_id: str, account_id: str, session_id: str) -> PackRequest:

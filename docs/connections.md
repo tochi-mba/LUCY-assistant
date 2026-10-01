@@ -55,6 +55,16 @@ service does: a gitignored `docker-compose.local.yml` sets the two variables, it
 is added to Lucy's allowlist under `exchange_audiences` in the gitignored
 `scripts/genenv.local.json`, and it is never named in a public repository (ADR-0011).
 
+## Repositories are a contract
+
+The `repos` capability speaks the contract `lucy_api.clients.repos` names, served by
+Github-api, the same way: point `LUCY_REPOS_API_BASE_URL` at an implementation and set
+`LUCY_REPOS_API_AUDIENCE` to its name. A person connects GitHub through keyring provider
+`github` (the Lucy GitHub App) or stores a fine-grained token with keyring's api-key route;
+the probe is `GET /v1/me`, read like music's. Choosing which repositories and how much access
+happens on GitHub; choosing what Lucy may do without asking happens in the permission gate.
+[docs/repos.md](repos.md) has both.
+
 ## Capability gating
 
 Music is gated by a probe, not by keyring's connection record and not by scopes. At the top

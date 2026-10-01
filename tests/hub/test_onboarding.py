@@ -41,8 +41,11 @@ async def test_discovery_keeps_optional_music_and_account_state_independent(sett
     result = await discovery.discover(ACCOUNT)
     assert result.account_id == ACCOUNT
     assert [row.id for row in result.services] == probe.seen
-    assert len(result.services) == 8
+    assert len(result.services) == 9
     services = {row.id: row for row in result.services}
+    assert services["repos"].connection_state == "unknown"
+    assert not services["repos"].required
+    assert "lucy connect repos" in services["repos"].actions[0].description
     assert [row.id for row in result.services if row.required] == ["identity"]
     assert services["music"].state == "ready"
     assert services["music"].connection_state == "unknown"
@@ -232,12 +235,12 @@ async def test_route_authenticates_and_never_sends_caller_token_to_readiness(key
         assert music["state"] == "ready"
         assert music["connection_state"] == "unknown"
         assert "never-echo-this-secret" not in response.text
-        assert len(upstream_requests) == 9
+        assert len(upstream_requests) == 10
         ready = [request for request in upstream_requests if request.url.path.endswith("/ready")]
         vault = [
             request for request in upstream_requests if "/v1/internal/profiles/" in str(request.url)
         ]
-        assert len(ready) == 8
+        assert len(ready) == 9
         assert len(vault) == 1
         assert all("authorization" not in request.headers for request in ready)
         assert all("x-keyring-user-token" not in request.headers for request in ready)

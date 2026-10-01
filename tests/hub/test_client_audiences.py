@@ -23,6 +23,7 @@ from lucy_api.clients.keyring import AUDIENCE as KEYRING
 from lucy_api.clients.live_feeds import PERSONA_AUDIENCE
 from lucy_api.clients.memory import AUDIENCE as MEMORY
 from lucy_api.clients.music import AUDIENCE as MUSIC
+from lucy_api.clients.repos import AUDIENCE as REPOS
 from lucy_api.clients.search import AUDIENCE as SEARCH
 from lucy_api.clients.settings import AUDIENCE as SETTINGS
 from lucy_api.clients.user import AUDIENCE as USER
@@ -36,6 +37,7 @@ ASKED_FOR = {
     "search": SEARCH,
     "settings": SETTINGS,
     "music": MUSIC,
+    "repos": REPOS,
     "user": USER,
 }
 """Every audience a client asks keyring to mint, by the sibling it is for.
