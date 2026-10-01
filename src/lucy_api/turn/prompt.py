@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from lucy_api.context.assembler import Window, assemble
@@ -44,6 +44,10 @@ class SessionView:
     turn_number: int = 1
     live: Live | None = None
     response_style: str = "natural"
+    zone: tzinfo = UTC
+    """The person's time zone: the clock the live block's `now` line is read on."""
+    preferences: str = ""
+    """How the person chose to be written to, as the prompt states it. Empty says nothing."""
     window: int = 200_000
     reserve_percent: int = 13
     warn_at_percent: int = 60
@@ -61,6 +65,8 @@ class ViewLimits(TypedDict):
     warn_at_percent: int
     compact_at_percent: int
     tool_results_kept: int
+    zone: tzinfo
+    preferences: str
 
 
 def conversation_order(
@@ -101,12 +107,15 @@ def conversation_order(
 
 def view_limits(policy: Any) -> ViewLimits:
     """The SessionView fields TurnPolicy owns, so HTTP preview and a live turn cannot drift."""
+    conventions = getattr(policy, "conventions", None)
     return {
         "window": int(getattr(policy, "max_context_tokens", 200_000)),
         "reserve_percent": int(getattr(policy, "reserve_percent", 13)),
         "warn_at_percent": int(getattr(policy, "warn_at_percent", 60)),
         "compact_at_percent": int(getattr(policy, "compaction_trigger_percent", 72)),
         "tool_results_kept": int(getattr(policy, "tool_results_kept", 3)),
+        "zone": UTC if conventions is None else conventions.zone(),
+        "preferences": "" if conventions is None else conventions.hint(),
     }
 
 
@@ -151,6 +160,7 @@ def _prompt_context(view: SessionView) -> PromptContext:
         deferred=view.deferred,
         advertised=view.advertised,
         response_style=view.response_style,
+        preferences=view.preferences,
     )
 
 
@@ -294,7 +304,7 @@ async def _build(view: SessionView) -> Built:
     allowance = Budget(window=view.window, shares=shares_for(view.reserve_percent))
     built = await build_context(
         StateRequest(
-            now=datetime.now(UTC),
+            now=datetime.now(view.zone),
             session=SessionSnapshot(
                 id=view.session_id,
                 profile=str(row.get("profile", "personal")),

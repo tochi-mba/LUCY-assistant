@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from lucy_api.settings.catalogue import DEFAULT_MODEL
+from lucy_api.settings.conventions import NOTHING_CHOSEN, Conventions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -130,6 +131,8 @@ class TurnPolicy:
     history_turns_kept: int = 4
     tool_results_kept: int = 3
     session_token_budget: int = 0
+    conventions: Conventions = NOTHING_CHOSEN
+    """The person's time zone, language, units, clock and currency, from `common`."""
     disabled: tuple[str, ...] = ()
     """What the profile turned off, from settings. The session's own list is kept apart so
     a change to one never has to be un-mixed from the other."""
@@ -294,6 +297,7 @@ class TurnPolicy:
                 "destructive_always_asks",
                 allowed=frozenset({"destructive_always_asks", "spend_and_destructive_ask"}),
             ),
+            conventions=Conventions.from_reader(read),
             disabled=disabled,
             enabled=_names(read("enabled_capabilities", [])),
             blocks_turn=blocked,

@@ -139,6 +139,26 @@ The rest of the namespace is the person's standing choices rather than ceilings:
 below, one `feeds_*` toggle per feed field, and the optional Laya switches
 (`decisions` and `decision_*`, see [decisions.md](decisions.md)).
 
+### The person's own conventions
+
+Five `common` settings say how a person wants to be written to. Settings-api merges
+`common` underneath every namespace, so they arrive with the `lucy` values, are read
+once when a turn is prepared, and apply to helpers as they do to the main turn.
+
+| setting | default | what the model is told |
+| --- | --- | --- |
+| `timezone` | `UTC` | The live block's `now` line is the person's clock, with the zone's name and its offset today: `2026-07-01 21:05 Europe/Lisbon, UTC+01:00 (Wednesday)`. "Remind me at nine" is then their nine |
+| `locale` | none | Write in this language, with its spelling and its date and number formats; answer in another language when the person writes in one |
+| `units` | `metric` | `imperial` says to give distances, weights and temperatures in imperial units |
+| `time_format` | `24h` | `12h` says to write clock times as 2:20 pm |
+| `currency` | none | Give costs in this currency |
+
+A setting left alone says nothing: the model follows how the person writes, which is the
+better guide until somebody has chosen otherwise. What was chosen is its own prompt section,
+`preferences`, so a choice is never the line cut to make room for prose. A value that cannot
+be used (a zone the tz database does not have, a tag that is not a language tag) is treated
+as not chosen.
+
 A new session that omits `model`, `thinking_config` (from the `thinking` setting),
 `permission_mode`, `input_policy` or `incognito` takes those from this person's settings. An explicit field on the create
 request wins. The session row is the live override after that.

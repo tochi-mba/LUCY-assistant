@@ -154,6 +154,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A person's time zone, language, units, clock and currency reach the model.**
+  `common.timezone`, `locale`, `units`, `time_format` and `currency` could be set and read
+  back, and changed nothing. The live block's `now` line is now the person's clock, with
+  the zone's name and its offset today (`21:05 Europe/Lisbon, UTC+01:00`), so "remind me
+  at nine" is their nine and not UTC's. A chosen language, imperial units, the 12-hour
+  clock and a currency are stated in a prompt section of their own, `preferences`, one
+  sentence each; a setting left alone says nothing and the model follows how the person
+  writes. Helpers are told the same. `tzdata` is a dependency, because Windows ships no tz
+  database and a slim image may not.
 - **Work a sibling finishes: subscriptions, ended by a signed signal.** A new kind of work,
   `subscription`, in the one work registry: same handle, notice, wake and
   `work.check`/`cancel`/`result` as every other kind, plus a durable row. A sibling ends it
