@@ -3,11 +3,11 @@
 # Re-record with `make lock` after a green `make up`; check with `make lock-check`.
 # Private repositories are never listed here: see docs/adr/0011-private-services-are-extensions.md.
 Keyring-api 48f56c4c74b7520b69fc8d9525e47df471b02d45
-Settings-api 711f1aa78ce2502d140d3d007ff92b7494407c7d
+Settings-api 1d57896b814a4b7fd99ebfacd5b4ae485417f205
 User-api 3e1e75034d1c97dc4dd4d440f1acb2167e1419ea
 Persona-api c8c37b2343496e0e8793e7b4446073b8ca75ab1a
-Web-search-api c7d647969b73156a54fea60f7cc6a6841b4cb861
-Spotify-api dd7a8b076b677047df8aabf040352c4ea2d26fa6
+Web-search-api 6b2a257f080549c3b2e24580ba2d4e8e7ae96a0f
+Spotify-api 158c2bdc017e482a0979522e52973721cd9edcc6
 Environments-api c93d9e796b81e900ba02864fc83c61500be0e4ac
 Memory-api aea2feb9a7fbca3fa1330a0a2728d8df463bfe71
 Github-api 349e2ee429d29e60efe79ab9305e0afa75dc02e7
