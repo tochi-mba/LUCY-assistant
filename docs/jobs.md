@@ -131,7 +131,8 @@ What a check-in promises, and how each promise is kept:
 | A shutdown loses nothing | `aclose` cancels every timer and leaves every row running |
 | The sweep never asks anybody about it | a check-in has no sibling id, and the sweep skips rows without one |
 
-Bounds: at least a minute away (sooner is `work.wait`), at most a week. The time is `at`,
+Bounds: at least a minute away (sooner is `work.wait`), at most a week, and at most twenty
+waiting per conversation (more is a loop). The time is `at`,
 ISO 8601 with its offset, or `in_seconds`; a naive time is refused rather than guessed at,
 since the live block already tells the model the time and zone. A fired subscription's
 notice -- any subscription's -- now carries its summary, so the woken turn reads "It is
