@@ -15,7 +15,7 @@ in a tenth sibling repository, and what that costs.
 
 ## Invariants
 
-**The model never sees a service.** It sees capabilities with product names — `music`,
+**The model never sees a service.** It sees capabilities with product names - `music`,
 `research`, `workspace`, `notes`. No prompt, tool description or error message mentions a
 port, an HTTP verb, or a repository name. If you are about to write "spotify-api" into
 something a model reads, stop.
@@ -24,7 +24,7 @@ something a model reads, stop.
 tool, a memory or a sub-agent is rendered as a third-person reported claim with its
 provenance inline, inside a delimited block that is not the instruction block. Never
 concatenate a remembered note into the system prompt. Never strip provenance to save
-tokens — fetch fewer things instead.
+tokens - fetch fewer things instead.
 
 **Nothing truncates silently.** Every cap emits a notice with exact counts
 (`showing 30 of 35`), and anything spilled stays reachable by reference. This is weftai's
@@ -36,7 +36,7 @@ sits next to a vault. A test asserts this and it is not negotiable.
 **The hub never forwards a caller's token to a sibling.** It mints a token for that
 audience, for that person, through keyring. One scope per token, so expect to hold several.
 
-**Errors name the fix.** "Unknown field `orign`; this collection has `origin`, `label`" —
+**Errors name the fix.** "Unknown field `orign`; this collection has `origin`, `label`" -
 not "invalid input". A wrong question is an error, never an empty result.
 
 ## Gates
@@ -57,8 +57,8 @@ changing anything the family standard cares about.
 ## Dependencies
 
 `weftai` comes from PyPI, pinned exactly (`weftai[all]==0.5.2`), never as a path
-dependency to a checkout. Improving weftai means releasing weftai — to npm and PyPI in
-lockstep — and then bumping the pin here.
+dependency to a checkout. Improving weftai means releasing weftai - to npm and PyPI in
+lockstep - and then bumping the pin here.
 
 `keyring-client` and `settings-client` come from their owning hubs as tagged git sources
 ([ADR-0002](docs/adr/0002-shared-clients-live-in-the-hub.md)). Do not vendor a copy.

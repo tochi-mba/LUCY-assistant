@@ -2,7 +2,7 @@
 
 The hub's one write path is `POST /v1/sessions/{id}/inputs`. This command is a client of
 that path plus the event stream, not a second conversation loop. Closing the CLI must not
-cancel the turn — that is the whole point of making the turn durable before it runs.
+cancel the turn - that is the whole point of making the turn durable before it runs.
 """
 
 from __future__ import annotations

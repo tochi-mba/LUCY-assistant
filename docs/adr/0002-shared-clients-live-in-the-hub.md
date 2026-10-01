@@ -25,7 +25,7 @@ a third copy. [ADR-0006](0006-the-family-may-be-private.md) records authenticati
 **The protocol and the client must change together.** A new claim, a new error body,
 a new cache rule is one PR in the hub, with the tests that pin the behaviour. A
 shared package sitting in a ninth repository would lag, and a vendored copy would
-silently diverge — which, for token verification, is a vulnerability rather than a
+silently diverge - which, for token verification, is a vulnerability rather than a
 style issue.
 
 **The hub is the test double's home.** Keyring's own fake and settings-api's
@@ -42,5 +42,5 @@ retargeting source URLs.
 ## What would change our minds
 
 A published, versioned package on the index, with the hub as its source, is the
-intended end state — not a different home. Moving the source into this meta-repo
+intended end state - not a different home. Moving the source into this meta-repo
 would put the protocol next to people who do not run it.

@@ -1,9 +1,9 @@
-"""`lucy` — the command-line client.
+"""`lucy` - the command-line client.
 
 The contract, because a CLI is a user interface *and* an API for scripts:
 
-* **stdout** carries the answer. **stderr** carries everything else — commentary, prompts,
-  errors — so a pipe gets only the answer and a person still sees the explanation.
+* **stdout** carries the answer. **stderr** carries everything else - commentary, prompts,
+  errors - so a pipe gets only the answer and a person still sees the explanation.
 * **Exit codes** are the script's version of the answer: ``0`` it worked, ``1`` the hub
   answered and the answer was no, ``2`` the command was wrong (argparse owns this one),
   ``3`` the hub could not be reached, ``130`` you pressed Ctrl-C.
@@ -12,7 +12,7 @@ The contract, because a CLI is a user interface *and* an API for scripts:
   a contract.
 * **Colour** is off when stdout is not a terminal, when ``NO_COLOR`` is set, when ``TERM``
   is ``dumb``, or when ``--no-color`` is passed.
-* **Secrets never arrive as flags** — a flag lands in shell history and in `ps`. The token
+* **Secrets never arrive as flags** - a flag lands in shell history and in `ps`. The token
   comes from ``LUCY_TOKEN`` or from the file `lucy setup` writes.
 * **Settings resolve flag, then environment, then the config file, then the default**,
   which is the order people expect and the order that makes a one-off override easy.
@@ -139,7 +139,7 @@ def cmd_status(ctx: Context) -> int:
             if me.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
             else "identity could not be checked; run lucy doctor"
         )
-        lines.append(f"you     {ctx.style.bad('not identified')} — {reason}")
+        lines.append(f"you     {ctx.style.bad('not identified')} - {reason}")
     else:
         lines.append(f"you     not signed in {ctx.style.dim('(run `lucy setup`)')}")
     if not payload["ready"]:
@@ -174,7 +174,7 @@ def cmd_serve(ctx: Context) -> int:
 
     A flag given here becomes an environment variable, because that is the only channel the
     server reads. A flag *not* given sets nothing, so `LUCY_PORT` and the `.env` file still
-    decide — overwriting them with argparse's defaults would silently ignore the
+    decide - overwriting them with argparse's defaults would silently ignore the
     configuration the person already wrote down.
     """
     from lucy_api.__main__ import main as serve  # noqa: PLC0415 - uvicorn is a heavy import

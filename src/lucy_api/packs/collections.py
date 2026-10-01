@@ -98,7 +98,7 @@ def _fields(*names: str) -> Callable[[Any], Sequence[FieldSpec[Any]]]:
 NOTE: CollectionType[Any, Any] = collection(
     "note",
     dict,
-    label=lambda item: _clip(f"{_get(item, 'title')} — {_get(item, 'body')}"),
+    label=lambda item: _clip(f"{_get(item, 'title')} - {_get(item, 'body')}"),
     key=lambda item: _get(item, "id"),
     description="Something remembered about the person, with where it came from.",
     fields=_fields("title", "body", "kind", "trust", "source", "confirmed"),
@@ -116,7 +116,7 @@ HIT: CollectionType[Any, Any] = collection(
 TRACK: CollectionType[Any, Any] = collection(
     "track",
     dict,
-    label=lambda item: _clip(f"{_get(item, 'name')} — {_get(item, 'artist')}"),
+    label=lambda item: _clip(f"{_get(item, 'name')} - {_get(item, 'artist')}"),
     key=lambda item: _get(item, "uri") or _get(item, "id"),
     description="A song, as something that can be queued or played.",
     fields=_fields("name", "artist", "album", "duration_ms"),
@@ -134,7 +134,7 @@ FILE: CollectionType[Any, Any] = collection(
 CAPABILITY: CollectionType[Any, Any] = collection(
     "capability",
     dict,
-    label=lambda item: _clip(f"{_get(item, 'title')} — {_get(item, 'state')}"),
+    label=lambda item: _clip(f"{_get(item, 'title')} - {_get(item, 'state')}"),
     key=lambda item: _get(item, "id"),
     description="Something the person can do, and whether it is usable right now.",
     fields=_fields("id", "title", "state", "detail"),
@@ -152,7 +152,7 @@ HELPER: CollectionType[Any, Any] = collection(
 TOPIC: CollectionType[Any, Any] = collection(
     "topic",
     dict,
-    label=lambda item: _clip(f"{_get(item, 'title')} — {_get(item, 'summary')}"),
+    label=lambda item: _clip(f"{_get(item, 'title')} - {_get(item, 'summary')}"),
     key=lambda item: _get(item, "id"),
     description="A subject the assistant knows something about.",
     fields=_fields("id", "title", "summary", "count", "trust"),

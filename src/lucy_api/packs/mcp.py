@@ -2,7 +2,7 @@
 
 A registered server becomes `mcp.<server>.<tool>`. Descriptions were fenced and
 hash-pinned at import; results are fenced again. The original tool name is what Lucy
-sends on the wire — the operation name is only the model's handle.
+sends on the wire - the operation name is only the model's handle.
 """
 
 from __future__ import annotations

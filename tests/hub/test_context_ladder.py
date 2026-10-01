@@ -166,7 +166,7 @@ def test_a_reserve_outside_the_bounds_is_clamped_to_the_designed_range() -> None
 # --- the number the model is actually told ----------------------------------------------------
 #
 # `BudgetSnapshot(used=0, ...)` was hardcoded in `turn/prompt.py`, so every prompt ever built
-# told the model `context 0 of 200,000 tokens (0% used)` — including one whose own history band
+# told the model `context 0 of 200,000 tokens (0% used)` - including one whose own history band
 # was 9,415 tokens. Lucy noticed before anybody else did: "the 120 weeks of notes you pasted
 # seem like they should have moved it." The figure has to come back out of the ladder, because
 # the ladder is the thing that acts on it.
