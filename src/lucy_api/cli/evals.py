@@ -23,6 +23,7 @@ import math
 import platform
 import sys
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -160,6 +161,11 @@ def add_parser(sub: Any, after: argparse.ArgumentParser) -> None:
         help="let scenarios run their `host` commands on this machine (--dry-run lists them)",
     )
     run.add_argument(
+        "--token-command",
+        metavar="CMD",
+        help="a command that prints a fresh token, run when the hub refuses the one in use",
+    )
+    run.add_argument(
         "--dry-run", action="store_true", help="check everything and print the plan; create nothing"
     )
 
@@ -261,10 +267,11 @@ def _run(ctx: Context) -> int:
         raise CliError(message, USAGE, hint="run `lucy setup`, or set LUCY_TOKEN")
     import httpx  # noqa: PLC0415 - kept out of `lucy --help`
 
-    from lucy_api.cli.evals_hub import HttpHub  # noqa: PLC0415 - it imports httpx
+    from lucy_api.cli.evals_hub import HttpHub, renewed_token  # noqa: PLC0415 - it imports httpx
 
     with httpx.Client(timeout=httpx.Timeout(TIMEOUT_SECONDS, read=READ_SECONDS)) as client:
-        hub = HttpHub(client, ctx.url, ctx.token)
+        renew = partial(renewed_token, args.token_command) if args.token_command else None
+        hub = HttpHub(client, ctx.url, ctx.token, renew=renew)
         hub_info = _preflight(ctx, hub, plan)
         if args.dry_run:
             return _dry_run(ctx, plan, hub_info)

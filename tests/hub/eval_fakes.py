@@ -106,6 +106,8 @@ class FakeLucy:
         self.grants: set[tuple[str, str]] = set()
         self.files: dict[str, str] = {"progress.md": "# Progress\n"}
         self.fail: dict[tuple[str, str], Any] = {}
+        self.token: str | None = None
+        """When set, a request carrying any other bearer token is refused with a 401."""
         self.refusals: dict[str, tuple[int, str, str]] = {}
         """A message the hub answers with a problem instead of a turn, by what was said:
         its status, the problem named at the end of its ``type``, and its sentence."""
@@ -134,6 +136,11 @@ class FakeLucy:
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         path = unquote(request.url.path)
+        if (
+            self.token is not None
+            and request.headers.get("Authorization") != f"Bearer {self.token}"
+        ):
+            return httpx.Response(401, json={"detail": "the token has expired"})
         failure = self.fail.get((request.method, path))
         if isinstance(failure, BaseException):
             raise failure

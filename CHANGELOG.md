@@ -116,6 +116,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A long eval run renews its own token.** `lucy eval run --token-command CMD` runs the
+  command when the hub refuses the token in use, keeps what it prints in memory, and sends
+  the request again. A keyring token lives fifteen minutes, and a conversation with helpers
+  and a hub restart outlived it, stopping as "the hub refused the token" part way through.
 - **An eval turn can expect the hub to refuse the message.** `refused = "settings-unavailable"`
   in a turn's `expect` passes when the hub answers the message with that problem instead
   of starting a turn, and the conversation goes on. The hub refuses a message outright
