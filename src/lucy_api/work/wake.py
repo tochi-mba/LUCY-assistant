@@ -30,7 +30,7 @@ wakes would open turns that each knew a fifth of it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from lucy_api.core.errors import LucyError
 from lucy_api.sessions.models import TERMINAL
@@ -72,6 +72,43 @@ def wake_line(record: Record) -> str:
     )
 
 
+STANDING = (
+    " It runs with the standing consent the person gave when they asked: act on what they "
+    "asked for, and nothing more."
+)
+"""Said when a woken turn carries the person's standing consent, so the model knows it may
+finish the job -- and that the job, not a new one, is what the consent covers."""
+
+NO_STANDING = (
+    " It runs without the person's standing consent, so it cannot act for them: say what "
+    "happened and ask them before doing anything on their behalf."
+)
+"""Said when work that asked to act for the person has no usable consent: none was
+recorded, or it was revoked or expired. The model can still tell them what happened."""
+
+
+class Authority(Protocol):
+    """How a woken turn gets the authority the work was opened with, when it carries any.
+
+    `prepare` runs before the turn exists and answers with whatever the turn needs to act --
+    opaque here -- or ``None`` when the ending carries no consent or its consent no longer
+    works. `authorize` hands that to the turn once it has an id. The waker knows nothing about
+    tokens; the composition root does.
+    """
+
+    def carries(self, ending: Ending) -> bool:
+        """Whether this ending was opened with standing consent at all."""
+        ...
+
+    async def prepare(self, ending: Ending) -> object | None:
+        """The authority for the turn this ending opens, or ``None``."""
+        ...
+
+    def authorize(self, turn_id: str, prepared: object) -> None:
+        """Give the opened turn what `prepare` made, before anything claims it."""
+        ...
+
+
 def team_wake_line(team: Team) -> str:
     """What the model reads when a group's ending wakes it. The same standing as one ending."""
     return (
@@ -101,15 +138,22 @@ class Waker:
         events: EventEmitter,
         *,
         wake: Callable[[], None] | None = None,
+        authority: Authority | None = None,
     ) -> None:
         self._store = store
         self._events = events
         self._wake = wake
+        self._authority = authority
         self._held: dict[str, list[Ending]] = {}
 
-    def attach(self, wake: Callable[[], None]) -> None:
-        """Name the thing that starts the turn loop; the supervisor is built after this is."""
+    def attach(self, wake: Callable[[], None], authority: Authority | None = None) -> None:
+        """Name the thing that starts the turn loop, and what lends a woken turn authority.
+
+        Both are built after the waker: the supervisor needs it, and authority needs both.
+        """
         self._wake = wake
+        if authority is not None:
+            self._authority = authority
 
     async def on_finished(self, record: Record) -> None:
         """The registry's listener: announce the ending, then wake or hold.
@@ -191,10 +235,18 @@ class Waker:
             wake = {"type": WAKE_INPUT, "work_id": ending.id}
             line = wake_line(ending)
             woke = {"work_id": ending.id, "state": ending.state.value}
+        prepared: object | None = None
+        if self._authority is not None and self._authority.carries(ending):
+            prepared = await self._authority.prepare(ending)
+            line = line[:-1] + (STANDING if prepared is not None else NO_STANDING) + "]"
         turn = await open_turn(
             self._store, ending.account_id, ending.session_id, {"events": [wake]}
         )
         turn_id = str(turn["id"])
+        if self._authority is not None and prepared is not None:
+            # Before anything else awaits: the supervisor may claim a queued turn at any
+            # yield, and a woken turn claimed without its authority runs without it.
+            self._authority.authorize(turn_id, prepared)
         await self._store.append(
             ending.account_id,
             ending.session_id,
@@ -237,4 +289,14 @@ def _team(team: Team) -> dict[str, Any]:
     }
 
 
-__all__ = ["NOTICE_KIND", "NOTICE_ROLE", "WAKE_INPUT", "Waker", "team_wake_line", "wake_line"]
+__all__ = [
+    "NOTICE_KIND",
+    "NOTICE_ROLE",
+    "NO_STANDING",
+    "STANDING",
+    "WAKE_INPUT",
+    "Authority",
+    "Waker",
+    "team_wake_line",
+    "wake_line",
+]

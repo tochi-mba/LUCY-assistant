@@ -61,6 +61,7 @@ from lucy_api.context.fields import FIELDS, feed_setting_key
 from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError, model_unavailable, settings_unavailable
+from lucy_api.core.standing import Standing
 from lucy_api.decide import USES, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
@@ -97,6 +98,7 @@ from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 from lucy_api.webhooks import Webhooks, httpx_deliver
 from lucy_api.work.live import WorkInFlight
 from lucy_api.work.registry import Registry as WorkRegistry
+from lucy_api.work.subscriptions import Subscriptions, SubscriptionSeam
 from lucy_api.work.wake import Waker
 from lucy_api.workspace.orient import WorkspaceLive
 
@@ -184,11 +186,14 @@ class Container:
     mcp_servers: McpServers
     blobs: Blobs
     webhooks: Webhooks
+    subscriptions: Subscriptions
+    standing: Standing | None = None
     environment_override: EnvironmentsClient | None = None
     memory_topics: TopicListing | None = None
     decider: Decider = field(default_factory=NullDecider)
     started_at: float = field(default_factory=time.monotonic)
     _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+    _sweeping: asyncio.Task[None] | None = None
 
     def pack_context(self, request: PackRequest) -> PackContext:
         """The seam a request uses to talk to siblings: minted tokens, never the caller's.
@@ -202,7 +207,7 @@ class Container:
         ready to act for anyone, not a per-request failure.
         """
         if not self.settings.keyring_service_token.strip():
-            return self.capabilities.context_for(
+            bare = self.capabilities.context_for(
                 SessionScope(
                     account_id=request.caller.account_id,
                     profile=request.profile,
@@ -212,6 +217,8 @@ class Container:
                     incognito=request.incognito,
                 )
             )
+            bare.subscriptions = self._subscription_seam(request, consent=False)
+            return bare
         broker = TokenBroker(
             exchange=self.exchange,
             delegation=Delegation.for_person(request.caller, user_token=request.user_token),
@@ -244,7 +251,20 @@ class Container:
             tokens=broker,
         )
         context.forget_settings = partial(_forget_settings, self.preferences, request.user_token)
+        context.subscriptions = self._subscription_seam(request, consent=True)
         return context
+
+    def _subscription_seam(self, request: PackRequest, *, consent: bool) -> SubscriptionSeam:
+        """Subscriptions for this request's person and session, with consent when it can."""
+        return SubscriptionSeam(
+            self.subscriptions,
+            account_id=request.caller.account_id,
+            session_id=request.session_id,
+            profile=request.profile,
+            consent=partial(self.standing.consent, request)
+            if consent and self.standing is not None
+            else None,
+        )
 
     def connection_client(self, request: PackRequest) -> DelegatedKeyringClient:
         """Manage connection metadata through Keyring's two-credential internal surface."""
@@ -678,9 +698,18 @@ class Container:
         """Bring the database up to the current schema before anything is served."""
         await self.store.initialize()
         await self.turns.start()
+        await self.subscriptions.restore()
+        self._sweeping = asyncio.create_task(
+            self.subscriptions.run_sweeps(self.settings.subscription_sweep_seconds),
+            name="subscriptions:sweep",
+        )
 
     async def aclose(self) -> None:
         """Release every long-lived resource, even if an earlier close objects."""
+        if self._sweeping is not None:
+            self._sweeping.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._sweeping
         try:
             await self.work.shutdown()
         finally:
@@ -824,7 +853,6 @@ def build_container(
         agents=agents,
         on_status=after_turn(webhooks.notify, waker, store),
     )
-    waker.attach(turns.wake)
     exchange = KeyringExchange(
         base_url=settings.keyring_base_url,
         service_token=settings.keyring_service_token,
@@ -837,7 +865,8 @@ def build_container(
         timeout_seconds=min(settings.http_timeout_seconds, 5.0),
         transport=transport,
     )
-    return Container(
+    subscriptions = Subscriptions(store, work, signal_base_url=settings.signal_base_url)
+    container = Container(
         settings=settings,
         jwks=jwks,
         verifier=verifier,
@@ -859,6 +888,7 @@ def build_container(
         mcp_servers=mcp_servers,
         blobs=Blobs(store, root=_blobs_root(settings)),
         webhooks=webhooks,
+        subscriptions=subscriptions,
         decider=LayaDecider(
             outbound,
             settings.laya_base_url,
@@ -870,6 +900,10 @@ def build_container(
         if settings.laya_base_url
         else NullDecider(),
     )
+    container.standing = Standing(container)
+    subscriptions.on_consent_release(container.standing.withdraw)
+    waker.attach(turns.wake, container.standing)
+    return container
 
 
 def after_turn(

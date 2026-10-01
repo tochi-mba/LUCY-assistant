@@ -72,6 +72,9 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
 # silently give the hub authority to call it for a person.
 LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
     "environments-api",
+    # Lucy itself: a woken turn mints a token for the hub under the standing consent the
+    # person recorded, and is then prepared like any turn they sent (docs/jobs.md).
+    "lucy-api",
     "memory-api",
     # `persona`, not `persona-api`: the audience persona pins against is not its service name.
     # Keyring mints whatever is asked for, so a wrong entry here is only discovered by the

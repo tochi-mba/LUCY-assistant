@@ -180,6 +180,15 @@ CREATE TABLE IF NOT EXISTS device_codes (
 
 -- Long-run push. The body is a signal (session, turn, status), never a transcript.
 -- `secret` is shown once at create so the subscriber can check X-Lucy-Signature.
+CREATE TABLE IF NOT EXISTS subscriptions (
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL,
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ profile TEXT NOT NULL, work_id TEXT NOT NULL, capability TEXT NOT NULL, sibling_id TEXT,
+ secret TEXT NOT NULL, grant_id TEXT, objective TEXT NOT NULL, wake INTEGER NOT NULL,
+ state TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL NOT NULL, ended_at REAL,
+ result_json TEXT
+) STRICT;
+CREATE INDEX IF NOT EXISTS subscriptions_open ON subscriptions(state,created_at);
 CREATE TABLE IF NOT EXISTS webhooks (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, url TEXT NOT NULL,
  secret TEXT NOT NULL, created_at REAL NOT NULL,

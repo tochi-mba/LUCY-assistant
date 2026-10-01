@@ -65,6 +65,10 @@ class Kind(StrEnum):
     """A condition checked on an interval until it holds. Its result is *that* it fired,
     with a bounded excerpt of the evidence, and its expiry is a different fact from failure:
     "nothing happened in five minutes" is an answer, and the notice says so."""
+    subscription = "subscription"
+    """A condition a *sibling* checks, which signals Lucy when it holds. The same handle,
+    notice and wake as a watch; what differs is that Lucy does not look -- the service that
+    can see the condition does -- and the row is durable, so a restart does not lose it."""
 
 
 class State(StrEnum):

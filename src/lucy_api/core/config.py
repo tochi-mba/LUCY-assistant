@@ -170,8 +170,21 @@ class Settings(BaseSettings):
     This value is Lucy's own credential, never a person's, and never a keyring token.
     """
 
+    repos_api_base_url: str = "http://127.0.0.1:8011"
+    repos_api_audience: str = "github-api"
+    """The audience of whatever answers at `repos_api_base_url`: Github-api's own name by
+    default. The capability is `repos`; the audience is the implementation's, as for music."""
+
     extra_services: dict[str, ExtraSibling] = Field(default_factory=dict)
     """Operator-local siblings, keyed by capability id. Empty means none are wired."""
+
+    signal_base_url: str = "http://127.0.0.1:8000/v1/signals"
+    """Where a sibling sends the signal that ends a subscription: this hub's `/v1/signals`, as
+    the sibling reaches it. In compose that is the service name (`http://lucy:8000/...`), not
+    the address a person types; the two differ, which is why this is a setting."""
+
+    subscription_sweep_seconds: PositiveFloat = 120.0
+    """How often to ask siblings about subscriptions whose signal may have been lost."""
 
     # Timeouts and caches.
     jwks_cache_seconds: PositiveFloat = 3_600.0

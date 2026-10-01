@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from lucy_api.packs.probes import ProbeCache
     from lucy_api.permissions.gate import Grant
     from lucy_api.work import Registry
+    from lucy_api.work.subscriptions import SubscriptionSeam
 
 from lucy_api.decide import Decisions
 from lucy_api.settings.policy import TurnPolicy
@@ -183,6 +184,9 @@ class PackContext:
     """
     limits: dict[str, asyncio.Semaphore] = field(default_factory=dict)
     probes: ProbeCache | None = None
+    subscriptions: SubscriptionSeam | None = None
+    """How this turn opens work a sibling finishes and signals (`work.subscriptions`). Absent
+    where no subscription store is wired, and a capability that needs one says so."""
     defaults: dict[str, object] = field(default_factory=dict)
     """Sibling knobs this turn may use when the model omitted them. Never secrets."""
     forget_settings: Callable[[str], None] | None = None

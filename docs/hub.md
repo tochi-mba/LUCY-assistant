@@ -35,10 +35,13 @@ Two things happen beside that path:
   approved and together with the steps it reads from (`permissions/replay.py`), before the
   model is asked anything. A call that reads from a step the person refused does not run, and
   the model is told why.
-- **Work that outlives a step** -- a long command, a watch, a helper -- lives in
-  `work/registry.py` and announces itself when it ends. Helpers are a child run of the same
-  loop (`agents/runtime.py`); a helper a restart interrupted is announced by
-  `agents/restart.py`.
+- **Work that outlives a step** -- a long command, a watch, a helper, a subscription a
+  sibling finishes -- lives in `work/registry.py` and announces itself when it ends.
+  Helpers are a child run of the same loop (`agents/runtime.py`); a helper a restart
+  interrupted is announced by `agents/restart.py`. Subscriptions are durable rows a sibling
+  ends with a signed signal (`work/subscriptions.py`, `POST /v1/signals`), and a turn they
+  wake acts under the person's standing consent (`core/standing.py`). [jobs.md](jobs.md)
+  is the whole story.
 
 ## Where to start when something goes wrong
 
