@@ -8,7 +8,7 @@ reader can answer "which prompt wrote this turn?" without reconstructing the fil
 [docs/context.md](context.md) is the window, the bands, and the live state block. This page
 is the standing text that sits in front of all of that.
 
-## The twelve sections
+## The thirteen sections
 
 Order is reading order. Trim order is `priority` (lower is kept longer).
 
@@ -16,6 +16,7 @@ Order is reading order. Trim order is `priority` (lower is kept longer).
 | --- | --- | --- |
 | `identity` | system | Who Lucy is. Persona standing data may fill this, as a reported claim. |
 | `behaviour` | system | How it works for this person: style, permission mode, what is connected. |
+| `preferences` | system | The language, units, clock and currency the person chose. Absent when they chose none. |
 | `tools` | system | The plan idiom. **Cannot be turned off.** Without it, plans stop composing. |
 | `safety` | system | What it never does. **Cannot be turned off.** A page must not become instructions. |
 | `lessons` | system | How this person works, as recorded notes, not as a second system prompt. |
@@ -68,7 +69,10 @@ to see.
 
 ## What a setting may reach
 
-`lucy.response_style` changes `behaviour`. Prompt-feed masters and per-field toggles change
+`lucy.response_style` changes `behaviour`. `common.locale`, `units`, `time_format` and
+`currency` are the whole of `preferences`, one sentence each and only when chosen, and
+`common.timezone` sets the clock on the live block's `now` line
+([settings.md](settings.md#the-persons-own-conventions)). Prompt-feed masters and per-field toggles change
 what the live block contains, not the section text. `prompt_allow_unknown_feed_fields` is
 off by default and an assistant may never turn it on: a sibling inventing keys Lucy does
 not know is otherwise a silent prompt injection surface.

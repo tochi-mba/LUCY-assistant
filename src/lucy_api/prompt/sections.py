@@ -121,6 +121,12 @@ class PromptContext:
     response_style: str = "natural"
     """How long an ordinary answer should run: brief, natural, or thorough."""
 
+    preferences: str = ""
+    """The language, units, clock and currency the person chose, as one sentence or more.
+
+    Empty when they chose none, and then the prompt says nothing: the model follows how
+    the person writes."""
+
     notes: tuple[Claim, ...] = ()
     """Persona notes and pinned facts, already fetched, still carrying their provenance."""
 
@@ -196,6 +202,16 @@ def _behaviour(context: PromptContext) -> str:
     if not extra:
         return base
     return f"{base}\n\n{extra}"
+
+
+def _preferences(context: PromptContext) -> str:
+    """The person's own choices, in a section of their own.
+
+    Not a paragraph of `behaviour`: that section runs close to its ceiling, and a line
+    added at its end is the first one cut. A choice somebody made must not be what is
+    given up to make room for prose.
+    """
+    return context.preferences
 
 
 def _capabilities(context: PromptContext) -> str:
@@ -318,6 +334,15 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_behaviour,
         max_tokens=850,
+    ),
+    PromptSection(
+        id="preferences",
+        title="How this person asked to be written to",
+        band=Band.system,
+        priority=32,
+        version="1",
+        render=_preferences,
+        max_tokens=200,
     ),
     PromptSection(
         id="tools",

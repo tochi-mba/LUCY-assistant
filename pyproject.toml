@@ -21,6 +21,8 @@ dependencies = [
     "pydantic-settings>=2.5",
     "python-dotenv>=1.0",
     "settings-client",
+    # The tz database, for the person's time zone: Windows ships none, and a slim image may not.
+    "tzdata>=2025.1",
     "uvicorn[standard]>=0.30",
     "weftai[all]==0.5.2",
 ]

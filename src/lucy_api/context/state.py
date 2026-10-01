@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from lucy_api.context.scrub import fence
@@ -422,10 +423,24 @@ def _zone(moment: datetime) -> str:
     own, above the real one. One call is cheaper than an argument about which `tzinfo` every
     caller will ever pass, and a zone that cleans away to nothing is a zone we cannot name.
     """
+    key = getattr(moment.tzinfo, "key", None)
+    if isinstance(key, str) and key:
+        # A zone from the tz database names itself by abbreviation ("WEST", "+04"), which
+        # a model cannot do arithmetic with. Its name and its offset today are what
+        # "remind me at nine" needs.
+        return f"{_clean(key, NAME_CHARS)}, UTC{_offset(moment)}"
     name = moment.tzname()
     if name is None:
         return NO_TIMEZONE
     return _clean(name, NAME_CHARS) or NO_TIMEZONE
+
+
+def _offset(moment: datetime) -> str:
+    """The zone's distance from UTC at this moment, as `+01:00`."""
+    minutes = int((moment.utcoffset() or timedelta()).total_seconds() // 60)
+    sign = "-" if minutes < 0 else "+"
+    hours, rest = divmod(abs(minutes), 60)
+    return f"{sign}{hours:02d}:{rest:02d}"
 
 
 def _session_line(state: LiveState) -> str:
