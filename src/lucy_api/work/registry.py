@@ -103,6 +103,9 @@ completed download is not something anybody is about to ask for.
 CANCELLED_QUEUED = "cancelled before it started"
 """The ending of queued work somebody cancelled: nothing of it ever ran."""
 
+RESTARTED = "the hub restarted while it was running"
+"""Why work stopped when the process running it went down. Nobody stopped it."""
+
 
 class AtCapacityError(Exception):
     """Raised when a session already has `MAX_CONCURRENT` things running, or a full queue.
@@ -362,7 +365,10 @@ class Registry:
         except TimeoutError:
             self._finish(record, State.timed_out, detail=_expired(record))
         except asyncio.CancelledError:
-            self._finish(record, State.cancelled, detail="cancelled")
+            if self._closing:
+                self._stopped_by_restart(record)
+            else:
+                self._finish(record, State.cancelled, detail="cancelled")
             raise
         except WorkError as exc:
             self._finish(record, State.failed, detail=str(exc), payload=exc.payload)
@@ -381,8 +387,28 @@ class Registry:
             return await asyncio.wait_for(work, record.timeout_seconds)
         return await work
 
+    def _stopped_by_restart(self, record: Record) -> None:
+        """Work this process stops on its way down: an ending nobody chose, not a cancellation.
+
+        A helper is not told about here at all. Its row stays running, and the next process
+        announces it as continuable (`agents.restart`). Told here, it was announced to its
+        conversation as cancelled -- the person's own choice, never offered for continuing --
+        and the model, asked what was interrupted, said nothing had been. Other work has no
+        next process to speak for it, so it is told, as stopped by the restart.
+        """
+        if record.kind is Kind.helper:
+            self._finish(record, State.failed, detail=RESTARTED, tell=False)
+            return
+        self._finish(record, State.failed, detail=RESTARTED)
+
     def _finish(
-        self, record: Record, state: State, *, payload: object = None, detail: str = ""
+        self,
+        record: Record,
+        state: State,
+        *,
+        payload: object = None,
+        detail: str = "",
+        tell: bool = True,
     ) -> None:
         """Record how a piece of work ended. Called exactly once per record.
 
@@ -397,6 +423,8 @@ class Registry:
         record.payload = payload
         record.detail = _clip(detail, MAX_PROGRESS)
         record.tokens = self._measure(payload) if payload is not None else 0
+        if not tell:
+            return
         for listener in self._listeners:
             self._deliver(_told(listener, record), f"work-told:{record.id}")
         if record.group:

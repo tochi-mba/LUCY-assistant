@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A restart is not announced as a cancellation.** Restarting the hub while a helper ran
+  told its conversation the helper had been *cancelled* -- the person's own choice, never
+  offered for continuing -- so asked what was interrupted, the model said nothing had been.
+  The work registry knows the process is going down: a helper is now left for the next
+  process to announce as continuable, and other work is told it stopped because the hub
+  restarted. Found by Rung 3, which restarts the hub mid-helper.
 - **The eval watchdog lets the model repair a plan.** A plan the hub sends back to be
   repaired is written to the transcript as an `invalid_plan` error, and the watchdog halted
   the turn on it: asked to start a helper and stop it at once, haiku put the spawn's handle

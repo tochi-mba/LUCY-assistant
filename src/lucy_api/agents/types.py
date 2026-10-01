@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from lucy_api.work.registry import rough_tokens
+from lucy_api.work.registry import RESTARTED, rough_tokens
 
 RESULT_TOKEN_CAP = 2000
 """How large a helper's return may be.
@@ -31,9 +31,6 @@ one thing the model can do about it.
 
 STOPPED = "stopped before it finished"
 """The front of the notice for a helper that cannot usefully be continued as it is."""
-
-RESTARTED = "the hub restarted while it was running"
-"""Why a helper a previous process was running has stopped."""
 
 RESTARTED_QUEUED = "the hub restarted before it started"
 """Why a helper a previous process held in its queue has stopped. Nothing of it ran."""
