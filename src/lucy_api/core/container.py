@@ -22,6 +22,7 @@ import posixpath
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -230,7 +231,7 @@ class Container:
                 request.caller.account_id, request.profile
             ),
         )
-        return self.capabilities.context_for(
+        context = self.capabilities.context_for(
             SessionScope(
                 account_id=request.caller.account_id,
                 profile=request.profile,
@@ -242,6 +243,8 @@ class Container:
             http=http,
             tokens=broker,
         )
+        context.forget_settings = partial(_forget_settings, self.preferences, request.user_token)
+        return context
 
     def connection_client(self, request: PackRequest) -> DelegatedKeyringClient:
         """Manage connection metadata through Keyring's two-credential internal surface."""
@@ -918,6 +921,19 @@ def _blobs_root(settings: Settings) -> Path | None:
     if settings.database_path == ":memory:":
         return None
     return Path(settings.database_path).expanduser().resolve().parent / "blobs"
+
+
+COMMON_NAMESPACE = "common"
+"""The namespace settings-api merges underneath every other one it resolves."""
+
+
+def _forget_settings(preferences: SettingsClient, user_token: str, namespace: str) -> None:
+    """Stop serving a person's cached settings after they changed one.
+
+    ``common`` is merged into every namespace a turn reads, so a change there makes all of
+    them stale, not one.
+    """
+    preferences.forget(user_token, None if namespace == COMMON_NAMESPACE else namespace)
 
 
 def _sibling_service_tokens(settings: Settings) -> dict[str, str]:

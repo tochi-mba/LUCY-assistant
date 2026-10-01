@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A setting changed through Lucy applies to the very next turn.** `settings.set` writes
+  through settings-api's person-facing routes, and a turn reads its settings through the
+  settings client, which caches them for a minute per token and was never told. With
+  remembering just turned off, the next turn still asked to remember something; found by
+  Rung 4's permission suite. The write now drops the person's cached namespace (every
+  namespace, for `common`), through settings-client 0.3.0's `forget`.
 - **A capability probe answers for its own session.** Probe results were cached per person
   and capability, but the workspace is ready only in a session that has one attached. One
   probe made outside a session -- the capability listing, or a session not yet provisioned --

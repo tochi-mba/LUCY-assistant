@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from lucy_api.packs.base import Catalogue
     from lucy_api.packs.probes import ProbeCache
@@ -185,6 +185,14 @@ class PackContext:
     probes: ProbeCache | None = None
     defaults: dict[str, object] = field(default_factory=dict)
     """Sibling knobs this turn may use when the model omitted them. Never secrets."""
+    forget_settings: Callable[[str], None] | None = None
+    """Tell the reader of this person's turn settings that a namespace changed.
+
+    `settings.set` writes through settings-api's person-facing routes, and the settings a
+    turn runs under are read through another client that caches them for a minute. Without
+    this the next turn read the old value: a person who turned remembering off was asked,
+    one turn later, whether Lucy could remember something.
+    """
     step_seconds: float = 10.0
     """How long one step may run in the plan being executed, as weftai enforces it.
 
