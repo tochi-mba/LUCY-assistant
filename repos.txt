@@ -8,3 +8,4 @@ Web-search-api https://github.com/tochi-mba/Web-search-api.git
 Spotify-api https://github.com/tochi-mba/Spotify-api.git
 Environments-api https://github.com/tochi-mba/Environments-api.git
 Memory-api https://github.com/tochi-mba/Memory-api.git
+Github-api https://github.com/tochi-mba/Github-api.git

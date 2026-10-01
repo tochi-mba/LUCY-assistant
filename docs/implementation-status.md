@@ -204,8 +204,9 @@ machine is listed as in progress, however finished it looks.
   lockstep; the hub adopts them once 0.6.0 is published. Other W items remain pending; W1 is
   excluded by the plan.
 - Repositories: the hub capability, scoped grants and the jobs-and-signals path are complete
-  and tested against the contract's fake. Github-api joins `repos.txt`, compose and
-  `repos.lock` when its repository is published ([repos.md](repos.md)).
+  and tested against the contract's fake; Github-api is in `repos.txt`, compose and
+  `repos.lock`. What remains is a live run against GitHub with the Lucy GitHub App
+  registered ([repos.md](repos.md)).
 
 ## Known gaps, stated plainly
 

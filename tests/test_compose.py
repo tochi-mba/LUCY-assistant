@@ -20,6 +20,7 @@ FAMILY = (
     "memory",
     "web-search",
     "spotify",
+    "github",
     "environments",
 )
 
@@ -34,6 +35,7 @@ CONTEXTS = {
     "web-search": "./Web-search-api",
     "spotify": "./Spotify-api",
     "environments": "./Environments-api",
+    "github": "./Github-api",
 }
 
 HOST_PORTS = {
@@ -46,6 +48,7 @@ HOST_PORTS = {
     "web-search": "8006:8006",
     "spotify": "8007:8007",
     "environments": "8008:8008",
+    "github": "8011:8011",
 }
 """Host and container sides match: every repository now defaults to its family port, so the
 number a person types is the number the process binds. See docs/adr/0004-port-assignments.md."""

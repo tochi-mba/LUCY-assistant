@@ -317,7 +317,7 @@ verified, what remains unresolved, and the artifacts produced.
 | [Spotify-api](https://github.com/tochi-mba/Spotify-api) | Batch track lookup and confirmed playback. Holds no Spotify credential. | 8007 | `SPOTIFY_API_` | `/healthy`, `/ready` |
 | [Environments-api](https://github.com/tochi-mba/Environments-api) | Sandboxed shells. Remote code execution as a product; needs Linux. | 8008 | `ENVAPI_` | `/healthy` (alias `/health`), `/ready` (alias `/health/ready`) |
 | [Memory-api](https://github.com/tochi-mba/Memory-api) | What the assistant has learned about the person: provenance, history, and a topic index. | 8009 | `MEMORY_` | `/healthy`, `/ready` |
-| Github-api *(publishing; see [docs/repos.md](docs/repos.md))* | The `repos` capability's service: GitHub for the person who connected it. Holds no GitHub credential. | 8011 | `GHAPI_` | `/healthy`, `/ready` |
+| [Github-api](https://github.com/tochi-mba/Github-api) | The `repos` capability's service: GitHub for the person who connected it. Holds no GitHub credential. | 8011 | `GHAPI_` | `/healthy`, `/ready` |
 
 Every public service listens on its assigned port, so the hub and its siblings run on one
 host without a collision. Compose maps each host port to the same number inside the

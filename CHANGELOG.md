@@ -172,6 +172,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   live block and `work.list` say when each is due; `work.cancel` calls one off; a restart
   takes them up again, and one that fell due while the hub was down fires at once saying how
   late it is. Fired subscriptions now carry their summary in the notice.
+- **Github-api joins the family**: `repos.txt`, `repos.lock`, compose service `github` on
+  8011 with its own volume, the workspace file and the README table. The hub reaches it at
+  `LUCY_REPOS_API_BASE_URL` (`http://github:8011` in compose).
 - **Repositories: the `repos` capability.** Code, pull requests, issues and CI on the GitHub
   account a person connected (the Lucy GitHub App, with all or selected repositories, or a
   fine-grained token), through the new Github-api sibling on port 8011. Sixteen writes
