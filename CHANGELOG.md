@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A second compaction does not summarise the first turns twice.** Summaries were placed
+  oldest first, and one was skipped only when it covered nothing new. Every compaction is
+  written from the start of the transcript, so the second always covered new ground, and
+  the prompt read the opening turns summarised twice, as if they had happened twice. The
+  newest active compaction now wins; an older one it overlaps is reported, not shown, and
+  what a newer, narrower one leaves out is read verbatim.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.

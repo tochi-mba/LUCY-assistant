@@ -123,7 +123,11 @@ def test_entries_belonging_to_no_turn_are_covered_exactly_as_asked() -> None:
     assert bodies(projection)[1:] == ["user: question 1", "assistant: answer 1"]
 
 
-def test_a_summary_made_redundant_by_a_later_one_is_reported_rather_than_shown_twice() -> None:
+def test_a_second_compaction_does_not_summarise_the_first_turns_twice() -> None:
+    """The bug, named: summaries were placed oldest first, and one was skipped only when it
+    covered nothing new. Every compaction is written from the first item onwards, so a second
+    one always covers new ground -- and the prompt read turn 1 summarised twice, as if it
+    had happened twice. The newest now wins and the older one is reported, not shown."""
     projection = project(
         conversation(3),
         [
@@ -132,8 +136,16 @@ def test_a_summary_made_redundant_by_a_later_one_is_reported_rather_than_shown_t
         ],
         counter=COUNTER,
     )
-    assert projection.summaries == 2, "both cover fresh ground, so both are kept"
+    assert projection.summaries == 1
+    assert "Second pass." in projection.sections[0].body
+    assert not any("First pass." in body for body in bodies(projection))
+    assert bodies(projection)[1:] == ["user: question 3", "assistant: answer 3"]
+    assert projection.notices == ("compaction 1 is superseded by compaction 2",)
 
+
+def test_a_newer_narrower_compaction_wins_and_what_it_leaves_out_is_read_verbatim() -> None:
+    """Somebody compacted by hand keeping more turns than the automatic pass had: the turns
+    they asked to keep are read whole rather than through the older, wider summary."""
     swallowed = project(
         conversation(3),
         [
@@ -143,7 +155,29 @@ def test_a_summary_made_redundant_by_a_later_one_is_reported_rather_than_shown_t
         counter=COUNTER,
     )
     assert swallowed.summaries == 1
-    assert swallowed.notices == ("compaction 2 covers nothing not already summarised",)
+    assert "Narrow pass." in swallowed.sections[0].body
+    assert bodies(swallowed)[1:] == [
+        "user: question 2",
+        "assistant: answer 2",
+        "user: question 3",
+        "assistant: answer 3",
+    ]
+    assert swallowed.notices == ("compaction 1 is superseded by compaction 2",)
+
+
+def test_summaries_of_separate_stretches_are_both_shown_in_order() -> None:
+    projection = project(
+        conversation(3),
+        [
+            Compaction(seq=1, summary="Opening.", covers_from=1, covers_to=2),
+            Compaction(seq=2, summary="Middle.", covers_from=3, covers_to=4),
+        ],
+        counter=COUNTER,
+    )
+    assert projection.summaries == 2
+    assert "Opening." in projection.sections[0].body
+    assert "Middle." in projection.sections[1].body
+    assert projection.notices == ()
 
 
 def test_deactivating_a_summary_brings_the_turns_back_unchanged() -> None:
@@ -198,7 +232,7 @@ def test_a_summary_of_a_transcript_that_has_since_been_emptied_still_reads() -> 
         [], [Compaction(seq=1, summary="Everything.", covers_from=1, covers_to=9)], counter=COUNTER
     )
     assert projection.sections == (), "a summary covering nothing present is not shown"
-    assert projection.notices == ("compaction 1 covers nothing not already summarised",)
+    assert projection.notices == ("compaction 1 covers nothing still in the transcript",)
 
 
 def test_every_section_is_priced_by_the_counter_it_was_given() -> None:
