@@ -114,6 +114,22 @@ before the plan runs.
 New repositories go to the person's default owner and visibility from settings namespace
 `github` (`default_owner`, `default_visibility`) when the model names neither.
 
+The same namespace holds how the person works, and fills what a call leaves out. A field the
+call names always wins.
+
+| setting | default | fills |
+| --- | --- | --- |
+| `merge_method` | `squash` | `method` on `repos.merge` |
+| `delete_branch_after_merge` | off | `delete_branch` on `repos.merge`; the step's notice says the setting deleted it |
+| `draft_pull_requests` | off | `draft` on `repos.openPull` |
+| `watch_default_hours` | 1 | `for_seconds` on `repos.watch`, held between an hour and a week |
+
+`merge_method` refuses on an outage rather than falling back: squashing a pull request on a
+repository that merges or rebases changes how its history lands, and that is not undone
+cleanly. When it cannot be read, a merge that names no `method` is refused with the reason
+and the three choices; one that names a method goes ahead. The other three fall back to
+their defaults, which are what the hub did before they existed.
+
 ## Watching: CI can wake a session
 
 `repos.watch` is the first capability on [jobs and signals](jobs.md). It asks Github-api for

@@ -221,6 +221,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   `lucy eval baseline REPORT --out FILE` cuts a report down to its measurements, with no
   reply, step result, seed or session id, so a known-good run can be committed under
   `docs/baselines/` and every later change compared against it.
+- **Repositories follow the person's habits.** Four `github` settings fill what a call
+  leaves out: `merge_method` (`method` on `repos.merge`), `delete_branch_after_merge`
+  (`delete_branch`, with a notice when the setting deleted it), `draft_pull_requests`
+  (`draft` on `repos.openPull`) and `watch_default_hours` (`for_seconds` on `repos.watch`,
+  an hour to a week). A field the call names still wins, and with nothing chosen a merge
+  squashes and keeps its branch, a pull request opens ready and a watch lasts an hour, as
+  before. The merge method is never guessed: when it cannot be read, a merge that names no
+  `method` is refused and asks for one.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

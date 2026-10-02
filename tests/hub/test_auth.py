@@ -356,7 +356,8 @@ async def test_a_sibling_settings_outage_does_not_take_the_turn_down(
     container.preferences = SiblingOutage(SettingsUnavailable("down"))
     try:
         assert await container._pack_defaults("a.verified.jwt", "personal") == {
-            "notes.trust_floor": "unknown"
+            "notes.trust_floor": "unknown",
+            "repos.merge_method": "unknown",
         }
     finally:
         await container.aclose()
@@ -366,7 +367,8 @@ async def test_a_sibling_settings_outage_does_not_take_the_turn_down(
     container.preferences = SiblingOutage(SettingsRejected(403, "forbidden"))
     try:
         assert await container._pack_defaults("a.verified.jwt", "work") == {
-            "notes.trust_floor": "unknown"
+            "notes.trust_floor": "unknown",
+            "repos.merge_method": "unknown",
         }
     finally:
         await container.aclose()
