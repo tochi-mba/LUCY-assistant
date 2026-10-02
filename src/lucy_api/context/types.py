@@ -207,7 +207,14 @@ class BudgetSnapshot:
     used: int
     window: int
     reclaimable: int = 0
-    last_compaction_turn: int | None = None
+    summarised_turns: int = 0
+    """How many of the opening turns the model is reading as a summary, not verbatim.
+
+    Filled in from the projection that built the history band, so it is what the model
+    is actually reading rather than what some compaction row once asked for."""
+
+    compact_at_percent: int | None = None
+    """Where compaction runs, so the model can keep what matters before it does."""
 
     @property
     def percent(self) -> int:

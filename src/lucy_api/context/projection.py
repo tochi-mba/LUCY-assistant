@@ -87,6 +87,8 @@ class Projection:
     replaced: int = 0
     summaries: int = 0
     notices: tuple[str, ...] = field(default_factory=tuple)
+    summarised_turns: int = 0
+    """How many distinct turns the shown summaries stand in for."""
 
 
 def project(
@@ -155,6 +157,9 @@ def project(
         replaced=len(covered),
         summaries=sum(1 for part in sections if part.id.startswith("history.summary.")),
         notices=tuple(notices),
+        summarised_turns=len(
+            {item.turn_id for item in ordered if item.seq in covered and item.turn_id}
+        ),
     )
 
 

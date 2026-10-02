@@ -239,3 +239,14 @@ def test_every_section_is_priced_by_the_counter_it_was_given() -> None:
     projection = project(conversation(1), counter=COUNTER)
     for section in projection.sections:
         assert section.tokens == COUNTER.count(section.body)
+
+
+def test_the_projection_counts_the_turns_its_summaries_stand_in_for() -> None:
+    loose = [Item(id="x1", seq=0, role="system", body="note"), *conversation(3)]
+    projection = project(
+        loose,
+        [Compaction(seq=1, summary="Opening.", covers_from=0, covers_to=4)],
+        counter=COUNTER,
+    )
+    assert projection.summarised_turns == 2, "an entry belonging to no turn is not a turn"
+    assert project(conversation(3), counter=COUNTER).summarised_turns == 0

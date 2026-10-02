@@ -140,6 +140,11 @@ async def build_context(
             failures=(*state.failures, *collected.failures),
         )
     projection = project(turn.items, turn.compactions, counter=pricing)
+    if projection.summarised_turns:
+        state = replace(
+            state,
+            budget=replace(state.budget, summarised_turns=projection.summarised_turns),
+        )
 
     live = render_state(state, limit=live_limit, counter=pricing)
     context = assemble(

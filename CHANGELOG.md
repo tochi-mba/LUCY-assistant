@@ -14,6 +14,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   the prompt read the opening turns summarised twice, as if they had happened twice. The
   newest active compaction now wins; an older one it overlaps is reported, not shown, and
   what a newer, narrower one leaves out is read verbatim.
+- **The model is told which turns it is reading as a summary.** The context line was built to
+  name the last compaction, but nothing ever filled that field in, so a model reading a
+  summary of its own opening turns was never told so, and could answer "what did we say at
+  the start?" as if it remembered. The line now reads `turns 1-6 are read as a summary`,
+  counted from the projection that built the history, and names where compaction runs
+  (`compaction at 72%`), so the model's guidance points at the real threshold rather than a
+  hard-coded "seven tenths".
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.
