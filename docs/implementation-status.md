@@ -164,6 +164,9 @@ machine is listed as in progress, however finished it looks.
 - **Idle archival.** Listing sessions archives conversations whose `updated_at` is older
   than `lucy.session_idle_archive_days` and that have no live or parked turn. Zero days
   means never. A running, queued, or `input_required` conversation is not idle.
+  `lucy.delete_archived_sessions_after_days` (zero, never, by default) then deletes
+  conversations archived and untouched that long, at most ten per listing, never one with
+  an unfinished turn, a queued or running helper, or a waiting watch.
 - **Approval floor.** `lucy.approval_policy` still asks about destructive writes in
   `auto`, and about spend when it is `spend_and_destructive_ask`. Grants skip the floor;
   the mode does not. `notes.erase` covers `notes.forget` and `notes.unlearn`;

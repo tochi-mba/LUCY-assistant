@@ -20,6 +20,7 @@ re-marked every bound capability as used. Once four capabilities had been used i
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -308,3 +309,45 @@ async def test_one_turn_binds_a_held_back_capability_and_then_uses_it(
     assert any(
         step.get("operation") == f"{held_back}.ping" and step.get("status") == "ok" for step in ran
     )
+
+
+async def test_preferred_capabilities_are_held_from_the_first_turn_by_every_caller() -> None:
+    """preferred_capabilities: a person who names `g6` gets it bound in a new conversation,
+    with no `capabilities.use` round, and the plan schema and executor agree with the list."""
+    capabilities, context = _crowded()
+    held_back = f"g{DEFER_ABOVE}"
+    context.policy = replace(context.policy, preferred_capabilities=(held_back, "g5", "nope"))
+    await capabilities.probe(context)
+    assert context.catalogue is not None
+
+    schema = capabilities.plan_schema(context.catalogue, SESSION, context)
+    result = await capabilities.execute(_ping_plan(held_back), context)
+
+    assert _bound(capabilities, context) == {"help", held_back, "g5", "g0", "g1"}
+    assert f"{held_back}.ping" in str(schema)
+    assert result["issues"] is None
+
+
+async def test_what_the_conversation_used_still_outranks_a_preference() -> None:
+    """A preference replaces the built-in first-loaded order, not recency."""
+    capabilities, context = _crowded()
+    context.policy = replace(context.policy, preferred_capabilities=(f"g{DEFER_ABOVE}",))
+    await capabilities.probe(context)
+    for index in range(KEEP_RECENT):
+        capabilities.remember_use(SESSION, f"g{index}")
+
+    assert f"g{DEFER_ABOVE}" not in _bound(capabilities, context)
+
+
+async def test_a_preference_never_binds_a_capability_the_person_turned_off() -> None:
+    """Preferring and disabling the same capability leaves it off: only ready ones rank."""
+    capabilities, context = _crowded()
+    held_back = f"g{DEFER_ABOVE}"
+    context.policy = replace(
+        context.policy, preferred_capabilities=(held_back,), disabled=(held_back,)
+    )
+    await capabilities.probe(context)
+
+    assert held_back not in _bound(capabilities, context)
+    assert context.catalogue is not None
+    assert context.catalogue.preferred == (held_back,)

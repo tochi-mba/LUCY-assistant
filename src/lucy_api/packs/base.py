@@ -233,6 +233,9 @@ class Catalogue:
 
     bound: tuple[Bound, ...] = field(default_factory=tuple)
     suggested: tuple[str, ...] = ()
+    preferred: tuple[str, ...] = ()
+    """The person's `preferred_capabilities`, carried with the probe so every caller that
+    chooses what is bound this turn ranks by the same list."""
 
     def ready(self) -> tuple[Bound, ...]:
         return tuple(item for item in self.bound if item.visible_to_model)

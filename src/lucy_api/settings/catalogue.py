@@ -159,6 +159,19 @@ def _core() -> tuple[Knob, ...]:
                 "which model answered whenever it is not the one you chose."
             ),
         ),
+        Knob(
+            key="helper_model",
+            summary="Which model helpers run on. Empty means the conversation's own model.",
+            value_type=ValueType.STR,
+            default="",
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "A cheaper or faster model for the helpers a conversation starts, while the "
+                "conversation keeps yours. It never changes the model setting. A helper model "
+                "this deployment cannot run, or one that is down, falls back to the "
+                "conversation's model, and the helper's report says so."
+            ),
+        ),
         _enum(
             "thinking",
             "medium",
@@ -303,6 +316,25 @@ def _core() -> tuple[Knob, ...]:
             minimum=0,
             maximum=3_650,
             unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        Knob(
+            key="delete_archived_sessions_after_days",
+            summary=(
+                "How many days an archived conversation is kept before it is deleted. "
+                "Zero keeps it for ever."
+            ),
+            value_type=ValueType.INT,
+            default=0,
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "Deletion cannot be undone: the transcript, its files and its workspace folder "
+                "go. Only a conversation archived that long and untouched that long is deleted, "
+                "never one with a live turn, helper or watch, and at most ten each time "
+                "conversations are listed. Memories are kept."
+            ),
+            minimum=0,
+            maximum=3_650,
+            agent=AgentAccess.NEVER,
         ),
         _bool(
             "notify_on_long_turn",
@@ -541,6 +573,16 @@ def _core() -> tuple[Knob, ...]:
             maximum=720,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
+        _enum(
+            "workspace_edit_matching",
+            "fuzzy",
+            ("exact", "whitespace", "fuzzy"),
+            "How closely a file edit must match the text Lucy quoted before it is applied.",
+            "Exact applies only to the text as written. Whitespace also forgives indentation "
+            "and spacing. Fuzzy also accepts a close likeness. Anything looser is refused "
+            "and Lucy re-reads the file.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
         _bool(
             "prompt_feeds_enabled",
             True,
@@ -573,6 +615,18 @@ def _core() -> tuple[Knob, ...]:
                 "Empty means stay quiet about disconnected capabilities. Naming one "
                 "advertises setup for that capability in the prompt. The HTTP catalogue "
                 "still lists every deployed pack so a UI can offer a connect button."
+            ),
+        ),
+        Knob(
+            key="preferred_capabilities",
+            summary="Capabilities to have ready from the start of a new conversation.",
+            value_type=ValueType.STR_LIST,
+            default=(),
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "When more are connected than a turn holds at once, these are held first, in "
+                "this order, after the ones the conversation has used. It never turns on one "
+                "that is off or not connected."
             ),
         ),
         _int(

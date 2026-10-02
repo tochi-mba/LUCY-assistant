@@ -336,3 +336,51 @@ def test_a_refused_act_unattended_blocks_the_turn_and_never_reads_as_permission(
     )
     assert refused.blocks_turn is True
     assert refused.act_unattended is False
+
+
+def test_the_four_customisation_settings_default_to_what_lucy_did_before_them() -> None:
+    """Nobody chose: helpers on the conversation's model, archives kept for ever, the
+    built-in binding order, and the full exact-whitespace-fuzzy edit ladder."""
+    for policy in (TurnPolicy.from_resolved(_Resolved({})), TurnPolicy.from_resolved(None)):
+        assert policy.helper_model == ""
+        assert policy.delete_archived_sessions_after_days == 0
+        assert policy.preferred_capabilities == ()
+        assert policy.workspace_edit_matching == "fuzzy"
+
+
+def test_the_customisation_settings_are_read_and_clamped() -> None:
+    """A chosen value is used; out-of-range days clamp, a bad spelling falls back, and the
+    preferred list is de-duplicated and held to sixteen."""
+    names = [f"cap{index}" for index in range(20)]
+    policy = TurnPolicy.from_resolved(
+        _Resolved(
+            {
+                "helper_model": "openai:gpt-mini",
+                "delete_archived_sessions_after_days": 90,
+                "preferred_capabilities": ["music", "", 7, "music", "repos", *names],
+                "workspace_edit_matching": "exact",
+            }
+        )
+    )
+    assert policy.helper_model == "openai:gpt-mini"
+    assert policy.delete_archived_sessions_after_days == 90
+    assert policy.preferred_capabilities[:3] == ("music", "repos", "cap0")
+    assert len(policy.preferred_capabilities) == 16
+    assert policy.workspace_edit_matching == "exact"
+
+    wild = TurnPolicy.from_resolved(
+        _Resolved(
+            {
+                "helper_model": "no colon",
+                "delete_archived_sessions_after_days": 99_999,
+                "preferred_capabilities": "music",
+                "workspace_edit_matching": "loose",
+            }
+        )
+    )
+    assert wild.helper_model == ""
+    assert wild.delete_archived_sessions_after_days == 3_650
+    assert wild.preferred_capabilities == ()
+    assert wild.workspace_edit_matching == "fuzzy"
+    negative = _Resolved({"delete_archived_sessions_after_days": -5})
+    assert TurnPolicy.from_resolved(negative).delete_archived_sessions_after_days == 0

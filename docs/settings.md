@@ -94,9 +94,11 @@ setting never moves the ceilings of a turn that is already running.
 | `max_tool_result_tokens` | 25000 | Per-result cap before the rest spills and stays reachable by reference |
 | `max_steps_per_plan` | 20 | Steps one plan may contain |
 | `fallback_model` | empty | Second `provider:model` tried once when the chosen model is unavailable |
+| `helper_model` | empty | The `provider:model` helpers run on; empty runs them on the conversation's model, which this never changes. One this hub cannot run falls back to the conversation's model and the helper's report says so; one that is down mid-run is retried once on the conversation's model and the reply names who answered |
 | `max_thinking_tokens` | 0 | Hard ceiling on working-out; zero leaves the effort level to choose |
 | `confirm_outward_actions` | true | Floor: anything other people will see asks first; auto cannot lower this |
 | `enabled_capabilities` | empty | Empty stays quiet about disconnected capabilities in the prompt; naming one advertises its connect link. The HTTP catalogue still lists every pack |
+| `preferred_capabilities` | empty | When more capabilities are ready than a turn holds, these are held first, in order, after what the conversation already used and ahead of the built-in order (notes, workspace, research, watch, settings). It never binds one that is off or not connected |
 | `auto_title` | true | Name a new conversation from the first user message |
 | `notify_on_long_turn` | true | Emit `lucy.turn.slow` after `long_turn_seconds` |
 | `long_turn_seconds` | 60 | Wait before that slow-turn event |
@@ -128,6 +130,8 @@ setting never moves the ceilings of a turn that is already running.
 | `memory_retrieval_limit` | 12 | How many memory topics the live index may show |
 | `workspace_retention_hours` | 24 | How long an idle workspace is assumed to last when the sandbox does not say |
 | `session_idle_archive_days` | 30 | Idle days before an unused conversation is archived; zero never archives |
+| `delete_archived_sessions_after_days` | 0 | Account-wide. Days a conversation must have been archived, and untouched, before a listing deletes it with its files and workspace folder; zero keeps archives for ever. Never one with an unfinished turn, a running helper or a waiting watch; at most ten per listing, oldest archive first. Cannot be undone, and the model may never set it |
+| `workspace_edit_matching` | fuzzy | How loosely `workspace.edit` may match the quoted text: `exact`, `whitespace` (also forgives spacing) or `fuzzy` (also a close likeness). A looser match is refused with the nearest text |
 | `stream_thinking` | false | Whether reasoning events are forwarded to the client as they arrive |
 | `log_message_content` | false | Whether this person's message bodies may appear on process log lines for the turn |
 | `incognito` | false | Default for a new session when the create request omits it |

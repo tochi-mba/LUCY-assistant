@@ -360,7 +360,9 @@ much of it became tokens.
 
 `workspace.read` returns numbered lines and two fingerprints. `workspace.edit` walks a
 ladder (exact, whitespace, fuzzy) and refuses if `if_match` does not equal the current
-file digest. The model reads in one plan and edits in the next, because the edit's text and
+file digest. `lucy.workspace_edit_matching` cuts the ladder short: `exact` stops after the
+literal search and `whitespace` after the indentation-blind one, so a quote that only
+resembles the file is refused, with the nearest text, rather than applied. The model reads in one plan and edits in the next, because the edit's text and
 fingerprint are what the read showed it:
 
 ```json
