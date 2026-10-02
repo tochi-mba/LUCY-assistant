@@ -1,6 +1,7 @@
 """Sibling settings a capability uses when the model left a field out. Never secrets.
 
-The person chose a search backend, a playback device, an owner for new repositories, how long
+The person chose a search backend, a playback device, an owner for new repositories, how a
+pull request is merged, how long
 a command may run, how many memories a recall brings back; a model that omits the field
 should get the person's choice, not the service's. Each is read from the
 sibling's own namespace -- the service owns the setting, the hub only reads it -- and put on
@@ -25,9 +26,22 @@ MUSIC_NAMESPACE = "spotify"
 """spotify's namespace, read for the person's default playback device."""
 
 REPOS_NAMESPACE = "github"
-"""Github-api's namespace, read for where new repositories go and how they are seen."""
+"""Github-api's namespace, read for where new repositories go and how they are seen, and for
+how the person merges, opens pull requests and watches them."""
 
 VISIBILITIES = frozenset({"private", "public", "internal"})
+
+MERGE_METHODS = frozenset({"merge", "squash", "rebase"})
+
+METHOD_UNKNOWN = "unknown"
+"""The merge method could not be read and must not be guessed: the catalogue refuses rather
+than falls back, because squashing on a repository whose owner merges or rebases rewrites how
+their history lands, and that cannot be cleanly undone. A merge that names no method under
+this is refused and says why; one that names a method goes ahead."""
+
+MAX_WATCH_HOURS = 168
+"""The longest a repository watch lasts when the model does not say: a week, as the pack
+holds a watch the model sized."""
 
 WORKSPACE_NAMESPACE = "environments"
 """environments-api's namespace, read for how long a command may run and how much of its
@@ -56,14 +70,18 @@ class Resolved(Protocol):
 
 
 def pack_defaults(resolved: Mapping[str, Resolved | None]) -> dict[str, object]:
-    """Every default the resolved namespaces supply. A namespace that is ``None`` supplies none."""
+    """Every default the resolved namespaces supply.
+
+    A namespace that is ``None`` could not be read. It supplies nothing a pack may use, only
+    the settings that refuse rather than fall back, each marked as not known.
+    """
     defaults: dict[str, object] = {}
-    if MEMORY_NAMESPACE in resolved and resolved[MEMORY_NAMESPACE] is None:
-        defaults["notes.trust_floor"] = FLOOR_UNKNOWN
     for namespace, supply in _SUPPLIERS:
         values = resolved.get(namespace)
         if values is not None:
             defaults.update(supply(values))
+        elif namespace in resolved:
+            defaults.update(_UNREADABLE.get(namespace, {}))
     return defaults
 
 
@@ -91,6 +109,18 @@ def _repos(repos: Resolved) -> dict[str, object]:
     visibility = repos.get("default_visibility", None)
     if isinstance(visibility, str) and visibility in VISIBILITIES:
         defaults["repos.visibility"] = visibility
+    method = _merge_method(repos)
+    if method is not None:
+        defaults["repos.merge_method"] = method
+    draft = repos.get("draft_pull_requests", None)
+    if isinstance(draft, bool):
+        defaults["repos.draft"] = draft
+    delete_branch = repos.get("delete_branch_after_merge", None)
+    if isinstance(delete_branch, bool):
+        defaults["repos.delete_branch"] = delete_branch
+    hours = _whole(repos.get("watch_default_hours", None))
+    if hours is not None:
+        defaults["repos.watch_seconds"] = min(MAX_WATCH_HOURS, max(1, hours)) * 3600.0
     return defaults
 
 
@@ -122,6 +152,12 @@ _SUPPLIERS: tuple[tuple[str, Callable[[Resolved], dict[str, object]]], ...] = (
 )
 """One arm per namespace: what that sibling's settings supply, under the capability's name."""
 
+_UNREADABLE: dict[str, dict[str, object]] = {
+    MEMORY_NAMESPACE: {"notes.trust_floor": FLOOR_UNKNOWN},
+    REPOS_NAMESPACE: {"repos.merge_method": METHOD_UNKNOWN},
+}
+"""What a namespace that could not be read still says: which refusing settings are not known."""
+
 
 def _whole(value: object) -> int | None:
     """A whole number, or nothing. A flag is not a number, whatever Python says."""
@@ -137,10 +173,24 @@ def _trust_floor(memory: Resolved) -> str:
     return floor if isinstance(floor, str) and floor in TRUST_FLOORS else FLOOR_UNKNOWN
 
 
+def _merge_method(repos: Resolved) -> str | None:
+    """How a merge lands when the model does not say: nothing chosen, a method, or not known."""
+    try:
+        method = repos.get("merge_method", None)
+    except SettingsRefused:
+        return METHOD_UNKNOWN
+    if method is None:
+        return None
+    return method if isinstance(method, str) and method in MERGE_METHODS else METHOD_UNKNOWN
+
+
 __all__ = [
     "FLOOR_UNKNOWN",
     "MAX_RECALL",
+    "MAX_WATCH_HOURS",
     "MEMORY_NAMESPACE",
+    "MERGE_METHODS",
+    "METHOD_UNKNOWN",
     "MUSIC_NAMESPACE",
     "REPOS_NAMESPACE",
     "SEARCH_NAMESPACE",
