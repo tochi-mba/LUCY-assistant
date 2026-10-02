@@ -1,0 +1,22 @@
+{
+  "$schema": "https://tochi-mba.github.io/schema/project.schema.json",
+  "slug": "lucy-assistant",
+  "name": "LUCY",
+  "tagline": "An assistant hub with a family of small services behind it.",
+  "description": "Lucy is the hub: health, readiness, identity, sessions, a durable conversation runner, resumable event streaming, capability packs, child helpers, watches, MCP in both directions and a command-line client. It turns a request into a plan of named operations and feeds earlier results into later steps by reference, so the model never copies an identifier. Memory, persona and pinned account facts reach the model as separate sections whose retrieval scores are never merged.",
+  "highlights": [
+    "Durable conversation runner with resumable event streaming",
+    "Declarative plans: steps reference earlier results as $hits, not copied text",
+    "MCP server and client in the same hub",
+    "Any catalogued provider or a local runtime; lucy talk from a terminal",
+    "make check runs the same four gates in every family repository"
+  ],
+  "stack": ["Python 3.12", "FastAPI", "MCP", "weftai", "uv"],
+  "category": "ai",
+  "family": "lucy",
+  "role": "hub",
+  "status": "active",
+  "featured": true,
+  "order": 10,
+  "display": true
+}
