@@ -32,6 +32,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   full as before and compaction ran again on every turn after the first. It now prices each
   summary in place of the turns it covers, and a covered tool result is no longer counted
   as reclaimable.
+- **Compacting again with nothing new writes no second row.** Asking twice wrote two rows
+  over the same range, the second saying exactly what the first did. It is now a 409 that
+  says which compaction already covers it; a new turn, or undoing the first, makes room.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.
