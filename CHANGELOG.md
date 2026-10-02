@@ -8,6 +8,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
+  0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
+  one per token, and keyring tokens rotate every few minutes.
 - **A helper reads the conversation's files.** A helper's workspace was rooted at
   `sessions/<id>/agents/<agent>`, a folder of its own. Helpers are read-only, so that folder
   was always empty, and every list, read or search a helper made of the conversation's
