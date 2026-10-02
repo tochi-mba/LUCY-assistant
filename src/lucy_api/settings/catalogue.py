@@ -127,6 +127,10 @@ created without a model falls back to one the hub can actually run
 fallback tells "nobody chose" from "somebody chose this and it cannot run here".
 """
 
+PROMPT_SECTIONS = ("behaviour", "lessons", "helpers", "workspace", "memory", "context", "goals")
+"""What `prompt_sections_disabled` may name, in prompt order. A turn filters by this list
+(`policy.OPTIONAL_SECTIONS`), so the catalogue's choices and what the hub accepts are one."""
+
 
 def _core() -> tuple[Knob, ...]:
     return (
@@ -195,6 +199,56 @@ def _core() -> tuple[Knob, ...]:
             "On says nothing to the model. Off asks for none, for a screen reader that "
             "reads each one out by name.",
             unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _enum(
+            "ambiguity",
+            "assume_and_say",
+            ("assume_and_say", "ask_first"),
+            "Whether Lucy guesses or asks when a request could mean two things.",
+            "Assume takes the careful reading and says which in one line. Ask first costs a "
+            "round trip and never acts on a wrong guess. Anything destructive or outward "
+            "still asks either way.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _enum(
+            "opinions",
+            "when_they_matter",
+            ("when_they_matter", "only_when_asked"),
+            "Whether Lucy offers its own view or keeps it until asked.",
+            "When they matter gives a view once, where it would change the decision. Only when "
+            "asked does the thing without commentary.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _enum(
+            "progress_updates",
+            "before_long_steps",
+            ("before_long_steps", "quiet"),
+            "Whether Lucy says what it is about to do before a long step.",
+            "Quiet reports only what happened, for reading on a phone or listening by voice. "
+            "A turn that runs long still says so when notify_on_long_turn is on.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _bool(
+            "announce_memory_writes",
+            True,
+            "Whether Lucy mentions it when it keeps something about you.",
+            "Off keeps quietly. What is kept is still yours to read, correct and delete, and "
+            "memory_write_policy still decides whether it may keep anything.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        Knob(
+            key="prompt_sections_disabled",
+            summary="Parts of Lucy's standing instructions this profile leaves out.",
+            value_type=ValueType.STR_LIST,
+            default=(),
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "Each part costs tokens on every turn. Leave out workspace if you never use the "
+                "sandbox, helpers if you never want them. The tool rules and the safety rules "
+                "cannot be left out, and an assistant may never change this."
+            ),
+            choices=PROMPT_SECTIONS,
+            agent=AgentAccess.NEVER,
         ),
         _bool(
             "stream_thinking",
@@ -801,6 +855,7 @@ def defaults() -> dict[str, Any]:
 
 __all__ = [
     "KNOBS",
+    "PROMPT_SECTIONS",
     "AgentAccess",
     "Knob",
     "OnUnavailable",

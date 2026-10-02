@@ -47,6 +47,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   `lucy.compaction.reverted` (once: undoing twice records nothing new). Neither route told
   the clients following the conversation, whose events sat in the log until some later turn
   published them; both publish as they return.
+- **A model cannot change a setting only the person may change.** The catalogue marked
+  `prompt_allow_unknown_feed_fields` as one no assistant may write, and nothing in the hub
+  applied it: a model in `auto` could let a sibling invent feed keys with one
+  `settings.set`. `settings.set` now refuses every `lucy` key marked `never`, which includes
+  the new `prompt_sections_disabled`, and tells the model to say where the person can change
+  it.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.
@@ -248,6 +254,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   squashes and keeps its branch, a pull request opens ready and a watch lasts an hour, as
   before. The merge method is never guessed: when it cannot be read, a merge that names no
   `method` is refused and asks for one.
+- **Four settings for how Lucy works with a person: `ambiguity`, `opinions`,
+  `progress_updates` and `announce_memory_writes`.** `ask_first` asks which reading was
+  meant rather than taking the careful one and saying so; `only_when_asked` keeps Lucy's
+  view until it is asked for; `quiet` drops the line before a long step; announcing off
+  keeps a note without saying so. Each default is what the authored prompt already says, and
+  says nothing: with none chosen the prompt is unchanged to the byte. A choice is stated in
+  `preferences` after the person's conventions, under a line saying it wins where it differs
+  from the rest of the prompt, and helpers are told the same. The `preferences` ceiling rises
+  from 200 to 300 tokens so that every choice at once still arrives whole, which changes
+  `prompt_version`.
+- **`prompt_sections_disabled`: a person can leave parts of the standing prompt out.**
+  `behaviour`, `lessons`, `helpers`, `workspace`, `memory`, `context` and `goals` may be
+  listed; a person who never uses the sandbox stops paying for its guidance every turn.
+  Nothing fed the machinery that could already drop a section. A dropped section is left out
+  of what is counted as well as what is sent. `tools` and `safety` can never be listed, and
+  any name that may not be dropped is ignored rather than failing the turn.
+
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

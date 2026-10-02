@@ -135,7 +135,8 @@ setting never moves the ceilings of a turn that is already running.
 The rest of the namespace is the person's standing choices rather than ceilings: `model`
 (`anthropic:claude-opus-5`), `thinking` (`medium`), `response_style` (`natural`),
 `temperature` (`100`, in hundredths), `approval_policy` (`destructive_always_asks`),
-`disabled_capabilities` (empty), `vision_enabled` (true), the three prompt-feed masters
+`disabled_capabilities` (empty), `vision_enabled` (true), the four choices about how Lucy
+works with the person and `prompt_sections_disabled` (below), the three prompt-feed masters
 below, one `feeds_*` toggle per feed field, and the optional Laya switches
 (`decisions` and `decision_*`, see [decisions.md](decisions.md)).
 
@@ -204,6 +205,41 @@ better guide until somebody has chosen otherwise. What was chosen is its own pro
 `preferences`, so a choice is never the line cut to make room for prose. A value that cannot
 be used (a zone the tz database does not have, a tag that is not a language tag) is treated
 as not chosen.
+
+### How Lucy works with the person
+
+Four `lucy` settings are a matter of temperament rather than something one prompt can decide
+for everybody. Each default is what the authored prompt already says, and a default says
+nothing: a person who never opened settings is sent the prompt they always were, to the byte.
+
+| setting | default | what the model is told when it is changed |
+| --- | --- | --- |
+| `ambiguity` | `assume_and_say` | `ask_first`: when a request could reasonably mean two things, ask which before acting, in one question. The default takes the careful reading and says which in one line |
+| `opinions` | `when_they_matter` | `only_when_asked`: give an opinion only when asked, otherwise do what was asked |
+| `progress_updates` | `before_long_steps` | `quiet`: do not narrate what is about to happen, report what happened. `notify_on_long_turn` still says when a turn runs long |
+| `announce_memory_writes` | on | Off: do not mention that something was kept unless asked. It is still the person's to read, correct and delete, and `memory_write_policy` still decides whether anything may be kept |
+
+They are said in `preferences` after the person's conventions, as a paragraph that opens by
+saying the person's choice wins where it differs from the rest of the prompt. They are not
+lines added to `behaviour` or `memory`: the line at the end of a section is the first one cut
+at its ceiling, and a person may leave either section out. None of them is a floor; whether
+something destructive or outward asks first is still the permission gate's decision. All four
+are per profile, and an outage falls back to the default.
+
+### Leaving parts of the prompt out
+
+`lucy.prompt_sections_disabled` lists sections of the standing prompt this profile does not
+want: any of `behaviour`, `lessons`, `helpers`, `workspace`, `memory`, `context` and `goals`
+([prompts.md](prompts.md)). Each costs tokens on every turn, and a person who never uses the
+sandbox or helpers need not pay for their guidance. A dropped section is left out of what is
+sent and out of what the window counts, for helpers as for the main turn and in
+`GET /v1/sessions/{id}/context`.
+
+`tools` and `safety` can never be left out, and neither can `identity`, `preferences`,
+`capabilities` or `person`. Any other name in the list is ignored rather than failing the
+turn. An assistant may never change this setting, even with approval: `settings.set` refuses
+it, as it refuses every `lucy` key the catalogue marks `never`. Empty, the default, sends
+every section, and an outage lands there too, which only adds guidance.
 
 A new session that omits `model`, `thinking_config` (from the `thinking` setting),
 `permission_mode`, `input_policy` or `incognito` takes those from this person's settings. An explicit field on the create

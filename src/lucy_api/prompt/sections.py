@@ -122,10 +122,11 @@ class PromptContext:
     """How long an ordinary answer should run: brief, natural, or thorough."""
 
     preferences: str = ""
-    """The language, units, clock and currency the person chose, as one sentence or more.
+    """The language, units, clock and currency the person chose, and how they want Lucy to
+    work with them, as one sentence or more.
 
     Empty when they chose none, and then the prompt says nothing: the model follows how
-    the person writes."""
+    the person writes, and the authored sections as they stand."""
 
     notes: tuple[Claim, ...] = ()
     """Persona notes and pinned facts, already fetched, still carrying their provenance."""
@@ -209,7 +210,8 @@ def _preferences(context: PromptContext) -> str:
 
     Not a paragraph of `behaviour`: that section runs close to its ceiling, and a line
     added at its end is the first one cut. A choice somebody made must not be what is
-    given up to make room for prose.
+    given up to make room for prose. Its ceiling holds every choice at once, so a person who
+    chose everything is never told that part of it was cut.
     """
     return context.preferences
 
@@ -342,7 +344,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         priority=32,
         version="1",
         render=_preferences,
-        max_tokens=200,
+        max_tokens=300,
     ),
     PromptSection(
         id="tools",
