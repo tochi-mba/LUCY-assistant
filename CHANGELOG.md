@@ -35,6 +35,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 - **Compacting again with nothing new writes no second row.** Asking twice wrote two rows
   over the same range, the second saying exactly what the first did. It is now a 409 that
   says which compaction already covers it; a new turn, or undoing the first, makes room.
+- **Undoing a compaction is logged, and both are heard live.** `uncompact` wrote no event at
+  all, so the log recorded a summary going in and never coming out; it now writes
+  `lucy.compaction.reverted` (once: undoing twice records nothing new). Neither route told
+  the clients following the conversation, whose events sat in the log until some later turn
+  published them; both publish as they return.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.

@@ -36,6 +36,11 @@ from lucy_api.sessions.sql_store import NewItem
 from lucy_api.sessions.turns import close_turn, open_turn
 from lucy_api.sessions.usage import session_usage
 from lucy_api.store.results import SqlResultStore
+from lucy_api.stream.events import (
+    COMPACTION_APPLIED,
+    COMPACTION_REVERTED,
+    COMPACTION_STARTED,
+)
 from lucy_api.work.types import Brief, Kind
 
 if TYPE_CHECKING:
@@ -368,6 +373,43 @@ async def test_economy_routes_are_session_scoped(
         f"/v1/sessions/{session}/results", params={"ref": "nope"}, headers=bearer()
     )
     assert bad.status_code == 400
+
+
+async def test_compacting_and_undoing_are_logged_and_heard_live(
+    hub: tuple[AsyncClient, Container],
+) -> None:
+    """The bug, named: undoing a compaction wrote no event at all, and neither route told
+    the clients following the conversation: the rows sat in the log until some later turn
+    happened to publish them. Both are now in the log and on the wire straight away."""
+    http, container = hub
+    created = await http.post(
+        "/v1/sessions", json={}, headers={**bearer(), "Idempotency-Key": "econ-live"}
+    )
+    session = created.json()["id"]
+    await n_turns(container.store, session, 5)
+
+    async with container.events.subscribe(session) as subscriber:
+        while await subscriber.next_event(0) is not None:
+            pass
+        done = await http.post(f"/v1/sessions/{session}/compact", headers=bearer())
+        undo = {"id": done.json()["id"]}
+        await http.post(f"/v1/sessions/{session}/uncompact", json=undo, headers=bearer())
+        await http.post(f"/v1/sessions/{session}/uncompact", json=undo, headers=bearer())
+        heard = []
+        while (event := await subscriber.next_event(0)) is not None:
+            heard.append(event)
+
+    assert [event.type for event in heard] == [
+        COMPACTION_STARTED,
+        COMPACTION_APPLIED,
+        COMPACTION_REVERTED,
+    ], "undoing twice is recorded once"
+    assert heard[-1].data["compaction_id"] == done.json()["id"]
+
+    marker = await http.post(
+        f"/v1/sessions/{session}/uncompact", json={"id": "cmp_nope"}, headers=bearer()
+    )
+    assert marker.status_code == 404
 
 
 async def test_listing_helpers_and_the_oauth_resource_document(

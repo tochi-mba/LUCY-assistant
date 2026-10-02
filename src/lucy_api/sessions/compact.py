@@ -24,6 +24,7 @@ from lucy_api.stream.events import (
     COMPACTION_APPLIED,
     COMPACTION_DISABLED,
     COMPACTION_FAILED,
+    COMPACTION_REVERTED,
     COMPACTION_STARTED,
 )
 
@@ -167,20 +168,35 @@ async def compact_session(
 async def uncompact_session(
     store: SessionStore, account: str, session_id: str, compaction_id: str
 ) -> dict[str, Any]:
-    """Deactivate one compaction so the turns it covered are projected again."""
+    """Deactivate one compaction so the turns it covered are projected again.
+
+    Undoing is an event as much as compacting is: a log that recorded the summary going in
+    and not coming out would explain a prompt the model is no longer being sent. Undoing one
+    that is already undone changes nothing and records nothing."""
 
     def apply(db: sqlite3.Connection) -> dict[str, Any]:
         session_row(db, account, session_id)
         row = db.execute(
-            "SELECT * FROM compactions WHERE id=? AND session_id=?",
-            (compaction_id, session_id),
+            "SELECT * FROM compactions WHERE id=? AND session_id=? AND model!=?",
+            (compaction_id, session_id, DISABLED_MODEL),
         ).fetchone()
         if row is None:
             raise absent()
-        db.execute(
-            "UPDATE compactions SET active=0 WHERE id=? AND session_id=?",
-            (compaction_id, session_id),
-        )
+        if row["active"]:
+            db.execute(
+                "UPDATE compactions SET active=0 WHERE id=? AND session_id=?",
+                (compaction_id, session_id),
+            )
+            event_row(
+                db,
+                session_id,
+                COMPACTION_REVERTED,
+                {
+                    "compaction_id": compaction_id,
+                    "covers_from": row["covers_from"],
+                    "covers_to": row["covers_to"],
+                },
+            )
         return {
             "id": compaction_id,
             "active": False,

@@ -54,12 +54,17 @@ async def compact(
 ) -> dict[str, Any]:
     session = await container.store.get(acting.account_id, session_id)
     policy = await container.lucy_policy(acting.token, str(session["profile"]))
-    return await compact_session(
-        container.store,
-        acting.account_id,
-        session_id,
-        keep_recent=policy.history_turns_kept,
-    )
+    try:
+        return await compact_session(
+            container.store,
+            acting.account_id,
+            session_id,
+            keep_recent=policy.history_turns_kept,
+        )
+    finally:
+        # The events went in with the row, in one transaction; a client following the
+        # conversation hears about them now rather than whenever the next turn ends.
+        await container.events.publish_persisted(session_id)
 
 
 @router.post(
@@ -70,9 +75,14 @@ async def compact(
     description="Deactivates one compaction row. The items it covered are projected again.",
 )
 async def uncompact(
-    caller: CurrentCallerDep, store: StoreDep, session_id: SessionId, body: UncompactBody
+    caller: CurrentCallerDep,
+    container: ContainerDep,
+    session_id: SessionId,
+    body: UncompactBody,
 ) -> dict[str, Any]:
-    return await uncompact_session(store, caller.account_id, session_id, body.id)
+    undone = await uncompact_session(container.store, caller.account_id, session_id, body.id)
+    await container.events.publish_persisted(session_id)
+    return undone
 
 
 @router.get(
