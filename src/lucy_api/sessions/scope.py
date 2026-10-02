@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 SESSIONS_ROOT = "sessions"
-AGENTS_DIR = "agents"
 SCRIPTS_DIR = "scripts"
 
 PROGRESS_FILE = "progress.md"
@@ -87,20 +86,18 @@ class WorkspaceScope:
 
     environment_id: str
     session_id: str
-    agent_id: str = ""
     ready: bool = False
     expires_at: float | None = None
 
     @property
     def root(self) -> str:
-        """The session's subtree, or the agent's subtree beneath it.
+        """The session's subtree. A helper works in the same one.
 
-        Agents are nested under their session rather than beside it, so that deleting a
-        session takes its children's work with it and a listing of the session shows what
-        its helpers did.
+        A helper is read-only, so a folder of its own could only ever be empty: helpers
+        used to be rooted at `agents/<id>` beneath the session, and every read a helper
+        made of the conversation's files answered that they did not exist.
         """
-        base = posixpath.join(SESSIONS_ROOT, self.session_id)
-        return posixpath.join(base, AGENTS_DIR, self.agent_id) if self.agent_id else base
+        return posixpath.join(SESSIONS_ROOT, self.session_id)
 
     @property
     def scripts(self) -> str:
@@ -205,15 +202,9 @@ class SessionScope:
             widest = MODE_WIDTH.index(mode) if mode in MODE_WIDTH else len(MODE_WIDTH) - 1
             asked = MODE_WIDTH.index(permission_mode) if permission_mode in MODE_WIDTH else widest
             mode = MODE_WIDTH[min(asked, widest)]
-        return replace(
-            self,
-            agent_id=agent_id,
-            depth=self.depth + 1,
-            permission_mode=mode,
-            workspace=(
-                replace(self.workspace, agent_id=agent_id) if self.workspace is not None else None
-            ),
-        )
+        # The workspace is the parent's, unchanged: a child reads the conversation's files,
+        # and the mode above is what keeps it from writing to them.
+        return replace(self, agent_id=agent_id, depth=self.depth + 1, permission_mode=mode)
 
     def facts(self) -> dict[str, Any]:
         """Everything scoped to this session, in one mapping, for whoever is rendering it."""
@@ -310,7 +301,6 @@ def scope_from_row(
 
 
 __all__ = [
-    "AGENTS_DIR",
     "GIT_BASELINE",
     "GIT_INIT",
     "MODE_WIDTH",
