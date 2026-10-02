@@ -586,6 +586,15 @@ async def test_a_full_window_compacts_older_turns_and_swallows_a_too_new_session
     compacted = await store.records(ACCOUNT, conversation, "compactions")
     assert compacted
     assert compacted[0]["active"] == 1
+    assert compacted[0]["triggered_by"] == "auto", "the turn loop says it was the one that asked"
+    assert compacted[0]["trigger_tokens"] > 0, "and how full the window was when it did"
+    events = await store.records(ACCOUNT, conversation, "events")
+    statuses = [event for event in events if event["type"] == "lucy.context.status"]
+    assert len(statuses) >= 2, "every round says how full the window is"
+    first_status = statuses[0]["data"]
+    assert first_status["window_tokens"] == 100
+    assert first_status["compact_at_percent"] == 50
+    assert {"used_tokens", "percent", "state", "tokens_until_compaction"} <= set(first_status)
     assert (await store.turn(ACCOUNT, str(first["id"])))["status"] == "completed"
     assert (await store.turn(ACCOUNT, str(second["id"])))["status"] == "completed"
     await running.aclose()

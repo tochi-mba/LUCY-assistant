@@ -41,7 +41,7 @@ from lucy_api.sessions.compact import compact_session
 from lucy_api.sessions.scope import disabled_in, scope_from_row
 from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
-from lucy_api.stream.events import TURN_SLOW
+from lucy_api.stream.events import CONTEXT_STATUS, TURN_SLOW
 from lucy_api.turn.claims import ClaimCheck
 from lucy_api.turn.keeping import Keeping
 from lucy_api.turn.loop import Turn, run_turn
@@ -53,6 +53,7 @@ from lucy_api.turn.prompt import (
     schema_tokens,
     system_and_messages,
     view_limits,
+    window_report,
 )
 from lucy_api.turn.stop import Budget, Termination
 from lucy_api.work.live import WorkInFlight
@@ -404,6 +405,8 @@ class TurnSupervisor:
                         claimed.account_id,
                         claimed.session_id,
                         keep_recent=policy.history_turns_kept,
+                        trigger="auto",
+                        trigger_tokens=reclaimed.used,
                     )
                     view = replace(
                         view,
@@ -411,6 +414,12 @@ class TurnSupervisor:
                             claimed.account_id, claimed.session_id, "compactions"
                         ),
                     )
+            # The figure the model is about to be told, sent to whoever is watching, so a
+            # person can see how full the window is without asking for it.
+            await self._events.emit(
+                claimed.session_id,
+                NewEvent(CONTEXT_STATUS, window_report(view), turn_id=claimed.id),
+            )
             notices = [notice]
             if not policy.vision_enabled and _looks_like_images(ordered):
                 notices.append("Vision is off. Image attachments were not sent to the model.")

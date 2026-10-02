@@ -154,6 +154,43 @@ def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
     return rows, result
 
 
+def window_report(view: SessionView) -> dict[str, Any]:
+    """How full this session's window is, in the figure warnings and compaction act on.
+
+    One function for every reader -- `GET /context/window`, the compact route's before and
+    after, and the `lucy.context.status` event a turn emits -- so a person is never shown a
+    number the system does not act on.
+    """
+    _rows, reclaimed = projected_rows(view)
+    window, used = view.window, reclaimed.used
+    percent = int(100 * used / window) if window else 0
+    threshold = window * view.compact_at_percent // 100
+    if used > window:
+        state = "over"
+    elif percent >= view.compact_at_percent:
+        state = "compacting"
+    elif percent >= view.warn_at_percent:
+        state = "warning"
+    else:
+        state = "ok"
+    summarised = project(
+        items_from_rows(view.items),
+        compactions_from_rows(view.compactions or ()),
+        counter=default_counter(),
+    ).summarised_turns
+    return {
+        "used_tokens": used,
+        "window_tokens": window,
+        "percent": percent,
+        "warn_at_percent": view.warn_at_percent,
+        "compact_at_percent": view.compact_at_percent,
+        "tokens_until_compaction": max(0, threshold - used),
+        "state": state,
+        "reclaimable_tool_results": reclaimed.reclaimable,
+        "summarised_turns": summarised,
+    }
+
+
 def schema_tokens(schema: object) -> int:
     """A plan schema's size in tokens, as it goes over the wire."""
     return default_counter().count(json.dumps(schema, separators=(",", ":")))
@@ -379,4 +416,5 @@ __all__ = [
     "schema_tokens",
     "system_and_messages",
     "view_limits",
+    "window_report",
 ]
