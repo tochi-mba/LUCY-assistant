@@ -47,6 +47,12 @@ def test_privacy_sensitive_defaults_are_the_conservative_ones() -> None:
     assert values["agent_max_depth"] == 3
     assert values["memory_retrieval_limit"] == 12
     assert knob("prompt_allow_unknown_feed_fields").agent is AgentAccess.NEVER
+    assert knob("prompt_sections_disabled").agent is AgentAccess.NEVER
+    assert values["prompt_sections_disabled"] == ()
+    assert values["ambiguity"] == "assume_and_say"
+    assert values["opinions"] == "when_they_matter"
+    assert values["progress_updates"] == "before_long_steps"
+    assert values["announce_memory_writes"] is True
     assert knob("disabled_capabilities").on_unavailable is OnUnavailable.REFUSE
     assert knob("permission_mode").on_unavailable is OnUnavailable.USE_DEFAULT
     assert knob("approval_policy").on_unavailable is OnUnavailable.REFUSE

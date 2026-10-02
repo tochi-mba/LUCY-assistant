@@ -16,6 +16,7 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
+from lucy_api.settings.catalogue import AgentAccess, knob
 from lucy_api.settings.groups import group_for
 
 if TYPE_CHECKING:
@@ -26,6 +27,23 @@ if TYPE_CHECKING:
 
     from lucy_api.clients.settings import Setting, SettingsClient
     from lucy_api.packs.context import PackContext
+
+
+class SettingsRefusedError(ValueError):
+    """A write the model asked for that only the person may make."""
+
+
+def _person_only(namespace: str, key: str) -> bool:
+    """Whether Lucy's own catalogue says no assistant may write this key.
+
+    Settings-api declares the same thing, and says the hub must apply it. Applied here, from
+    the namespace this hub owns, a model in `auto` cannot switch off the rules about what it
+    reads, or leave sections out of its own instructions, whatever settings-api enforces.
+    """
+    if namespace != "lucy":
+        return False
+    item = knob(key)
+    return item is not None and item.agent is AgentAccess.NEVER
 
 
 class SettingsPack:
@@ -149,9 +167,16 @@ class SettingsPack:
 
     async def _set(self, run: RunContext[PackContext]) -> dict[str, Any]:
         namespace = str(run.input.get("namespace") or "")
+        key = str(run.input.get("key") or "")
+        if _person_only(namespace, key):
+            message = (
+                f"{namespace}.{key} can only be changed by the person, in their settings, and "
+                "never by an assistant, even with approval. Tell them where to change it."
+            )
+            raise SettingsRefusedError(message)
         setting = await self._client(run.ctx).set(
             namespace,
-            str(run.input.get("key") or ""),
+            key,
             run.input.get("value"),
             profile=run.ctx.profile,
         )

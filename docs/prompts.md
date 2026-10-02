@@ -16,7 +16,7 @@ Order is reading order. Trim order is `priority` (lower is kept longer).
 | --- | --- | --- |
 | `identity` | system | Who Lucy is. Persona standing data may fill this, as a reported claim. |
 | `behaviour` | system | How it works for this person: style, permission mode, what is connected. |
-| `preferences` | system | The language, units, clock, currency, layout and emoji the person chose. Absent when they chose none. |
+| `preferences` | system | The language, units, clock, currency, layout and emoji the person chose, then how they want Lucy to work with them. Absent when they chose none. |
 | `tools` | system | The plan idiom. **Cannot be turned off.** Without it, plans stop composing. |
 | `safety` | system | What it never does. **Cannot be turned off.** A page must not become instructions. |
 | `lessons` | system | How this person works, as recorded notes, not as a second system prompt. |
@@ -29,7 +29,9 @@ Order is reading order. Trim order is `priority` (lower is kept longer).
 | `goals` | pinned | Active goals, if any. |
 
 `tools` and `safety` refuse a setting that would disable them. Everything else may be
-replaced or dropped. A section that names a port, an HTTP verb, or a repository is a bug;
+replaced or dropped by the code; `lucy.prompt_sections_disabled` offers a person `behaviour`,
+`lessons`, `helpers`, `workspace`, `memory`, `context` and `goals`
+([settings.md](settings.md#leaving-parts-of-the-prompt-out)). A section that names a port, an HTTP verb, or a repository is a bug;
 `tests/hub/test_prompt_sections.py` greps the defaults.
 
 ## Capability pages
@@ -70,10 +72,13 @@ to see.
 ## What a setting may reach
 
 `lucy.response_style` changes `behaviour`. `common.locale`, `units`, `time_format` and
-`currency`, with `lucy.formatting` and `lucy.emoji`, are the whole of `preferences`, one
-sentence each and only when chosen, and
+`currency`, with `lucy.formatting` and `lucy.emoji`, and then `lucy.ambiguity`, `opinions`,
+`progress_updates` and `announce_memory_writes`
+([settings.md](settings.md#how-lucy-works-with-the-person)), are the whole of `preferences`,
+one sentence each and only when chosen, and
 `common.timezone` sets the clock on the live block's `now` line
 ([settings.md](settings.md#the-persons-own-conventions)). Prompt-feed masters and per-field toggles change
 what the live block contains, not the section text. `prompt_allow_unknown_feed_fields` is
 off by default and an assistant may never turn it on: a sibling inventing keys Lucy does
-not know is otherwise a silent prompt injection surface.
+not know is otherwise a silent prompt injection surface. `prompt_sections_disabled` is the
+same: `settings.set` refuses both.

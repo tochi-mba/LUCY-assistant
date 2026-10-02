@@ -48,6 +48,9 @@ class SessionView:
     """The person's time zone: the clock the live block's `now` line is read on."""
     preferences: str = ""
     """How the person chose to be written to, as the prompt states it. Empty says nothing."""
+    disabled_sections: tuple[str, ...] = ()
+    """Prompt sections this profile leaves out. Left out of what is counted as well as what is
+    sent, so the window's arithmetic is about the prompt that actually goes."""
     window: int = 200_000
     reserve_percent: int = 13
     warn_at_percent: int = 60
@@ -67,6 +70,7 @@ class ViewLimits(TypedDict):
     tool_results_kept: int
     zone: tzinfo
     preferences: str
+    disabled_sections: tuple[str, ...]
 
 
 def conversation_order(
@@ -106,8 +110,17 @@ def conversation_order(
 
 
 def view_limits(policy: Any) -> ViewLimits:
-    """The SessionView fields TurnPolicy owns, so HTTP preview and a live turn cannot drift."""
+    """The SessionView fields TurnPolicy owns, so HTTP preview and a live turn cannot drift.
+
+    `preferences` is the person's conventions and then how they want Lucy to work with them,
+    a paragraph each, and only the ones they chose.
+    """
     conventions = getattr(policy, "conventions", None)
+    manner = getattr(policy, "manner", None)
+    hints = (
+        "" if conventions is None else conventions.hint(),
+        "" if manner is None else manner.hint(),
+    )
     return {
         "window": int(getattr(policy, "max_context_tokens", 200_000)),
         "reserve_percent": int(getattr(policy, "reserve_percent", 13)),
@@ -115,7 +128,8 @@ def view_limits(policy: Any) -> ViewLimits:
         "compact_at_percent": int(getattr(policy, "compaction_trigger_percent", 72)),
         "tool_results_kept": int(getattr(policy, "tool_results_kept", 3)),
         "zone": UTC if conventions is None else conventions.zone(),
-        "preferences": "" if conventions is None else conventions.hint(),
+        "preferences": "\n\n".join(hint for hint in hints if hint),
+        "disabled_sections": tuple(getattr(policy, "prompt_sections_disabled", ())),
     }
 
 
@@ -203,7 +217,7 @@ def _carried(view: SessionView) -> int:
     that carried some 17,000 -- and warnings and compaction read the same number, so with a
     small window the prompt could fill it while the line still said nearly nothing was used.
     """
-    fixed = render_all(_prompt_context(view))
+    fixed = render_all(_prompt_context(view), disabled=view.disabled_sections)
     return sum(section.tokens for section in fixed) + view.schema_tokens
 
 
@@ -377,6 +391,7 @@ async def _build(view: SessionView) -> Built:
             items=items_from_rows(rows),
             prompt=_prompt_context(view),
             compactions=compactions_from_rows(view.compactions or ()),
+            disabled=view.disabled_sections,
         ),
         live_from=view.live,
         budget=allowance,

@@ -15,8 +15,9 @@ import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from lucy_api.settings.catalogue import DEFAULT_MODEL
+from lucy_api.settings.catalogue import DEFAULT_MODEL, PROMPT_SECTIONS
 from lucy_api.settings.conventions import NOTHING_CHOSEN, Conventions
+from lucy_api.settings.manner import AS_AUTHORED, Manner
 from lucy_api.work.quiet import WINDOW, QuietHours
 
 if TYPE_CHECKING:
@@ -34,6 +35,15 @@ ALWAYS_ON = frozenset({"help", "work"})
 """Capabilities a person cannot turn off. Without help the model cannot ask for the rest,
 and without work it cannot see what it already started. Helpers are not here: "no helpers
 in this conversation" is a thing a person may reasonably want."""
+
+OPTIONAL_SECTIONS = frozenset(PROMPT_SECTIONS)
+"""The prompt sections a person may leave out, to stop paying for guidance they never use.
+
+`tools` and `safety` are never here, and `render_all` refuses them outright: that refusal
+would fail every turn, so a name that is not listed is dropped here instead of reaching it.
+`identity` is who Lucy is, `capabilities` is what it can do this turn, `person` already has
+its own feed switches, and `preferences` says nothing unless the person chose something, so
+none of those four is offered either."""
 
 
 def _clamp(value: object, default: int, *, minimum: int, maximum: int) -> int:
@@ -149,6 +159,11 @@ class TurnPolicy:
     """How long a watch lives when the model does not say."""
     conventions: Conventions = NOTHING_CHOSEN
     """The person's time zone, language, units, clock and currency, from `common`."""
+    manner: Manner = AS_AUTHORED
+    """When to ask, when to offer a view, whether to narrate, and whether to mention a kept
+    note."""
+    prompt_sections_disabled: tuple[str, ...] = ()
+    """Prompt sections this profile leaves out, only ever from `OPTIONAL_SECTIONS`."""
     disabled: tuple[str, ...] = ()
     """What the profile turned off, from settings. The session's own list is kept apart so
     a change to one never has to be un-mixed from the other."""
@@ -329,6 +344,14 @@ class TurnPolicy:
                 allowed=frozenset({"destructive_always_asks", "spend_and_destructive_ask"}),
             ),
             conventions=Conventions.from_reader(read),
+            manner=Manner.from_reader(read),
+            prompt_sections_disabled=tuple(
+                dict.fromkeys(
+                    name
+                    for name in _names(read("prompt_sections_disabled", []))
+                    if name in OPTIONAL_SECTIONS
+                )
+            ),
             disabled=disabled,
             enabled=_names(read("enabled_capabilities", [])),
             blocks_turn=blocked,
@@ -341,4 +364,4 @@ SETTINGS_UNAVAILABLE = (
 )
 
 
-__all__ = ["ALWAYS_ON", "REFUSE_KEYS", "SETTINGS_UNAVAILABLE", "TurnPolicy"]
+__all__ = ["ALWAYS_ON", "OPTIONAL_SECTIONS", "REFUSE_KEYS", "SETTINGS_UNAVAILABLE", "TurnPolicy"]
