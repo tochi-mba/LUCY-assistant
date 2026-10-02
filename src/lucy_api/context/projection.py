@@ -97,22 +97,34 @@ def project(
 ) -> Projection:
     """Build the history band: summaries in place of the turns they cover, then the rest."""
     ordered = sorted(items, key=_position)
-    active = [compaction for compaction in compactions if compaction.active]
-    ranges = [(_snap(compaction, ordered)) for compaction in sorted(active, key=lambda c: c.seq)]
+    # Newest first, because the newest is what somebody last asked for: every compaction is
+    # written from the transcript itself, never from an older summary, so it already says
+    # everything an older one it overlaps could. Oldest first showed turn 1 summarised twice
+    # the moment a second compaction ran.
+    active = sorted(
+        (compaction for compaction in compactions if compaction.active),
+        key=lambda c: c.seq,
+        reverse=True,
+    )
 
-    covered: set[int] = set()
+    covered: dict[int, int] = {}
+    """Each summarised sequence number, and the compaction that summarised it."""
     placed: list[tuple[int, Section]] = []
     notices: list[str] = []
 
-    for compaction, (low, high) in zip(sorted(active, key=lambda c: c.seq), ranges, strict=True):
+    for compaction in active:
+        low, high = _snap(compaction, ordered)
         inside = [item.seq for item in ordered if low <= item.seq <= high]
-        fresh = [sequence for sequence in inside if sequence not in covered]
-        if not fresh:
-            # A later compaction already covers everything this one did. Keeping both would
-            # show the same turns summarised twice, which reads as two separate events.
-            notices.append(f"compaction {compaction.seq} covers nothing not already summarised")
+        if not inside:
+            notices.append(f"compaction {compaction.seq} covers nothing still in the transcript")
             continue
-        covered.update(inside)
+        newer = next((covered[sequence] for sequence in inside if sequence in covered), None)
+        if newer is not None:
+            # Keeping both would show the same turns summarised twice, which reads as two
+            # separate events; what the newer one leaves out is read verbatim instead.
+            notices.append(f"compaction {compaction.seq} is superseded by compaction {newer}")
+            continue
+        covered.update(dict.fromkeys(inside, compaction.seq))
         body = _summary_body(compaction, low, high, len(inside))
         position = min(
             (_position(item) for item in ordered if low <= item.seq <= high), default=low
