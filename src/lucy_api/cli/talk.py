@@ -3,15 +3,23 @@
 The hub's one write path is `POST /v1/sessions/{id}/inputs`. This command is a client of
 that path plus the event stream, not a second conversation loop. Closing the CLI must not
 cancel the turn — that is the whole point of making the turn durable before it runs.
+
+A line that starts with `/` and names a command is the person talking to the client, not to
+Lucy: `/context` says how full the window is, `/compact` and `/uncompact` act on it, `/new`
+starts a fresh conversation, `/help` lists them. `//` sends a line that starts with `/`.
+Anything else starting with `/` -- a path, say -- goes to Lucy as written.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.cli import window as windows
 from lucy_api.cli.base import (
     HTTP_OK,
     OK,
@@ -25,7 +33,7 @@ from lucy_api.cli.base import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from lucy_api.cli.base import Context
 
@@ -37,6 +45,31 @@ TURN_COMPLETED = "lucy.turn.completed"
 TURN_FAILED = "lucy.turn.failed"
 ITEM_ADDED = "lucy.content.item.added"
 STREAM_DONE = "lucy.stream.done"
+CONTEXT_STATUS = "lucy.context.status"
+COMPACTION_APPLIED = "lucy.compaction.applied"
+
+COMMAND = re.compile(r"/[a-z][a-z-]*")
+"""What a command looks like. `/etc/hosts is broken` does not, so it is sent to Lucy."""
+
+HELP = """\
+/context          how full this conversation's window is
+/compact [N]      summarise the older turns now, keeping the newest N (default: your setting)
+/uncompact [ID]   undo a compaction (default: the one Lucy is reading)
+/new              start a fresh conversation
+/session          which conversation this is
+/help             this list
+/quit             leave (Ctrl-D does too); a turn still running carries on
+//text            send a message that starts with /"""
+
+
+@dataclass
+class Reply:
+    """What one turn sent back: the words, and what the client noticed on the way."""
+
+    turn_id: str
+    text: str
+    context: dict[str, Any] | None = None
+    compacted: list[dict[str, Any]] = field(default_factory=list)
 
 
 def cmd_talk(ctx: Context) -> int:
@@ -47,7 +80,11 @@ def cmd_talk(ctx: Context) -> int:
     words = tuple(getattr(ctx.args, "words", ()) or ())
     session_id = str(getattr(ctx.args, "session", "") or "")
     if words:
-        _send(ctx, session_id, " ".join(words).strip())
+        line = " ".join(words).strip()
+        if _command(line):
+            _run_command(ctx, session_id, line, latest=True)
+            return OK
+        _send(ctx, session_id, _unescape(line))
         return OK
     if ctx.interactive:
         return _repl(ctx, session_id)
@@ -68,8 +105,98 @@ def _repl(ctx: Context, session_id: str) -> int:
         text = line.strip()
         if not text:
             continue
-        current = _send(ctx, current, text)
+        if _command(text):
+            try:
+                current, leave = _run_command(ctx, current, text, latest=False)
+            except CliError as exc:
+                # A command that fails is said and forgotten; the conversation goes on.
+                ctx.say(f"lucy: {exc}" + (f" ({exc.hint})" if exc.hint else ""))
+                continue
+            if leave:
+                break
+            continue
+        current = _send(ctx, current, _unescape(text))
     return OK
+
+
+def _command(line: str) -> str:
+    """The command a line names, or "" when the line is a message."""
+    first = line.split(maxsplit=1)[0] if line else ""
+    return first if COMMAND.fullmatch(first) else ""
+
+
+def _unescape(line: str) -> str:
+    return line[1:] if line.startswith("//") else line
+
+
+def _run_command(ctx: Context, current: str, line: str, *, latest: bool) -> tuple[str, bool]:
+    """Do what a `/` line asks. Returns the conversation now current, and whether to leave.
+
+    `latest` is for a one-shot `lucy talk /context`, where there is no conversation in hand
+    and the person's most recent one is the sensible default; at a prompt, the conversation
+    is whichever this prompt has been talking in.
+    """
+    name, _, rest = line.partition(" ")
+    argument = rest.strip()
+    if name in {"/quit", "/exit"}:
+        return current, True
+    if name == "/help":
+        ctx.emit({"commands": HELP.splitlines()}, HELP)
+        return current, False
+    if name == "/new":
+        ctx.say("a fresh conversation starts with your next message")
+        return "", False
+    if name == "/session":
+        ctx.emit({"session_id": current or None}, current or "no conversation yet")
+        return current, False
+    handler = _ACTIONS.get(name)
+    if handler is None:
+        message = f"{name} is not a command; /help lists them, and // sends it to Lucy"
+        raise CliError(message, USAGE)
+    with windows.open_client() as client:
+        session_id = current
+        if not session_id:
+            if not latest:
+                message = "no conversation yet: say something first"
+                raise CliError(message, REFUSED)
+            session_id = windows.resolve_session(client, ctx)
+        payload, text = handler(client, ctx, session_id, argument)
+    ctx.emit({"session_id": session_id, **payload}, text)
+    return session_id, False
+
+
+def _context(
+    client: Any, ctx: Context, session_id: str, _argument: str
+) -> tuple[dict[str, Any], str]:
+    report = windows.window(client, ctx, session_id)
+    return report, windows.describe(report)
+
+
+def _compact(
+    client: Any, ctx: Context, session_id: str, argument: str
+) -> tuple[dict[str, Any], str]:
+    keep: int | None = None
+    if argument:
+        if not argument.isdigit():
+            message = "/compact takes how many recent turns to keep, as a whole number"
+            raise CliError(message, USAGE)
+        keep = int(argument)
+    done = windows.compact(client, ctx, session_id, keep)
+    return done, windows.describe_compaction(done)
+
+
+def _uncompact(
+    client: Any, ctx: Context, session_id: str, argument: str
+) -> tuple[dict[str, Any], str]:
+    undone = windows.uncompact(client, ctx, session_id, argument or None)
+    return undone, windows.describe_undo(undone)
+
+
+_ACTIONS: dict[str, Callable[[Any, Context, str, str], tuple[dict[str, Any], str]]] = {
+    "/context": _context,
+    "/compact": _compact,
+    "/uncompact": _uncompact,
+}
 
 
 def _send(ctx: Context, session_id: str, text: str) -> str:
@@ -82,7 +209,7 @@ def _send(ctx: Context, session_id: str, text: str) -> str:
     try:
         with httpx.Client(timeout=timeout) as client:
             current = session_id or _create_session(client, ctx)
-            turn_id, reply = _ask(client, ctx, current, text)
+            reply = _ask(client, ctx, current, text)
     except httpx.HTTPError as exc:
         message = f"cannot reach Lucy at {ctx.url}"
         hint = (
@@ -90,10 +217,25 @@ def _send(ctx: Context, session_id: str, text: str) -> str:
             f"({exc.__class__.__name__})"
         )
         raise CliError(message, UNREACHABLE, hint=hint) from exc
-    payload = {"session_id": current, "turn_id": turn_id, "text": reply}
+    payload = {
+        "session_id": current,
+        "turn_id": reply.turn_id,
+        "text": reply.text,
+        "context": reply.context,
+    }
     ctx.say(f"session {current}")
-    ctx.emit(payload, reply)
+    ctx.emit(payload, reply.text)
+    for compaction in reply.compacted:
+        ctx.say(ctx.style.dim(_compacted(compaction)))
+    if reply.context is not None:
+        ctx.say(ctx.style.dim(windows.status_line(reply.context)))
     return current
+
+
+def _compacted(event: dict[str, Any]) -> str:
+    turns = event.get("turns")
+    covered = f"turns 1-{turns}" if isinstance(turns, int) and turns > 1 else "the oldest turn"
+    return f"compacted {covered} into a summary to stay within the window (/uncompact undoes it)"
 
 
 def _create_session(client: Any, ctx: Context) -> str:
@@ -108,7 +250,7 @@ def _create_session(client: Any, ctx: Context) -> str:
     return str(body["id"])
 
 
-def _ask(client: Any, ctx: Context, session_id: str, text: str) -> tuple[str, str]:
+def _ask(client: Any, ctx: Context, session_id: str, text: str) -> Reply:
     posted = client.post(
         f"{ctx.url}/v1/sessions/{session_id}/inputs",
         headers={**headers(ctx.token), "Idempotency-Key": str(uuid.uuid4())},
@@ -118,12 +260,13 @@ def _ask(client: Any, ctx: Context, session_id: str, text: str) -> tuple[str, st
     if posted.status_code != ACCEPTED or not body.get("id"):
         raise CliError(_problem(body, "Lucy refused that message"), REFUSED)
     turn_id = str(body["id"])
-    return turn_id, _read_reply(client, ctx, session_id, turn_id)
+    return _read_reply(client, ctx, session_id, turn_id)
 
 
-def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> str:
+def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> Reply:
     parts: list[str] = []
     failure = ""
+    reply = Reply(turn_id=turn_id, text="")
     with client.stream(
         "GET",
         f"{ctx.url}/v1/sessions/{session_id}/events",
@@ -139,6 +282,10 @@ def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> str
                 delta = payload.get("delta")
                 if isinstance(delta, str):
                     parts.append(delta)
+            elif event_type == CONTEXT_STATUS and envelope.get("turn_id") == turn_id:
+                reply.context = payload
+            elif event_type == COMPACTION_APPLIED and payload.get("trigger") == "auto":
+                reply.compacted.append(payload)
             elif event_type == ITEM_ADDED and envelope.get("turn_id") == turn_id:
                 failure = _error_detail(payload) or failure
             elif event_type == TURN_FAILED and envelope.get("turn_id") == turn_id:
@@ -148,7 +295,8 @@ def _read_reply(client: Any, ctx: Context, session_id: str, turn_id: str) -> str
                 event_type == TURN_COMPLETED and envelope.get("turn_id") == turn_id
             ):
                 break
-    return "".join(parts)
+    reply.text = "".join(parts)
+    return reply
 
 
 def _error_detail(item: dict[str, Any]) -> str:

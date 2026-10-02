@@ -58,7 +58,10 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 | `lucy models connect <provider>` | Save a provider key into the family `.env`. The key is prompted, never a flag. See [models.md](models.md). |
 | `lucy status` | Is the hub alive, is it ready, which dependency is unusable, and who does it think you are. |
 | `lucy version` | This client's version, and the hub's when one answers. |
-| `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. |
+| `lucy talk [words]` | Send a message (or pipe one) and print the reply. `--session` continues. After each reply, stderr says how full the window is (`context 42% · compacts at 72%`), and names any compaction Lucy did on her own. |
+| `lucy context [-s ID]` | How full a conversation's window is, in the figure the hub acts on: percent, tokens left before automatic compaction, turns read as a summary. Your latest conversation without `-s`. |
+| `lucy compact [-s ID] [--keep N]` | Summarise the older turns now, keeping the newest `N` word for word (default: your `history_turns_kept`). Says the window before and after. Automatic compaction carries on regardless. |
+| `lucy uncompact [-s ID] [COMPACTION]` | Put the turns back. Without an id, undoes the compaction Lucy is reading. |
 | `lucy eval list` | The regression conversations that ship with Lucy, and what each guards. No hub needed. |
 | `lucy eval run --model SPEC` | Hold them against a running hub with a real model and write a report. Never run by CI. See [evals.md](evals.md). |
 | `lucy logs` | The hub's log file, filtered: `--session`, `--turn`, `--agent` (any part of an id), `--level`, `--grep`, `--last N`; `--json` for the raw lines; `--file` for a log somewhere other than the family's `var/log/lucy.jsonl`. Reads the file on this machine, so it works when the hub does not. |
@@ -66,6 +69,26 @@ Working inside the repository, `uv run lucy …` needs no install at all.
 
 `lucy` with no command prints help, and exits 0. Help leads with examples, because that is
 what people read.
+
+### Commands inside `lucy talk`
+
+At the `you:` prompt, a line that starts with `/` and names a command is for the client, not
+for Lucy, and is never sent:
+
+| | |
+| --- | --- |
+| `/context` | How full this conversation's window is. |
+| `/compact [N]` | Compact now, keeping the newest `N` turns. |
+| `/uncompact [ID]` | Undo a compaction; the one Lucy is reading by default. |
+| `/new` | Start a fresh conversation with your next message. |
+| `/session` | Which conversation this is. |
+| `/help` | The list. |
+| `/quit`, `/exit` | Leave. Ctrl-D does too; a turn still running carries on. |
+
+`//text` sends `/text`. A line that does not look like a command, such as `/etc/hosts is
+wrong`, goes to Lucy as written; `/typo` is named as an unknown command rather than sent. A
+command that fails says why and the prompt carries on. `lucy talk /context` works one-shot,
+on your latest conversation.
 
 ## Flags
 

@@ -59,6 +59,7 @@ from lucy_api.cli.logs import add_parser as add_logs_parser
 from lucy_api.cli.models import cmd_models
 from lucy_api.cli.setup import cmd_config, cmd_doctor, cmd_setup
 from lucy_api.cli.talk import cmd_talk
+from lucy_api.cli.window import add_parser as add_window_parser
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -77,7 +78,10 @@ examples:
   lucy models                    every model provider: ready, configured, or how to set it up
   lucy models connect groq       save a provider key; the key is prompted, never a flag
   lucy talk Hello                one message; the reply is on stdout
-  lucy talk                      type interactively, or pipe a message
+  lucy talk                      type interactively, or pipe a message; /help inside
+  lucy context                   how full your latest conversation's window is
+  lucy compact --keep 1          summarise its older turns now, keeping the newest one
+  lucy uncompact                 put the turns back
   lucy eval run --model clyde:haiku   hold the regression conversations (docs/evals.md)
   lucy serve                     run the hub here, in the foreground
   lucy logs --session ID         the hub's log lines about one conversation
@@ -333,6 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_approve_parser(sub, after)
     add_eval_parser(sub, after)
     add_logs_parser(sub, after)
+    add_window_parser(sub, after)
 
     return parser
 
