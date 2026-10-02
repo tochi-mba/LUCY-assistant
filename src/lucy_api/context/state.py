@@ -474,9 +474,17 @@ def _context_line(state: LiveState) -> str:
         if budget.reclaimable
         else ""
     )
+    threshold = (
+        f"compaction at {budget.compact_at_percent}%"
+        if budget.compact_at_percent is not None
+        else ""
+    )
+    # Said in so many words: a model handed a summary and not told so answers "what did
+    # we say at the start?" as if it remembered, and quotes a sentence nobody wrote.
+    summarised = budget.summarised_turns
     compaction = (
-        f"last compaction at turn {budget.last_compaction_turn}"
-        if budget.last_compaction_turn is not None
+        ("turn 1 is" if summarised == 1 else f"turns 1-{summarised} are") + " read as a summary"
+        if summarised
         else ""
     )
     # Past 100% the number alone invites a story: read "238% used", a model said the
@@ -486,6 +494,7 @@ def _context_line(state: LiveState) -> str:
     return _label("context") + _joined(
         f"{budget.used:,} of {budget.window:,} tokens ({budget.percent}% used)",
         over,
+        threshold,
         reclaimable,
         compaction,
     )

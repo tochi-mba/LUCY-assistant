@@ -1,11 +1,12 @@
 The live block -- the one headed `live state` -- says how much of the window is spent. Read
 it, and let it change what you do.
 
-Past roughly seven tenths, stop opening things you do not need in full, and finish what is
-already started before you begin something large.
+As it nears the compaction point it names, stop opening things you do not need in full, and
+finish what is already started before you begin something large.
 
 Write the note before the eviction, never after it. A note written afterwards is written from
-the summary that replaced the detail.
+the summary that replaced the detail. When the line says turns are read as a summary, the
+summary is all you have of them: say so rather than quoting what was said.
 
 Keep the identifiers in the note: paths, names, ids, exact error text, which calls you have
 already made and what came back. The shape of the work survives a compaction on its own. The

@@ -317,6 +317,7 @@ async def _build(view: SessionView) -> Built:
                 used=reclaimed.used,
                 window=view.window,
                 reclaimable=reclaimed.reclaimable,
+                compact_at_percent=view.compact_at_percent,
             ),
         ),
         ContextTurn(
