@@ -41,6 +41,10 @@ DISABLED_MODEL = "disabled"
 DISABLED = "compaction is disabled for this session after three consecutive failures"
 EMPTY = "nothing to compact: the session has no items yet"
 TOO_NEW = "nothing old enough to compact; the newest {keep} turns stay"
+NOTHING_NEW = (
+    "nothing new to compact: compaction {seq} already covers everything older than the "
+    "newest {keep} turns"
+)
 
 PRESERVE = re.compile(
     r"\$[A-Za-z][A-Za-z0-9_]*"
@@ -76,6 +80,14 @@ async def compact_session(
         covers_to = _covers_to(items, keep)
         if covers_to is None:
             raise conflict(TOO_NEW.format(keep=keep))
+        newest = _newest_active(db, session_id)
+        if newest is not None and (newest["covers_from"], newest["covers_to"]) == (
+            items[0]["seq"],
+            covers_to,
+        ):
+            # The same range again would be a second row saying what the first one says;
+            # with nothing new to cover, a person asking twice is told so instead.
+            raise conflict(NOTHING_NEW.format(seq=newest["seq"], keep=keep))
         event_row(db, session_id, COMPACTION_STARTED, {"model": model})
         try:
             summary = _summary(items, covers_to)
@@ -177,6 +189,14 @@ async def uncompact_session(
         }
 
     return await store.transaction(apply)
+
+
+def _newest_active(db: sqlite3.Connection, session_id: str) -> Any:
+    return db.execute(
+        "SELECT seq, covers_from, covers_to FROM compactions "
+        "WHERE session_id=? AND active=1 AND model!=? ORDER BY seq DESC LIMIT 1",
+        (session_id, DISABLED_MODEL),
+    ).fetchone()
 
 
 def _disabled(db: sqlite3.Connection, session_id: str) -> bool:

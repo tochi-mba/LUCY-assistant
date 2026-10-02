@@ -199,6 +199,35 @@ async def test_a_compaction_is_extractive_and_can_be_undone(sessions_store: Sess
     assert caught.value.code == "not-found"
 
 
+async def test_compacting_again_with_nothing_new_writes_no_second_row(
+    sessions_store: SessionStore,
+) -> None:
+    """The bug, named: asking twice wrote two rows over the same range, the second saying
+    exactly what the first did, and the prompt carried a superseded summary from then on.
+    With nothing new to cover, the second ask is a conflict that says so."""
+    session = await a_session(sessions_store)
+    await three_turns(sessions_store, session)
+    first = await compact_session(sessions_store, ACCOUNT, session)
+
+    with pytest.raises(LucyError) as caught:
+        await compact_session(sessions_store, ACCOUNT, session)
+
+    assert caught.value.code == "conflict"
+    assert "nothing new to compact: compaction 1" in caught.value.args[0]
+    rows = await sessions_store.records(ACCOUNT, session, "compactions")
+    assert [row["id"] for row in rows] == [first["id"]]
+
+    await n_turns(sessions_store, session, 1)
+    later = await compact_session(sessions_store, ACCOUNT, session)
+    assert later["covers_to"] > first["covers_to"], "a new turn is new ground"
+
+    await uncompact_session(sessions_store, ACCOUNT, session, str(later["id"]))
+    with pytest.raises(LucyError):
+        await compact_session(sessions_store, ACCOUNT, session, keep_recent=3)
+    again = await compact_session(sessions_store, ACCOUNT, session)
+    assert again["covers_to"] == later["covers_to"], "an undone range may be redone"
+
+
 async def test_three_failed_compactions_disable_the_session(
     sessions_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -232,6 +261,7 @@ async def test_a_successful_compaction_resets_the_failure_streak(
     with pytest.raises(LucyError):
         await compact_session(sessions_store, ACCOUNT, session)
     monkeypatch.undo()
+    await n_turns(sessions_store, session, 1)
     written = await compact_session(sessions_store, ACCOUNT, session)
     assert written["active"] is True
 
