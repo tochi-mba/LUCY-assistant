@@ -291,6 +291,7 @@ COMPACTION_STARTED = "lucy.compaction.started"
 COMPACTION_APPLIED = "lucy.compaction.applied"
 COMPACTION_FAILED = "lucy.compaction.failed"
 COMPACTION_DISABLED = "lucy.compaction.disabled"
+COMPACTION_REVERTED = "lucy.compaction.reverted"
 CONTEXT_OVERFLOW = "lucy.context.overflow"
 
 
@@ -537,6 +538,7 @@ GROUPS: Mapping[str, tuple[str, ...]] = {
         COMPACTION_APPLIED,
         COMPACTION_FAILED,
         COMPACTION_DISABLED,
+        COMPACTION_REVERTED,
         CONTEXT_OVERFLOW,
     ),
     "Workspace": (
