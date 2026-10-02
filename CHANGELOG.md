@@ -21,6 +21,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   counted from the projection that built the history, and names where compaction runs
   (`compaction at 72%`), so the model's guidance points at the real threshold rather than a
   hard-coded "seven tenths".
+- **Events a transaction wrote reach live clients.** `emit` moved the published mark to its
+  own number, so rows a session transaction had committed just before it -- a compaction
+  written mid-turn -- sat below the mark, and the turn's closing `publish_persisted`
+  replayed only what was above it. A watching client never heard about them. When `emit`
+  finds such a gap and somebody is listening, it sends the gap first, in order.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.

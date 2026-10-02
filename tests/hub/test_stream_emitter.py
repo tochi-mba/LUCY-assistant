@@ -477,3 +477,44 @@ def _an_event(sequence: int) -> Event:
         session_id=SESSION,
         created_at=float(sequence),
     )
+
+
+async def test_rows_a_transaction_wrote_are_sent_before_the_next_event_steps_over_them() -> None:
+    """The bug, named: `emit` moved the published mark to its own number, so rows a session
+    transaction had committed just before -- a compaction written mid-turn -- sat below the
+    mark, and the turn's closing `publish_persisted` replayed only what was above it. They
+    never reached a live client. They are now sent first, in order."""
+    emitter, log, _ = an_emitter()
+    await emitter.emit(SESSION, NewEvent(taxonomy.TURN_STARTED))
+
+    async with emitter.subscribe(SESSION) as subscriber:
+        await drain(subscriber)
+        await log.append(SESSION, NewEvent(taxonomy.COMPACTION_STARTED))
+        await log.append(SESSION, NewEvent(taxonomy.COMPACTION_APPLIED))
+        await emitter.emit(SESSION, NewEvent(taxonomy.CONTENT_TEXT_DELTA, {"delta": "hi"}))
+        await emitter.publish_persisted(SESSION)
+        received = await drain(subscriber)
+
+    assert [event.type for event in received] == [
+        taxonomy.COMPACTION_STARTED,
+        taxonomy.COMPACTION_APPLIED,
+        taxonomy.CONTENT_TEXT_DELTA,
+    ]
+    assert sequences(received) == [2, 3, 4]
+
+
+async def test_a_gap_with_nobody_listening_costs_no_replay() -> None:
+    emitter, log, _ = an_emitter()
+    await log.append(SESSION, NewEvent(taxonomy.COMPACTION_APPLIED))
+    replays: list[int] = []
+    original = log.replay
+
+    async def counted(session_id: str, *, after: int) -> tuple[Event, ...]:
+        replays.append(after)
+        return await original(session_id, after=after)
+
+    log.replay = counted  # type: ignore[method-assign]
+    stored = await emitter.emit(SESSION, NewEvent(taxonomy.TURN_STARTED))
+
+    assert stored.sequence_number == 2
+    assert replays == []
