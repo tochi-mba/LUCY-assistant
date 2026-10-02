@@ -198,6 +198,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **See how full the window is, and compact whenever you like.** Automatic compaction still
+  runs on its own. `GET /v1/sessions/{id}/context/window` gives the figure the model is told
+  and compaction acts on: the percentage, tokens left before compaction, turns read as a
+  summary, and a `state`. `GET /context` now carries it as `window`, and every model round
+  emits it as `lucy.context.status`. `POST /compact` takes an optional `keep_recent_turns`
+  and answers with `context_before` and `context_after`. `GET /compactions` lists every
+  compaction with who asked for it (`manual` or `auto`), how full the window was, and which
+  one the model is reading. After three automatic failures a person can still compact by
+  hand, and a success switches automatic compaction back on.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

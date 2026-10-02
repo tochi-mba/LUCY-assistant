@@ -96,9 +96,11 @@ copied into a log line.
 | `GET` | `/v1/sessions/{id}/turns` | The units of work in a conversation. |
 | `GET` | `/v1/turns/{turn_id}` | One turn. |
 | `POST` | `/v1/turns/{turn_id}/cancel` | Stop a turn, cooperatively. |
-| `GET` | `/v1/sessions/{id}/context` | The exact prompt the session would send, with per-band token counts. See [context.md](context.md). |
-| `POST` | `/v1/sessions/{id}/compact` | Summarise older turns without rewriting them. |
+| `GET` | `/v1/sessions/{id}/context` | The exact prompt the session would send, with per-band token counts and `window`. See [context.md](context.md). |
+| `GET` | `/v1/sessions/{id}/context/window` | How full the window is: tokens used of the window, the percentage, where the warning and automatic compaction sit, tokens left before it runs, turns read as a summary, and `state`. |
+| `POST` | `/v1/sessions/{id}/compact` | Compact now. Optional `keep_recent_turns`; answers with the row and `context_before`/`context_after`. |
 | `POST` | `/v1/sessions/{id}/uncompact` | Restore the turns a compaction was standing in for. |
+| `GET` | `/v1/sessions/{id}/compactions` | Every compaction, newest first: who asked (`manual`/`auto`), how full the window was, the range, and which one the model is reading. |
 | `GET` | `/v1/sessions/{id}/results` | Tool results still addressable by reference. |
 | `GET` | `/v1/sessions/{id}/results/{result_id}` | One stored tool result. |
 | `GET` | `/v1/sessions/{id}/usage` | Token and cost totals for the conversation. |

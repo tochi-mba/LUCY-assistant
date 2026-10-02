@@ -233,7 +233,7 @@ async def test_compacting_again_with_nothing_new_writes_no_second_row(
     assert again["covers_to"] == later["covers_to"], "an undone range may be redone"
 
 
-async def test_three_failed_compactions_disable_the_session(
+async def test_three_failed_compactions_switch_automatic_compaction_off(
     sessions_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = await a_session(sessions_store)
@@ -245,11 +245,11 @@ async def test_three_failed_compactions_disable_the_session(
     monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
     for _ in range(FAILURES_BEFORE_DISABLE):
         with pytest.raises(LucyError) as caught:
-            await compact_session(sessions_store, ACCOUNT, session)
+            await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
         assert caught.value.code == "compact-failed"
     with pytest.raises(LucyError) as caught:
-        await compact_session(sessions_store, ACCOUNT, session)
-    assert "disabled" in caught.value.args[0]
+        await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+    assert "automatic compaction is off" in caught.value.args[0]
 
 
 async def test_a_successful_compaction_resets_the_failure_streak(

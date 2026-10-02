@@ -13,6 +13,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("approvals", "executed_at", "REAL"),
     ("permission_grants", "only_json", "TEXT"),
     ("subscriptions", "due_at", "REAL"),
+    ("compactions", "triggered_by", "TEXT NOT NULL DEFAULT 'manual'"),
 )
 """(table, column, definition) for every column that post-dates the table."""
 
@@ -65,7 +66,8 @@ CREATE TABLE IF NOT EXISTS compactions (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  seq INTEGER NOT NULL, trigger_tokens INTEGER NOT NULL, model TEXT NOT NULL,
  prompt_version TEXT NOT NULL, summary TEXT NOT NULL, covers_from INTEGER NOT NULL,
- covers_to INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL
+ covers_to INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL,
+ triggered_by TEXT NOT NULL DEFAULT 'manual'
 ) STRICT;
 CREATE TABLE IF NOT EXISTS audit (
  sequence INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL,

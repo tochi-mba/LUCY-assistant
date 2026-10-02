@@ -91,6 +91,32 @@ live turn when the window crosses `compaction_trigger_percent`, keeping `history
 recent turns verbatim. `POST /v1/sessions/{id}/compact` and `uncompact` are the explicit
 versions of the same projection and keep the same window.
 
+### Seeing the window, and compacting by hand
+
+Automatic compaction keeps running on its own. A person can also look and act whenever
+they like:
+
+- **How full is it?** `GET /v1/sessions/{id}/context/window` returns the figure the model is
+  told and that warnings and compaction act on: `used_tokens` of `window_tokens`, `percent`,
+  `warn_at_percent`, `compact_at_percent`, `tokens_until_compaction`,
+  `summarised_turns` and `state` (`ok`, `warning`, `compacting`, `over`). Every model round
+  also emits it as `lucy.context.status`, so a client following the conversation can show
+  it without asking. `lucy context` and `/context` inside `lucy talk` print it.
+- **Compact now.** `POST /v1/sessions/{id}/compact`, optionally with
+  `{"keep_recent_turns": n}` (0-100; omitted, `history_turns_kept` decides). The answer
+  carries `context_before` and `context_after`. Asking again with nothing new to cover is a
+  409. `lucy compact` and `/compact` do the same.
+- **Undo it.** `POST /uncompact` with the compaction's id; `lucy uncompact` and `/uncompact`
+  undo the one the model is reading when no id is given. Undoing writes
+  `lucy.compaction.reverted`.
+- **What happened?** `GET /v1/sessions/{id}/compactions` lists every compaction: `trigger`
+  (`manual` or `auto`), `trigger_tokens`, the range, `active`, and `shown` (the one the model
+  is reading; an older active one a newer one overlaps is superseded and not shown).
+
+Three consecutive failures switch *automatic* compaction off for the session
+(`automatic: false`). A person compacting by hand is still tried, and a success switches
+the automatic one back on.
+
 A process restart fails turns left `running` (a tool that already ran must not run again)
 and then drains what was still queued. Turns parked on a person (`input_required`,
 `auth_required`) survive.
