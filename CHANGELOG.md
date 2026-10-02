@@ -207,6 +207,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   compaction with who asked for it (`manual` or `auto`), how full the window was, and which
   one the model is reading. After three automatic failures a person can still compact by
   hand, and a success switches automatic compaction back on.
+- **`lucy context`, `lucy compact`, `lucy uncompact`, and `/context`, `/compact`,
+  `/uncompact` inside `lucy talk`.** Each acts on the named conversation, or your latest.
+  After every reply `lucy talk` says how full the window is (`context 42% · compacts at
+  72%`) and names any compaction Lucy did on her own; `--json` carries it as `context`.
+  `/new`, `/session`, `/help` and `/quit` round out the prompt; `//` sends a line that starts
+  with `/`, and a path such as `/etc/hosts` still goes to Lucy as written.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

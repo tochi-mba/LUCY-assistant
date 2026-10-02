@@ -142,6 +142,7 @@ def test_talk_json_names_the_session_turn_and_text(patched) -> None:
         "session_id": "ses_1",
         "turn_id": "trn_1",
         "text": "Hello there.",
+        "context": None,
     }
 
 
