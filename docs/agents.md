@@ -81,6 +81,13 @@ helper spent in model tokens and tool calls is not part of it. Fan-out costs rou
 order of magnitude more than doing the work inline, and a parent that cannot see that
 number cannot decide whether the fan-out was worth it, so this is a known gap.
 
+**A person can put helpers on a cheaper model.** `lucy.helper_model` names the
+`provider:model` every helper runs on; empty, the default, runs them on the conversation's
+own model. It never changes the conversation's model. A helper model this hub cannot build
+falls back to the conversation's, and the report's `notice` names the swap and why; one that
+is down mid-run gets one retry on the conversation's model, and the reply begins by saying
+which model answered, as a main turn's `fallback_model` does.
+
 ## A finished child can be reopened
 
 A child that has completed is not gone. `agents.reopen` continues it from its own

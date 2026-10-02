@@ -485,6 +485,7 @@ class WorkspacePack:
             current.content,
             str(run.input.get("old_string") or ""),
             str(run.input.get("new_string") or ""),
+            loosest=run.ctx.policy.workspace_edit_matching,
         )
         if not applied.replaced or applied.match is None:
             return {

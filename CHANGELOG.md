@@ -269,6 +269,25 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   of what is counted as well as what is sent. `tools` and `safety` can never be listed, and
   any name that may not be dropped is ignored rather than failing the turn.
 
+
+- **Four more things a person can choose, each defaulting to what Lucy already did.**
+  - `lucy.helper_model` runs helpers on a cheaper or faster model while the conversation
+    keeps the person's. A model this hub cannot run falls back to the conversation's and the
+    helper's report says so; one that is down mid-run is retried once on the conversation's
+    model, and the reply names who answered.
+  - `lucy.delete_archived_sessions_after_days` (account-wide, zero by default) deletes
+    conversations archived *and* untouched that many days, with their files and workspace
+    folder, when conversations are listed. Never one with an unfinished turn, a queued or
+    running helper or a waiting watch; at most ten per listing, oldest archive first, each
+    with an audit row. The check and the delete are one transaction. The model may never
+    set it.
+  - `lucy.preferred_capabilities` names capabilities to hold first in a new conversation
+    when more are ready than a turn holds, so someone who uses music every day does not pay
+    a `capabilities.use` round for it. Recency still comes first; a preference never binds
+    a capability that is off. The list travels on the probed catalogue, so the prompt, the
+    plan schema and the executor all rank by it.
+  - `lucy.workspace_edit_matching` (`exact`, `whitespace`, `fuzzy`) cuts the edit ladder
+    short for someone who wants a near miss refused rather than applied.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

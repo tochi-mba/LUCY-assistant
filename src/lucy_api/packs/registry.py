@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from weftai import create_formatter, create_registry, create_runtime, standard_operations
@@ -178,7 +179,10 @@ async def probe_all(
         operations = tuple(pack.operations(context)) if availability.usable else ()
         return Bound(pack=pack, availability=availability, operations=operations)
 
-    catalogue = Catalogue(bound=tuple(await asyncio.gather(*(one(pack) for pack in packs))))
+    catalogue = Catalogue(
+        bound=tuple(await asyncio.gather(*(one(pack) for pack in packs))),
+        preferred=context.policy.preferred_capabilities,
+    )
     return apply_disabled(catalogue, context.policy.all_disabled)
 
 
@@ -194,16 +198,22 @@ def choose_bound(
     Returns both, because the second is not a detail: the model is told what it is not
     holding, by name, so that `capabilities.use` is a thing it knows to reach for rather
     than something it has to guess exists.
+
+    What the conversation used comes first, then the person's `preferred_capabilities` in
+    their order, then `FIRST_LOADED`. A preference only reorders what is ready: a capability
+    that is off or not connected is not in `ready()` to be ranked at all.
     """
     ready = catalogue.ready()
     if len(ready) <= defer_above:
         return ready, ()
 
     order = {pack_id: index for index, pack_id in enumerate(recent)}
+    preferred = {pack_id: index for index, pack_id in enumerate(catalogue.preferred)}
     ranked = sorted(
         ready,
         key=lambda item: (
             order.get(item.pack.id, len(order)),
+            preferred.get(item.pack.id, len(preferred)),
             _first_loaded(item.pack.id),
             item.pack.id,
         ),
@@ -262,7 +272,7 @@ def apply_disabled(catalogue: Catalogue, disabled: Sequence[str]) -> Catalogue:
                 operations=(),
             )
         )
-    return Catalogue(bound=tuple(bound))
+    return replace(catalogue, bound=tuple(bound))
 
 
 def build_registry(
