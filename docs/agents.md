@@ -1,7 +1,7 @@
 # How Lucy runs helpers
 
-An agent is a child run: its own item log, its own subset of the tools, its own budget, its
-own corner of the workspace, its own durable row. The design below is taken directly from a
+An agent is a child run: its own item log, its own subset of the tools, its own budget, read
+access to its conversation's workspace, its own durable row. The design below is taken directly from a
 harness that already works this way, because the things that make it work are not obvious
 and are mostly about what *cannot* happen rather than what can.
 
@@ -221,8 +221,10 @@ the call is not built: the interrupted run is ended rather than resumed.
 
 ## Everything a child gets is scoped
 
-A child inherits its parent's account, profile and session, gets its own subtree beneath the
-session's workspace, and may **narrow** its permission mode but never widen it. There is one
+A child inherits its parent's account, profile and session, reads the session's workspace,
+and may **narrow** its permission mode but never widen it. It has no folder of its own: it is
+read-only, so one could only ever be empty, and a helper asked to read the conversation's
+files would find none of them. There is one
 function that makes a child scope and it cannot express escalation, which is why "a child
 escalated" is not a failure mode that needs testing for — it is not representable.
 

@@ -101,13 +101,6 @@ def test_a_session_gets_its_own_subtree() -> None:
     assert a_workspace().scripts == "sessions/ses_7Kq2/scripts"
 
 
-def test_an_agent_works_beneath_its_session_not_beside_it() -> None:
-    """So deleting a session takes its helpers' work with it, and a listing shows both."""
-    agent = a_workspace(agent_id="agt_1")
-    assert agent.root == "sessions/ses_7Kq2/agents/agt_1"
-    assert agent.root.startswith(a_workspace().root + "/")
-
-
 @pytest.mark.parametrize(
     "inside",
     ["notes.md", "./notes.md", "a/b/c.txt", "a/../b.txt", "scripts/rename.py", "", ".", "/"],
@@ -179,8 +172,7 @@ def test_a_child_inherits_the_person_and_the_conversation() -> None:
         parent.session_id,
     )
     assert child.depth == parent.depth + 1
-    assert child.workspace is not None
-    assert child.workspace.root == "sessions/ses_7Kq2/agents/agt_1"
+    assert child.workspace == parent.workspace
 
 
 @pytest.mark.parametrize(
@@ -207,6 +199,21 @@ def test_a_mode_nobody_recognises_is_treated_as_the_parents_own() -> None:
     assert parent.for_agent("agt_1", permission_mode="nonsense").permission_mode == "ask"
 
 
+def test_a_helper_reads_the_conversations_files_not_an_empty_folder_of_its_own() -> None:
+    """The bug, named: a helper's workspace was rooted at `sessions/<id>/agents/<agent>`. A
+    helper is read-only, so that folder was always empty, and asked to read a file the
+    conversation had, every list, read and search it made answered 404. Live, Lucy watched
+    one fail for two and a half minutes, then cancelled it and read the file herself.
+    """
+    parent = scope_from_row(ROW, account_id="acct_a")
+    child = parent.for_agent("agt_1", permission_mode="plan")
+
+    assert child.workspace is not None
+    assert child.workspace.root == "sessions/ses_7Kq2"
+    assert child.workspace.resolve("report.md") == "sessions/ses_7Kq2/report.md"
+    assert child.permission_mode == "plan"
+
+
 def test_a_child_of_a_session_with_no_sandbox_has_none_either() -> None:
     parent = scope_from_row({**ROW, "workspace_environment_id": ""}, account_id="acct_a")
     assert parent.for_agent("agt_1").workspace is None
@@ -216,5 +223,4 @@ def test_a_grandchild_goes_deeper_still() -> None:
     parent = scope_from_row(ROW, account_id="acct_a")
     grandchild = parent.for_agent("agt_1").for_agent("agt_2")
     assert grandchild.depth == 2
-    assert grandchild.workspace is not None
-    assert grandchild.workspace.root == "sessions/ses_7Kq2/agents/agt_2"
+    assert grandchild.workspace == parent.workspace

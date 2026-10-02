@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A helper reads the conversation's files.** A helper's workspace was rooted at
+  `sessions/<id>/agents/<agent>`, a folder of its own. Helpers are read-only, so that folder
+  was always empty, and every list, read or search a helper made of the conversation's
+  files answered that they did not exist. A helper now reads the session's workspace; the
+  permission mode, not the folder, is what keeps it from writing. Found live: Lucy watched
+  a helper fail to find `report.md` for two and a half minutes, then read it herself.
 - **Recall does not guess the trust floor when memory settings cannot be read.** If
   the `memory` namespace cannot be resolved, a recall brings back nothing and says why,
   rather than silently admitting inferred notes.
