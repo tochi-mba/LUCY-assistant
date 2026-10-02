@@ -9,6 +9,7 @@ of prompt while the model was told it was empty.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from math import ceil
 from typing import TYPE_CHECKING
 
@@ -147,3 +148,75 @@ async def test_the_context_preview_says_the_same(client: AsyncClient) -> None:
 class _Snapshot:
     async def snapshot(self, session_id: str) -> dict[str, str]:
         return {"session_id": session_id}
+
+
+def _long_conversation(turns: int) -> list[dict[str, object]]:
+    body = "a sentence long enough to count for something in the window. " * 40
+    return [
+        {
+            "id": f"itm_{seq}",
+            "seq": seq,
+            "role": "user" if seq % 2 else "assistant",
+            "content": body,
+            "turn_id": f"trn_{(seq + 1) // 2}",
+            "type": "message",
+        }
+        for seq in range(1, turns * 2 + 1)
+    ]
+
+
+def test_a_compaction_lowers_the_figure_and_does_not_run_again() -> None:
+    """The bug, named: the figure counted every turn the transcript held, summarised or
+    not. A compaction never lowered it, so the window read as full as before, the model
+    was told so, and compaction ran again on every turn after the first."""
+    items = _long_conversation(10)
+    full = SessionView(session_id="ses", items=items, window=12_000, compact_at_percent=72)
+    _rows, before = projected_rows(full)
+    assert before.should_compact
+
+    compacted = replace(
+        full,
+        compactions=[
+            {"seq": 1, "summary": "Opening.", "covers_from": 1, "covers_to": 16, "active": 1}
+        ],
+    )
+    rows, after = projected_rows(compacted)
+
+    assert after.used < before.used // 2
+    assert not after.should_compact, "a compaction that just ran does not ask to run again"
+    assert [row["id"] for row in rows] == [row["id"] for row in items], (
+        "covered rows stay, so the history band can still find what its summary stands for"
+    )
+
+
+def test_covered_tool_results_are_not_offered_for_reclamation() -> None:
+    items = [
+        *_long_conversation(3),
+        {
+            "id": "itm_t",
+            "seq": 7,
+            "role": "tool",
+            "content": "{}",
+            "turn_id": "trn_4",
+            "type": "tool_result",
+        },
+        {
+            "id": "itm_u",
+            "seq": 8,
+            "role": "user",
+            "content": "next",
+            "turn_id": "trn_5",
+            "type": "message",
+        },
+    ]
+    covered = SessionView(
+        session_id="ses",
+        items=items,
+        compactions=[
+            {"seq": 1, "summary": "All of it.", "covers_from": 1, "covers_to": 7, "active": 1}
+        ],
+    )
+    _rows, reclaimed = projected_rows(covered)
+    assert reclaimed.reclaimable == 0
+    _rows, open_ = projected_rows(replace(covered, compactions=[]))
+    assert open_.reclaimable == 1

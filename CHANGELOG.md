@@ -26,6 +26,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   written mid-turn -- sat below the mark, and the turn's closing `publish_persisted`
   replayed only what was above it. A watching client never heard about them. When `emit`
   finds such a gap and somebody is listening, it sends the gap first, in order.
+- **A compaction lowers the context figure, and does not run again on the next turn.** The
+  figure the model is told, and that warnings and compaction act on, counted every turn the
+  transcript held, summarised or not. A compaction never lowered it, so the window read as
+  full as before and compaction ran again on every turn after the first. It now prices each
+  summary in place of the turns it covers, and a covered tool result is no longer counted
+  as reclaimable.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.
