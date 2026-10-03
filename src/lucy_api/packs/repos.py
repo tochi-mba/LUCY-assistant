@@ -620,7 +620,8 @@ class ReposPack:
         lifetime = watch_seconds(
             raw.get("for_seconds"), run.ctx.defaults.get("repos.watch_seconds")
         )
-        wake = raw.get("wake", True) is not False
+        wake = raw.get("wake")
+        wake = wake if isinstance(wake, bool) else run.ctx.policy.wake_by_default
         repo = full_name(raw)
         opened = await seam.open(
             capability=self.id, objective=objective, timeout_seconds=lifetime, wake=wake
