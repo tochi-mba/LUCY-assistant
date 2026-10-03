@@ -356,6 +356,7 @@ def test_at_a_prompt_commands_act_on_this_conversation_and_never_reach_lucy(hub:
             "/context",
             "hello",
             "/context",
+            "/compact",
             "/compact 2",
             "/compact two",
             "/uncompact",
@@ -383,9 +384,8 @@ def test_at_a_prompt_commands_act_on_this_conversation_and_never_reach_lucy(hub:
     assert "/bogus is not a command" in err
     assert "/compact takes how many recent turns to keep" in err
     assert "GET /v1/sessions/ses_new1/context/window" in hub.paths()
-    assert json.loads(next(r for r in hub.seen if r.url.path.endswith("/compact")).content) == {
-        "keep_recent_turns": 2
-    }
+    compacted = [json.loads(r.content) for r in hub.seen if r.url.path.endswith("/compact")]
+    assert compacted == [{}, {"keep_recent_turns": 2}], "bare /compact leaves it to the setting"
     assert "Undid cmp_1" in out
     assert "ses_new1" in out, "/session names the conversation in hand"
     assert "/uncompact [ID]" in out
