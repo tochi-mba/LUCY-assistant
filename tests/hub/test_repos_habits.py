@@ -218,7 +218,7 @@ async def test_a_watch_that_names_no_length_lasts_as_long_as_the_person_chose(
     result, registry, _, _ = await watching(
         sessions_store,
         seeded(),
-        {"repos.watch_seconds": 86_400.0},
+        defaults={"repos.watch_seconds": 86_400.0},
         repo=HELLO,
         until="pull_merged",
         number=42,
@@ -236,7 +236,7 @@ async def test_a_watch_that_names_its_length_wins_over_the_setting(
     result, registry, _, _ = await watching(
         sessions_store,
         seeded(),
-        {"repos.watch_seconds": 86_400.0},
+        defaults={"repos.watch_seconds": 86_400.0},
         repo=HELLO,
         until="pull_merged",
         number=42,
