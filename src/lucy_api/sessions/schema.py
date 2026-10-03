@@ -13,6 +13,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("approvals", "executed_at", "REAL"),
     ("permission_grants", "only_json", "TEXT"),
     ("subscriptions", "due_at", "REAL"),
+    ("subscriptions", "tags_json", "TEXT"),
     ("compactions", "triggered_by", "TEXT NOT NULL DEFAULT 'manual'"),
 )
 """(table, column, definition) for every column that post-dates the table."""
