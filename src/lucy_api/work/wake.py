@@ -26,10 +26,22 @@ Work started in a named group wakes nothing on its own ending. The group's endin
 member's -- is a `lucy.work.group.finished` event, and wakes the session once, with one line
 naming every member and how each ended. Five reviewers are one piece of news, and five
 wakes would open turns that each knew a fifth of it.
+
+Two of the person's settings ride on the work, as tags its opener wrote from the turn that
+started it, because nobody is present to read settings when it ends:
+
+- **Quiet hours** (`lucy.quiet_hours`). A wake that falls inside the window is held back as a
+  check-in due when it closes (`Subscriptions.defer_wake`). The ending's event goes out at
+  once, as always; only the turn waits. The check-in is a row, so a restart keeps the
+  promise; while this process lives it also remembers which ending it stands for, and tells
+  that one -- or nothing, if the person has read the result in the meantime.
+- **Consent withheld** (`lucy.act_unattended` off). The turn is told it runs without
+  standing consent, the same sentence as consent that no longer works.
 """
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lucy_api.core.errors import LucyError
@@ -38,14 +50,14 @@ from lucy_api.sessions.sql_store import NewItem
 from lucy_api.sessions.turns import open_turn
 from lucy_api.stream.emitter import NewEvent
 from lucy_api.stream.events import WORK_FINISHED, WORK_GROUP_FINISHED, WORK_WOKE
-from lucy_api.work.types import Team
+from lucy_api.work.quiet import NEAR_SECONDS, QUIET_TAG, QuietHours
+from lucy_api.work.types import Record, State, Team
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from lucy_api.sessions.sql_store import SessionStore
     from lucy_api.stream.emitter import EventEmitter
-    from lucy_api.work.types import Record
 
 type Ending = Record | Team
 """What a wake is about: one piece of work, or a group whose last member has ended."""
@@ -55,6 +67,15 @@ NOTICE_ROLE = "harness"
 WAKE_INPUT = "wake"
 """The input type recorded on a turn a piece of work opened. Not a client input: the one
 write path refuses it, because a client that could submit a wake could speak as the harness."""
+
+CONSENT_TAG = "consent"
+WITHHELD = "withheld"
+"""`consent: withheld` marks work opened for somebody who said a turn Lucy opens on her own
+may only report (`lucy.act_unattended` off). No grant was asked for, and the turn is told so."""
+
+type Defer = Callable[[Ending, float], Awaitable[str | None]]
+"""Hold a wake back until a moment, as durable work of its own: its id, or ``None`` when it
+could not be recorded and the wake must happen now rather than never."""
 
 
 def wake_line(record: Record) -> str:
@@ -132,28 +153,42 @@ def _duration(seconds: float) -> str:
 class Waker:
     """Turns "it finished" into an event, and -- when asked and possible -- into a turn."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - where, what to announce on, and four late-bound collaborators
         self,
         store: SessionStore,
         events: EventEmitter,
         *,
         wake: Callable[[], None] | None = None,
         authority: Authority | None = None,
+        defer: Defer | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._store = store
         self._events = events
         self._wake = wake
         self._authority = authority
+        self._defer = defer
+        self._clock = clock
         self._held: dict[str, list[Ending]] = {}
+        self._deferred: dict[str, Ending] = {}
+        """Endings held back for quiet hours, by the id of the check-in that will tell them."""
 
-    def attach(self, wake: Callable[[], None], authority: Authority | None = None) -> None:
-        """Name the thing that starts the turn loop, and what lends a woken turn authority.
+    def attach(
+        self,
+        wake: Callable[[], None],
+        authority: Authority | None = None,
+        defer: Defer | None = None,
+    ) -> None:
+        """Name the thing that starts the turn loop, what lends a woken turn authority, and
+        what holds a wake back for quiet hours.
 
-        Both are built after the waker: the supervisor needs it, and authority needs both.
+        All are built after the waker: the supervisor needs it, and authority needs both.
         """
         self._wake = wake
         if authority is not None:
             self._authority = authority
+        if defer is not None:
+            self._defer = defer
 
     async def on_finished(self, record: Record) -> None:
         """The registry's listener: announce the ending, then wake or hold.
@@ -173,6 +208,13 @@ class Waker:
             record.session_id,
             NewEvent(WORK_FINISHED, _summary(record)),
         )
+        held_back = self._deferred.pop(record.id, None)
+        if held_back is not None:
+            # The check-in that stood in for a wake during quiet hours. It is told as the
+            # ending it stood for -- unless the person called it off, or has already read it.
+            if record.state is not State.cancelled and not held_back.fetched:
+                await self._wake_or_hold(held_back, busy=busy)
+            return
         if not record.wake or record.group:
             # A member of a group is woken for by its group, once, when the last one ends.
             return
@@ -195,6 +237,16 @@ class Waker:
         if busy:
             self._held.setdefault(ending.session_id, []).append(ending)
             return
+        await self._deliver(ending)
+
+    async def _deliver(self, ending: Ending) -> None:
+        """Open the turn now, or -- inside the person's quiet hours -- when they end."""
+        until = quiet_until(ending, self._clock())
+        if until is not None and self._defer is not None:
+            standing_in = await self._defer(ending, until)
+            if standing_in is not None:
+                self._deferred[standing_in] = ending
+                return
         await self._open(ending)
 
     async def flush(self, session_id: str) -> None:
@@ -216,7 +268,7 @@ class Waker:
             if busy:
                 self._held[session_id] = held[position:]
                 return
-            await self._open(ending)
+            await self._deliver(ending)
 
     async def _busy(self, ending: Ending) -> bool:
         turns = await self._store.records(ending.account_id, ending.session_id, "turns")
@@ -239,6 +291,8 @@ class Waker:
         if self._authority is not None and self._authority.carries(ending):
             prepared = await self._authority.prepare(ending)
             line = line[:-1] + (STANDING if prepared is not None else NO_STANDING) + "]"
+        elif _withheld(ending):
+            line = line[:-1] + NO_STANDING + "]"
         turn = await open_turn(
             self._store, ending.account_id, ending.session_id, {"events": [wake]}
         )
@@ -255,6 +309,26 @@ class Waker:
         await self._events.emit(ending.session_id, NewEvent(WORK_WOKE, woke, turn_id))
         if self._wake is not None:
             self._wake()
+
+
+def quiet_until(ending: Ending, now: float) -> float | None:
+    """When the quiet hours this ending was opened under close, if `now` is inside them.
+
+    ``None`` when it carries no window, `now` is outside it, or the window closes within
+    `NEAR_SECONDS`. A group is quiet when any member carries a window: they were started
+    by the same person, in the same turn, under the same settings.
+    """
+    members = ending.members if isinstance(ending, Team) else (ending,)
+    tag = next((member.tags[QUIET_TAG] for member in members if QUIET_TAG in member.tags), "")
+    quiet = QuietHours.from_tag(tag)
+    closes = quiet.ends_at(now) if quiet is not None else None
+    if closes is None or closes - now <= NEAR_SECONDS:
+        return None
+    return closes
+
+
+def _withheld(ending: Ending) -> bool:
+    return isinstance(ending, Record) and ending.tags.get(CONSENT_TAG) == WITHHELD
 
 
 def _summary(record: Record) -> dict[str, Any]:
@@ -290,13 +364,17 @@ def _team(team: Team) -> dict[str, Any]:
 
 
 __all__ = [
+    "CONSENT_TAG",
     "NOTICE_KIND",
     "NOTICE_ROLE",
     "NO_STANDING",
     "STANDING",
     "WAKE_INPUT",
+    "WITHHELD",
     "Authority",
+    "Defer",
     "Waker",
+    "quiet_until",
     "team_wake_line",
     "wake_line",
 ]

@@ -166,6 +166,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **When Lucy acts on her own is the person's to say.** Four `lucy` settings, each defaulting
+  to what Lucy did before. `act_unattended` off records no standing consent for a watch or
+  check-in that wakes the session, ignores consent recorded before it was turned off, and
+  tells the woken turn to report and ask; an outage of it refuses rather than guess.
+  `quiet_hours` (`23:00-07:00`, on the person's `common.timezone`, wrapping midnight) holds a
+  wake back as a durable check-in due when the window closes, while the ending's event and
+  live-block line go out at once; a restart keeps the promise, and a result the person read
+  meanwhile is not told twice. `wake_by_default` is what a watch does when the model does
+  not pass `wake`, and `watch_default_minutes` (1-60) how long it lives when it names no
+  `for_seconds`. Tool results say when either of the first two applies, so the model does
+  not promise a 3am message or an unattended merge. Subscriptions gain a `tags_json` column
+  to carry them. Documented in [docs/settings.md](docs/settings.md#when-lucy-acts-on-her-own).
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

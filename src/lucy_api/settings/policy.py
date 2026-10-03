@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from lucy_api.settings.catalogue import DEFAULT_MODEL
 from lucy_api.settings.conventions import NOTHING_CHOSEN, Conventions
+from lucy_api.work.quiet import WINDOW, QuietHours
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -24,8 +25,10 @@ if TYPE_CHECKING:
 _SPEC = re.compile(r"^[a-z0-9][a-z0-9-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
 """A provider:model id. Invalid values fall back to empty rather than guessing a provider."""
 
-REFUSE_KEYS = frozenset({"disabled_capabilities", "approval_policy"})
-"""Keys whose default is permissive. Guessing either of them during an outage is the leak."""
+REFUSE_KEYS = frozenset({"disabled_capabilities", "approval_policy", "act_unattended"})
+"""Keys whose default is permissive. Guessing any of them during an outage is the leak:
+guessing `act_unattended` on would record standing consent for somebody who said a turn Lucy
+opens on her own may only report."""
 
 ALWAYS_ON = frozenset({"help", "work"})
 """Capabilities a person cannot turn off. Without help the model cannot ask for the rest,
@@ -55,6 +58,11 @@ def _names(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, str) and item)
+
+
+def _window(value: object) -> str:
+    """A quiet-hours window as settings-api validates one, or empty for none."""
+    return value if isinstance(value, str) and WINDOW.fullmatch(value) else ""
 
 
 def _optional_spec(value: object) -> str:
@@ -131,6 +139,14 @@ class TurnPolicy:
     history_turns_kept: int = 4
     tool_results_kept: int = 3
     session_token_budget: int = 0
+    act_unattended: bool = True
+    """Whether work that wakes the session records standing consent for the turn it opens."""
+    quiet_hours: str = ""
+    """`HH:MM-HH:MM` on the person's clock when Lucy opens no turn on her own; empty for none."""
+    wake_by_default: bool = True
+    """Whether a watch wakes the session when the model does not say."""
+    watch_default_minutes: int = 5
+    """How long a watch lives when the model does not say."""
     conventions: Conventions = NOTHING_CHOSEN
     """The person's time zone, language, units, clock and currency, from `common`."""
     disabled: tuple[str, ...] = ()
@@ -144,6 +160,11 @@ class TurnPolicy:
     def all_disabled(self) -> tuple[str, ...]:
         """The profile's list and the session's, as one, in that order."""
         return tuple(dict.fromkeys((*self.disabled, *self.session_disabled)))
+
+    @property
+    def quiet(self) -> QuietHours | None:
+        """The quiet-hours window on the person's own clock, or ``None`` when they keep none."""
+        return QuietHours.of(self.quiet_hours, self.conventions.timezone)
 
     def for_session(self, disabled: Sequence[str]) -> TurnPolicy:
         """The same policy, with this one conversation's list in place of any earlier one.
@@ -291,6 +312,16 @@ class TurnPolicy:
             tool_results_kept=_clamp(read("tool_results_kept", 3), 3, minimum=0, maximum=50),
             session_token_budget=_clamp(
                 read("session_token_budget", 0), 0, minimum=0, maximum=100_000_000
+            ),
+            # A refused read lands on the default, and this default is the permissive one:
+            # the turn is blocked anyway, and this is the floor under anything that reads
+            # the policy without honouring `blocks_turn`.
+            act_unattended="act_unattended" not in refused
+            and _flag(read("act_unattended", True), True),
+            quiet_hours=_window(read("quiet_hours", "")),
+            wake_by_default=_flag(read("wake_by_default", True), True),
+            watch_default_minutes=_clamp(
+                read("watch_default_minutes", 5), 5, minimum=1, maximum=60
             ),
             approval_policy=_text(
                 read("approval_policy", "destructive_always_asks"),

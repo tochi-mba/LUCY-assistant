@@ -12,6 +12,7 @@ import asyncio
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -53,10 +54,11 @@ from lucy_api.permissions.gate import Grant
 from lucy_api.prompt.docs import capability_doc, read_capability_doc
 from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.scope import SessionScope
+from lucy_api.settings.policy import TurnPolicy
 from lucy_api.work import Kind
 from lucy_api.work import State as WorkState
 from lucy_api.work.registry import Registry
-from lucy_api.work.subscriptions import Subscriptions, SubscriptionSeam
+from lucy_api.work.subscriptions import REPORT_ONLY_ADVICE, Subscriptions, SubscriptionSeam
 
 if TYPE_CHECKING:
     from lucy_api.sessions.sql_store import SessionStore
@@ -587,7 +589,8 @@ async def test_reads_never_ask() -> None:
 def test_every_write_is_covered_by_a_permission_tallied_by_what_it_touches() -> None:
     pack = ReposPack("http://repos.test")
     covered = {name for p in pack.permissions() for name in p.covers}
-    writes = {op.name for op in pack.operations(None) if op.effects == "write"}  # type: ignore[arg-type]
+    context = SimpleNamespace(policy=TurnPolicy())
+    writes = {op.name for op in pack.operations(context) if op.effects == "write"}  # type: ignore[arg-type]
     assert writes == covered
     tallies = {p.id: p.tally for p in pack.permissions()}
     assert tallies.pop("repos.create") == "name"
@@ -602,7 +605,9 @@ def test_every_write_is_covered_by_a_permission_tallied_by_what_it_touches() -> 
 # --------------------------------------------------------------------------------------
 
 
-async def watching(store: SessionStore, fake: FakeReposClient, **inputs: Any) -> Any:
+async def watching(
+    store: SessionStore, fake: FakeReposClient, policy: TurnPolicy | None = None, **inputs: Any
+) -> Any:
     created = await store.create("acct_a", CreateSession(), "watch")
     registry = Registry(now=lambda: datetime.now(UTC))
     subscriptions = Subscriptions(store, registry, signal_base_url="http://lucy.test/v1/signals")
@@ -621,6 +626,9 @@ async def watching(store: SessionStore, fake: FakeReposClient, **inputs: Any) ->
         profile="work",
         consent=record,
     )
+    if policy is not None:
+        context.policy = policy
+        context.subscriptions = context.subscriptions.under(policy)
     await capabilities.probe(context)
     result = await capabilities.execute(
         {"steps": [{"id": "w", "op": "repos.watch", "input": inputs}]}, context
@@ -678,6 +686,47 @@ async def test_a_quiet_watch_asks_no_consent(sessions_store: SessionStore) -> No
     assert result["steps"][0]["data"]["wake"] is False
     assert result["steps"][0]["data"]["for_seconds"] == MAX_WATCH_SECONDS
     assert consent == []
+    await registry.shutdown()
+
+
+async def test_a_watch_falls_to_the_persons_wake_default_and_says_so_in_its_schema(
+    sessions_store: SessionStore,
+) -> None:
+    """New behaviour: with `wake_by_default` off, a watch the model did not ask to wake waits."""
+    policy = TurnPolicy(wake_by_default=False)
+    result, registry, _, consent = await watching(
+        sessions_store, seeded(), policy, repo=HELLO, until="pull_merged", number=1, objective="o"
+    )
+    assert result["steps"][0]["data"]["wake"] is False
+    assert consent == []
+    [watch] = [
+        op
+        for op in ReposPack("http://repos.test").operations(SimpleNamespace(policy=policy))
+        if op.name == "repos.watch"
+    ]  # type: ignore[arg-type]
+    assert "(default false)" in watch.description
+    await registry.shutdown()
+
+
+async def test_a_watch_under_act_unattended_off_records_no_consent_and_tells_the_model(
+    sessions_store: SessionStore,
+) -> None:
+    """New behaviour: the model is told at once not to promise to act while they are away."""
+    result, registry, subscriptions, consent = await watching(
+        sessions_store,
+        seeded(),
+        TurnPolicy(act_unattended=False),
+        repo=HELLO,
+        until="checks_settled",
+        number=42,
+        objective="Merge #42 once CI is green",
+    )
+    data = result["steps"][0]["data"]
+    assert data["wake"] is True
+    assert data["advice"].endswith(REPORT_ONLY_ADVICE)
+    assert consent == []
+    [row] = await subscriptions.open_rows()
+    assert row["grant_id"] is None
     await registry.shutdown()
 
 

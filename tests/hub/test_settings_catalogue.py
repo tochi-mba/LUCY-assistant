@@ -97,3 +97,31 @@ def test_model_and_subagent_round_limits_are_bounded_settings() -> None:
 
 def test_an_unknown_key_is_absent_rather_than_invented() -> None:
     assert knob("not_a_real_setting") is None
+
+
+def test_what_lucy_may_do_alone_is_catalogued_with_todays_behaviour_as_its_default() -> None:
+    """New behaviour: four settings for work that ends with nobody there.
+
+    Acting unattended is the one whose default is permissive, so an outage refuses it and the
+    model may never change it; the others fall back to what Lucy did before they existed.
+    """
+    act = knob("act_unattended")
+    quiet = knob("quiet_hours")
+    wake = knob("wake_by_default")
+    minutes = knob("watch_default_minutes")
+    assert act is not None
+    assert quiet is not None
+    assert wake is not None
+    assert minutes is not None
+    assert (act.default, act.on_unavailable, act.agent) == (
+        True,
+        OnUnavailable.REFUSE,
+        AgentAccess.NEVER,
+    )
+    assert (quiet.value_type, quiet.default, quiet.on_unavailable) == (
+        ValueType.STR,
+        "",
+        OnUnavailable.USE_DEFAULT,
+    )
+    assert (wake.default, wake.on_unavailable) == (True, OnUnavailable.USE_DEFAULT)
+    assert (minutes.default, minutes.minimum, minutes.maximum) == (5, 1, 60)

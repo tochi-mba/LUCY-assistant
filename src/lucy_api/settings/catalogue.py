@@ -639,6 +639,52 @@ def _core() -> tuple[Knob, ...]:
     )
 
 
+def _unattended_knobs() -> tuple[Knob, ...]:
+    """What Lucy may do when work ends and nobody is talking: `work.wake` and its consent."""
+    return (
+        _bool(
+            "act_unattended",
+            True,
+            "Whether a turn Lucy opens on her own may act for you, or only report.",
+            "On, a watch or check-in that wakes the conversation records standing consent "
+            "you can see and revoke, so the turn it opens can finish what you asked. Off, "
+            "that turn says what happened and asks first. An outage refuses the turn "
+            "rather than guessing.",
+            unavailable=OnUnavailable.REFUSE,
+            agent=AgentAccess.NEVER,
+        ),
+        Knob(
+            key="quiet_hours",
+            summary="Hours, on your clock, when Lucy opens no turn on her own.",
+            value_type=ValueType.STR,
+            default="",
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "HH:MM-HH:MM in your time zone, and it may wrap midnight: 23:00-07:00. An "
+                "ending inside it is still announced, and the turn that tells you opens "
+                "when it ends. Empty means none."
+            ),
+        ),
+        _bool(
+            "wake_by_default",
+            True,
+            "Whether a watch wakes the conversation when it fires, unless told otherwise.",
+            "Off, a fired watch waits for the next time you talk. A watch the model starts "
+            "with wake on still wakes.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+        _int(
+            "watch_default_minutes",
+            5,
+            "How long a watch keeps looking when nobody said how long.",
+            "A watch never lives past an hour. Expiry is a notice, not a failure.",
+            minimum=1,
+            maximum=60,
+            unavailable=OnUnavailable.USE_DEFAULT,
+        ),
+    )
+
+
 def _feed_knobs() -> tuple[Knob, ...]:
     caps = tuple(
         _bool(
@@ -737,7 +783,12 @@ def _decision_knobs() -> tuple[Knob, ...]:
     )
 
 
-KNOBS: tuple[Knob, ...] = (*_core(), *_feed_knobs(), *_decision_knobs())
+KNOBS: tuple[Knob, ...] = (
+    *_core(),
+    *_unattended_knobs(),
+    *_feed_knobs(),
+    *_decision_knobs(),
+)
 
 
 def knob(key: str) -> Knob | None:

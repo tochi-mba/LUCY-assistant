@@ -217,7 +217,7 @@ def test_out_of_range_numbers_are_clamped_not_rejected() -> None:
 
 def test_a_refused_safety_key_blocks_the_turn_and_a_refused_vision_key_does_not() -> None:
     blocked = TurnPolicy.from_resolved(_Resolved({}, refused=frozenset({"disabled_capabilities"})))
-    assert {"disabled_capabilities", "approval_policy"} == REFUSE_KEYS
+    assert {"disabled_capabilities", "approval_policy", "act_unattended"} == REFUSE_KEYS
     assert blocked.blocks_turn is True
     assert blocked.disabled == ()
 
@@ -275,3 +275,64 @@ def test_a_fallback_model_must_look_like_a_provider_spec() -> None:
     )
     assert policy.fallback_model == ""
     assert policy.max_thinking_tokens == 0
+
+
+def test_the_unattended_settings_default_to_what_lucy_did_before_they_existed() -> None:
+    """New behaviour: four settings, and nobody choosing them changes nothing."""
+    policy = TurnPolicy.from_resolved(_Resolved({}))
+    assert policy.act_unattended is True
+    assert policy.quiet_hours == ""
+    assert policy.quiet is None
+    assert policy.wake_by_default is True
+    assert policy.watch_default_minutes == 5
+
+
+def test_the_unattended_settings_are_read_checked_and_clamped() -> None:
+    """New behaviour: a chosen window is read on the person's clock; odd values are not used."""
+    chosen = TurnPolicy.from_resolved(
+        _Resolved(
+            {
+                "act_unattended": False,
+                "quiet_hours": "23:00-07:00",
+                "timezone": "Europe/London",
+                "wake_by_default": False,
+                "watch_default_minutes": 20,
+            }
+        )
+    )
+    assert chosen.act_unattended is False
+    assert chosen.wake_by_default is False
+    assert chosen.watch_default_minutes == 20
+    assert chosen.quiet is not None
+    assert chosen.quiet.tag() == "23:00-07:00@Europe/London"
+
+    odd = TurnPolicy.from_resolved(
+        _Resolved(
+            {
+                "act_unattended": "no",
+                "quiet_hours": "11pm-7am",
+                "wake_by_default": 0,
+                "watch_default_minutes": 600,
+            }
+        )
+    )
+    assert odd.act_unattended is True
+    assert odd.quiet_hours == ""
+    assert odd.wake_by_default is True
+    assert odd.watch_default_minutes == 60
+    assert (
+        TurnPolicy.from_resolved(_Resolved({"watch_default_minutes": 0})).watch_default_minutes == 1
+    )
+
+
+def test_a_refused_act_unattended_blocks_the_turn_and_never_reads_as_permission() -> None:
+    """New behaviour: an outage cannot be guessed as "Lucy may act while you are away".
+
+    The turn is blocked, as for every refuse key; and anything that reads the policy without
+    honouring that verdict still finds the setting off rather than the permissive default.
+    """
+    refused = TurnPolicy.from_resolved(
+        _Resolved({"act_unattended": True}, refused=frozenset({"act_unattended"}))
+    )
+    assert refused.blocks_turn is True
+    assert refused.act_unattended is False

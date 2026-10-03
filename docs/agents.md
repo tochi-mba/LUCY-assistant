@@ -272,16 +272,18 @@ the fetch, the timeout, the cancel, the state-block line — is shared.
 Two more things fit the shape. A **watch** is work whose body is "look, and if it is not
 there yet, look again in a while": a workspace file that exists or matches, a public address
 that answers or matches, another piece of work ending, or a command that exits 0 or whose
-output matches. It has an interval, a lifetime (five minutes by default, an hour at most),
+output matches. It has an interval, a lifetime (five minutes by default, or the person's
+`lucy.watch_default_minutes`; an hour at most),
 and it fires once with a bounded excerpt of the evidence, or expires with one notice that
 says so and the offer to start again. A watch on a command runs it every interval under one
 approval that says as much. A failed check is a line in the live block, not a failed watch;
 five failed checks in a row are a broken probe, and the watch says which error.
 
 A **wake** is what makes "I'll tell you when it lands" true after the person walks away.
-Work that asked for it in its brief — every watch by default, every helper the main thread
-starts, a command run with `wake: true` — opens a turn of its own when it ends and no turn
-is running. The turn's input is one harness notice, rendered as a `notice` item with the
+Work that asked for it in its brief — every watch by default (unless the person turned
+`lucy.wake_by_default` off), every helper the main thread starts, a command run with
+`wake: true` — opens a turn of its own when it ends and no turn is running, or when the
+person's `lucy.quiet_hours` close if it ends inside them. The turn's input is one harness notice, rendered as a `notice` item with the
 role `harness`, and its text says out loud that nothing in it came from the person. An
 ending that arrives while a turn is running is held: the running turn sees it in its live
 block, and if it did not read the result by the time it finished, the held wake is spent

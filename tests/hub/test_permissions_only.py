@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -31,6 +32,7 @@ from lucy_api.sessions.models import CreateSession, Outcome
 from lucy_api.sessions.schema import ADDED_COLUMNS
 from lucy_api.sessions.sql_store import identifier
 from lucy_api.sessions.turns import close_turn, open_turn
+from lucy_api.settings.policy import TurnPolicy
 from lucy_api.store.worker import SqlWorker
 
 if TYPE_CHECKING:
@@ -48,7 +50,8 @@ def catalogue() -> Catalogue:
     bound = Bound(
         pack=pack,
         availability=Availability(state=State.ready),
-        operations=tuple(pack.operations(None)),  # type: ignore[arg-type]
+        # `repos.watch` says the person's wake default, so the pack reads the turn's policy.
+        operations=tuple(pack.operations(SimpleNamespace(policy=TurnPolicy()))),  # type: ignore[arg-type]
     )
     return Catalogue(bound=(bound,))
 

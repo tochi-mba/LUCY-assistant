@@ -57,9 +57,9 @@ from lucy_api.packs.workspace import confined_path
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, Brief, Check, Kind, UnknownWorkError, new_id, watch
+from lucy_api.work.quiet import QUIET_TAG
 from lucy_api.work.watch import (
     DEFAULT_EVERY_SECONDS,
-    DEFAULT_FOR_SECONDS,
     MAX_EVERY_SECONDS,
     MAX_FOR_SECONDS,
     MIN_EVERY_SECONDS,
@@ -194,6 +194,8 @@ class WatchPack:
         registry = context.work
         if registry is None:
             return ()
+        lasts = context.policy.watch_default_minutes * 60
+        wakes = "true" if context.policy.wake_by_default else "false"
         timing = {
             "every_seconds": number_schema()
             .optional()
@@ -204,12 +206,14 @@ class WatchPack:
             "for_seconds": number_schema()
             .optional()
             .describe(
-                f"How long to keep watching; {DEFAULT_FOR_SECONDS:.0f} by default, "
+                f"How long to keep watching; {lasts} by default, "
                 f"{MAX_FOR_SECONDS:.0f} at most. Expiry is a notice, not a failure."
             ),
             "wake": boolean_schema()
             .optional()
-            .describe("Open a turn when it fires or expires and nobody is talking. Default true."),
+            .describe(
+                f"Open a turn when it fires or expires and nobody is talking. Default {wakes}."
+            ),
             "objective": string_schema().describe(
                 "What this watch is for, in a sentence. It is what the live block and the "
                 "notice say, so write it for a person."
@@ -510,10 +514,12 @@ def _begin(
     objective = " ".join(str(raw.get("objective") or "").split())
     if not objective:
         return _refusal("invalid", "say what the watch is for, in a sentence")
+    policy = context.policy
     every = clamp_every(raw.get("every_seconds"))
-    lifetime = clamp_for(raw.get("for_seconds"))
-    wake = raw.get("wake", True)
-    wake = wake if isinstance(wake, bool) else True
+    lifetime = clamp_for(raw.get("for_seconds"), default=policy.watch_default_minutes * 60)
+    wake = raw.get("wake")
+    wake = wake if isinstance(wake, bool) else policy.wake_by_default
+    quiet = policy.quiet if wake else None
     work_id = new_id()
 
     def progress(note: str) -> None:
@@ -530,6 +536,7 @@ def _begin(
                 timeout_seconds=lifetime,
                 account_id=context.account_id,
                 wake=wake,
+                tags={QUIET_TAG: quiet.tag()} if quiet is not None else {},
             ),
             work_id=work_id,
         )
@@ -544,7 +551,8 @@ def _begin(
         "advice": (
             "Watching. Carry on, or finish your answer; a notice arrives when it fires or "
             "expires" + (", and the session is woken if nobody is talking." if wake else ".")
-        ),
+        )
+        + (quiet.advice() if quiet is not None else ""),
     }
 
 

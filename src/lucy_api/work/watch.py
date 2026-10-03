@@ -51,8 +51,9 @@ the ceiling stops one from looking so rarely that "fired" is five minutes stale.
 
 DEFAULT_FOR_SECONDS = 300.0
 MAX_FOR_SECONDS = 3600.0
-"""How long a watch lives. Five minutes by default, an hour at most: anything longer is a
-standing job, and a standing job is a thing a person should have to ask for again."""
+"""How long a watch lives. Five minutes by default (`lucy.watch_default_minutes` moves it), an
+hour at most: anything longer is a standing job, and a standing job is a thing a person should
+have to ask for again."""
 
 CUT = " […]"
 
@@ -157,9 +158,9 @@ def clamp_every(value: object) -> float:
     return min(max(seconds, MIN_EVERY_SECONDS), MAX_EVERY_SECONDS)
 
 
-def clamp_for(value: object) -> float:
-    """The lifetime, inside its ceiling."""
-    seconds = _number(value, DEFAULT_FOR_SECONDS)
+def clamp_for(value: object, default: float = DEFAULT_FOR_SECONDS) -> float:
+    """The lifetime, inside its ceiling. `default` is the person's, when they chose one."""
+    seconds = _number(value, default)
     return min(max(seconds, MIN_EVERY_SECONDS), MAX_FOR_SECONDS)
 
 

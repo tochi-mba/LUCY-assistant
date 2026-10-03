@@ -243,8 +243,7 @@ class ReposPack:
         )
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
-        del context
-        return (*self._reads(), *self._writes(), self._watch())
+        return (*self._reads(), *self._writes(), self._watch(context.policy.wake_by_default))
 
     # ------------------------------------------------------------------ definitions
 
@@ -559,15 +558,16 @@ class ReposPack:
             ),
         )
 
-    def _watch(self) -> AnyOperation:
+    def _watch(self, wakes: bool) -> AnyOperation:
         return self._op(
             "repos.watch",
             "Be told when something happens on a repository, without polling: CI settles "
             "(`checks_settled`, with `number` or `ref`), a pull request merges "
             "(`pull_merged`), a review lands (`review_submitted`), or a run completes "
             "(`run_completed`, with `run`). Returns a handle at once; a notice arrives when "
-            "it happens. With `wake` (default true) an idle conversation is woken to act on "
-            "it, under the person's standing consent (watch, wait for, when, notify, until).",
+            f"it happens. With `wake` (default {'true' if wakes else 'false'}) an idle "
+            "conversation is woken to act on it, under the person's standing consent (watch, "
+            "wait for, when, notify, until).",
             {
                 "repo": repo_field("The repository, as owner/name, written out."),
                 "until": enum_schema(*WATCH_KINDS),
@@ -611,7 +611,8 @@ class ReposPack:
             message = "Say what the watch is for, in a sentence."
             raise ReposInputError(message)
         lifetime = watch_seconds(raw.get("for_seconds"))
-        wake = raw.get("wake", True) is not False
+        wake = raw.get("wake")
+        wake = wake if isinstance(wake, bool) else run.ctx.policy.wake_by_default
         repo = full_name(raw)
         opened = await seam.open(
             capability=self.id, objective=objective, timeout_seconds=lifetime, wake=wake
@@ -637,7 +638,9 @@ class ReposPack:
             "for_seconds": lifetime,
             "wake": wake,
             "advice": "Watching. Carry on, or finish your answer; a notice arrives when it "
-            "happens" + (", and the conversation is woken if nobody is talking." if wake else "."),
+            "happens"
+            + (", and the conversation is woken if nobody is talking." if wake else ".")
+            + (seam.advice() if wake else ""),
         }
 
     async def release_subscription(self, http: Http, row: Mapping[str, Any]) -> None:

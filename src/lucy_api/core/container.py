@@ -106,7 +106,7 @@ from lucy_api.turn.supervisor import PreparedTurn, TurnSupervisor
 from lucy_api.webhooks import Webhooks, httpx_deliver
 from lucy_api.work.live import WorkInFlight
 from lucy_api.work.registry import Registry as WorkRegistry
-from lucy_api.work.subscriptions import Subscriptions, SubscriptionSeam
+from lucy_api.work.subscriptions import Subscriptions, SubscriptionSeam, governed
 from lucy_api.work.wake import Waker
 from lucy_api.workspace.orient import WorkspaceLive
 
@@ -549,6 +549,7 @@ class Container:
             raise settings_unavailable(SETTINGS_UNAVAILABLE)
         pack_context = self.pack_context(request)
         pack_context.policy = policy.for_session(disabled_in(session))
+        pack_context.subscriptions = governed(pack_context.subscriptions, policy)
 
         async def decision_event(name: str, fields: dict[str, Any]) -> None:
             await self.events.emit(
@@ -905,7 +906,7 @@ def build_container(
     container.standing = Standing(container)
     subscriptions.on_consent_release(container.standing.withdraw)
     container.standing.serve(subscriptions, capabilities.packs)
-    waker.attach(turns.wake, container.standing)
+    waker.attach(turns.wake, container.standing, subscriptions.defer_wake)
     return container
 
 

@@ -139,6 +139,26 @@ The rest of the namespace is the person's standing choices rather than ceilings:
 below, one `feeds_*` toggle per feed field, and the optional Laya switches
 (`decisions` and `decision_*`, see [decisions.md](decisions.md)).
 
+### When Lucy acts on her own
+
+Four settings shape what happens when a watch, a repository watch or a check-in ends and
+nobody is talking ([jobs.md](jobs.md)). Nobody is present then to read settings, so they are
+read in the turn that opens the work and ride on it: as the subscription's tags and row,
+which a restart keeps.
+
+| setting | default | scope | effect |
+| --- | --- | --- | --- |
+| `act_unattended` | true | account | Off, no standing consent is recorded and the woken turn is told to say what happened and ask first. Consent recorded before it was turned off is not used either: the woken turn is prepared under the settings as they are when the work ends. An outage refuses rather than guess, like `approval_policy` |
+| `quiet_hours` | empty | account | `HH:MM-HH:MM` on the person's clock (`common.timezone`), and it may wrap midnight (`23:00-07:00`). A wake inside it is held back as a check-in due when it closes; the `lucy.work.finished` event and the live-block line go out at once. Empty, or the same minute at both ends, is no window |
+| `wake_by_default` | true | profile | What `watch.start`, `watch.command` and `repos.watch` do when the model does not pass `wake`. An explicit `wake` still wins |
+| `watch_default_minutes` | 5 | profile | How long a watch lives when the model names no `for_seconds`; 1 to 60, and the hour ceiling stands |
+
+When a watch or check-in opens under `act_unattended` off or under quiet hours, its tool
+result says so ("ask before doing anything for them", "told at 07:00"), so the model does
+not promise a 3am message or an unattended merge. A deferred wake is a check-in row: it
+fires when the window closes even across a restart; it tells the person nothing if they
+cancelled it or read the result in the meantime.
+
 ### What a sibling's settings supply when the model does not say
 
 A person's choice in a sibling's namespace becomes the default a model's omission falls

@@ -51,7 +51,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from lucy_api.core.errors import LucyError, absent, conflict
 from lucy_api.net.signing import verify
 from lucy_api.sessions.sql_store import encoded, identifier, row_value
-from lucy_api.work.types import Brief, Handle, Kind, State, WorkError
+from lucy_api.work.quiet import QUIET_TAG
+from lucy_api.work.types import Brief, Handle, Kind, Record, State, WorkError
+from lucy_api.work.wake import CONSENT_TAG, WITHHELD
 from lucy_api.work.watch import clip
 
 if TYPE_CHECKING:
@@ -59,8 +61,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
     from lucy_api.sessions.sql_store import SessionStore
+    from lucy_api.settings.policy import TurnPolicy
+    from lucy_api.work.quiet import QuietHours
     from lucy_api.work.registry import Registry
-    from lucy_api.work.types import Record
+    from lucy_api.work.wake import Ending
 
 logger = logging.getLogger(__name__)
 
@@ -211,13 +215,17 @@ class Subscriptions:
         grant_id: str = "",
         role: str = "",
         due_at: float | None = None,
+        tags: Mapping[str, str] | None = None,
     ) -> Opened:
         """Record a subscription and start waiting on it. The sibling is told separately.
 
         The row is written before the record is started, so a signal that arrives before this
         returns -- a fast sibling -- finds a row to end. One with a `due_at` is a check-in:
-        a timer in this process ends it then, and nothing outside is told.
+        a timer in this process ends it then, and nothing outside is told. `tags` are what
+        the turn's settings say about its ending (quiet hours, consent withheld); they are
+        kept on the row, so a restart does not forget them.
         """
+        extra = dict(tags or {})
         lifetime = max(1.0, min(float(timeout_seconds), MAX_LIFETIME_SECONDS))
         subscription_id = identifier("sub")
         work_id = identifier("wrk")
@@ -228,8 +236,8 @@ class Subscriptions:
             db.execute(
                 "INSERT INTO subscriptions (id, account_id, session_id, profile, work_id, "
                 "capability, sibling_id, secret, grant_id, objective, wake, state, created_at, "
-                "expires_at, ended_at, result_json, due_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "expires_at, ended_at, result_json, due_at, tags_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     subscription_id,
                     account_id,
@@ -248,6 +256,7 @@ class Subscriptions:
                     None,
                     None,
                     due_at,
+                    encoded(extra) if extra else None,
                 ),
             )
 
@@ -263,7 +272,7 @@ class Subscriptions:
                 timeout_seconds=lifetime,
                 account_id=account_id,
                 wake=wake,
-                tags=_tags(capability, subscription_id, grant_id, due_at),
+                tags=_tags(capability, subscription_id, grant_id, due_at, extra),
             ),
         )
         if due_at is not None:
@@ -298,6 +307,7 @@ class Subscriptions:
         objective: str,
         due_at: float,
         grant_id: str = "",
+        tags: Mapping[str, str] | None = None,
     ) -> Opened:
         """Open a check-in: a subscription this process ends at `due_at`, waking the session.
 
@@ -324,7 +334,43 @@ class Subscriptions:
             grant_id=grant_id,
             role=CHECKIN_ROLE,
             due_at=due_at,
+            tags=tags,
         )
+
+    async def defer_wake(self, ending: Ending, due_at: float) -> str | None:
+        """Hold a wake back until `due_at` as a check-in, and return the check-in's work id.
+
+        This is how quiet hours keep their promise across a restart: the check-in is a row,
+        and a row that falls due while Lucy is down fires as soon as she is back. Its
+        objective is the line the wake would have carried, so even a process that has
+        forgotten the ending can tell the person what happened. It carries the ending's
+        consent, if it had any, for whatever of that consent's life is left.
+
+        It is opened directly rather than through `checkin`: the bounds there are on what a
+        model may ask for, and this is the hub's own bookkeeping. ``None`` when it could not
+        be recorded -- the session is gone -- and then the waker wakes now rather than never.
+        """
+        if isinstance(ending, Record):
+            fact = ending.notice(ending.finished_at or ending.started_at).line()
+            grant_id = ending.tags.get("grant", "")
+        else:
+            fact, grant_id = ending.line(), ""
+        try:
+            session = await self._store.get(ending.account_id, ending.session_id)
+            opened = await self.open(
+                account_id=ending.account_id,
+                session_id=ending.session_id,
+                profile=str(session["profile"]),
+                capability=CHECKIN_CAPABILITY,
+                objective=f"Tell them what ended in their quiet hours: {fact}",
+                timeout_seconds=due_at - self._clock() + CHECKIN_GRACE_SECONDS,
+                grant_id=grant_id,
+                role=CHECKIN_ROLE,
+                due_at=due_at,
+            )
+        except LucyError:
+            return None
+        return opened.handle.id
 
     async def _open_checkins(self, session_id: str) -> int:
         """How many check-ins one session has waiting, by the rows: the registry forgets."""
@@ -502,7 +548,11 @@ class Subscriptions:
                     account_id=str(row["account_id"]),
                     wake=bool(row["wake"]),
                     tags=_tags(
-                        str(row["capability"]), subscription_id, str(row["grant_id"] or ""), due
+                        str(row["capability"]),
+                        subscription_id,
+                        str(row["grant_id"] or ""),
+                        due,
+                        row.get("tags") or {},
                     ),
                 ),
             )
@@ -573,6 +623,13 @@ type Consent = Callable[[float], Awaitable[str]]
 """Record standing consent for a lifetime in seconds, returning the grant's handle. Built per
 request, closing over the person's token, so nothing that receives it ever holds the token."""
 
+REPORT_ONLY_ADVICE = (
+    " This person asked that a turn you open on your own never act for them: when this "
+    "wakes the conversation, say what happened and ask before doing anything for them."
+)
+"""Added to a tool result when `lucy.act_unattended` is off, so the model does not promise
+"I'll merge it when CI is green" to somebody who said it may only report."""
+
 STANDING_MARGIN_SECONDS = 900
 """How long consent outlives its subscription: long enough for the turn the ending opens to
 finish what it was asked to do, and no longer."""
@@ -587,9 +644,14 @@ class SubscriptionSeam:
     in keyring -- so the turn it opens can do what they asked ("merge it when CI is green")
     with nobody present. If consent cannot be recorded the subscription still opens, and the
     woken turn is told it has none and must ask.
+
+    Two of the person's settings shape what it opens (`under`). With `lucy.act_unattended`
+    off no consent is asked for at all, and the subscription is tagged so the turn it wakes
+    is told why it may only report. With `lucy.quiet_hours` the window rides on the
+    subscription, so the waker can hold the turn back until it closes.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - who, where, and the three things their settings decide
         self,
         subscriptions: Subscriptions,
         *,
@@ -597,12 +659,39 @@ class SubscriptionSeam:
         session_id: str,
         profile: str,
         consent: Consent | None = None,
+        withheld: bool = False,
+        quiet: QuietHours | None = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._account_id = account_id
         self._session_id = session_id
         self._profile = profile
         self._consent = consent
+        self._withheld = withheld
+        self.quiet = quiet
+
+    def under(self, policy: TurnPolicy) -> SubscriptionSeam:
+        """This seam as the person's settings have it, for the turn that read them."""
+        return SubscriptionSeam(
+            self._subscriptions,
+            account_id=self._account_id,
+            session_id=self._session_id,
+            profile=self._profile,
+            consent=self._consent if policy.act_unattended else None,
+            withheld=not policy.act_unattended,
+            quiet=policy.quiet,
+        )
+
+    def advice(self) -> str:
+        """What a tool result adds about the turn this subscription may wake, or nothing."""
+        said = REPORT_ONLY_ADVICE if self._withheld else ""
+        return said + (self.quiet.advice() if self.quiet is not None else "")
+
+    def _tags(self) -> dict[str, str]:
+        tags = {CONSENT_TAG: WITHHELD} if self._withheld else {}
+        if self.quiet is not None:
+            tags[QUIET_TAG] = self.quiet.tag()
+        return tags
 
     async def open(
         self, *, capability: str, objective: str, timeout_seconds: float, wake: bool = True
@@ -618,6 +707,7 @@ class SubscriptionSeam:
             timeout_seconds=timeout_seconds,
             wake=wake,
             grant_id=grant_id,
+            tags=self._tags(),
         )
 
     async def checkin(self, *, objective: str, due_at: float, delay_seconds: float) -> Opened:
@@ -634,6 +724,7 @@ class SubscriptionSeam:
             objective=objective,
             due_at=due_at,
             grant_id=grant_id,
+            tags=self._tags(),
         )
 
     async def _consented(self, timeout_seconds: float) -> str:
@@ -654,6 +745,11 @@ class SubscriptionSeam:
     def abandon(self, opened: Opened) -> None:
         """Give up on a subscription the sibling never accepted: it ends cancelled."""
         self._subscriptions.abandon(opened)
+
+
+def governed(seam: SubscriptionSeam | None, policy: TurnPolicy) -> SubscriptionSeam | None:
+    """A turn's seam as the person's settings have it. Where there is no seam there is none."""
+    return None if seam is None else seam.under(policy)
 
 
 def parse_signal(body: bytes) -> Signal:
@@ -742,9 +838,14 @@ def _iso(stamp: float) -> str:
 
 
 def _tags(
-    capability: str, subscription_id: str, grant_id: str, due_at: float | None = None
+    capability: str,
+    subscription_id: str,
+    grant_id: str,
+    due_at: float | None = None,
+    extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    tags = {"capability": capability, "subscription": subscription_id}
+    # The hub's own tags are written last, so nothing passed in can stand in for them.
+    tags = {**(extra or {}), "capability": capability, "subscription": subscription_id}
     if grant_id:
         tags["grant"] = grant_id
     if due_at is not None:
@@ -763,6 +864,7 @@ __all__ = [
     "MAX_OPEN_CHECKINS",
     "MAX_SIGNAL_BYTES",
     "MIN_CHECKIN_SECONDS",
+    "REPORT_ONLY_ADVICE",
     "STANDING_MARGIN_SECONDS",
     "TOO_FAR",
     "TOO_LARGE",
@@ -773,5 +875,6 @@ __all__ = [
     "SubscriptionSeam",
     "Subscriptions",
     "checkin_signal",
+    "governed",
     "parse_signal",
 ]

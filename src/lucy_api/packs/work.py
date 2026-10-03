@@ -353,7 +353,8 @@ async def _checkin(registry: Registry, seam: SubscriptionSeam | None, given: Any
         "advice": (
             "Finish your answer and say when you will look again. The conversation is woken "
             "then; work.cancel with this id calls it off."
-        ),
+        )
+        + seam.advice(),
     }
 
 

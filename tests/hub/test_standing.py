@@ -19,8 +19,9 @@ import pytest
 from lucy_api.auth.exchange import DelegationRefusedError
 from lucy_api.auth.verifier import AuthenticationError, VerifiedCaller
 from lucy_api.core.container import PackRequest
-from lucy_api.core.errors import absent
+from lucy_api.core.errors import absent, settings_unavailable
 from lucy_api.core.standing import Standing
+from lucy_api.settings.policy import SETTINGS_UNAVAILABLE, TurnPolicy
 from lucy_api.turn.supervisor import PreparedTurn
 from lucy_api.work import Kind, Record, State, Team
 
@@ -75,6 +76,8 @@ class Container:
         self.exchange = parts.get("exchange", Exchange())
         self.verifier = parts.get("verifier", Verifier())
         self.store = parts.get("store", Store())
+        self.policy = parts.get("policy", TurnPolicy())
+        self.outage = parts.get("outage", False)
         self.prepared: list[tuple[PackRequest, dict[str, Any]]] = []
         self.turns = SimpleNamespace(authorized=[])
         self.turns.authorize = lambda turn_id, prepared: self.turns.authorized.append(
@@ -83,7 +86,12 @@ class Container:
 
     async def prepare_turn(self, request: PackRequest, session: dict[str, Any]) -> PreparedTurn:
         self.prepared.append((request, session))
-        return PreparedTurn(pack_context=SimpleNamespace(), live=SimpleNamespace())  # type: ignore[arg-type]
+        if self.outage:
+            raise settings_unavailable(SETTINGS_UNAVAILABLE)
+        return PreparedTurn(
+            pack_context=SimpleNamespace(policy=self.policy),  # type: ignore[arg-type]
+            live=SimpleNamespace(),  # type: ignore[arg-type]
+        )
 
 
 def a_subscription(**tags: str) -> Record:
@@ -155,6 +163,27 @@ async def test_a_woken_turn_is_prepared_as_a_persons_turn_under_a_token_from_the
 
     standing.authorize("trn_1", prepared)
     assert container.turns.authorized == [("trn_1", prepared)]
+
+
+async def test_consent_recorded_before_act_unattended_was_turned_off_is_not_used() -> None:
+    """New behaviour: the person's setting when the work ends is the one that counts.
+
+    The grant is still valid in keyring -- it was recorded while they allowed it -- but the
+    turn is prepared under their settings as they are now, and those say "only report".
+    """
+    container = Container(policy=TurnPolicy(act_unattended=False))
+    standing = Standing(container)  # type: ignore[arg-type]
+
+    assert await standing.prepare(a_subscription(grant="dgt_1")) is None
+    assert len(container.prepared) == 1, "the settings were read, and they said no"
+
+
+async def test_a_settings_outage_is_never_read_as_leave_to_act() -> None:
+    """New behaviour, pinned: `act_unattended` refuses, so the woken turn runs without consent."""
+    container = Container(outage=True)
+    standing = Standing(container)  # type: ignore[arg-type]
+
+    assert await standing.prepare(a_subscription(grant="dgt_1")) is None
 
 
 async def test_anything_else_handed_to_authorize_is_ignored() -> None:

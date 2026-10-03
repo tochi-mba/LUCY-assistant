@@ -100,6 +100,15 @@ authority, never a crash.
 A cancelled subscription withdraws its consent, using the grant itself to give itself up. One
 that ends normally lets it expire, because the turn it opens is still using it.
 
+Two of the person's settings change this ([settings.md](settings.md#when-lucy-acts-on-her-own)).
+With `lucy.act_unattended` off the seam records no consent, tags the subscription
+`consent: withheld`, and the woken turn is told to report and ask. A grant recorded before
+the setting was turned off is not used: the woken turn is prepared under the settings in
+force when it opens, and an outage of that setting refuses rather than lends authority.
+With `lucy.quiet_hours` the window rides on the subscription, and a wake that falls inside it
+is held back as a check-in due when the window closes (`Subscriptions.defer_wake`), carrying
+the ending's grant for whatever of its life is left.
+
 ### Restarts, lost signals, cancels
 
 - **Restart.** The registry does not announce a subscription as stopped. On startup the hub

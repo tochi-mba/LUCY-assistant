@@ -127,7 +127,8 @@ hub, for the life of the watch plus fifteen minutes. The woken turn exchanges it
 and is prepared exactly like a turn the person sent — same settings, same grants, same gate —
 so "merge #42 when CI is green" ends with the merge, or with an approval card if the person
 never allowed merges. The grant is in the person's own list, revocable there; cancelling the
-watch withdraws it. A restart loses nothing: the row is durable and the sweep asks
+watch withdraws it. A person who turned `lucy.act_unattended` off gets no grant: the woken
+turn says what happened and asks. `wake` itself defaults to `lucy.wake_by_default`. A restart loses nothing: the row is durable and the sweep asks
 Github-api about any signal it might have missed.
 
 ## Running it

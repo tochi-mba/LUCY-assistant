@@ -17,6 +17,12 @@ A cancelled subscription withdraws its consent, under the grant itself: a grant 
 be used to give itself up. One that ends normally lets it expire, because the turn it opens
 is still using it.
 
+`lucy.act_unattended` off means no consent is recorded at all (`SubscriptionSeam.under`), and
+a grant recorded before it was turned off is not used: the woken turn is prepared under the
+person's settings as they are now, and when those say "only report", it runs without one.
+An outage cannot be read as permission either -- that setting refuses rather than guess, so
+the turn is not prepared and runs without consent.
+
 This lives beside the container because it is wiring: it knows the exchange, the verifier,
 the store and the supervisor, and nothing below the composition root should know all four.
 """
@@ -83,13 +89,19 @@ class Standing:
         try:
             request = await self._request_under(grant_id, ending.account_id, ending.session_id)
             session = await container.store.get(ending.account_id, ending.session_id)
-            return await container.prepare_turn(request, session)
+            prepared = await container.prepare_turn(request, session)
         except REFUSED as exc:
             logger.info(
                 "standing_consent_unusable",
                 extra={"work_id": ending.id, "error": type(exc).__name__},
             )
             return None
+        if not prepared.pack_context.policy.act_unattended:
+            # Recorded while the person allowed it, and they have since said a turn Lucy
+            # opens on her own may only report. Their setting now is the one that counts.
+            logger.info("standing_consent_declined", extra={"work_id": ending.id})
+            return None
+        return prepared
 
     def authorize(self, turn_id: str, prepared: object) -> None:
         """Hand the prepared authority to the turn the waker just opened."""
