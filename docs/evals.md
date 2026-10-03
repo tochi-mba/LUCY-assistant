@@ -581,8 +581,33 @@ on some runs and not others -- so flakiness is visible rather than averaged away
 - **scenario files that changed** (by SHA-256), so a changed verdict can be told apart from
   a changed scenario.
 - **every check whose pass rate moved**, naming the expectation that broke.
+- **what it cost**: input, output and cached tokens, model rounds, seconds and turns,
+  before and after, for each scenario both runs held and summed per model. On stdout as
+  one line per model, and in `report.md` as a table. Lower is better for all of them.
+- **the fixed prompt**: every run records the size of the prompt each request carries
+  (`GET /v1/prompt/preview`, by section, in `report.json` as `prompt`); the comparison says
+  the total before and after and lists each section that grew or shrank.
 
-Keep the report of a known-good run and compare each later run against it.
+### Baselines: measure an optimisation, do not guess it
+
+A change that makes Lucy cheaper or quicker has to hold every check *and* move the numbers.
+Cut a known-good run down to its measurements and commit it:
+
+```sh
+lucy eval run --model clyde:haiku --report-dir var/evals/before
+lucy eval baseline var/evals/before --out docs/baselines/clyde-haiku.json --label "2 Oct, before the prompt audit"
+# ...change something...
+lucy eval run --model clyde:haiku --compare docs/baselines/clyde-haiku.json
+```
+
+A baseline is a report with every reply, step result, seed and session id taken out: each
+scenario's outcome, every check by name, the tokens, rounds and seconds of every turn, the
+fixed prompt's size, and a `baseline` label saying what it was. It is read by `--compare`
+like any report. Re-cut it when a change is merged, so the next one is measured against
+where things now stand; the committed ones are in [docs/baselines/](baselines/).
+
+One run is one sample. A model's latency and its choice of plan vary from run to run; take
+a baseline with `--repeat 3` when a few percent is what you are trying to see.
 
 ## Cost and time
 

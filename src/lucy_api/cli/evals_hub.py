@@ -61,6 +61,10 @@ class HttpHub:
     def models(self) -> dict[str, Any]:
         return self._object("GET", "/v1/models")
 
+    def prompt(self, profile: str) -> dict[str, Any]:
+        """The fixed prompt every request carries, priced section by section."""
+        return self._object("GET", "/v1/prompt/preview", params={"profile": profile})
+
     def capabilities(self, profile: str) -> list[dict[str, Any]]:
         return self._rows("GET", "/v1/capabilities", params={"profile": profile})
 
