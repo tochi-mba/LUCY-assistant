@@ -608,6 +608,8 @@ def test_every_write_is_covered_by_a_permission_tallied_by_what_it_touches() -> 
 async def watching(
     store: SessionStore,
     fake: FakeReposClient,
+    *,
+    policy: TurnPolicy | None = None,
     defaults: dict[str, object] | None = None,
     **inputs: Any,
 ) -> Any:
@@ -699,7 +701,13 @@ async def test_a_watch_falls_to_the_persons_wake_default_and_says_so_in_its_sche
     """New behaviour: with `wake_by_default` off, a watch the model did not ask to wake waits."""
     policy = TurnPolicy(wake_by_default=False)
     result, registry, _, consent = await watching(
-        sessions_store, seeded(), policy, repo=HELLO, until="pull_merged", number=1, objective="o"
+        sessions_store,
+        seeded(),
+        policy=policy,
+        repo=HELLO,
+        until="pull_merged",
+        number=1,
+        objective="o",
     )
     assert result["steps"][0]["data"]["wake"] is False
     assert consent == []
@@ -719,7 +727,7 @@ async def test_a_watch_under_act_unattended_off_records_no_consent_and_tells_the
     result, registry, subscriptions, consent = await watching(
         sessions_store,
         seeded(),
-        TurnPolicy(act_unattended=False),
+        policy=TurnPolicy(act_unattended=False),
         repo=HELLO,
         until="checks_settled",
         number=42,
