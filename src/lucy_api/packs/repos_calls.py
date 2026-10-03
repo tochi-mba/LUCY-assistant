@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from weftai.schema.spec import string_schema
 
 from lucy_api.clients.repos import DEFAULT_LIMIT, MAX_LIMIT
+from lucy_api.settings.defaults import METHOD_UNKNOWN
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,13 +28,22 @@ if TYPE_CHECKING:
 
 REPO_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"
 """`owner/name`, as GitHub spells both. Anything else is refused before it is sent."""
-"""`owner/name`, as GitHub spells both. Anything else is refused before it is sent."""
 
 DEFAULT_WATCH_SECONDS = 3600.0
 MAX_WATCH_SECONDS = 7 * 24 * 3600.0
 MAX_FILES_PER_COMMIT = 20
 MAX_FILE_CHARS = 200_000
 LOG_LINES = 120
+
+METHOD_NOT_KNOWN = (
+    "The person's merge method could not be read just now, and it is not guessed. Say "
+    "`method`: `merge`, `squash` or `rebase`, and ask the person if you do not know which "
+    "this repository uses."
+)
+BRANCH_DELETED_BY_SETTING = (
+    "the head branch is deleted once merged, because the person's settings say so; "
+    "`delete_branch: false` keeps it"
+)
 
 
 class ReposInputError(ValueError):
@@ -258,6 +268,8 @@ async def open_pull(run: RunContext[PackContext], client: ReposClient) -> dict[s
         for key in ("title", "head", "base", "body", "draft")
         if run.input.get(key) is not None
     }
+    if "draft" not in fields and "repos.draft" in run.ctx.defaults:
+        fields["draft"] = bool(run.ctx.defaults["repos.draft"])
     return _pull(await client.open_pull(run.ctx.profile, full_name(run.input), fields))
 
 
@@ -277,12 +289,22 @@ async def update_pull(run: RunContext[PackContext], client: ReposClient) -> dict
 
 
 async def merge(run: RunContext[PackContext], client: ReposClient) -> dict[str, Any]:
+    """The model's method and branch choice win; the person's settings fill what it left out."""
+    method = str(run.input.get("method") or run.ctx.defaults.get("repos.merge_method") or "squash")
+    if method == METHOD_UNKNOWN:
+        raise ReposInputError(METHOD_NOT_KNOWN)
+    asked = run.input.get("delete_branch")
+    delete_branch = bool(
+        run.ctx.defaults.get("repos.delete_branch", False) if asked is None else asked
+    )
+    if asked is None and delete_branch:
+        run.notice(BRANCH_DELETED_BY_SETTING)
     return await client.merge(
         run.ctx.profile,
         full_name(run.input),
         int(run.input["number"]),
-        method=str(run.input.get("method") or "squash"),
-        delete_branch=bool(run.input.get("delete_branch", False)),
+        method=method,
+        delete_branch=delete_branch,
     )
 
 
@@ -367,9 +389,11 @@ def limit(raw: object) -> int:
     return DEFAULT_LIMIT
 
 
-def watch_seconds(raw: object) -> float:
-    if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0:
-        return min(float(raw), MAX_WATCH_SECONDS)
+def watch_seconds(raw: object, default: object = DEFAULT_WATCH_SECONDS) -> float:
+    """What the model asked for, else the person's default, else an hour; a week at most."""
+    for chosen in (raw, default):
+        if isinstance(chosen, int | float) and not isinstance(chosen, bool) and chosen > 0:
+            return min(float(chosen), MAX_WATCH_SECONDS)
     return DEFAULT_WATCH_SECONDS
 
 
@@ -442,11 +466,13 @@ def _check(check: CheckRun, repo: str) -> dict[str, Any]:
 
 
 __all__ = [
+    "BRANCH_DELETED_BY_SETTING",
     "DEFAULT_WATCH_SECONDS",
     "LOG_LINES",
     "MAX_FILES_PER_COMMIT",
     "MAX_FILE_CHARS",
     "MAX_WATCH_SECONDS",
+    "METHOD_NOT_KNOWN",
     "REPO_PATTERN",
     "ReposInputError",
     "branch",

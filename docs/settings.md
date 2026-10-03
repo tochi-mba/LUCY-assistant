@@ -35,7 +35,7 @@ same placement. The mapping lives in `lucy_api.settings.groups` and nowhere else
 | **Music** | `spotify`, plus `lucy.feeds_music*` | Market, device, shuffle, repeat, and which now-playing lines the model may see |
 | **Research** | `search`, plus `lucy.feeds_research*` | Providers, result count, recency, and whether the live block names the backend |
 | **Workspace** | `environments`, plus `lucy.feeds_workspace*` | Idle TTLs, shell, history, command timeout, output cap, and which shell facts the model sees |
-| **Repositories** | `github` | Default owner and visibility for new repositories ([repos.md](repos.md)) |
+| **Repositories** | `github` | Default owner and visibility for new repositories, merge method, branch clean-up, draft pull requests, how long a watch lasts ([repos.md](repos.md)) |
 | **Installed extensions** | discovered namespaces and matching `lucy.feeds_*` keys | Settings contributed by operator-installed capabilities without naming them in the public family |
 
 A pack does not invent a second mapping. Prompt-feed toggles are stored on `lucy` because
@@ -164,13 +164,20 @@ cancelled it or read the result in the meantime.
 A person's choice in a sibling's namespace becomes the default a model's omission falls
 to. The service owns the setting and the hub only reads it, once per turn, through
 `settings.defaults.pack_defaults`. An outage here supplies nothing and never takes the
-turn down; the hub's own default stands in.
+turn down; the hub's own default stands in. The two settings that refuse rather than fall
+back, `memory.retrieval_trust_floor` and `github.merge_method`, are marked as not known
+instead, and only the action that depends on them is refused. A field the model did name
+always wins over the setting.
 
 | setting | what it becomes |
 | --- | --- |
 | `search.default_result_count`, `search.search_backend` | How many results a search asks for, and the backend named on the live block |
 | `spotify.default_device` | The device a music action plays on when it names none |
 | `github.default_owner`, `github.default_visibility` | Where a new repository goes and who can see it |
+| `github.merge_method` | How `repos.merge` lands a pull request when it names no `method`: `merge`, `squash` (the default) or `rebase`. A method that cannot be read is never guessed: a merge that names none is refused and asks for one, and a merge that names one goes ahead |
+| `github.delete_branch_after_merge` | Whether `repos.merge` deletes the head branch when it names no `delete_branch`. Off by default; when the setting deletes it, the step says so |
+| `github.draft_pull_requests` | Whether `repos.openPull` opens a draft when it names no `draft`. Off by default |
+| `github.watch_default_hours` | How long `repos.watch` lasts when it names no `for_seconds`. One hour by default, held between an hour and a week |
 | `environments.command_timeout_seconds` | How long `workspace.run` and `workspace.script` let a command run when they name no `timeout_ms`. Held to the hub's ten-minute ceiling |
 | `environments.max_output_bytes` | How much of a command's output is captured. It narrows the hub's 64 KiB cap and never widens it |
 | `memory.retrieval_limit` | How many memories `notes.search` brings back when it names no `limit`, and how many facts `notes.aboutMe` lists. Zero lists none; a search is still the asking, and brings back one |

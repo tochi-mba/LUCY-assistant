@@ -24,7 +24,12 @@ def namespace(**values: Any) -> dict[str, Any]:
 
 def test_no_namespace_resolved_supplies_nothing() -> None:
     assert pack_defaults({}) == {}
-    assert pack_defaults({SEARCH_NAMESPACE: None, REPOS_NAMESPACE: None}) == {}
+    assert pack_defaults({SEARCH_NAMESPACE: None, MUSIC_NAMESPACE: None}) == {}
+
+
+def test_an_unreadable_repos_namespace_supplies_only_an_unknown_merge_method() -> None:
+    """The merge method refuses on an outage, so an unread namespace says it is not known."""
+    assert pack_defaults({REPOS_NAMESPACE: None}) == {"repos.merge_method": "unknown"}
 
 
 def test_each_namespace_supplies_its_capabilitys_defaults() -> None:

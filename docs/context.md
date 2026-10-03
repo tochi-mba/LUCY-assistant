@@ -46,8 +46,8 @@ compacted away, or waste a tool call discovering.
 
 - **now** — the date, the time, the timezone. Models hallucinate the date constantly.
 - **session** — id, profile, turn number, permission mode, and incognito when it is on.
-- **context** — `84,000 of 200,000 tokens · 6 tool results reclaimable · last compaction at
-  turn 41`. Telling a model its own position changes what it does: it writes a note before
+- **context** — `84,000 of 200,000 tokens (42% used) · compaction at 72% · 6 tool results
+  reclaimable · turns 1-41 are read as a summary`. Telling a model its own position changes what it does: it writes a note before
   an eviction instead of after one, and stops opening large pages when there is no room to
   read them.
 - **in_flight** — everything still running, in one group: helper agents, downloads and long

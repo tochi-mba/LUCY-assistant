@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import math
 import platform
 import sys
@@ -30,10 +31,12 @@ from urllib.parse import urlsplit
 
 from lucy_api import __version__
 from lucy_api.cli.base import OK, REFUSED, TIMEOUT_SECONDS, USAGE, CliError, unreachable
+from lucy_api.evals.baseline import trimmed
 from lucy_api.evals.compare import CompareError, compare, load_previous
 from lucy_api.evals.conversation import Pace
+from lucy_api.evals.efficiency import summary_lines
 from lucy_api.evals.host import run_in_shell
-from lucy_api.evals.hub import HubError, HubUnreachable
+from lucy_api.evals.hub import Hub, HubError, HubUnreachable
 from lucy_api.evals.loader import DEFAULT_SUITE, ScenarioError, load_suite, shipped_suites
 from lucy_api.evals.markdown import LABELS, render
 from lucy_api.evals.report import JSON_NAME, build_report, write_report
@@ -70,6 +73,8 @@ examples:
   lucy eval run --model clyde:haiku --model clyde:sonnet   the same, two models side by side
   lucy eval run --model clyde:haiku --repeat 3              flaky checks show as pass rates
   lucy eval run --model clyde:haiku --compare var/evals/20260924T101500Z
+  lucy eval run --model clyde:haiku --compare docs/baselines/clyde-haiku.json
+  lucy eval baseline var/evals/20260924T101500Z --out docs/baselines/clyde-haiku.json
   lucy eval run --model clyde:haiku --suite ./my-scenarios --dry-run
   lucy eval run --model clyde:haiku --suite ./outage --profile explore --allow-host
 
@@ -169,6 +174,26 @@ def add_parser(sub: Any, after: argparse.ArgumentParser) -> None:
         "--dry-run", action="store_true", help="check everything and print the plan; create nothing"
     )
 
+    baseline = actions.add_parser(
+        "baseline",
+        parents=[after],
+        help="cut a report down to its measurements, to commit and compare against",
+        description=BASELINE_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    baseline.add_argument(
+        "report", type=Path, metavar="REPORT", help="a report.json or the folder holding one"
+    )
+    baseline.add_argument(
+        "--out",
+        type=Path,
+        metavar="FILE",
+        help="where to write it (default: baseline.json beside it)",
+    )
+    baseline.add_argument(
+        "--label", metavar="TEXT", help="what this baseline is (default: the report's start time)"
+    )
+
 
 def cmd_eval(ctx: Context) -> int:
     """List the scenarios, hold them, or say how to."""
@@ -177,6 +202,8 @@ def cmd_eval(ctx: Context) -> int:
         return _list(ctx)
     if action == "run":
         return _run(ctx)
+    if action == "baseline":
+        return _baseline(ctx)
     ctx.out.write(ctx.args.eval_help())
     return OK
 
@@ -273,6 +300,7 @@ def _run(ctx: Context) -> int:
         renew = partial(renewed_token, args.token_command) if args.token_command else None
         hub = HttpHub(client, ctx.url, ctx.token, renew=renew)
         hub_info = _preflight(ctx, hub, plan)
+        hub_info["prompt"] = _prompt(hub, plan.profile)
         if args.dry_run:
             return _dry_run(ctx, plan, hub_info)
         directory = _report_dir(args.report_dir)
@@ -290,6 +318,37 @@ def _run(ctx: Context) -> int:
             previous=previous,
         )
         return held.run(hub)
+
+
+BASELINE_DESCRIPTION = """\
+Cut a report down to what a later run is measured against: each scenario's outcome,
+every check by name, the tokens, model rounds and seconds each turn spent, and the
+fixed prompt's size. No reply, step result or session id is kept, so it can be
+committed. `lucy eval run --compare FILE` reads it like any report and says what
+regressed, what was fixed, and what the run cost next to it."""
+
+
+def _baseline(ctx: Context) -> int:
+    source = ctx.args.report
+    try:
+        report = load_previous(source)
+    except CompareError as exc:
+        raise CliError(str(exc), USAGE, hint="name a report.json or its folder") from exc
+    target = ctx.args.out or (source if source.is_dir() else source.parent) / "baseline.json"
+    label = ctx.args.label or str(report.get("started_at") or source)
+    kept = trimmed(report, label=label, source=source.name)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(kept, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        message = f"cannot write {target}: {exc.strerror or exc}"
+        raise CliError(message, USAGE) from exc
+    runs = len(kept["runs"])
+    ctx.emit(
+        {"baseline": str(target), "label": label, "runs": runs},
+        f"baseline {label!r}: {runs} run(s) written to {target}",
+    )
+    return OK
 
 
 def _load(references: list[str]) -> list[Suite]:
@@ -411,6 +470,29 @@ def _preflight(ctx: Context, hub: Hub, plan: Plan) -> dict[str, Any]:
         "version": health.get("version"),
         "environment": health.get("environment"),
         "skips": skips,
+    }
+
+
+def _prompt(hub: Hub, profile: str) -> dict[str, Any] | None:
+    """The fixed prompt every request carries, priced by section; `None` if unreadable.
+
+    Measured once per run so a later run can say whether the prompt grew. A hub too
+    old to answer, or one that refuses, costs the report this figure and nothing else.
+    """
+    try:
+        preview = hub.prompt(profile)
+    except HubError:
+        return None
+    sections = preview.get("sections")
+    return {
+        "version": preview.get("version"),
+        "total": preview.get("total"),
+        "bands": preview.get("bands"),
+        "sections": {
+            str(row.get("id")): row.get("tokens") for row in sections if isinstance(row, dict)
+        }
+        if isinstance(sections, list)
+        else {},
     }
 
 
@@ -620,6 +702,7 @@ class _Held:
             stopped=stopped,
             selection=self._selection,
         )
+        report["prompt"] = self._hub_info.get("prompt")
         if self._previous is not None:
             label = str(self._ctx.args.compare)
             report["comparison"] = compare(self._previous, report, label=label)
@@ -718,6 +801,7 @@ def _outcome_text(ctx: Context, report: dict[str, Any], paths: tuple[Path, Path]
             f"({row['before']} -> {row['after']})"
             for row in comparison["regressions"]
         )
+        lines.extend(summary_lines(comparison))
     lines.append(f"report: {paths[1]}")
     return "\n".join(lines)
 

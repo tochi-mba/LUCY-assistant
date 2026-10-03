@@ -16,7 +16,7 @@ from lucy_api.context.assembler import Window, assemble
 from lucy_api.context.build import Built, build_context
 from lucy_api.context.build import Turn as ContextTurn
 from lucy_api.context.ladder import Limits, Reclaimed, reclaim
-from lucy_api.context.projection import Compaction, Item
+from lucy_api.context.projection import Compaction, Item, project
 from lucy_api.context.sources import StateRequest
 from lucy_api.context.state import SECTION_ID as LIVE_SECTION_ID
 from lucy_api.context.tokens import default_counter
@@ -120,11 +120,25 @@ def view_limits(policy: Any) -> ViewLimits:
 
 
 def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
-    """Drop reclaimable items from the view without touching the transcript."""
+    """Drop reclaimable items from the view without touching the transcript.
+
+    The figure is what is sent: a summary in place of the turns it covers. Counting every
+    turn the transcript holds meant a compaction never lowered it, so the window read
+    as full as before and compaction ran again on every turn after the first.
+    Covered rows are kept in the view, because the projection that builds the history
+    needs them to find what its summary stands for."""
     converted = items_from_rows(view.items)
-    used = _tokens_for(converted) + _carried(view)
+    counter = default_counter()
+    projection = project(converted, compactions_from_rows(view.compactions or ()), counter=counter)
+    visible = tuple(item for item in converted if item.seq not in projection.covered)
+    summaries = sum(
+        section.tokens
+        for section in projection.sections
+        if section.id.startswith("history.summary.")
+    )
+    used = _tokens_for(visible) + summaries + _carried(view)
     result: Reclaimed = reclaim(
-        converted,
+        visible,
         used=used,
         limits=Limits(
             window=view.window,
@@ -133,9 +147,48 @@ def projected_rows(view: SessionView) -> tuple[list[dict[str, Any]], Reclaimed]:
             tool_results_kept=view.tool_results_kept,
         ),
     )
-    kept = {item.id for item in result.items}
+    kept = {item.id for item in result.items} | {
+        item.id for item in converted if item.seq in projection.covered
+    }
     rows = [row for row in view.items if str(row["id"]) in kept]
     return rows, result
+
+
+def window_report(view: SessionView) -> dict[str, Any]:
+    """How full this session's window is, in the figure warnings and compaction act on.
+
+    One function for every reader -- `GET /context/window`, the compact route's before and
+    after, and the `lucy.context.status` event a turn emits -- so a person is never shown a
+    number the system does not act on.
+    """
+    _rows, reclaimed = projected_rows(view)
+    window, used = view.window, reclaimed.used
+    percent = int(100 * used / window) if window else 0
+    threshold = window * view.compact_at_percent // 100
+    if used > window:
+        state = "over"
+    elif percent >= view.compact_at_percent:
+        state = "compacting"
+    elif percent >= view.warn_at_percent:
+        state = "warning"
+    else:
+        state = "ok"
+    summarised = project(
+        items_from_rows(view.items),
+        compactions_from_rows(view.compactions or ()),
+        counter=default_counter(),
+    ).summarised_turns
+    return {
+        "used_tokens": used,
+        "window_tokens": window,
+        "percent": percent,
+        "warn_at_percent": view.warn_at_percent,
+        "compact_at_percent": view.compact_at_percent,
+        "tokens_until_compaction": max(0, threshold - used),
+        "state": state,
+        "reclaimable_tool_results": reclaimed.reclaimable,
+        "summarised_turns": summarised,
+    }
 
 
 def schema_tokens(schema: object) -> int:
@@ -317,6 +370,7 @@ async def _build(view: SessionView) -> Built:
                 used=reclaimed.used,
                 window=view.window,
                 reclaimable=reclaimed.reclaimable,
+                compact_at_percent=view.compact_at_percent,
             ),
         ),
         ContextTurn(
@@ -362,4 +416,5 @@ __all__ = [
     "schema_tokens",
     "system_and_messages",
     "view_limits",
+    "window_report",
 ]

@@ -15,7 +15,9 @@ failing job, from `starting_at` when you know what to look for.
     ]}
 
 Shipping a change is two writes in one plan: `repos.commit` with whole file contents (and
-`base`, to start the branch), then `repos.openPull`. Then watch its CI.
+`base`, to start the branch), then `repos.openPull`. Then watch its CI. Leave out `draft`,
+a merge's `method` and `delete_branch`, and a watch's `for_seconds` unless the person said:
+their settings fill them.
 
 To act when something happens -- CI settles, a pull request merges, a review lands -- use
 `repos.watch`, never a loop of reads. It returns a handle at once; with `wake` the

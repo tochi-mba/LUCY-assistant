@@ -36,6 +36,11 @@ from lucy_api.sessions.sql_store import NewItem
 from lucy_api.sessions.turns import close_turn, open_turn
 from lucy_api.sessions.usage import session_usage
 from lucy_api.store.results import SqlResultStore
+from lucy_api.stream.events import (
+    COMPACTION_APPLIED,
+    COMPACTION_REVERTED,
+    COMPACTION_STARTED,
+)
 from lucy_api.work.types import Brief, Kind
 
 if TYPE_CHECKING:
@@ -199,7 +204,36 @@ async def test_a_compaction_is_extractive_and_can_be_undone(sessions_store: Sess
     assert caught.value.code == "not-found"
 
 
-async def test_three_failed_compactions_disable_the_session(
+async def test_compacting_again_with_nothing_new_writes_no_second_row(
+    sessions_store: SessionStore,
+) -> None:
+    """The bug, named: asking twice wrote two rows over the same range, the second saying
+    exactly what the first did, and the prompt carried a superseded summary from then on.
+    With nothing new to cover, the second ask is a conflict that says so."""
+    session = await a_session(sessions_store)
+    await three_turns(sessions_store, session)
+    first = await compact_session(sessions_store, ACCOUNT, session)
+
+    with pytest.raises(LucyError) as caught:
+        await compact_session(sessions_store, ACCOUNT, session)
+
+    assert caught.value.code == "conflict"
+    assert "nothing new to compact: compaction 1" in caught.value.args[0]
+    rows = await sessions_store.records(ACCOUNT, session, "compactions")
+    assert [row["id"] for row in rows] == [first["id"]]
+
+    await n_turns(sessions_store, session, 1)
+    later = await compact_session(sessions_store, ACCOUNT, session)
+    assert later["covers_to"] > first["covers_to"], "a new turn is new ground"
+
+    await uncompact_session(sessions_store, ACCOUNT, session, str(later["id"]))
+    with pytest.raises(LucyError):
+        await compact_session(sessions_store, ACCOUNT, session, keep_recent=3)
+    again = await compact_session(sessions_store, ACCOUNT, session)
+    assert again["covers_to"] == later["covers_to"], "an undone range may be redone"
+
+
+async def test_three_failed_compactions_switch_automatic_compaction_off(
     sessions_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = await a_session(sessions_store)
@@ -211,29 +245,43 @@ async def test_three_failed_compactions_disable_the_session(
     monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
     for _ in range(FAILURES_BEFORE_DISABLE):
         with pytest.raises(LucyError) as caught:
-            await compact_session(sessions_store, ACCOUNT, session)
+            await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
         assert caught.value.code == "compact-failed"
     with pytest.raises(LucyError) as caught:
-        await compact_session(sessions_store, ACCOUNT, session)
-    assert "disabled" in caught.value.args[0]
+        await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+    assert "automatic compaction is off" in caught.value.args[0]
 
 
 async def test_a_successful_compaction_resets_the_failure_streak(
     sessions_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Two failures, a success, two more failures: never three in a row, so never off.
+
+    Each attempt comes after a new turn, so it always has new ground to cover and fails in
+    the summariser, not on the "nothing new to compact" check before it."""
     session = await a_session(sessions_store)
     await three_turns(sessions_store, session)
-    await compact_session(sessions_store, ACCOUNT, session)
 
     def boom(*_args: object) -> str:
         raise LucyError("compact-failed", "the summariser could not run", 500)
 
-    monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
-    with pytest.raises(LucyError):
-        await compact_session(sessions_store, ACCOUNT, session)
-    monkeypatch.undo()
-    written = await compact_session(sessions_store, ACCOUNT, session)
+    async def failing_twice() -> None:
+        monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
+        for _ in range(FAILURES_BEFORE_DISABLE - 1):
+            await n_turns(sessions_store, session, 1)
+            with pytest.raises(LucyError) as caught:
+                await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+            assert caught.value.code == "compact-failed"
+        monkeypatch.undo()
+
+    await failing_twice()
+    written = await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
     assert written["active"] is True
+    await failing_twice()
+
+    await n_turns(sessions_store, session, 1)
+    still = await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+    assert still["active"] is True, "the success in the middle broke the streak"
 
 
 async def test_usage_reads_the_session_row_and_the_turn_sums(
@@ -338,6 +386,43 @@ async def test_economy_routes_are_session_scoped(
         f"/v1/sessions/{session}/results", params={"ref": "nope"}, headers=bearer()
     )
     assert bad.status_code == 400
+
+
+async def test_compacting_and_undoing_are_logged_and_heard_live(
+    hub: tuple[AsyncClient, Container],
+) -> None:
+    """The bug, named: undoing a compaction wrote no event at all, and neither route told
+    the clients following the conversation: the rows sat in the log until some later turn
+    happened to publish them. Both are now in the log and on the wire straight away."""
+    http, container = hub
+    created = await http.post(
+        "/v1/sessions", json={}, headers={**bearer(), "Idempotency-Key": "econ-live"}
+    )
+    session = created.json()["id"]
+    await n_turns(container.store, session, 5)
+
+    async with container.events.subscribe(session) as subscriber:
+        while await subscriber.next_event(0) is not None:
+            pass
+        done = await http.post(f"/v1/sessions/{session}/compact", headers=bearer())
+        undo = {"id": done.json()["id"]}
+        await http.post(f"/v1/sessions/{session}/uncompact", json=undo, headers=bearer())
+        await http.post(f"/v1/sessions/{session}/uncompact", json=undo, headers=bearer())
+        heard = []
+        while (event := await subscriber.next_event(0)) is not None:
+            heard.append(event)
+
+    assert [event.type for event in heard] == [
+        COMPACTION_STARTED,
+        COMPACTION_APPLIED,
+        COMPACTION_REVERTED,
+    ], "undoing twice is recorded once"
+    assert heard[-1].data["compaction_id"] == done.json()["id"]
+
+    marker = await http.post(
+        f"/v1/sessions/{session}/uncompact", json={"id": "cmp_nope"}, headers=bearer()
+    )
+    assert marker.status_code == 404
 
 
 async def test_listing_helpers_and_the_oauth_resource_document(

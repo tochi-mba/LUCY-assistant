@@ -498,7 +498,9 @@ async def test_records_returns_every_allowlisted_table_in_its_own_order(
         # Written out of order on purpose: the reader's order comes from `seq`, not rowid.
         for seq in (2, 1):
             db.execute(
-                "INSERT INTO compactions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO compactions "
+                "(id,session_id,seq,trigger_tokens,model,prompt_version,summary,"
+                "covers_from,covers_to,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (identifier("cmp"), session, seq, 100, "m", "v1", "s", 1, seq, 1, time.time()),
             )
 

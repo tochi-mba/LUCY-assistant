@@ -8,6 +8,38 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A second compaction does not summarise the first turns twice.** Summaries were placed
+  oldest first, and one was skipped only when it covered nothing new. Every compaction is
+  written from the start of the transcript, so the second always covered new ground, and
+  the prompt read the opening turns summarised twice, as if they had happened twice. The
+  newest active compaction now wins; an older one it overlaps is reported, not shown, and
+  what a newer, narrower one leaves out is read verbatim.
+- **The model is told which turns it is reading as a summary.** The context line was built to
+  name the last compaction, but nothing ever filled that field in, so a model reading a
+  summary of its own opening turns was never told so, and could answer "what did we say at
+  the start?" as if it remembered. The line now reads `turns 1-6 are read as a summary`,
+  counted from the projection that built the history, and names where compaction runs
+  (`compaction at 72%`), so the model's guidance points at the real threshold rather than a
+  hard-coded "seven tenths".
+- **Events a transaction wrote reach live clients.** `emit` moved the published mark to its
+  own number, so rows a session transaction had committed just before it -- a compaction
+  written mid-turn -- sat below the mark, and the turn's closing `publish_persisted`
+  replayed only what was above it. A watching client never heard about them. When `emit`
+  finds such a gap and somebody is listening, it sends the gap first, in order.
+- **A compaction lowers the context figure, and does not run again on the next turn.** The
+  figure the model is told, and that warnings and compaction act on, counted every turn the
+  transcript held, summarised or not. A compaction never lowered it, so the window read as
+  full as before and compaction ran again on every turn after the first. It now prices each
+  summary in place of the turns it covers, and a covered tool result is no longer counted
+  as reclaimable.
+- **Compacting again with nothing new writes no second row.** Asking twice wrote two rows
+  over the same range, the second saying exactly what the first did. It is now a 409 that
+  says which compaction already covers it; a new turn, or undoing the first, makes room.
+- **Undoing a compaction is logged, and both are heard live.** `uncompact` wrote no event at
+  all, so the log recorded a summary going in and never coming out; it now writes
+  `lucy.compaction.reverted` (once: undoing twice records nothing new). Neither route told
+  the clients following the conversation, whose events sat in the log until some later turn
+  published them; both publish as they return.
 - **settings-client 0.4.1.** A single-flight lock is dropped by the last caller out. With
   0.3.0 every resolve that failed (an outage, a refused grant) left its lock behind for good,
   one per token, and keyring tokens rotate every few minutes.
@@ -166,18 +198,37 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
-- **When Lucy acts on her own is the person's to say.** Four `lucy` settings, each defaulting
-  to what Lucy did before. `act_unattended` off records no standing consent for a watch or
-  check-in that wakes the session, ignores consent recorded before it was turned off, and
-  tells the woken turn to report and ask; an outage of it refuses rather than guess.
-  `quiet_hours` (`23:00-07:00`, on the person's `common.timezone`, wrapping midnight) holds a
-  wake back as a durable check-in due when the window closes, while the ending's event and
-  live-block line go out at once; a restart keeps the promise, and a result the person read
-  meanwhile is not told twice. `wake_by_default` is what a watch does when the model does
-  not pass `wake`, and `watch_default_minutes` (1-60) how long it lives when it names no
-  `for_seconds`. Tool results say when either of the first two applies, so the model does
-  not promise a 3am message or an unattended merge. Subscriptions gain a `tags_json` column
-  to carry them. Documented in [docs/settings.md](docs/settings.md#when-lucy-acts-on-her-own).
+- **See how full the window is, and compact whenever you like.** Automatic compaction still
+  runs on its own. `GET /v1/sessions/{id}/context/window` gives the figure the model is told
+  and compaction acts on: the percentage, tokens left before compaction, turns read as a
+  summary, and a `state`. `GET /context` now carries it as `window`, and every model round
+  emits it as `lucy.context.status`. `POST /compact` takes an optional `keep_recent_turns`
+  and answers with `context_before` and `context_after`. `GET /compactions` lists every
+  compaction with who asked for it (`manual` or `auto`), how full the window was, and which
+  one the model is reading. After three automatic failures a person can still compact by
+  hand, and a success switches automatic compaction back on.
+- **`lucy context`, `lucy compact`, `lucy uncompact`, and `/context`, `/compact`,
+  `/uncompact` inside `lucy talk`.** Each acts on the named conversation, or your latest.
+  After every reply `lucy talk` says how full the window is (`context 42% · compacts at
+  72%`) and names any compaction Lucy did on her own; `--json` carries it as `context`.
+  `/new`, `/session`, `/help` and `/quit` round out the prompt; `//` sends a line that starts
+  with `/`, and a path such as `/etc/hosts` still goes to Lucy as written.
+- **Eval baselines: measure an optimisation instead of guessing it.** `lucy eval run
+  --compare` now says what the run cost next to the previous one -- input, output and cached
+  tokens, model rounds, seconds and turns, per scenario and per model, on stdout and as a
+  table in `report.md` -- and how the fixed prompt every request carries changed, section
+  by section; every report records that prompt (`prompt`, from `GET /v1/prompt/preview`).
+  `lucy eval baseline REPORT --out FILE` cuts a report down to its measurements, with no
+  reply, step result, seed or session id, so a known-good run can be committed under
+  `docs/baselines/` and every later change compared against it.
+- **Repositories follow the person's habits.** Four `github` settings fill what a call
+  leaves out: `merge_method` (`method` on `repos.merge`), `delete_branch_after_merge`
+  (`delete_branch`, with a notice when the setting deleted it), `draft_pull_requests`
+  (`draft` on `repos.openPull`) and `watch_default_hours` (`for_seconds` on `repos.watch`,
+  an hour to a week). A field the call names still wins, and with nothing chosen a merge
+  squashes and keeps its branch, a pull request opens ready and a watch lasts an hour, as
+  before. The merge method is never guessed: when it cannot be read, a merge that names no
+  `method` is refused and asks for one.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,

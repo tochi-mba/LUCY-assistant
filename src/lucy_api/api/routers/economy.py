@@ -6,19 +6,28 @@ Literal paths live here rather than on the session router so they cannot be swal
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from lucy_api.api.dependencies import ActingAsDep, ContainerDep, CurrentCallerDep, StoreDep
+from lucy_api.api.preview import session_view
 from lucy_api.api.schemas.files import ArtifactPage
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.api.schemas.sessions import SelectionDep
 from lucy_api.core.container import PackRequest
-from lucy_api.sessions.compact import compact_session, uncompact_session
+from lucy_api.core.errors import LucyError
+from lucy_api.sessions.compact import (
+    MAX_KEEP_RECENT_TURNS,
+    compact_session,
+    list_compactions,
+    uncompact_session,
+)
 from lucy_api.sessions.results import get_result, list_results, resolve_result
 from lucy_api.sessions.usage import session_usage
+from lucy_api.turn.prompt import SessionView, window_report
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
@@ -38,28 +47,124 @@ class UncompactBody(BaseModel):
     id: str = Field(min_length=1, description="The compaction to deactivate.")
 
 
+class CompactBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keep_recent_turns: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_KEEP_RECENT_TURNS,
+        description=(
+            "How many of the newest turns stay verbatim. Omitted, the person's "
+            "`history_turns_kept` setting decides, as it does for automatic compaction."
+        ),
+    )
+
+
 @router.post(
     "/{session_id}/compact",
     operation_id="compact_session",
-    summary="Summarise older turns without rewriting them",
+    summary="Summarise older turns now, without rewriting them",
     responses=_ADDRESSED,
     description=(
-        "Writes an extractive summary covering everything older than the newest turns the "
-        "person asked to keep. The transcript stays; deactivating the row restores it. "
-        "Three consecutive failures disable compaction for the session."
+        "Writes an extractive summary covering everything older than the newest turns, and "
+        "says how full the window was before and is after (`context_before`, "
+        "`context_after`, shaped like `GET /context/window`). The transcript stays; "
+        "`uncompact` restores it. Automatic compaction still runs on its own; this is the "
+        "same thing, asked for by a person, whenever they like. After three automatic "
+        "failures only this route still tries, and a success switches automatic compaction "
+        "back on. Asking again with nothing new to cover is a 409."
     ),
 )
 async def compact(
-    acting: ActingAsDep, container: ContainerDep, session_id: SessionId
+    acting: ActingAsDep,
+    container: ContainerDep,
+    session_id: SessionId,
+    body: CompactBody | None = None,
 ) -> dict[str, Any]:
     session = await container.store.get(acting.account_id, session_id)
     policy = await container.lucy_policy(acting.token, str(session["profile"]))
-    return await compact_session(
-        container.store,
-        acting.account_id,
-        session_id,
-        keep_recent=policy.history_turns_kept,
-    )
+    keep = policy.history_turns_kept
+    if body is not None and body.keep_recent_turns is not None:
+        keep = body.keep_recent_turns
+    view = await _gauge_view(acting, container, session_id)
+    before = window_report(view) if view is not None else None
+    try:
+        written = await compact_session(
+            container.store,
+            acting.account_id,
+            session_id,
+            keep_recent=keep,
+            trigger="manual",
+            trigger_tokens=before["used_tokens"] if before is not None else 0,
+        )
+    finally:
+        # The events went in with the row, in one transaction; a client following the
+        # conversation hears about them now rather than whenever the next turn ends.
+        await container.events.publish_persisted(session_id)
+    after = None
+    if view is not None:
+        rows = await container.store.records(acting.account_id, session_id, "compactions")
+        after = window_report(replace(view, compactions=rows))
+    return {**written, "keep_recent_turns": keep, "context_before": before, "context_after": after}
+
+
+async def _gauge_view(
+    acting: ActingAsDep, container: ContainerDep, session_id: str
+) -> SessionView | None:
+    """The view the before-and-after figures are read from, if one can be built.
+
+    A person compacting does not need the turn machinery: compaction reads the transcript
+    and nothing else. If the view cannot be built -- settings unreachable, say -- the
+    compaction still happens and the figures are `null` rather than invented.
+    """
+    try:
+        return await session_view(acting, container, session_id)
+    except LucyError:
+        return None
+
+
+@router.get(
+    "/{session_id}/compactions",
+    operation_id="list_session_compactions",
+    summary="Every compaction this conversation has had, newest first",
+    responses=_ADDRESSED,
+    description=(
+        "Each row says who asked for it (`trigger`: `manual` or `auto`), how full the window "
+        "was then (`trigger_tokens`), the range it covers, whether it is still `active`, and "
+        "whether it is the one the model is reading (`shown`; an active row a newer one "
+        "overlaps is superseded). `automatic` is false after three consecutive failures."
+    ),
+)
+async def compactions(
+    caller: CurrentCallerDep, store: StoreDep, session_id: SessionId
+) -> dict[str, Any]:
+    return await list_compactions(store, caller.account_id, session_id)
+
+
+@router.get(
+    "/{session_id}/context/window",
+    operation_id="get_session_context_window",
+    summary="How full this conversation's window is",
+    responses=_ADDRESSED,
+    description=(
+        "The figure the model is told and that warnings and compaction act on: tokens used "
+        "of the window, the percentage, where the warning and automatic compaction sit, how "
+        "many tokens are left before it runs, how many opening turns are read as a summary, "
+        "and `state` (`ok`, `warning`, `compacting`, `over`). The cheap half of "
+        "`GET /context`: no prompt text."
+    ),
+)
+async def context_window(
+    acting: ActingAsDep, container: ContainerDep, session_id: SessionId
+) -> dict[str, Any]:
+    view = await session_view(acting, container, session_id)
+    listed = await list_compactions(container.store, acting.account_id, session_id)
+    return {
+        **window_report(view),
+        "automatic_compaction": listed["automatic"],
+        "compactions": sum(1 for row in listed["data"] if row["shown"]),
+    }
 
 
 @router.post(
@@ -70,9 +175,14 @@ async def compact(
     description="Deactivates one compaction row. The items it covered are projected again.",
 )
 async def uncompact(
-    caller: CurrentCallerDep, store: StoreDep, session_id: SessionId, body: UncompactBody
+    caller: CurrentCallerDep,
+    container: ContainerDep,
+    session_id: SessionId,
+    body: UncompactBody,
 ) -> dict[str, Any]:
-    return await uncompact_session(store, caller.account_id, session_id, body.id)
+    undone = await uncompact_session(container.store, caller.account_id, session_id, body.id)
+    await container.events.publish_persisted(session_id)
+    return undone
 
 
 @router.get(

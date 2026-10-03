@@ -286,6 +286,15 @@ class EventEmitter:
             raise ValueError(message)
         async with self._lock:
             stored = await self._log.append(session_id, event)
+            mark = self._published.get(session_id, 0)
+            if stored.sequence_number > mark + 1 and self._subscribers.get(session_id):
+                # The gap is rows a session transaction committed and nobody fanned out yet.
+                # Moving the mark past them without sending them lost them for good: a
+                # compaction written mid-turn never reached a live client, because the next
+                # text delta stepped over it before the turn's end published the rest.
+                for owed in await self._log.replay(session_id, after=mark):
+                    if owed.sequence_number < stored.sequence_number:
+                        self._fan_out(session_id, owed)
             self._published[session_id] = stored.sequence_number
             self._fan_out(session_id, stored)
         return stored

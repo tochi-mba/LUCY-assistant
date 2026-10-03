@@ -37,6 +37,7 @@ from lucy_api.api.dependencies import (
     StoreDep,
     StreamCursorDep,
 )
+from lucy_api.api.preview import session_view
 from lucy_api.api.schemas.problem import Problem
 from lucy_api.api.schemas.sessions import (
     ItemResource,
@@ -59,13 +60,7 @@ from lucy_api.sessions.models import CreateSession, ForkSession, InputBatch, Upd
 from lucy_api.sessions.turns import cancel_turn as request_cancellation
 from lucy_api.sessions.turns import list_turns, submit_messages
 from lucy_api.stream import ai_sdk, sse
-from lucy_api.turn.prompt import (
-    SessionView,
-    context_for_session,
-    conversation_order,
-    schema_tokens,
-    view_limits,
-)
+from lucy_api.turn.prompt import context_for_session, window_report
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -545,49 +540,17 @@ async def cancel_turn(
     description=(
         "What the model would see on the next turn, priced band by band. A surprising "
         "answer is usually a surprising prompt, and this is the document that makes that "
-        "inspectable without spending another generation."
+        "inspectable without spending another generation. `window` is how full it is, "
+        "in the figure warnings and compaction act on."
     ),
 )
 async def get_session_context(
     session_id: SessionIdPath,
     acting: ActingAsDep,
-    store: StoreDep,
     container: ContainerDep,
 ) -> dict[str, Any]:
     """Assemble this session's prompt without running a turn."""
-    session = await store.get(acting.account_id, session_id)
-    items = await store.records(acting.account_id, session_id, "items")
-    compact = await store.records(acting.account_id, session_id, "compactions")
-    turns = await store.records(acting.account_id, session_id, "turns")
-    prepared = await container.prepare_turn(
-        PackRequest(
-            caller=acting.caller,
-            user_token=acting.token,
-            profile=str(session["profile"]),
-            session_id=session_id,
-            permission_mode=str(session.get("permission_mode", "ask")),
-            incognito=bool(session.get("incognito", 0)),
-        ),
-        session,
-    )
-    catalogue = await container.capabilities.probe(prepared.pack_context)
-    ready = tuple(item.pack.id for item in catalogue.ready())
-    visible = {str(turn["id"]) for turn in turns}
-    parent_items = [row for row in items if not row.get("agent_id")]
-    policy = prepared.pack_context.policy
-    return await context_for_session(
-        SessionView(
-            session_id=session_id,
-            items=conversation_order(parent_items, turns, visible),
-            capabilities=ready,
-            session=session,
-            compactions=compact,
-            turn_number=sum(1 for turn in turns if turn["status"] == "completed") + 1,
-            live=prepared.live,
-            response_style=policy.response_style,
-            schema_tokens=schema_tokens(
-                container.capabilities.plan_schema(catalogue, session_id, prepared.pack_context)
-            ),
-            **view_limits(policy),
-        )
-    )
+    view = await session_view(acting, container, session_id)
+    document = await context_for_session(view)
+    document["window"] = window_report(view)
+    return document

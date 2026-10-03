@@ -460,7 +460,9 @@ class ReposPack:
                     "head": branch,
                     "base": string_schema().optional(),
                     "body": body.optional(),
-                    "draft": boolean_schema().optional(),
+                    "draft": boolean_schema()
+                    .optional()
+                    .describe("Omit unless the person said: their settings decide, else ready."),
                 },
                 calls.open_pull,
                 effects="write",
@@ -486,8 +488,12 @@ class ReposPack:
                 {
                     "repo": repo,
                     "number": number,
-                    "method": enum_schema("merge", "squash", "rebase").optional(),
-                    "delete_branch": boolean_schema().optional(),
+                    "method": enum_schema("merge", "squash", "rebase")
+                    .optional()
+                    .describe("Omit unless the person said: their settings decide, else squash."),
+                    "delete_branch": boolean_schema()
+                    .optional()
+                    .describe("Omit unless the person said: their settings decide, else kept."),
                 },
                 calls.merge,
                 effects="write",
@@ -581,8 +587,9 @@ class ReposPack:
                 "for_seconds": number_schema()
                 .optional()
                 .describe(
-                    f"How long to keep watching; {DEFAULT_WATCH_SECONDS:.0f} by default, a week "
-                    "at most. Expiry is a notice, not a failure."
+                    "How long to keep watching. Omitted, the person's own default "
+                    f"({DEFAULT_WATCH_SECONDS:.0f} unless they chose one); a week at most. "
+                    "Expiry is a notice, not a failure."
                 ),
                 "wake": boolean_schema().optional(),
             },
@@ -610,9 +617,10 @@ class ReposPack:
         if not objective:
             message = "Say what the watch is for, in a sentence."
             raise ReposInputError(message)
-        lifetime = watch_seconds(raw.get("for_seconds"))
-        wake = raw.get("wake")
-        wake = wake if isinstance(wake, bool) else run.ctx.policy.wake_by_default
+        lifetime = watch_seconds(
+            raw.get("for_seconds"), run.ctx.defaults.get("repos.watch_seconds")
+        )
+        wake = raw.get("wake", True) is not False
         repo = full_name(raw)
         opened = await seam.open(
             capability=self.id, objective=objective, timeout_seconds=lifetime, wake=wake

@@ -78,6 +78,17 @@ class FakeLucy:
         self.usage_has_cache = True
         self.page = 100
         self.version = "0.1.0"
+        self.prompt: dict[str, Any] | None = {
+            "version": "p1",
+            "total": 6000,
+            "bands": {"system": 5900, "pinned": 100},
+            "sections": [
+                {"id": "identity", "tokens": 300},
+                {"id": "tools", "tokens": 1100},
+                "junk",
+            ],
+        }
+        """What `GET /v1/prompt/preview` answers; `None` answers 404, as an older hub would."""
         self.capabilities: list[dict[str, Any]] = [
             {"id": "research", "usable": True, "state": "ready", "detail": "connected"},
             {"id": "notes", "usable": True, "state": "ready", "detail": ""},
@@ -156,6 +167,10 @@ class FakeLucy:
             return httpx.Response(200, json={"version": self.version, "environment": "test"})
         if path == "/v1/models":
             return httpx.Response(200, json=self.models)
+        if path == "/v1/prompt/preview":
+            if self.prompt is None:
+                return httpx.Response(404, json={"detail": "not here"})
+            return httpx.Response(200, json=self.prompt)
         if path == "/v1/capabilities":
             return httpx.Response(200, json={"data": self.capabilities})
         if path == "/v1/sessions" and method == "POST":

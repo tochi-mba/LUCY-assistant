@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from lucy_api.context.build import Live
 from lucy_api.context.feeds import Feed, FeedEntry, StaticFeeds, Volatility
 from lucy_api.turn.prompt import (
@@ -344,3 +346,41 @@ async def test_the_model_is_told_how_full_its_window_actually_is() -> None:
     line = next(row for row in whole.splitlines() if row.startswith("context") and " of " in row)
     used = int(line.split(" of ", maxsplit=1)[0].split()[-1].replace(",", ""))
     assert used > 0, line
+
+
+async def test_a_compacted_conversation_tells_the_model_it_is_reading_a_summary() -> None:
+    """The bug, named: the context line was built to say when a compaction had happened,
+    but nothing ever filled that field in, so a model reading a summary of its own opening
+    turns was never told so -- and answered "what did we say at the start?" as if it
+    remembered. It now says which turns are a summary, and where compaction runs."""
+    items = [
+        {
+            "id": f"itm_{seq}",
+            "seq": seq,
+            "role": "user" if seq % 2 else "assistant",
+            "content": f"entry {seq}",
+            "turn_id": f"trn_{(seq + 1) // 2}",
+            "type": "message",
+        }
+        for seq in range(1, 9)
+    ]
+    view = SessionView(
+        session_id="ses_sum",
+        items=items,
+        session={"profile": "personal", "title": "", "permission_mode": "ask", "incognito": 0},
+        compactions=[
+            {"seq": 1, "summary": "Opening.", "covers_from": 1, "covers_to": 4, "active": 1}
+        ],
+        turn_number=5,
+    )
+    system, messages = await system_and_messages(view)
+    whole = system + "\n" + "\n".join(message.content for message in messages)
+    line = next(row for row in whole.splitlines() if row.startswith("context") and " of " in row)
+
+    assert "turns 1-2 are read as a summary" in line
+    assert "compaction at 72%" in line
+
+    plain = await system_and_messages(replace(view, compactions=[]))
+    text = plain[0] + "\n" + "\n".join(message.content for message in plain[1])
+    bare = next(row for row in text.splitlines() if row.startswith("context") and " of " in row)
+    assert "read as a summary" not in bare

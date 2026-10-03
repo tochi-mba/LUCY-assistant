@@ -606,7 +606,10 @@ def test_every_write_is_covered_by_a_permission_tallied_by_what_it_touches() -> 
 
 
 async def watching(
-    store: SessionStore, fake: FakeReposClient, policy: TurnPolicy | None = None, **inputs: Any
+    store: SessionStore,
+    fake: FakeReposClient,
+    defaults: dict[str, object] | None = None,
+    **inputs: Any,
 ) -> Any:
     created = await store.create("acct_a", CreateSession(), "watch")
     registry = Registry(now=lambda: datetime.now(UTC))
@@ -618,6 +621,7 @@ async def watching(
         return "dgt_watch"
 
     capabilities, context = setup(fake)
+    context.defaults.update(defaults or {})
     context.session_id = str(created["id"])
     context.subscriptions = SubscriptionSeam(
         subscriptions,
