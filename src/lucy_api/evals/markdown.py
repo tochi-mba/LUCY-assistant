@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from lucy_api.evals.efficiency import LABELS as SPENT
+from lucy_api.evals.efficiency import METRICS
 from lucy_api.evals.report import flaky_checks
 from lucy_api.evals.results import ERROR, FAILED, SKIPPED
 
@@ -291,6 +293,7 @@ def _comparison(comparison: dict[str, Any] | None) -> list[str]:
             lines.extend([f"{title}:", ""])
             lines.extend(f"- {row['scenario']} with {row['model']}" for row in rows)
             lines.append("")
+    lines.extend(_efficiency(comparison))
     if comparison["checks"]:
         lines.extend(
             ["| Model | Scenario | Check | Before | After |", "| --- | --- | --- | ---: | ---: |"]
@@ -302,6 +305,40 @@ def _comparison(comparison: dict[str, Any] | None) -> list[str]:
         )
         lines.append("")
     return lines
+
+
+def _efficiency(comparison: dict[str, Any]) -> list[str]:
+    """What the run spent next to what the previous one did; lower is better."""
+    lines: list[str] = []
+    prompt = comparison.get("prompt")
+    if isinstance(prompt, dict):
+        lines.extend(["Fixed prompt:", "", "| Section | Before | After |", "| --- | ---: | ---: |"])
+        total = prompt["total"]
+        lines.append(f"| **total** | {total['before']:,.0f} | {total['after']:,.0f} |")
+        lines.extend(
+            f"| {_cell(row['section'])} | {row['before']:,} | {row['after']:,} |"
+            for row in prompt["sections"]
+        )
+        lines.append("")
+    spent = comparison.get("efficiency")
+    if not isinstance(spent, dict) or not spent.get("scenarios"):
+        return lines
+    head = " | ".join(SPENT[metric].capitalize() for metric in METRICS)
+    lines.extend([f"| Model | Scenario | {head} |", "| --- | --- |" + " ---: |" * len(METRICS)])
+    for model, row in spent["models"].items():
+        cells = " | ".join(_change(row[metric]) for metric in METRICS)
+        lines.append(f"| {_cell(model)} | **all shared** | {cells} |")
+    for row in spent["scenarios"]:
+        cells = " | ".join(_change(row[metric]) for metric in METRICS)
+        lines.append(f"| {_cell(row['model'])} | {_cell(row['scenario'])} | {cells} |")
+    lines.append("")
+    return lines
+
+
+def _change(row: dict[str, Any]) -> str:
+    before, after, change = row["before"], row["after"], row["change"]
+    moved = "" if change is None else f" ({change:+.1f}%)"
+    return f"{before:,.0f} -> {after:,.0f}{moved}"
 
 
 def _skipped(report: dict[str, Any]) -> list[str]:

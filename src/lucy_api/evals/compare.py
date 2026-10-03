@@ -14,6 +14,9 @@ single run and ``--repeat 5`` read the same way: 1.0 is passing, anything less i
   scenario's doing rather than the hub's.
 * **checks** -- every individual check whose pass rate moved, so the regression names the
   expectation that broke.
+* **efficiency** -- tokens, model rounds and seconds before and after, per model and per
+  scenario; and **prompt**, the fixed prompt's size and every section that moved. See
+  ``efficiency.py``.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import json
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
+from lucy_api.evals.efficiency import efficiency, prompt_change
 from lucy_api.evals.report import FORMAT, JSON_NAME, VERSION
 from lucy_api.evals.results import PASSED, SKIPPED
 
@@ -78,6 +82,8 @@ def compare(previous: dict[str, Any], current: dict[str, Any], *, label: str) ->
         "removed": [_row(key) for key in sorted(before.keys() - after.keys())],
         "changed": [],
         "checks": _checks(previous["runs"], current["runs"]),
+        "efficiency": efficiency(previous["runs"], current["runs"]),
+        "prompt": prompt_change(previous.get("prompt"), current.get("prompt")),
     }
     for key in shared:
         old, new = before[key], after[key]

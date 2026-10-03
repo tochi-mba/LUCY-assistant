@@ -65,6 +65,10 @@ class Hub(Protocol):
         """``GET /v1/models``: which providers are usable, before anything is created."""
         ...
 
+    def prompt(self, profile: str) -> dict[str, Any]:
+        """``GET /v1/prompt/preview``: the fixed prompt, priced by section."""
+        ...
+
     def capabilities(self, profile: str) -> list[dict[str, Any]]:
         """``GET /v1/capabilities``: readiness, for a scenario's ``requires``."""
         ...

@@ -213,6 +213,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   72%`) and names any compaction Lucy did on her own; `--json` carries it as `context`.
   `/new`, `/session`, `/help` and `/quit` round out the prompt; `//` sends a line that starts
   with `/`, and a path such as `/etc/hosts` still goes to Lucy as written.
+- **Eval baselines: measure an optimisation instead of guessing it.** `lucy eval run
+  --compare` now says what the run cost next to the previous one -- input, output and cached
+  tokens, model rounds, seconds and turns, per scenario and per model, on stdout and as a
+  table in `report.md` -- and how the fixed prompt every request carries changed, section
+  by section; every report records that prompt (`prompt`, from `GET /v1/prompt/preview`).
+  `lucy eval baseline REPORT --out FILE` cuts a report down to its measurements, with no
+  reply, step result, seed or session id, so a known-good run can be committed under
+  `docs/baselines/` and every later change compared against it.
 - **A person's command timeout, output cap, recall size and trust floor are what a turn
   uses.** `environments.command_timeout_seconds`, `environments.max_output_bytes`,
   `memory.retrieval_limit` and `memory.retrieval_trust_floor` could be set and read back,
