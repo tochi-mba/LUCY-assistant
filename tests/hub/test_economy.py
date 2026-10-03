@@ -255,20 +255,33 @@ async def test_three_failed_compactions_switch_automatic_compaction_off(
 async def test_a_successful_compaction_resets_the_failure_streak(
     sessions_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Two failures, a success, two more failures: never three in a row, so never off.
+
+    Each attempt comes after a new turn, so it always has new ground to cover and fails in
+    the summariser, not on the "nothing new to compact" check before it."""
     session = await a_session(sessions_store)
     await three_turns(sessions_store, session)
-    await compact_session(sessions_store, ACCOUNT, session)
 
     def boom(*_args: object) -> str:
         raise LucyError("compact-failed", "the summariser could not run", 500)
 
-    monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
-    with pytest.raises(LucyError):
-        await compact_session(sessions_store, ACCOUNT, session)
-    monkeypatch.undo()
-    await n_turns(sessions_store, session, 1)
-    written = await compact_session(sessions_store, ACCOUNT, session)
+    async def failing_twice() -> None:
+        monkeypatch.setattr("lucy_api.sessions.compact._summary", boom)
+        for _ in range(FAILURES_BEFORE_DISABLE - 1):
+            await n_turns(sessions_store, session, 1)
+            with pytest.raises(LucyError) as caught:
+                await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+            assert caught.value.code == "compact-failed"
+        monkeypatch.undo()
+
+    await failing_twice()
+    written = await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
     assert written["active"] is True
+    await failing_twice()
+
+    await n_turns(sessions_store, session, 1)
+    still = await compact_session(sessions_store, ACCOUNT, session, trigger="auto")
+    assert still["active"] is True, "the success in the middle broke the streak"
 
 
 async def test_usage_reads_the_session_row_and_the_turn_sums(
