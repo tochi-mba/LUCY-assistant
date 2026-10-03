@@ -104,6 +104,7 @@ def test_the_list_is_read_in_the_order_given_without_repeats() -> None:
         ["preferences"],
         ["memories"],
         ["Workspace"],
+        ["goals"],
         [7, None, ""],
         "workspace",
         None,
@@ -174,7 +175,7 @@ async def test_a_profile_s_choices_reach_its_conversation_s_context(
     preferences = FakeSettingsClient()
     preferences.seed(
         "lucy",
-        {"prompt_sections_disabled": ["workspace", "safety"], "progress_updates": "quiet"},
+        {"prompt_sections_disabled": ["workspace", "safety"], "opinions": "only_when_asked"},
         profile="personal",
     )
     app = create_app(settings, transport=keyring.transport())
@@ -195,7 +196,7 @@ async def test_a_profile_s_choices_reach_its_conversation_s_context(
     prompt = context.json()["prompt"]
     assert SANDBOX not in prompt
     assert "## What you never do" in prompt
-    assert f"{PREAMBLE} Do not narrate what you are about to do" in prompt
+    assert f"{PREAMBLE} Give an opinion only when they ask for one" in prompt
     assert ("lucy", "personal") in preferences.asked
 
 

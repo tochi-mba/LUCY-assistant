@@ -1,9 +1,9 @@
 """How a person wants Lucy to work with them reaches the model, and nothing chosen changes nothing.
 
-The new behaviour, named: `lucy.ambiguity`, `opinions`, `progress_updates` and
-`announce_memory_writes` let a person choose to be asked rather than guessed for, to hear a
-view only when they ask, to hear no narration, and to have notes kept without a mention.
-Before them, those four were whatever the authored sections said, for everybody.
+The new behaviour, named: `lucy.ambiguity`, `opinions` and `announce_memory_writes` let a
+person choose to be asked rather than guessed for, to hear a view only when they ask, and
+to have notes kept without a mention. Before them, those three were whatever the authored
+sections said, for everybody.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from lucy_api.turn.prompt import SessionView, system_and_messages, view_limits
 EVERYTHING = {
     "ambiguity": "ask_first",
     "opinions": "only_when_asked",
-    "progress_updates": "quiet",
     "announce_memory_writes": False,
 }
 
@@ -31,7 +30,6 @@ ASK = (
     "acting, in one question."
 )
 OPINION = "Give an opinion only when they ask for one; otherwise do what was asked."
-QUIET = "Do not narrate what you are about to do; report what happened."
 UNANNOUNCED = (
     "When you keep something about them, do not say so unless they ask; it is still theirs "
     "to read, correct and delete."
@@ -98,7 +96,6 @@ def test_every_choice_is_read_from_the_lucy_namespace() -> None:
     assert policy.manner == Manner(
         ambiguity="ask_first",
         opinions="only_when_asked",
-        progress_updates="quiet",
         announce_memory_writes=False,
     )
 
@@ -111,8 +108,6 @@ def test_every_choice_is_read_from_the_lucy_namespace() -> None:
         ("ambiguity", 1),
         ("opinions", "never"),
         ("opinions", None),
-        ("progress_updates", "silent"),
-        ("progress_updates", True),
         ("announce_memory_writes", "no"),
         ("announce_memory_writes", 0),
         ("announce_memory_writes", None),
@@ -126,7 +121,7 @@ def test_a_key_that_cannot_be_resolved_is_not_guessed() -> None:
     policy = TurnPolicy.from_resolved(_Resolved(EVERYTHING, refused=frozenset({"ambiguity"})))
 
     assert policy.manner.ambiguity == "assume_and_say"
-    assert policy.manner.progress_updates == "quiet"
+    assert policy.manner.opinions == "only_when_asked"
     assert policy.blocks_turn is False
 
 
@@ -138,12 +133,12 @@ def test_a_key_that_cannot_be_resolved_is_not_guessed() -> None:
 def test_each_choice_is_one_sentence_after_the_line_that_says_the_choice_wins() -> None:
     assert manner(ambiguity="ask_first").hint() == f"{PREAMBLE} {ASK}"
     assert manner(opinions="only_when_asked").hint() == f"{PREAMBLE} {OPINION}"
-    assert manner(progress_updates="quiet").hint() == f"{PREAMBLE} {QUIET}"
     assert manner(announce_memory_writes=False).hint() == f"{PREAMBLE} {UNANNOUNCED}"
-    assert manner(**EVERYTHING).hint() == f"{PREAMBLE} {ASK} {OPINION} {QUIET} {UNANNOUNCED}"
+    assert manner(**EVERYTHING).hint() == f"{PREAMBLE} {ASK} {OPINION} {UNANNOUNCED}"
     assert PREAMBLE == (
-        "This person chose how you work with them, and where that differs from the rest of "
-        "this prompt, their choice wins."
+        "This person chose how you work with them. Where that differs from the general "
+        "guidance in this prompt, follow their choice; it never changes the safety rules or "
+        "what needs their approval."
     )
 
 
@@ -177,7 +172,7 @@ def test_every_choice_at_once_fits_its_section_whole() -> None:
 
     section = next(s for s in render_all(PromptContext(preferences=text)) if s.id == "preferences")
 
-    assert section.body.endswith(f"{PREAMBLE} {ASK} {OPINION} {QUIET} {UNANNOUNCED}")
+    assert section.body.endswith(f"{PREAMBLE} {ASK} {OPINION} {UNANNOUNCED}")
     assert "shortened" not in section.body
 
 
@@ -188,7 +183,7 @@ def test_every_choice_at_once_fits_its_section_whole() -> None:
 
 def test_the_view_puts_conventions_first_and_manner_after_a_paragraph_each() -> None:
     conventions = Conventions(currency="GBP")
-    chosen = manner(progress_updates="quiet")
+    chosen = manner(opinions="only_when_asked")
 
     both = view_limits(TurnPolicy(conventions=conventions, manner=chosen))
     only_manner = view_limits(TurnPolicy(manner=chosen))
@@ -228,7 +223,6 @@ async def test_a_turn_tells_the_model_what_the_person_chose() -> None:
     [
         ("ambiguity", "assume_and_say", ("assume_and_say", "ask_first")),
         ("opinions", "when_they_matter", ("when_they_matter", "only_when_asked")),
-        ("progress_updates", "before_long_steps", ("before_long_steps", "quiet")),
     ],
 )
 def test_each_choice_is_an_enum_whose_default_is_the_authored_prompt(

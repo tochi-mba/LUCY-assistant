@@ -135,7 +135,7 @@ setting never moves the ceilings of a turn that is already running.
 The rest of the namespace is the person's standing choices rather than ceilings: `model`
 (`anthropic:claude-opus-5`), `thinking` (`medium`), `response_style` (`natural`),
 `temperature` (`100`, in hundredths), `approval_policy` (`destructive_always_asks`),
-`disabled_capabilities` (empty), `vision_enabled` (true), the four choices about how Lucy
+`disabled_capabilities` (empty), `vision_enabled` (true), the three choices about how Lucy
 works with the person and `prompt_sections_disabled` (below), the three prompt-feed masters
 below, one `feeds_*` toggle per feed field, and the optional Laya switches
 (`decisions` and `decision_*`, see [decisions.md](decisions.md)).
@@ -208,7 +208,7 @@ as not chosen.
 
 ### How Lucy works with the person
 
-Four `lucy` settings are a matter of temperament rather than something one prompt can decide
+Three `lucy` settings are a matter of temperament rather than something one prompt can decide
 for everybody. Each default is what the authored prompt already says, and a default says
 nothing: a person who never opened settings is sent the prompt they always were, to the byte.
 
@@ -216,11 +216,13 @@ nothing: a person who never opened settings is sent the prompt they always were,
 | --- | --- | --- |
 | `ambiguity` | `assume_and_say` | `ask_first`: when a request could reasonably mean two things, ask which before acting, in one question. The default takes the careful reading and says which in one line |
 | `opinions` | `when_they_matter` | `only_when_asked`: give an opinion only when asked, otherwise do what was asked |
-| `progress_updates` | `before_long_steps` | `quiet`: do not narrate what is about to happen, report what happened. `notify_on_long_turn` still says when a turn runs long |
 | `announce_memory_writes` | on | Off: do not mention that something was kept unless asked. It is still the person's to read, correct and delete, and `memory_write_policy` still decides whether anything may be kept |
 
 They are said in `preferences` after the person's conventions, as a paragraph that opens by
-saying the person's choice wins where it differs from the rest of the prompt. They are not
+saying the person's choice wins where it differs from the general guidance, and never over
+the safety rules or what needs approval. There is no setting for announcing a long step
+first: the hub shows what the model wrote beside its steps only once they have run, so it
+could not change what the person sees. `notify_on_long_turn` is the one that does. They are not
 lines added to `behaviour` or `memory`: the line at the end of a section is the first one cut
 at its ceiling, and a person may leave either section out. None of them is a floor; whether
 something destructive or outward asks first is still the permission gate's decision. All four
@@ -229,7 +231,7 @@ are per profile, and an outage falls back to the default.
 ### Leaving parts of the prompt out
 
 `lucy.prompt_sections_disabled` lists sections of the standing prompt this profile does not
-want: any of `behaviour`, `lessons`, `helpers`, `workspace`, `memory`, `context` and `goals`
+want: any of `behaviour`, `lessons`, `helpers`, `workspace`, `memory` and `context`
 ([prompts.md](prompts.md)). Each costs tokens on every turn, and a person who never uses the
 sandbox or helpers need not pay for their guidance. A dropped section is left out of what is
 sent and out of what the window counts, for helpers as for the main turn and in

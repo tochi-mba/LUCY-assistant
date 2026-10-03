@@ -127,9 +127,11 @@ created without a model falls back to one the hub can actually run
 fallback tells "nobody chose" from "somebody chose this and it cannot run here".
 """
 
-PROMPT_SECTIONS = ("behaviour", "lessons", "helpers", "workspace", "memory", "context", "goals")
+PROMPT_SECTIONS = ("behaviour", "lessons", "helpers", "workspace", "memory", "context")
 """What `prompt_sections_disabled` may name, in prompt order. A turn filters by this list
-(`policy.OPTIONAL_SECTIONS`), so the catalogue's choices and what the hub accepts are one."""
+(`policy.OPTIONAL_SECTIONS`), so the catalogue's choices and what the hub accepts are one.
+`goals` can be disabled in code but is not offered: nothing on a real turn fills it, and a
+switch for a section that never renders saves nothing."""
 
 
 def _core() -> tuple[Knob, ...]:
@@ -217,15 +219,6 @@ def _core() -> tuple[Knob, ...]:
             "Whether Lucy offers its own view or keeps it until asked.",
             "When they matter gives a view once, where it would change the decision. Only when "
             "asked does the thing without commentary.",
-            unavailable=OnUnavailable.USE_DEFAULT,
-        ),
-        _enum(
-            "progress_updates",
-            "before_long_steps",
-            ("before_long_steps", "quiet"),
-            "Whether Lucy says what it is about to do before a long step.",
-            "Quiet reports only what happened, for reading on a phone or listening by voice. "
-            "A turn that runs long still says so when notify_on_long_turn is on.",
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
         _bool(

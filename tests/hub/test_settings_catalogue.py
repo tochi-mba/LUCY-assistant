@@ -51,7 +51,11 @@ def test_privacy_sensitive_defaults_are_the_conservative_ones() -> None:
     assert values["prompt_sections_disabled"] == ()
     assert values["ambiguity"] == "assume_and_say"
     assert values["opinions"] == "when_they_matter"
-    assert values["progress_updates"] == "before_long_steps"
+    assert "progress_updates" not in values, (
+        "the hub cannot show words before their steps run, so a setting about announcing a "
+        "long step first could not change what the person sees; a promise the product "
+        "cannot keep is not offered"
+    )
     assert values["announce_memory_writes"] is True
     assert knob("disabled_capabilities").on_unavailable is OnUnavailable.REFUSE
     assert knob("permission_mode").on_unavailable is OnUnavailable.USE_DEFAULT
