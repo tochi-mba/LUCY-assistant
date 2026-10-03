@@ -30,7 +30,7 @@ Order is reading order. Trim order is `priority` (lower is kept longer).
 
 `tools` and `safety` refuse a setting that would disable them. Everything else may be
 replaced or dropped by the code; `lucy.prompt_sections_disabled` offers a person `behaviour`,
-`lessons`, `helpers`, `workspace`, `memory`, `context` and `goals`
+`lessons`, `helpers`, `workspace`, `memory` and `context`
 ([settings.md](settings.md#leaving-parts-of-the-prompt-out)). A section that names a port, an HTTP verb, or a repository is a bug;
 `tests/hub/test_prompt_sections.py` greps the defaults.
 
@@ -72,8 +72,8 @@ to see.
 ## What a setting may reach
 
 `lucy.response_style` changes `behaviour`. `common.locale`, `units`, `time_format` and
-`currency`, with `lucy.formatting` and `lucy.emoji`, and then `lucy.ambiguity`, `opinions`,
-`progress_updates` and `announce_memory_writes`
+`currency`, with `lucy.formatting` and `lucy.emoji`, and then `lucy.ambiguity`, `opinions`
+and `announce_memory_writes`
 ([settings.md](settings.md#how-lucy-works-with-the-person)), are the whole of `preferences`,
 one sentence each and only when chosen, and
 `common.timezone` sets the clock on the live block's `now` line

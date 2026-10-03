@@ -160,7 +160,7 @@ class TurnPolicy:
     conventions: Conventions = NOTHING_CHOSEN
     """The person's time zone, language, units, clock and currency, from `common`."""
     manner: Manner = AS_AUTHORED
-    """When to ask, when to offer a view, whether to narrate, and whether to mention a kept
+    """When to ask, when to offer a view, and whether to mention a kept
     note."""
     prompt_sections_disabled: tuple[str, ...] = ()
     """Prompt sections this profile leaves out, only ever from `OPTIONAL_SECTIONS`."""
