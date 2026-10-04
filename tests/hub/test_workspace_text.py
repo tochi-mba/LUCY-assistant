@@ -203,3 +203,42 @@ def test_whitespace_only_old_string_does_not_invent_a_fuzzy_match() -> None:
 
     # splitlines() on a lone newline is [''], not []; only the empty string yields no lines.
     assert _folded_windows("body", "", _fold_indent, WHITESPACE) == ()
+
+
+def test_exact_matching_refuses_what_only_whitespace_or_likeness_would_match() -> None:
+    """workspace_edit_matching=exact stops the ladder after the literal search: a quote
+    that differs in indentation, or only resembles the file, is refused with why."""
+    spaced = apply_edit("def f():\n    return 1\n", "def f():\n  return 1", "x", loosest=EXACT)
+    haystack = "start unique\nmiddle drifted a little\nend unique\n"
+    alike = apply_edit(
+        haystack, "start unique\nmiddle is different\nend unique", "x", loosest=EXACT
+    )
+
+    for applied in (spaced, alike):
+        assert not applied.replaced
+        assert "not found" in applied.notice
+        assert "quote the file exactly" in applied.notice
+    assert apply_edit("keep one", "one", "two", loosest=EXACT).text == "keep two"
+
+
+def test_whitespace_matching_forgives_spacing_but_not_a_likeness() -> None:
+    """workspace_edit_matching=whitespace keeps the folded rung and drops the fuzzy one."""
+    spaced = apply_edit(
+        "def f():\n    return 1\n", "def f():\n  return 1", "x\n", loosest=WHITESPACE
+    )
+    haystack = "start unique\nmiddle drifted a little\nend unique\n"
+    alike = apply_edit(
+        haystack, "start unique\nmiddle is different\nend unique", "x", loosest=WHITESPACE
+    )
+
+    assert spaced.match is not None
+    assert spaced.match.rung == WHITESPACE
+    assert not alike.replaced
+    assert "exactly apart from spacing" in alike.notice
+
+
+def test_the_default_ladder_says_nothing_about_strictness_on_a_miss() -> None:
+    """Fuzzy, the default, is the ladder as it was, and its miss notice is unchanged."""
+    applied = apply_edit("alpha\nbeta\n", "zzz", "gamma")
+
+    assert applied.notice == "No replacement was performed. old_str was not found."

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from lucy_api.auth.exchange import ExchangeError
@@ -712,3 +713,41 @@ def test_a_finished_command_keeps_a_non_object_result_reachable() -> None:
 
     assert _completed_command({"exit_code": 0}, "wrk_1") == {"exit_code": 0, "work_id": "wrk_1"}
     assert _completed_command("done", "wrk_2") == {"work_id": "wrk_2", "result": "done"}
+
+
+async def test_an_exact_only_profile_refuses_an_edit_the_default_ladder_would_apply() -> None:
+    """workspace_edit_matching reaches workspace.edit: the same indentation-blind quote is
+    applied on the whitespace rung by default and refused, file untouched, under exact."""
+
+    def edit() -> dict[str, object]:
+        return {
+            "steps": [
+                {
+                    "id": "edit",
+                    "op": "workspace.edit",
+                    "input": {
+                        "path": "code.py",
+                        "old_string": "def f():\n  return 1",
+                        "new_string": "def f():\n    return 2\n",
+                    },
+                }
+            ]
+        }
+
+    original = "def f():\n    return 1\n"
+    fake, capabilities, context = setup()
+    context.policy = replace(context.policy, workspace_edit_matching="exact")
+    await capabilities.probe(context)
+    await fake.write("env-1", "sessions/sess-a/code.py", original)
+
+    strict = await capabilities.execute(edit(), context)
+
+    assert strict["steps"][0]["data"]["replaced"] is False
+    assert "quote the file exactly" in strict["steps"][0]["data"]["notice"]
+    assert (await fake.read("env-1", "sessions/sess-a/code.py")).content == original
+
+    context.policy = replace(context.policy, workspace_edit_matching="fuzzy")
+    forgiving = await capabilities.execute(edit(), context)
+
+    assert forgiving["steps"][0]["data"]["replaced"] is True
+    assert forgiving["steps"][0]["data"]["rung"] == "whitespace"

@@ -36,6 +36,11 @@ RESULT = "the result"
 """What a validation notice calls the text it refused, unless the caller says otherwise."""
 BINARY_NOTICE = "this file is binary; it cannot be read or edited as text"
 EMPTY_NEEDLE = "old_string is empty; an edit needs a unique snippet to replace"
+STRICT_NOTICE = {
+    EXACT: " Edits here must quote the file exactly, whitespace included; re-read it and copy.",
+    WHITESPACE: " Edits here must quote the file's text exactly apart from spacing; re-read it.",
+}
+"""Why a near miss was refused, when the person asked for less forgiving matching."""
 STALE_NOTICE = (
     "the file changed since you read it; re-read the file and reapply the edit "
     "against the current contents"
@@ -143,27 +148,35 @@ def numbered_window(
     )
 
 
-def locate(haystack: str, needle: str) -> Located:
-    """Walk the application ladder. Stop at the first unique hit, or at ambiguity."""
+def locate(haystack: str, needle: str, *, loosest: str = FUZZY) -> Located:
+    """Walk the application ladder. Stop at the first unique hit, or at ambiguity.
+
+    `loosest` is the last rung a person allows (`lucy.workspace_edit_matching`). Exact stops
+    after the literal search; whitespace adds the indentation-folded one. A rung the ladder
+    never reached cannot match, so a near miss is refused with the nearest diff rather than
+    applied to text that only resembles what was quoted.
+    """
     if not needle:
         return Located()
     exact = _occurrences(haystack, needle, EXACT)
     if exact:
         return Located(exact, rung=EXACT)
-    folded = _folded_windows(haystack, needle, _fold_indent, WHITESPACE)
-    if folded:
-        return Located(folded, rung=WHITESPACE)
-    fuzzy = _fuzzy_windows(haystack, needle)
-    if fuzzy:
-        return Located(fuzzy, rung=FUZZY)
+    if loosest != EXACT:
+        folded = _folded_windows(haystack, needle, _fold_indent, WHITESPACE)
+        if folded:
+            return Located(folded, rung=WHITESPACE)
+    if loosest == FUZZY:
+        fuzzy = _fuzzy_windows(haystack, needle)
+        if fuzzy:
+            return Located(fuzzy, rung=FUZZY)
     return Located(nearest=_nearest_diff(haystack, needle))
 
 
-def apply_edit(haystack: str, needle: str, replacement: str) -> Applied:
+def apply_edit(haystack: str, needle: str, replacement: str, *, loosest: str = FUZZY) -> Applied:
     """Replace the unique match, or return a notice the model can act on."""
     if not needle:
         return Applied(notice=EMPTY_NEEDLE)
-    located = locate(haystack, needle)
+    located = locate(haystack, needle, loosest=loosest)
     match = located.unique
     if match is not None:
         return Applied(
@@ -179,7 +192,8 @@ def apply_edit(haystack: str, needle: str, replacement: str) -> Applied:
         )
         return Applied(located=located, notice=notice)
     nearest = f"\n{located.nearest}" if located.nearest else ""
-    notice = f"No replacement was performed. old_str was not found.{nearest}"
+    strict = STRICT_NOTICE.get(loosest, "")
+    notice = f"No replacement was performed. old_str was not found.{strict}{nearest}"
     return Applied(located=located, notice=notice)
 
 

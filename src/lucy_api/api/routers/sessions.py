@@ -57,6 +57,7 @@ from lucy_api.sessions.changes import change_session
 from lucy_api.sessions.fork import fork_session as fork_the_session
 from lucy_api.sessions.items import list_items
 from lucy_api.sessions.models import CreateSession, ForkSession, InputBatch, UpdateSession
+from lucy_api.sessions.retention import delete_archived
 from lucy_api.sessions.turns import cancel_turn as request_cancellation
 from lucy_api.sessions.turns import list_turns, submit_messages
 from lucy_api.stream import ai_sdk, sse
@@ -155,7 +156,10 @@ async def create_session(
         "older than `lucy.session_idle_archive_days` are archived as they are listed; a live "
         "or parked turn is never treated as idle. Archived sessions are included and carry "
         "an `archived_at`; they are hidden by clients, not by the API, because a person "
-        "looking for something they archived is the main reason to ask.\n\n" + CURSORS
+        "looking for something they archived is the main reason to ask.\n\n"
+        "When `lucy.delete_archived_sessions_after_days` is above zero, conversations archived "
+        "and untouched for that many days are deleted first, at most ten per listing, never "
+        "one with a live turn, helper or watch. Deletion cannot be undone.\n\n" + CURSORS
     ),
 )
 async def list_sessions(
@@ -163,9 +167,26 @@ async def list_sessions(
 ) -> Page[SessionResource]:
     """Page through the caller's own sessions, archiving the idle ones first."""
     policy = await container.lucy_policy(acting.token)
+    now = time.time()
     await container.store.archive_idle(
-        acting.account_id, days=policy.session_idle_archive_days, now=time.time()
+        acting.account_id, days=policy.session_idle_archive_days, now=now
     )
+    expired = await delete_archived(
+        container.store,
+        acting.account_id,
+        days=policy.delete_archived_sessions_after_days,
+        now=now,
+    )
+    for row in expired:
+        await container.forget_workspace(
+            PackRequest(
+                caller=acting.caller,
+                user_token=acting.token,
+                profile=str(row["profile"]),
+                session_id=str(row["id"]),
+            ),
+            row,
+        )
     raw = await container.store.list_sessions(
         acting.account_id, selection.limit, selection.after, selection.before, selection.order
     )

@@ -135,3 +135,24 @@ def test_what_lucy_may_do_alone_is_catalogued_with_todays_behaviour_as_its_defau
     )
     assert (wake.default, wake.on_unavailable) == (True, OnUnavailable.USE_DEFAULT)
     assert (minutes.default, minutes.minimum, minutes.maximum) == (5, 1, 60)
+
+
+def test_the_customisation_knobs_default_to_today_and_deleting_is_the_person_s_call() -> None:
+    """Each new knob's default is the behaviour before it existed. Deleting conversations
+    cannot be undone, so the model may never set it, even with approval."""
+    values = defaults()
+    assert values["helper_model"] == ""
+    assert values["delete_archived_sessions_after_days"] == 0
+    assert values["preferred_capabilities"] == ()
+    assert values["workspace_edit_matching"] == "fuzzy"
+    deleting = knob("delete_archived_sessions_after_days")
+    assert deleting is not None
+    assert (deleting.minimum, deleting.maximum) == (0, 3_650)
+    assert deleting.agent is AgentAccess.NEVER
+    assert deleting.on_unavailable is OnUnavailable.USE_DEFAULT
+    matching = knob("workspace_edit_matching")
+    assert matching is not None
+    assert matching.choices == ("exact", "whitespace", "fuzzy")
+    preferred = knob("preferred_capabilities")
+    assert preferred is not None
+    assert preferred.value_type is ValueType.STR_LIST

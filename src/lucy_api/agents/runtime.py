@@ -20,7 +20,7 @@ from lucy_api.agents.types import (
 )
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import bind
-from lucy_api.model.registry import parse_spec
+from lucy_api.model.registry import UnknownModelError, parse_spec
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
@@ -44,6 +44,12 @@ STOPPED_STATUSES = frozenset({"failed", "interrupted"})
 """Roster states of a helper that ended without finishing."""
 
 NO_SUCH_HELPER = "no helper of this conversation has that id; agents.list shows them"
+
+HELPER_MODEL_UNUSABLE = (
+    "the helper model {chosen} cannot run here, so this helper ran on the conversation's "
+    "model, {conversation}: {reason}"
+)
+"""Said in the helper's report when `helper_model` names something this hub cannot build."""
 
 
 def _resumes(row: dict[str, Any]) -> str:
@@ -88,6 +94,23 @@ def _stopped_line(row: dict[str, Any]) -> dict[str, Any]:
         "why": why,
         "resumable": resumable,
     }
+
+
+def _helper_spec(models: ModelRegistry, chosen: str, conversation: str) -> tuple[str, str]:
+    """The model a helper runs on, and what to say when it is not the one the person named.
+
+    `helper_model` is the person's choice for helpers only; the conversation's own model is
+    never changed by it. A choice this hub cannot build falls back to the conversation's
+    model rather than failing the helper, and the report names the swap.
+    """
+    if not chosen or chosen == conversation:
+        return conversation, ""
+    try:
+        models.resolve(chosen)
+    except UnknownModelError as exc:
+        notice = HELPER_MODEL_UNUSABLE.format(chosen=chosen, conversation=conversation, reason=exc)
+        return conversation, notice
+    return chosen, ""
 
 
 def _brief_text(delegation: Delegation) -> str:
@@ -487,7 +510,12 @@ class ChildRuntime:
         child.max_subagent_turns = delegation.max_iterations
         child.work = parent.work
         catalogue = await self.capabilities.probe(child)
-        provider = self.models.resolve(str(session["model"]))
+        conversation = str(session["model"])
+        spec, model_notice = _helper_spec(self.models, parent.policy.helper_model, conversation)
+        provider = self.models.resolve(spec)
+        # A helper on its own model falls back to the conversation's when that one is down,
+        # and the reply is marked with the model that answered, as a main turn's is.
+        fallback = None if spec == conversation else self.models.resolve(conversation)
         roster = await self.agents.for_session(parent.account_id, parent.session_id)
         family = {agent_id, *_earlier_runs(roster, delegation.resume_from)}
 
@@ -539,7 +567,9 @@ class ChildRuntime:
                 # supervisor had: a provider built for `sonnet` sends `Request.model` straight
                 # up the wire, so passing `lmstudio:sonnet` asks for a model named after its
                 # own provider. Every helper ever started failed on it.
-                model=parse_spec(str(session["model"])).model,
+                model=parse_spec(spec).model,
+                fallback_provider=fallback,
+                fallback_model=conversation if fallback is not None else "",
                 budget=Budget(max_iterations=delegation.max_iterations),
                 max_output_tokens=parent.policy.max_output_tokens,
                 temperature=parent.policy.temperature,
@@ -550,8 +580,9 @@ class ChildRuntime:
         )
         summary, tokens, notice = capped_summary(outcome.text or outcome.detail)
         data, schema_notice = declared_return(summary, delegation.return_schema)
-        if schema_notice:
-            notice = f"{notice}; {schema_notice}".strip("; ")
+        for extra in (schema_notice, model_notice):
+            if extra:
+                notice = f"{notice}; {extra}".strip("; ")
         status = "ok"
         if outcome.termination not in {Termination.success, Termination.refused}:
             status = "failed"

@@ -442,16 +442,20 @@ class Container:
         """
         row = await self.store.get(request.caller.account_id, session_id)
         await self.blobs.delete_session(request.caller.account_id, session_id)
+        await self.store.delete(request.caller.account_id, session_id)
+        await self.forget_workspace(request, row)
+
+    async def forget_workspace(self, request: PackRequest, row: dict[str, Any]) -> None:
+        """Remove a deleted session's confined folder. The sandbox being down leaves it."""
         env_id = str(row.get("workspace_environment_id") or "")
         rel = str(row.get("workspace_rel") or "")
-        await self.store.delete(request.caller.account_id, session_id)
         if not env_id or not rel:
             return
         bound = PackRequest(
             caller=request.caller,
             user_token=request.user_token,
             profile=str(row["profile"]),
-            session_id=session_id,
+            session_id=str(row["id"]),
         )
         try:
             await self.environment_client(bound).delete(env_id, rel, recursive=True)

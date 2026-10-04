@@ -31,6 +31,12 @@ REFUSE_KEYS = frozenset({"disabled_capabilities", "approval_policy", "act_unatte
 guessing `act_unattended` on would record standing consent for somebody who said a turn Lucy
 opens on her own may only report."""
 
+EDIT_MATCHING = frozenset({"exact", "whitespace", "fuzzy"})
+"""How loosely `workspace.edit` may match the text a model quoted. Fuzzy is today's ladder."""
+
+PREFERRED_LIMIT = 16
+"""How many preferred capabilities are read. The catalogue's own `max_items`."""
+
 ALWAYS_ON = frozenset({"help", "work"})
 """Capabilities a person cannot turn off. Without help the model cannot ask for the rest,
 and without work it cannot see what it already started. Helpers are not here: "no helpers
@@ -101,6 +107,8 @@ class TurnPolicy:
     decision_max_per_turn: int = 8
     model: str = DEFAULT_MODEL
     fallback_model: str = ""
+    helper_model: str = ""
+    """The model helpers run on. Empty runs them on the conversation's own model."""
     thinking: str = "medium"
     max_thinking_tokens: int = 0
     stream_thinking: bool = False
@@ -132,12 +140,15 @@ class TurnPolicy:
     downstream_timeout_seconds: int = 10
     auto_title: bool = True
     session_idle_archive_days: int = 30
+    delete_archived_sessions_after_days: int = 0
+    """Zero keeps archived conversations for ever, as before this setting existed."""
     notify_on_long_turn: bool = True
     long_turn_seconds: int = 60
     confirm_outward_actions: bool = True
     memory_retrieval_limit: int = 12
     memory_write_policy: str = "ask_first"
     workspace_retention_hours: int = 24
+    workspace_edit_matching: str = "fuzzy"
     permission_mode: str = "ask"
     input_policy: str = "enqueue"
     incognito: bool = False
@@ -169,6 +180,8 @@ class TurnPolicy:
     a change to one never has to be un-mixed from the other."""
     session_disabled: tuple[str, ...] = ()
     enabled: tuple[str, ...] = ()
+    preferred_capabilities: tuple[str, ...] = ()
+    """Bound first in a new conversation, ahead of the built-in order. Never past a switch-off."""
     blocks_turn: bool = False
 
     @property
@@ -227,6 +240,7 @@ class TurnPolicy:
             ),
             model=_text(read("model", DEFAULT_MODEL), DEFAULT_MODEL),
             fallback_model=_optional_spec(read("fallback_model", "")),
+            helper_model=_optional_spec(read("helper_model", "")),
             thinking=_text(
                 read("thinking", "medium"),
                 "medium",
@@ -290,6 +304,9 @@ class TurnPolicy:
             session_idle_archive_days=_clamp(
                 read("session_idle_archive_days", 30), 30, minimum=0, maximum=3_650
             ),
+            delete_archived_sessions_after_days=_clamp(
+                read("delete_archived_sessions_after_days", 0), 0, minimum=0, maximum=3_650
+            ),
             notify_on_long_turn=_flag(read("notify_on_long_turn", True), True),
             long_turn_seconds=_clamp(read("long_turn_seconds", 60), 60, minimum=5, maximum=3_600),
             confirm_outward_actions=_flag(read("confirm_outward_actions", True), True),
@@ -303,6 +320,9 @@ class TurnPolicy:
             ),
             workspace_retention_hours=_clamp(
                 read("workspace_retention_hours", 24), 24, minimum=1, maximum=720
+            ),
+            workspace_edit_matching=_text(
+                read("workspace_edit_matching", "fuzzy"), "fuzzy", allowed=EDIT_MATCHING
             ),
             permission_mode=_text(
                 read("permission_mode", "ask"),
@@ -354,6 +374,9 @@ class TurnPolicy:
             ),
             disabled=disabled,
             enabled=_names(read("enabled_capabilities", [])),
+            preferred_capabilities=tuple(dict.fromkeys(_names(read("preferred_capabilities", []))))[
+                :PREFERRED_LIMIT
+            ],
             blocks_turn=blocked,
         )
 
@@ -364,4 +387,12 @@ SETTINGS_UNAVAILABLE = (
 )
 
 
-__all__ = ["ALWAYS_ON", "OPTIONAL_SECTIONS", "REFUSE_KEYS", "SETTINGS_UNAVAILABLE", "TurnPolicy"]
+__all__ = [
+    "ALWAYS_ON",
+    "EDIT_MATCHING",
+    "OPTIONAL_SECTIONS",
+    "PREFERRED_LIMIT",
+    "REFUSE_KEYS",
+    "SETTINGS_UNAVAILABLE",
+    "TurnPolicy",
+]
