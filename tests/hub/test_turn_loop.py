@@ -751,6 +751,33 @@ async def test_a_denied_write_is_handed_back_like_a_broken_plan() -> None:
     assert ("tool_result", "tool") in [(kind, role) for kind, role, _content in log.items]
 
 
+async def test_a_refusal_is_not_an_invitation_to_route_around_it() -> None:
+    """The bug, named: after a person said no, the model was told "Choose a safe
+    alternative" -- read as leave to reach the refused outcome another way (an incognito
+    fact written to a workspace file instead). And an instruction with no full stop ran
+    straight into that sentence."""
+    prompts = Prompts()
+    provider = ScriptedProvider([plans(PLAN), speaks("Moved it to the trash.")])
+    denied = {
+        "issues": [
+            {
+                "code": "permission_denied",
+                "message": "move it to trash instead",
+                "permission": "workspace.change",
+            }
+        ],
+        "text": "The person declined: move it to trash instead",
+        "steps": [],
+    }
+
+    await run_turn(turn(provider, execute=executor(denied), assemble=prompts.assemble))
+
+    notice = prompts.notices[1]
+    assert "safe alternative" not in notice
+    assert "move it to trash instead. Do not reach the same outcome another way." in notice
+    assert "If the person said what to do instead, do that" in notice
+
+
 async def test_a_denied_write_still_repairs_when_there_is_no_item_log() -> None:
     prompts = Prompts()
     provider = ScriptedProvider([plans(PLAN), speaks("I will not keep that.")])
