@@ -524,11 +524,18 @@ class ChildRuntime:
             mail = await self.agents.drain_mail(parent.account_id, agent_id)
             rows = await self.store.records(parent.account_id, parent.session_id, "items")
             mine = [row for row in rows if str(row.get("agent_id") or "") in family]
+            # What the helper's schema and executor can call, recomputed every round because
+            # `capabilities.use` in one plan binds a capability for the next. Listing every
+            # ready pack told a helper with seven or more that it could call ones missing from
+            # its schema, and never said `capabilities.use` would bind them -- the bug the
+            # main thread's supervisor fixed for itself.
+            bound, deferred = self.capabilities.bound_for(catalogue, parent.session_id)
             system, messages = await system_and_messages(
                 SessionView(
                     session_id=parent.session_id,
                     items=mine,
-                    capabilities=tuple(item.pack.id for item in catalogue.ready()),
+                    capabilities=tuple(item.pack.id for item in bound),
+                    deferred=deferred,
                     # The helper's own mode, not the conversation's. Read from the row, a
                     # helper in an `auto` conversation was told "permission mode auto" by its
                     # live block while its brief said read-only, and every write it tried on

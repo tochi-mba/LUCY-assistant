@@ -65,3 +65,39 @@ async def test_a_parents_mail_is_its_own_message_and_never_a_harness_line(
     assert "- Also check the README." in heard
     assert "[harness:" not in heard, "a model's words cannot become the system's"
     assert "Also check the README." not in request.system
+
+
+async def test_a_helpers_prompt_lists_what_its_schema_can_call(
+    sessions_store: SessionStore,
+) -> None:
+    """The bug, named: a helper's prompt listed every ready capability as "Ready now", while
+    its plan schema and executor held back everything past the deferral threshold. With
+    seven or more, it was told it could call capabilities missing from its schema, and never
+    that `capabilities.use` would bind them."""
+    from test_packs_registry import Gadget
+
+    from lucy_api.packs.registry import DEFER_ABOVE
+
+    created = await sessions_store.create(ACCOUNT, CreateSession(model="scripted:demo"), "key")
+    provider = ScriptedProvider([speaks("Done.")])
+    gadgets = [Gadget(f"g{index}") for index in range(DEFER_ABOVE + 2)]
+    capabilities = Capabilities((HelpPack(), AgentsPack(), *gadgets))
+    child = ChildRuntime(
+        sessions_store,
+        AgentStore(sessions_store),
+        ModelRegistry({"scripted": lambda _model: provider}),
+        capabilities,
+    )
+    capabilities.child = child
+    parent = capabilities.context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=str(created["id"]))
+    )
+
+    await child.run(parent, objective="Look around.", role="reader")
+
+    [request] = provider.requests
+    whole = "\n".join(message.content for message in request.messages)
+    ready = next(line for line in whole.splitlines() if line.startswith("Ready now:"))
+    named = {name.strip(" .") for name in ready.removeprefix("Ready now:").split(",")}
+    assert len(named) < len(gadgets) + 2, "the deferred ones are not called ready"
+    assert "capabilities.use" in whole

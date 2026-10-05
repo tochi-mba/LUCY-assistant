@@ -162,6 +162,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
 
+- **A helper's prompt lists what its schema can call.** It listed every ready capability as
+  "Ready now" while its plan schema held back everything past the deferral threshold, so a
+  helper with seven or more was told it could call capabilities missing from its schema, and
+  never that `capabilities.use` would bind them. It now names what is bound and what is
+  deferred, recomputed each round, as the main thread does.
 - **`agent_result_token_cap` caps what a helper hands back, not what it reads.** It was wired to
   the helper's reading, so every page a helper opened was cut to 2,000 tokens while its own
   return was held to a constant the setting never reached. A helper now reads to
