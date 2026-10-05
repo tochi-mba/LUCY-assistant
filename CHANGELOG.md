@@ -26,6 +26,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Every limit that ends a turn is warned about first, and the warning asks for a report.**
+  The tool-call and time limits ended a turn with no warning, and the round warning said
+  "write down where you got to", which a small model read as a note to keep -- the state of
+  one conversation, which the memory section calls noise. Every warning now ends "finish now,
+  or tell the person where you got to and what is left".
 - **Every line about work names the id its follow-up takes, and how finished work ended.**
   Running, finished and woken work was never shown with its id, which `work.result`,
   `work.cancel` and `agents.reopen` all take; it was handed back only in the step that

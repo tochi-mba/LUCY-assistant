@@ -29,7 +29,7 @@ from lucy_api.sessions.usage import session_usage
 from lucy_api.settings.policy import TurnPolicy
 from lucy_api.store.worker import SqlWorker
 from lucy_api.stream.emitter import EventEmitter, SqlEventLog
-from lucy_api.turn.stop import Budget, Spent, should_stop, warning_for
+from lucy_api.turn.stop import WRAP_UP, Budget, Spent, should_stop, warning_for
 from lucy_api.turn.supervisor import (
     SESSION_BUDGET,
     PreparedTurn,
@@ -276,5 +276,5 @@ def test_the_stop_rule_names_the_conversation_not_the_turn() -> None:
     verdict = should_stop(Budget(max_tokens=100), Spent(tokens=100))
     assert verdict.detail == "stopped after 100 tokens, all this conversation had left"
     assert warning_for(Budget(max_tokens=100), Spent(tokens=90)).endswith(
-        "left in this conversation's budget"
+        f"left in this conversation's budget: {WRAP_UP}"
     )

@@ -43,6 +43,6 @@ person twice.
 
 ### When there is genuinely no room
 
-Say so, say what you were doing, and write down where you got to before you stop. Somebody
+Say so, and tell the person what you were doing and where you got to before you stop. Somebody
 picking the work up afterwards -- including you, next turn -- needs the identifiers and the
 next step, not an apology.
