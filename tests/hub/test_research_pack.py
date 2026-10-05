@@ -378,6 +378,35 @@ async def test_results_found_without_a_summary_stand_and_say_what_is_missing() -
     assert NO_PAGE_SUMMARY in open_step["notices"]
 
 
+async def test_a_search_that_could_not_be_run_fails_rather_than_finding_nothing() -> None:
+    """The bug, named: Google served a captcha, the query failed, and the step still reported
+    success with an empty list -- so `research.open` of `$search[1]`, planned beside it, failed
+    on "'search' is empty", and a model reading the list could say nothing exists."""
+    from lucy_api.packs.research import SEARCH_FAILED
+
+    fake = FakeSearchClient()
+    fake.seed(Findings(query="tea", status="error", detail="Google served a captcha page"))
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "s", "op": "research.search", "input": {"query": "tea"}},
+                {"id": "o", "op": "research.open", "input": {"hit": "$s[1]"}},
+            ]
+        },
+        context,
+    )
+
+    search, *_rest = result["steps"]
+    assert search["status"] == "error"
+    assert SEARCH_FAILED in str(search["error"])
+    assert "captcha" not in str(search["error"]), "the provider's words stay with the operator"
+    assert fake.opened == [], "nothing was opened from a search that did not run"
+
+
 async def test_a_search_that_found_nothing_does_not_mention_a_missing_summary() -> None:
     fake = FakeSearchClient()
     fake.seed(Findings(query="nothing", summary_failed=True))
