@@ -31,6 +31,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   "write down where you got to", which a small model read as a note to keep -- the state of
   one conversation, which the memory section calls noise. Every warning now ends "finish now,
   or tell the person where you got to and what is left".
+
+- **The model is told which tool results were cleared, and how to get one back.** When the
+  window filled, older results were left out and the notice went only to the HTTP preview:
+  the model read its own sentence about a result that had silently gone, and was told
+  "6 tool results reclaimable" instead -- about something it could not act on. Its context
+  line now says how many older results are not shown, and to run the call again.
 - **Every line about work names the id its follow-up takes, and how finished work ended.**
   Running, finished and woken work was never shown with its id, which `work.result`,
   `work.cancel` and `agents.reopen` all take; it was handed back only in the step that

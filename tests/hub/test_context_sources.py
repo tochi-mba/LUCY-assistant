@@ -28,7 +28,7 @@ NOW = datetime(2026, 9, 17, 14, 30, tzinfo=UTC)
 SESSION = SessionSnapshot(
     id="ses_1", profile="personal", title="Tour dates", turn_number=4, permission_mode="ask"
 )
-BUDGET = BudgetSnapshot(used=84_000, window=200_000, reclaimable=6)
+BUDGET = BudgetSnapshot(used=84_000, window=200_000, cleared=6)
 
 
 class Gives:

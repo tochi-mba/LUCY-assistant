@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from lucy_api.context.build import Live
 from lucy_api.context.feeds import Feed, FeedEntry, StaticFeeds, Volatility
@@ -384,3 +385,29 @@ async def test_a_compacted_conversation_tells_the_model_it_is_reading_a_summary(
     text = plain[0] + "\n" + "\n".join(message.content for message in plain[1])
     bare = next(row for row in text.splitlines() if row.startswith("context") and " of " in row)
     assert "read as a summary" not in bare
+
+
+async def test_results_the_ladder_cleared_are_named_in_the_line_the_model_reads() -> None:
+    """End to end: reclaim drops all but the newest results, and the model is told so."""
+    from lucy_api.turn.prompt import SessionView, system_and_messages
+
+    rows: list[dict[str, Any]] = [
+        {"id": "1", "seq": 1, "role": "user", "type": "message", "content": "go", "turn_id": "t"}
+    ]
+    for seq in range(2, 7):
+        step = {"step_id": f"s{seq}", "operation": "research.search", "status": "ok"}
+        rows.append(
+            {
+                "id": str(seq),
+                "seq": seq,
+                "role": "tool",
+                "type": "tool_result",
+                "content": {**step, "summary": f"result {seq}"},
+                "turn_id": "t",
+            }
+        )
+    _system, messages = await system_and_messages(
+        SessionView(session_id="s", items=rows, tool_results_kept=2, window=7_000)
+    )
+    told = "\n".join(message.content for message in messages)
+    assert "3 older tool results not shown to save room" in told

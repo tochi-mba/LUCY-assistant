@@ -239,12 +239,16 @@ def test_incognito_is_stated_only_when_it_is_on_because_it_changes_what_may_be_w
     assert "incognito: nothing here is written to memory" in on
 
 
-def test_the_context_line_reports_the_threshold_reclaimable_results_and_the_summary() -> None:
-    state = a_state(budget=a_budget(reclaimable=6, summarised_turns=41, compact_at_percent=72))
+def test_the_context_line_reports_the_threshold_cleared_results_and_the_summary() -> None:
+    """The bug, named: results the ladder cleared were said only to the HTTP preview, so the
+    model read its own sentence about a result that had silently gone, and was told "6 tool
+    results reclaimable" instead -- about something it could not act on."""
+    state = a_state(budget=a_budget(cleared=6, summarised_turns=41, compact_at_percent=72))
 
     assert headline(body_of(state), "context") == (
         "84,000 of 200,000 tokens (42% used) - compaction at 72%"
-        " - 6 tool results reclaimable - turns 1-41 are read as a summary"
+        " - 6 older tool results not shown to save room; run the call again if you need one"
+        " - turns 1-41 are read as a summary"
     )
 
 
@@ -266,10 +270,10 @@ def test_a_window_smaller_than_the_turn_is_named_as_a_setting_not_as_compaction(
     assert "over the window" not in headline(body_of(a_state()), "context")
 
 
-def test_one_reclaimable_result_is_reported_in_the_singular() -> None:
-    state = a_state(budget=a_budget(reclaimable=1, summarised_turns=1))
+def test_one_cleared_result_is_reported_in_the_singular() -> None:
+    state = a_state(budget=a_budget(cleared=1, summarised_turns=1))
 
-    assert "1 tool result reclaimable" in headline(body_of(state), "context")
+    assert "1 older tool result not shown" in headline(body_of(state), "context")
     assert "turn 1 is read as a summary" in headline(body_of(state), "context")
 
 
