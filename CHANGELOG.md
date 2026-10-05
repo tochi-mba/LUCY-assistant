@@ -26,6 +26,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The eval harness survives a keep-alive the hub closed.** Between turns -- archiving a
+  session, renewing its token -- the harness left its connection idle, the hub closed it,
+  and the next request down it stopped the whole run as "cannot reach Lucy" with the hub up
+  throughout. A request that cannot land twice -- a repeatable method, or a POST with its
+  idempotency key -- is now sent once more on a fresh connection.
 - **The eval harness renews its token before a turn, not only after a refusal.** The hub
   acts on the person's token for as long as a turn runs, and accepted one with two minutes
   left; partway through the turn every call to a sibling was refused, and the baseline's

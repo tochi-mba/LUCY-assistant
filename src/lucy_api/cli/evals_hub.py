@@ -38,6 +38,9 @@ PAGE = 100
 
 ERROR_FROM = 400
 
+REPEATABLE_METHODS = frozenset({"GET", "PUT", "PATCH", "DELETE"})
+"""Methods whose second arrival changes nothing the first did not."""
+
 TURN_HEADROOM_SECONDS = 600.0
 """How long a token must still have to run when a turn is started on it.
 
@@ -214,10 +217,19 @@ class HttpHub:
         sent = headers(self._token)
         if idempotent:
             sent["Idempotency-Key"] = str(uuid.uuid4())
+        url = f"{self._url}{path}"
         try:
-            return self._client.request(
-                method, f"{self._url}{path}", headers=sent, json=body, params=params
-            )
+            try:
+                return self._client.request(method, url, headers=sent, json=body, params=params)
+            except httpx.RemoteProtocolError:
+                # A keep-alive connection the hub closed while the harness was elsewhere -- an
+                # archive, a token renewal -- refuses the next request sent down it, and that
+                # stopped a whole run as "cannot reach Lucy" with the hub up the entire time.
+                # Sent again on a fresh connection, only when arriving twice cannot do twice:
+                # a repeatable method, or a POST carrying the same idempotency key as before.
+                if not idempotent and method not in REPEATABLE_METHODS:
+                    raise
+                return self._client.request(method, url, headers=sent, json=body, params=params)
         except httpx.HTTPError as exc:
             message = f"cannot reach Lucy at {self._url}"
             raise HubUnreachable(message) from exc

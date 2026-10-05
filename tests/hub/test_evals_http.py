@@ -258,3 +258,40 @@ async def test_a_seed_write_is_granted_for_its_session_only_and_the_grant_is_gon
         assert refused.value.status == 409, "the session grant was taken back"
 
     await against_the_hub(workspace_client, conversation)
+
+
+def _drops_the_first(body: dict[str, object]) -> Callable[[httpx.Request], httpx.Response]:
+    """A hub that closed the kept-alive connection the first request went down."""
+    calls = {"n": 0}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.RemoteProtocolError("Server disconnected", request=request)
+        return httpx.Response(201, json=body)
+
+    return answer
+
+
+def test_a_closed_keep_alive_is_sent_again_with_the_same_idempotency_key() -> None:
+    """The bug, named: the harness paused between turns -- archiving a session, renewing its
+    token -- the hub closed the idle connection, and the next request down it stopped the whole
+    run as "cannot reach Lucy", with the hub up throughout."""
+    adapter, seen = hub(_drops_the_first({"id": "ses_2"}))
+    assert adapter.create_session({})["id"] == "ses_2"
+    first, second = seen
+    assert first.headers["Idempotency-Key"] == second.headers["Idempotency-Key"]
+
+
+def test_a_read_is_sent_again_too() -> None:
+    adapter, seen = hub(_drops_the_first({"data": []}))
+    assert adapter.models() == {"data": []}
+    assert len(seen) == 2
+
+
+def test_a_write_that_could_land_twice_is_never_sent_again() -> None:
+    """`POST /v1/tools/.../invoke` carries no key; sent again, a write could run twice."""
+    adapter, seen = hub(_drops_the_first({"steps": []}))
+    with pytest.raises(HubUnreachable):
+        adapter.invoke("notes.setFact", {}, "ses_1")
+    assert len(seen) == 1
