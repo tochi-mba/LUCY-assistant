@@ -131,7 +131,7 @@ async def test_memory_relevance_promotes_without_deleting_or_exposing_untrusted_
     snapshots = await MemoryIndex(listing, "personal", limit=1, decide=context).fetch("session")
     assert snapshots[0].id == ("recent" if shadow else "old")
     assert "UNTRUSTED_SENTINEL" not in answerer.calls[0][0]
-    assert ("showing 1 of 2" in snapshots[0].index_notice) is (not shadow)
+    assert "showing 1 of 2" in snapshots[0].index_notice, "a cut is said whichever order won"
     await MemoryIndex(listing, "personal", limit=1, decide=context).fetch("session")
     assert len(answerer.calls) == 1  # same input in a later model round is cached
 

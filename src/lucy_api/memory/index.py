@@ -83,17 +83,29 @@ class MemoryIndex:
                 tokens=min(self.limit, len(ordered)),
             )
             if ordered != eligible:
-                return tuple(
-                    replace(
-                        snapshot,
-                        relevance_order=i,
-                        index_notice=(selection.notice + "; more via notes.search")
-                        if selection.omitted or selection.withheld
-                        else "",
-                    )
+                reordered = tuple(
+                    replace(snapshot, relevance_order=i)
                     for i, snapshot in enumerate(selection.snapshots())
                 )
-        return selection.snapshots()
+                return _confessed(reordered, selection)
+        return _confessed(selection.snapshots(), selection)
+
+
+def _confessed(
+    snapshots: tuple[TopicSnapshot, ...], selection: Selection
+) -> tuple[TopicSnapshot, ...]:
+    """The index, saying on its first entry what was cut and how to reach the rest.
+
+    Said only when the relevance decision had reordered the topics, so on the ordinary path a
+    person with forty topics was shown eight with no word of the other thirty-two, and the
+    live block's own confession never fired because its ceiling equals the cut. "That is
+    everything" was a fair reading.
+    """
+    if not snapshots or not (selection.omitted or selection.withheld):
+        return snapshots
+    first, *rest = snapshots
+    notice = f"{selection.notice}; find the rest with notes.search"
+    return (replace(first, index_notice=notice), *rest)
 
 
 @dataclass(frozen=True, slots=True)

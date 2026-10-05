@@ -31,6 +31,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The memory index says what it left out, whichever order it is in.** The index is cut to
+  the person's limit, and said so only when the relevance decision had reordered it; on the
+  ordinary path a person with forty topics was shown eight with no word of the rest. A cut
+  index now says how many topics it shows, what it held back, and to find the rest with
+  `notes.search`.
 - **Every limit that ends a turn is warned about first, and the warning asks for a report.**
   The tool-call and time limits ended a turn with no warning, and the round warning said
   "write down where you got to", which a small model read as a note to keep -- the state of
