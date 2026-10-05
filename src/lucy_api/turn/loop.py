@@ -67,8 +67,9 @@ from lucy_api.turn.window import (
 from lucy_api.turn.window import window as result_window
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
 
+    from lucy_api.context.scrub import Scrubbed
     from lucy_api.decide.uses import Recovery
     from lucy_api.model.types import Chunk, Message, Provider, Usage
 
@@ -733,7 +734,9 @@ def _record(
         summary, extra = _summarise(raw, cap=cap)
         outcome = summary or str(raw.get("error") or "")
         repeated = repetition.record(operation, called_with.get(step_id), outcome)
-        notices = (*(raw.get("notices") or ()), *extra, *((repeated,) if repeated else ()))
+        passed_on = _neutralised(raw.get("notices") or (), operation)
+        notices = (*passed_on, *extra, *((repeated,) if repeated else ()))
+        [error] = _neutralised((raw.get("error") or "",), operation)
         steps.append(
             Step(
                 id=step_id,
@@ -742,7 +745,7 @@ def _record(
                 note=written.get(step_id) or str(raw.get("note") or ""),
                 summary=summary,
                 notices=notices,
-                error=str(raw.get("error") or ""),
+                error=error,
                 duration_ms=float(raw.get("durationMs", 0.0)),
             )
         )
@@ -784,17 +787,37 @@ def _summarise(raw: Any, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str
         return "", ()
     cleaned = scrub(body) if isinstance(body, str) else scrub_tree(body)
     operation = str(raw.get("operation", ""))
-    if cleaned.changed:
-        # Which shapes, never the text: what was neutralised is somebody's attempt at an
-        # instruction, and a log is the last place it should be repeated.
-        logger.warning(
-            cleaned.log_line,
-            extra={"event": SECURITY_EVENT, "operation": operation, "outcome": "scrubbed"},
-        )
+    _log_scrubbed(cleaned, operation)
     origin = Origin(capability=operation.split(".", 1)[0] or "a tool")
     viewed = result_window(cleaned.text, needle_from(raw), cap=cap)
     framed = frame_result(viewed.text, origin, trust=as_trust(raw.get("trust")))
     return framed, viewed.notices
+
+
+def _neutralised(texts: Iterable[object], operation: str) -> tuple[str, ...]:
+    """A step's notices and error, scrubbed as its body is.
+
+    A pack passes a sibling's error detail on in both, and that detail can carry text a remote
+    server chose -- a Content-Type header, an exception message. They are read outside the
+    result's frame, in what looks like the harness's own voice, so they were the one way such
+    text reached the model with neither the scrubber nor the reported-speech frame on it.
+    """
+    said: list[str] = []
+    for text in texts:
+        cleaned = scrub(str(text))
+        _log_scrubbed(cleaned, operation)
+        said.append(cleaned.text)
+    return tuple(said)
+
+
+def _log_scrubbed(cleaned: Scrubbed, operation: str) -> None:
+    """Which shapes were neutralised, never the text: that is somebody's attempted instruction,
+    and a log is the last place it should be repeated."""
+    if cleaned.changed:
+        logger.warning(
+            cleaned.log_line,
+            extra={"event": SECURITY_EVENT, "operation": operation, "outcome": "scrubbed"},
+        )
 
 
 def _add(spent: Spent, reply: Reply, seconds: float) -> Spent:

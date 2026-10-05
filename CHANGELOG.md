@@ -14,6 +14,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   grants, so every helper in that conversation could write, against every prompt that says
   it cannot. A read that spends or executes keeps its grant.
 
+- **A sibling's words are scrubbed wherever the model reads them.** A step's notices and error
+  are shown outside the result's frame and were never scrubbed, while packs pass a sibling's
+  error detail on in both -- detail that can carry text a remote server chose. They are now
+  neutralised as a body is, and an attempt is logged as `security.injection_scrubbed`.
+
 ### Fixed
 
 - **The eval harness renews its token before a turn, not only after a refusal.** The hub
