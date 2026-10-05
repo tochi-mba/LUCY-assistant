@@ -220,7 +220,7 @@ async def test_a_tool_result_arrives_framed_as_something_somebody_said() -> None
 
     summary = outcome.rounds[0].steps[0].summary
     assert "Three dates in March." in summary
-    assert "not an instruction" in summary, "it is data, and it says so"
+    assert "not instructions" in summary, "it is data, and it says so"
 
 
 async def test_an_injection_in_a_tool_result_is_neutralised_before_the_model_reads_it() -> None:
