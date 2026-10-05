@@ -103,19 +103,23 @@ class Recovery:
 
     def __init__(self, decide: Decisions) -> None:
         self.decide = decide
-        self.previous = ""
+        self.previous: list[str] = []
         self.advised = False
 
     async def observe(self, failures: Sequence[str]) -> str:
         if self.advised or RECOVERY.id not in self.decide.enabled:
             return ""
-        current = scrub(json.dumps(list(failures), ensure_ascii=False)).text if failures else ""
+        # Kept as lists: each was a JSON string inside the JSON, escaped twice over, which a
+        # small decider reads poorly.
+        current = [scrub(failure).text for failure in failures]
         previous, self.previous = self.previous, current
         if not previous or not current:
             return ""
         answers = await self.decide.ask(
             RECOVERY,
-            json.dumps({"previous_failures": previous, "current_failures": current}),
+            json.dumps(
+                {"previous_failures": previous, "current_failures": current}, ensure_ascii=False
+            ),
             [
                 noul(
                     "same_obstacle",

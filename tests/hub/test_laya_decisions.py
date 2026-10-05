@@ -186,6 +186,22 @@ async def test_recovery_nudges_once_after_consecutive_failures_and_never_stops_a
     assert len(answerer.calls) == 1
 
 
+async def test_recovery_hands_the_decider_lists_not_json_inside_json():
+    """Each failure list was itself a JSON string inside the JSON, escaped twice over."""
+    import json
+
+    answerer = Answerer()
+    recovery = Recovery(decisions(answerer))
+    await recovery.observe(["café closed"])
+    await recovery.observe(["café still closed"])
+    [(state, _questions)] = answerer.calls
+    assert json.loads(state) == {
+        "previous_failures": ["café closed"],
+        "current_failures": ["café still closed"],
+    }
+    assert "café" in state, "written as it is, not escaped"
+
+
 async def test_recovery_disabled_or_uncertain_does_nothing():
     assert await Recovery(decisions(enabled=[])).observe(["failed"]) == ""
     recovery = Recovery(decisions(Answerer(["same_obstacle"], 0.2)))
