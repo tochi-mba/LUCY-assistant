@@ -18,3 +18,9 @@ Re-cut a baseline when a change that moves them is merged, and give it a label t
 what it measured (`--label "after the prompt audit"`). A model's latency and its choice of
 plan vary between runs, so take one with `--repeat 3` when a few percent is what you need to
 see. [evals.md](../evals.md#baselines-measure-an-optimisation-do-not-guess-it) has the rest.
+
+## Baselines
+
+| File | What it measured | Result |
+| --- | --- | --- |
+| `clyde-haiku-2026-10-05.json` | `main` at 039a00a on `clyde:haiku`, before the efficiency branch: the fixed prompt at 6,066 tokens. | 7 of 7, 107 of 107 checks; 455,806 tokens in, 11,924 out, 109,041 cache reads over 10 turns; median turn 66s. |
