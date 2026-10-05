@@ -553,10 +553,29 @@ def _ended(result: dict[str, Any]) -> dict[str, Any]:
     helper had died, which on the strength of that notice it had no reason to do.
     """
     if result.get("status") == "ok":
-        return result
+        return _shown(result)
     lead = CONTINUABLE if result.get("resumable") else STOPPED
     why = str(result.get("summary") or "").strip()
     raise WorkError(f"{lead}: {why}" if why else lead, payload=result)
+
+
+def _shown(result: dict[str, Any]) -> dict[str, Any]:
+    """What `work.result` hands Lucy of a finished helper: its answer, once.
+
+    The whole runtime result went through, so a helper with a declared return was read twice --
+    its JSON as `summary` text and again as the parsed `data` -- up to two thousand tokens a
+    team member, kept in context while Lucy folded the team's answers together. `agent_id`
+    repeated the work's own id, and the token count, termination and mode decided nothing.
+    The roster keeps the full result.
+    """
+    shown: dict[str, Any] = {"role": result.get("role")}
+    if result.get("data") is not None:
+        shown["data"] = result["data"]
+    else:
+        shown["summary"] = result.get("summary")
+    if result.get("notice"):
+        shown["notice"] = result["notice"]
+    return shown
 
 
 async def _message(context: PackContext, *, agent_id: str, body: str) -> dict[str, Any]:

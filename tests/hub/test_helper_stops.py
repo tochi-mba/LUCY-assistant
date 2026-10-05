@@ -103,15 +103,20 @@ async def test_a_stopped_helper_is_continued_from_where_it_got_to(store: Session
     assert finished.state is State.succeeded
     assert isinstance(finished.payload, dict)
     assert finished.payload["summary"] == "Read them; all done."
-    assert finished.payload["resumable"] is False
+    assert "resumable" not in finished.payload, "a finished helper's answer, and only that"
     handed = [str(message.content) for message in provider.requests[-1].messages]
     assert any("A helper is work" in text for text in handed), "the first run's read is lost"
     assert any(f"Continue from helper {started['id']}" in text for text in handed)
 
 
-def test_a_helper_that_finished_is_handed_back_as_it_was() -> None:
-    result = {"status": "ok", "summary": "done"}
-    assert _ended(result) is result
+def test_a_helper_that_finished_hands_back_its_answer_once() -> None:
+    """The bug, named: the whole runtime result went to `work.result`, so a helper with a
+    declared return was read twice -- its JSON as `summary` and again as `data` -- with an
+    `agent_id` repeating the work's id and counts that decided nothing."""
+    prose = {"status": "ok", "role": "reader", "summary": "done", "agent_id": "a", "tokens": 3}
+    assert _ended(prose) == {"role": "reader", "summary": "done"}
+    declared = {"status": "ok", "role": "r", "summary": '{"n": 1}', "data": {"n": 1}, "notice": "x"}
+    assert _ended(declared) == {"role": "r", "data": {"n": 1}, "notice": "x"}
 
 
 @pytest.mark.parametrize(
