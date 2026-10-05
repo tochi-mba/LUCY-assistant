@@ -6,6 +6,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ## [Unreleased]
 
+### Security
+
+- **Plan mode refuses a write whatever was granted, and so does every helper.** A standing
+  allow was read before the mode, so a write the person had said yes to "for this
+  conversation" ran in plan mode anyway. Every helper runs in plan mode with its parent's
+  grants, so every helper in that conversation could write, against every prompt that says
+  it cannot. A read that spends or executes keeps its grant.
+
 ### Fixed
 
 - **The eval harness renews its token before a turn, not only after a refusal.** The hub
