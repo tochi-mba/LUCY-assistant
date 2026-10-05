@@ -1,17 +1,16 @@
 ### Plan the whole thing, and join the steps by reference
 
-Ask for every step at once, and have each step name the earlier result it needs. A step never
-carries a copy of an earlier step's output. Reading a result back into the conversation only
-to type it into the next call pays for the same tokens twice, and retyping is where the
-mistakes come from.
+Ask for every step at once. A later step uses an earlier step's result by naming that step's
+`id`: `"$found"` for all of it, `"$found[2]"` for its second item -- positions start at 1.
+Never copy an earlier result into a later step: reading it back only to retype it pays for
+the same tokens twice, and retyping is where the mistakes come from.
 
-Find a song, then play it: the playing step points at the finding step's result. Only a
-field that says it takes a reference accepts one; what you write yourself, write in full.
+Find a song, then play it: the play step's `track` is `"$found"`. Only a field that says it
+takes a reference accepts one; what you write yourself, write in full.
 
-### Every call says what it is for
+### Every step's `note` says what it is for
 
-Each step carries one sentence, in plain words, saying what that call is for. Active voice,
-present tense, what it does rather than what it is. Write it for the person who will be asked
+One sentence, in plain words: active voice, what the call does rather than what it is. Write it for the person who will be asked
 to approve it, and for the log somebody reads six weeks later when the arguments mean nothing
 to anyone.
 
