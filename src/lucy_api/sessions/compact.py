@@ -5,8 +5,8 @@ moment a summary dropped the detail that explains it. This module only inserts a
 The prompt assembler projects through active rows; deactivating one restores the turns.
 
 The summary is extractive on purpose. A model-written compaction is a later optimisation
-and a new failure mode; identifiers, user sentences and tool names are the MUST-PRESERVE
-list the plan names, and they can be copied without asking a provider. Three consecutive
+and a new failure mode; identifiers, the person's requests and tool names are what the plan
+says must survive, and they can be copied without asking a provider. Three consecutive
 failures switch *automatic* compaction off for the session rather than retrying forever: a
 loop that cannot summarise will not summarise on the tenth attempt either. A person can
 still compact by hand, and a compaction that works switches the automatic one back on.
@@ -47,7 +47,15 @@ MAX_KEEP_RECENT_TURNS = 100
 """The most a person may ask to keep verbatim. Past it, there is nothing left to compact."""
 
 FAILURES_BEFORE_DISABLE = 3
-PROMPT_VERSION = "extractive-v1"
+PROMPT_VERSION = "extractive-v2"
+
+MAX_REQUESTS = 8
+"""How many of the person's requests a summary keeps: the first, usually the goal, and the
+newest. It kept the eight oldest and dropped the rest without a count."""
+
+MAX_IDENTIFIERS = 40
+"""How many identifiers a summary keeps. Uncapped, every URL of every search went in, and the
+projection gives a summary a floor, so it was never trimmed and grew with every round."""
 DISABLED_MODEL = "disabled"
 DISABLED = (
     "automatic compaction is off for this session after three consecutive failures; "
@@ -87,8 +95,11 @@ async def compact_session(  # noqa: PLR0913 - every argument is a named, default
         if trigger == "auto" and _disabled(db, session_id):
             raise conflict(DISABLED)
         items = db.execute(
+            # The main thread's items only. A helper's brief is a user-role message in its
+            # own transcript, and read here it was summarised as the person saying "You are
+            # read-only. Do not write files" -- to Lucy, who never saw it.
             "SELECT seq, turn_id, role, type, content_json FROM items "
-            "WHERE session_id=? ORDER BY seq",
+            "WHERE session_id=? AND agent_id IS NULL ORDER BY seq",
             (session_id,),
         ).fetchall()
         if not items:
@@ -352,31 +363,48 @@ def _covers_to(items: list[Any], keep_recent: int = KEEP_RECENT_TURNS) -> int | 
 
 
 def _summary(items: list[Any], covers_to: int) -> str:
-    identifiers: list[str] = []
-    seen: set[str] = set()
+    """What the model is given in place of a range: who asked what, what ran, what was named.
+
+    Written for the model that reads it, not for a compactor: it used to open with
+    "MUST-PRESERVE: ...", an all-caps imperative with no object, and close with a range of
+    item numbers the model could do nothing with.
+    """
+    said: list[str] = []
+    found: list[str] = []
     users: list[str] = []
     tools: list[str] = []
     for item in items:
         if int(item["seq"]) > covers_to:
             break
         text = _text(item["content_json"])
-        for match in PRESERVE.findall(text):
-            if match not in seen:
-                seen.add(match)
-                identifiers.append(match)
-        if item["role"] == "user":
+        spoken = item["type"] == "message"
+        # What the person and Lucy said is named before what a tool returned.
+        (said if spoken else found).extend(PRESERVE.findall(text))
+        if spoken and item["role"] == "user":
+            # A message, not an approval's JSON, which is role user too.
             users.append(_clip(text, 200))
         operation = _operation(text)
         if operation and operation not in tools:
             tools.append(operation)
+    identifiers = list(dict.fromkeys((*said, *found)))
+    kept = identifiers[:MAX_IDENTIFIERS]
+    unnamed = len(identifiers) - len(kept)
+    requests = users
+    if len(users) > MAX_REQUESTS:
+        requests = [users[0], *users[-(MAX_REQUESTS - 1) :]]
+    count = (
+        f" (the first and the last {len(requests) - 1} of {len(users)})"
+        if requests is not users
+        else ""
+    )
     lines = [
-        "MUST-PRESERVE: identifiers, user requests and tools already used.",
-        "Identifiers: " + (", ".join(identifiers) if identifiers else "(none)"),
-        "Tools: " + (", ".join(tools) if tools else "(none)"),
+        f"The person asked, oldest first{count}: "
+        + (" | ".join(requests) if requests else "(nothing)"),
+        "Tools already used: " + (", ".join(tools) if tools else "(none)"),
+        "Identifiers seen: "
+        + (", ".join(kept) if kept else "(none)")
+        + (f" (and {unnamed} more)" if unnamed else ""),
     ]
-    if users:
-        lines.append("User: " + " | ".join(users[:8]))
-    lines.append(f"Covered items 1-{covers_to}.")
     return "\n".join(lines)
 
 

@@ -94,9 +94,8 @@ def test_a_summary_says_what_it_stands_for_so_nothing_looks_like_it_never_happen
         counter=COUNTER,
     )
     body = projection.sections[0].body
-    assert "summary of 2 earlier entries" in body
-    assert "sequence 1 to 2" in body
-    assert "transcript is unchanged" in body
+    assert "2 earlier entries were replaced by this extract" in body
+    assert "Earlier talk." in body
 
 
 def test_a_range_that_stops_mid_turn_is_widened_to_the_whole_turn() -> None:
