@@ -496,7 +496,22 @@ async def _record_denial(turn: Turn, outcome: Outcome, round_: Round, result: An
     # A refusal is a tool result for the next model round, not a malformed plan to
     # retry unchanged. Include the concrete denial so the model can explain it.
     detail = _issue_text(result) or "The requested action was denied."
-    return f"{detail} Choose a safe alternative."
+    return f"{_sentence(detail)} {AFTER_A_REFUSAL}"
+
+
+AFTER_A_REFUSAL = (
+    "Do not reach the same outcome another way. If the person said what to do instead, do "
+    "that; otherwise tell them what was not done."
+)
+"""What follows a refusal. It once read "Choose a safe alternative", which a model took as
+leave to find another route to the outcome that was refused: in an incognito session, the
+fact that may not be kept went into a workspace file instead."""
+
+
+def _sentence(text: str) -> str:
+    """`text` ending as a sentence, so a person's instruction does not run into the next one."""
+    stripped = text.rstrip()
+    return stripped if stripped.endswith((".", "!", "?")) else f"{stripped}."
 
 
 FALLBACK_NOTE = "(Answered by {model} because the chosen model was unavailable.)"
