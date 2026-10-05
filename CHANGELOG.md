@@ -72,6 +72,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The tools section shows how to reference a result and names the `note` field.** It asked
+  for "one sentence" per step and for a step to "point at" an earlier result, and never
+  named `note` or showed `$id`. In an eval the model wrote `$search[0]` and was refused
+  because positions start at 1. It now shows `"$found"` and `"$found[2]"`, says positions
+  start at 1, and titles the note subsection by its field.
 - **The memory index says what it left out, whichever order it is in.** The index is cut to
   the person's limit, and said so only when the relevance decision had reordered it; on the
   ordinary path a person with forty topics was shown eight with no word of the rest. A cut

@@ -642,6 +642,19 @@ def test_show_from_is_for_reads_and_a_write_is_never_rerun_to_see_more() -> None
     assert "One that matched nowhere was not copied exactly." in tools
 
 
+def test_the_tools_section_shows_the_reference_syntax_and_names_the_note_field() -> None:
+    """The bug, named: it asked for "one sentence" per step and for a step to "point at" an
+    earlier result, and never named `note` or showed `$id` -- so the model mapped prose onto
+    schema fields by guesswork. Read in an eval: `$search[0]`, refused because positions start
+    at 1, and a repair round spent on it."""
+    tools = " ".join(section(render_all(CONTEXT), "tools").body.split())
+    assert '`"$found"` for all of it, `"$found[2]"` for its second item' in tools
+    assert "positions start at 1" in tools
+    assert (
+        "### Every step's `note` says what it is for" in section(render_all(CONTEXT), "tools").body
+    )
+
+
 def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     """The bug, named: "two writes that could collide are two plans" guarded against something
     the executor already prevents, and missed what it does not: a failed step skips only the
