@@ -410,6 +410,7 @@ Positions are 1-based -- `turns[2]` is the second turn -- as the report numbers 
 | `before` | `[[turns.before]]` tables | none | [Steps](#steps-before-a-turn) the harness takes once the previous turn has come to rest and before this one is said. One that does not end as written leaves the turn unsent and makes the scenario an `error`. |
 | `expect` | table | defaults below | What must be true when the turn comes to rest. |
 | `verify` | `[[turns.verify]]` tables | none | [Operations](#operations-seed-and-verify) run after the turn; each one's expectations are checks on the turn. |
+| `new_session` | boolean | `false` | Say this turn in a fresh session on the same profile, once the last one is closed: how a person comes back another day. Nothing of the conversation carries over, only what was kept, so a scenario about remembering recalls here; in the same session the model reads the answer off its own transcript. Not on the first turn. Each turn records its session, and a report names them when there was more than one. |
 
 ### `[turns.expect]`
 

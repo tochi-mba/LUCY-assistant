@@ -158,21 +158,25 @@ def _failure(run: dict[str, Any]) -> list[str]:
         lines.extend(["", "Seeded:", ""])
         lines.extend(_invocations(run["seed"]))
     lines.append("")
+    # Named per turn only when the scenario came back another day, so a one-session report
+    # reads as it always did.
+    several = len({turn.get("session_id") or "" for turn in run["turns"]}) > 1
     for turn in run["turns"]:
         # A report written before steps between turns existed has neither `unsent` nor
         # `before`; it still reads as it did.
         if turn.get("unsent") or not all(check["passed"] for check in turn["checks"]):
-            lines.extend(_turn(turn))
+            lines.extend(_turn(turn, several=several))
     return lines
 
 
-def _turn(turn: dict[str, Any]) -> list[str]:
+def _turn(turn: dict[str, Any], *, several: bool = False) -> list[str]:
     if turn.get("unsent"):
         return _unsent(turn)
+    where = f", in session `{turn['session_id']}`" if several and turn.get("session_id") else ""
     title = (
         f"#### Turn {turn['index']}: {turn['status'] or 'unknown'} in "
         f"{_duration(turn['seconds'])}, {turn['iterations']} round(s), "
-        f"{len(turn['results'])} step(s)"
+        f"{len(turn['results'])} step(s){where}"
     )
     lines = [title, ""]
     if turn.get("before"):

@@ -266,6 +266,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A scenario can come back another day.** A turn with `new_session = true` is said in a fresh
+  session on the same profile once the last one is closed, so a scenario about remembering
+  can recall where only what was kept carries over. Every scenario used to hold one session,
+  so a fact kept for that conversation alone passed a recall the model read off its own
+  transcript. Each turn records its session; usage is added up across them.
 - **When Lucy acts on her own is the person's to say.** Four `lucy` settings, each defaulting
   to what Lucy did before. `act_unattended` off records no standing consent for a watch or
   check-in that wakes the session, ignores consent recorded before it was turned off, and

@@ -78,7 +78,8 @@ OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_.-]*$")
 OP_PATTERN = re.compile(r"^[A-Za-z0-9_*?\[\]!-]+\.[A-Za-z0-9_*?\[\]!.-]+$")
 
 SCENARIO_KEYS = ("summary", "tags", "permission_mode", "incognito", "requires", "seed", "turns")
-TURN_KEYS = ("say", "approve", "timeout_seconds", "before", "expect", "verify")
+NEW_SESSION = "new_session"
+TURN_KEYS = ("say", "approve", "timeout_seconds", "before", "expect", "verify", NEW_SESSION)
 EXPECT_KEYS = (
     "status",
     "termination",
@@ -170,7 +171,11 @@ def parse_scenario(raw: bytes, *, name: str, suite: str, path: str) -> Scenario:
         message = f"{path}: not valid TOML: {exc}"
         raise ScenarioError(message) from exc
     table = _Table(parsed, file=path, where="", allowed=SCENARIO_KEYS)
-    turns = tuple(_turn(entry) for entry in table.tables("turns", allowed=TURN_KEYS, required=True))
+    entries = table.tables("turns", allowed=TURN_KEYS, required=True)
+    turns = tuple(_turn(entry) for entry in entries)
+    if turns[0].new_session:
+        message = "the first turn is in a session of its own already; this is for a later one"
+        raise entries[0].error(NEW_SESSION, message)
     return Scenario(
         name=name,
         suite=suite,
@@ -221,6 +226,7 @@ def _turn(table: _Table) -> TurnSpec:
         before=before,
         expect=expect,
         verify=verify,
+        new_session=table.flag(NEW_SESSION, default=False),
     )
 
 

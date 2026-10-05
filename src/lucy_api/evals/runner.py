@@ -172,30 +172,39 @@ class Runner:
             session = self._hub.create_session(_session_body(job, plan))
         except HubError as exc:
             return _record(job, ERROR, reason=self._failure(exc, "before a session existed"))
-        conversation = Conversation(self._hub, session, pace=self._pace, shell=self._shell)
+        sessions = _Sessions(
+            Conversation(self._hub, session, pace=self._pace, shell=self._shell),
+            start=lambda: Conversation(
+                self._hub,
+                self._hub.create_session(_session_body(job, plan)),
+                pace=self._pace,
+                shell=self._shell,
+            ),
+            keep=plan.keep_sessions,
+        )
         seeds: list[InvocationRecord] = []
         turns: list[TurnRecord] = []
         try:
-            reason = self._seed(conversation, job.scenario, seeds)
+            reason = self._seed(sessions.current, job.scenario, seeds)
             if reason:
                 outcome = ERROR
             else:
-                reason = self._converse(conversation, job, plan.timeout, turns)
+                reason = self._converse(sessions, job, plan.timeout, turns)
                 outcome = outcome_for(tuple(turns))
         except HubError as exc:
             reason, outcome = self._failure(exc, "mid-conversation"), ERROR
         finally:
-            tidy = conversation.close(keep=plan.keep_sessions)
+            tidy = sessions.close()
         reason = "; ".join(filter(None, (reason, *tidy)))
         return _record(
             job,
             outcome,
             reason=reason,
-            session_id=conversation.session_id,
+            session_id=sessions.first.session_id,
             seconds=self._pace.clock() - started,
             seed=tuple(seeds),
             turns=tuple(turns),
-            usage=conversation.usage,
+            usage=sessions.usage(),
         )
 
     def _unmet(self, scenario: Scenario, profile: str) -> str:
@@ -218,13 +227,16 @@ class Runner:
         return ""
 
     def _converse(
-        self, conversation: Conversation, job: Job, timeout: float, turns: list[TurnRecord]
+        self, sessions: _Sessions, job: Job, timeout: float, turns: list[TurnRecord]
     ) -> str:
         """Every turn in order. A turn left unsent, halted or never at rest ends it."""
         specs = job.scenario.turns
         for index, spec in enumerate(specs, start=1):
             limit = spec.timeout_seconds or timeout
-            turn = conversation.take_turn(
+            if spec.new_session:
+                fresh = sessions.another()
+                self._observer.turn_event(job, index, f"~ new session {fresh.session_id}")
+            turn = sessions.current.take_turn(
                 index,
                 spec,
                 timeout=limit,
@@ -252,6 +264,48 @@ class Runner:
         if exc.fatal:
             self._stopped = exc
         return f"stopped {when}: {exc}"
+
+
+class _Sessions:
+    """The sessions one scenario has held, in order: one, unless it came back another day.
+
+    Each is closed -- cancelled and archived, unless kept -- when the next one starts, the way
+    a person's last conversation is over before their next begins. What could not be tidied
+    is kept to be reported with the scenario, never raised over the reason it ended.
+    """
+
+    def __init__(
+        self, first: Conversation, *, start: Callable[[], Conversation], keep: bool
+    ) -> None:
+        self.first = first
+        self.current = first
+        self._start = start
+        self._keep = keep
+        self._held = [first]
+        self._tidy: list[str] = []
+
+    def another(self) -> Conversation:
+        """Close this session and start the next on the same profile, as a person would."""
+        self._tidy.extend(self.current.close(keep=self._keep))
+        self.current = self._start()
+        self._held.append(self.current)
+        return self.current
+
+    def close(self) -> tuple[str, ...]:
+        return (*self._tidy, *self.current.close(keep=self._keep))
+
+    def usage(self) -> dict[str, object]:
+        """Every session's usage added up; a count in only one of them is still counted."""
+        total: dict[str, object] = {}
+        for conversation in self._held:
+            for key, value in conversation.usage.items():
+                earlier = total.get(key, 0)
+                counted = isinstance(value, int) and not isinstance(value, bool)
+                if counted and isinstance(earlier, int) and not isinstance(earlier, bool):
+                    total[key] = earlier + value
+                else:
+                    total[key] = value
+        return total
 
 
 def unmet(scenario: Scenario, capabilities: list[dict[str, Any]]) -> str:
