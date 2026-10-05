@@ -24,7 +24,7 @@ than "the operator has not deployed it".
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lucy_api.clients.transport import Sibling, flag, given, nested, number, rows, text
@@ -111,6 +111,11 @@ class Findings:
     hits: tuple[Hit, ...] = ()
     summary: Summary | None = None
     detail: str = ""
+    summary_failed: bool = False
+    """The summary was asked for and the service's model did not give it; the hits stand.
+
+    A flag, not the service's sentence: what a remote provider said about its own failure is
+    not something the model needs to read, and is something a remote party chose."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +161,8 @@ class Reading:
 
     articles: tuple[Article, ...] = ()
     summary: Summary | None = None
+    summary_failed: bool = False
+    """As on `Findings`: the pages were fetched, and the model that summarises them did not."""
 
     def pages(self) -> tuple[Page, ...]:
         """What a tool result is built from: the pages, never the text."""
@@ -261,6 +268,7 @@ class HttpSearchClient:
         return Reading(
             articles=tuple(_article(row) for row in rows(payload, "results")),
             summary=_summary(nested(payload, "summary")),
+            summary_failed=bool(nested(payload, "summary_error")),
         )
 
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
@@ -312,6 +320,7 @@ def _findings(row: Any) -> Findings:
         ),
         summary=_summary(nested(row, "summary")),
         detail=text(nested(row, "error"), "detail"),
+        summary_failed=bool(nested(row, "summary_error")),
     )
 
 
@@ -343,6 +352,8 @@ class FakeSearchClient:
         self.library: dict[str, Article] = {}
         self.known: tuple[Provider, ...] = (Provider(name="fake", status=AVAILABLE),)
         self.summary = Summary(executive_summary="a summary")
+        self.summary_fails = False
+        """Whether the service's summariser fails on a scrape, as it can when its model is down."""
         self.asked: list[str] = []
         self.opened: list[str] = []
         self.looked_for: list[str] = []
@@ -375,15 +386,7 @@ class FakeSearchClient:
         found: list[Findings] = []
         for query in queries:
             seeded = self.catalogue.get(query, Findings(query=query))
-            found.append(
-                Findings(
-                    query=seeded.query,
-                    status=seeded.status,
-                    hits=seeded.hits[:max_results],
-                    summary=seeded.summary,
-                    detail=seeded.detail,
-                )
-            )
+            found.append(replace(seeded, hits=seeded.hits[:max_results]))
         return tuple(found)
 
     async def scrape(
@@ -398,6 +401,8 @@ class FakeSearchClient:
         self.opened.extend(urls)
         self.looked_for.append(looking_for)
         articles = tuple(self.library.get(url) or _unfetched(url) for url in urls)
+        if self.summary_fails:
+            return Reading(articles=articles, summary_failed=True)
         return Reading(articles=articles, summary=self.summary)
 
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:

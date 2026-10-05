@@ -123,6 +123,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   and the next request down it stopped the whole run as "cannot reach Lucy" with the hub up
   throughout. A request that cannot land twice -- a repeatable method, or a POST with its
   idempotency key -- is now sent once more on a fresh connection.
+
+- **Results found without a summary stand, and say what is missing.** Web-search-api failed a
+  whole search or open when its summariser did, so a model told research had failed reported
+  finding nothing. With the service answering `summary_error` beside results that stand, the
+  research pack lists them and says, in fixed words, that only the summary is missing; the
+  provider's own sentence about its failure never reaches the model.
 - **The eval harness renews its token before a turn, not only after a refusal.** The hub
   acts on the person's token for as long as a turn runs, and accepted one with two minutes
   left; partway through the turn every call to a sibling was refused, and the baseline's
