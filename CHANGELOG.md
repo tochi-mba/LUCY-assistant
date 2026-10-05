@@ -29,6 +29,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   error detail on in both -- detail that can carry text a remote server chose. They are now
   neutralised as a body is, and an attempt is logged as `security.injection_scrubbed`.
 
+### Changed
+
+- **A search's summary is paid for once.** The service writes one summary per query, and
+  `research.search` copied it onto every hit, with the query and the address twice over: at
+  five results the same summary was sent five times, and again on every later round the result
+  stayed in the window. It now rides on the first hit, as `summary_of_all_results`; `link` and
+  the per-hit `query` are gone, and a summary says `truncated` or carries a `notice` only when
+  it has one.
+
 ### Fixed
 
 - **The memory index says what it left out, whichever order it is in.** The index is cut to

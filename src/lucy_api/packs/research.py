@@ -166,21 +166,22 @@ class ResearchPack:
         )
         hits: list[dict[str, Any]] = []
         for result in findings:
-            hits.extend(
-                [
-                    {
-                        "title": hit.title,
-                        "link": hit.url,
-                        "url": hit.url,
-                        "source": urlsplit(hit.url).hostname or "",
-                        "rank": hit.rank,
-                        "snippet": hit.snippet,
-                        "query": result.query,
-                        "summary": _summary(result.summary),
-                    }
-                    for hit in result.hits
-                ]
-            )
+            summary = _summary(result.summary)
+            for index, hit in enumerate(result.hits):
+                row: dict[str, Any] = {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "source": urlsplit(hit.url).hostname or "",
+                    "rank": hit.rank,
+                    "snippet": hit.snippet,
+                }
+                if index == 0 and summary:
+                    # One summary covers the whole query, so it rides on the first row once.
+                    # Copied onto every row it was paid for five times at the default count,
+                    # and again on each later round the result stayed in the window. The
+                    # key says what it covers, so it is not read as being about hit 1.
+                    row["summary_of_all_results"] = summary
+                hits.append(row)
             if result.detail:
                 run.notice(f"research for {result.query!r}: {result.detail}")
         return hits
@@ -229,14 +230,22 @@ def _page(page: Page) -> dict[str, Any]:
 
 
 def _summary(summary: Summary | None) -> dict[str, Any] | None:
-    if summary is None:
+    """A summary as the model reads it: what it says, and a notice only when there is one.
+
+    `truncated: false, notice: ""` on every summary was text the model paid for and learned
+    nothing from. An empty summary is no summary.
+    """
+    if summary is None or not summary.executive_summary:
         return None
-    return {
+    projected: dict[str, Any] = {
         "executive_summary": summary.executive_summary,
         "key_points": list(summary.key_points),
-        "truncated": summary.truncated,
-        "notice": summary.notice,
     }
+    if summary.truncated:
+        projected["truncated"] = True
+    if summary.notice:
+        projected["notice"] = summary.notice
+    return projected
 
 
 __all__ = ["ResearchPack"]

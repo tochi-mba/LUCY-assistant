@@ -197,3 +197,54 @@ async def test_every_field_a_hit_declares_is_one_a_search_fills() -> None:
     assert all(hit[name] for name in declared)
     assert hit["snippet"] == "Leaves steeped in hot water."
     assert HIT.label(hit) == "Tea (tea.example)"
+
+
+async def test_one_summary_covers_a_query_and_is_paid_for_once() -> None:
+    """The bug, named: the service writes one summary per query, and research.search copied
+    it onto every hit, with the query and the address twice over. At five results the model
+    paid for the same summary five times, and again on each later round the result stayed."""
+    fake = FakeSearchClient()
+    fake.seed(
+        Findings(
+            query="tea",
+            hits=tuple(
+                Hit(title=f"Tea {n}", url=f"https://tea.test/{n}", rank=n) for n in range(1, 4)
+            ),
+            summary=Summary("Tea is a drink.", ("Brewed hot",)),
+        )
+    )
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "search", "op": "research.search", "input": {"query": "tea"}}]},
+        context,
+    )
+
+    hits = result["steps"][0]["data"]
+    assert [hit["url"] for hit in hits] == [f"https://tea.test/{n}" for n in range(1, 4)]
+    assert hits[0]["summary_of_all_results"] == {
+        "executive_summary": "Tea is a drink.",
+        "key_points": ["Brewed hot"],
+    }
+    assert all("summary_of_all_results" not in hit for hit in hits[1:])
+    assert all(not {"link", "query", "summary"} & set(hit) for hit in hits)
+
+
+async def test_an_empty_summary_is_no_summary() -> None:
+    fake = FakeSearchClient()
+    fake.seed(Findings(query="tea", hits=(Hit(title="Tea", url="https://tea.test/1"),)))
+    fake.catalogue["tea"] = Findings(
+        query="tea", hits=(Hit(title="Tea", url="https://tea.test/1"),), summary=Summary("")
+    )
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "search", "op": "research.search", "input": {"query": "tea"}}]},
+        context,
+    )
+
+    assert "summary_of_all_results" not in result["steps"][0]["data"][0]
