@@ -583,13 +583,32 @@ class SessionStore:
 
         return await self.worker.call(read)
 
-    async def archive_idle(self, account: str, *, days: int, now: float) -> int:
+    async def live_profiles(self, account: str) -> tuple[str, ...]:
+        """The profiles this account has conversations in that are not archived yet."""
+
+        def read(db: sqlite3.Connection) -> tuple[str, ...]:
+            rows = db.execute(
+                "SELECT DISTINCT profile FROM sessions "
+                "WHERE account_id=? AND archived_at IS NULL ORDER BY profile",
+                (account,),
+            ).fetchall()
+            return tuple(str(row[0]) for row in rows)
+
+        return await self.worker.call(read)
+
+    async def archive_idle(
+        self, account: str, *, days: int, now: float, profile: str | None = None
+    ) -> int:
         """Mark this account's quiet conversations archived. Zero days means never.
 
         A live or parked turn is not idle: `input_required` is somebody mid-answer, not a
         conversation that went quiet. `updated_at` is the clock, because that is what a
         message, a fork and a title change already bump. Archiving is a list decision,
         not a delete -- the rows stay, and a later list still returns them.
+
+        `profile` limits it to one profile's conversations, because the number of days
+        is that profile's setting: one person's `work` may go quiet after a week and
+        their `personal` after a month.
         """
         if days <= 0:
             return 0
@@ -603,13 +622,14 @@ class SessionStore:
                 UPDATE sessions
                    SET archived_at=?
                  WHERE account_id=?
+                   AND (? IS NULL OR profile=?)
                    AND archived_at IS NULL
                    AND updated_at<=?
                    AND id NOT IN (
                        SELECT session_id FROM turns WHERE status NOT IN ({placeholders})
                    )
                 """,  # noqa: S608 - placeholders are the closed TERMINAL set
-                (now, account, cutoff, *marks),
+                (now, account, profile, profile, cutoff, *marks),
             )
             return int(db.execute("SELECT changes()").fetchone()[0])
 

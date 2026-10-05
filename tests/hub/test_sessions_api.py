@@ -332,6 +332,34 @@ class TestReading:
         row = next(item for item in listed.json()["data"] if item["id"] == created["id"])
         assert row["archived_at"] is not None
 
+    async def test_each_profile_s_idle_window_archives_its_own_conversations(
+        self, hub: Hub
+    ) -> None:
+        """The bug, named: the listing read `lucy` with no profile, and settings-api returns a
+        profile's values only to a read that names it -- `session_idle_archive_days` is one
+        of those. Whatever a person chose, every conversation was archived on the default of
+        thirty days. Each profile is now read for its own number."""
+        work = await create(hub, key="idle-work", profile="work")
+        home = await create(hub, key="idle-home", profile="personal")
+        now = time.time()
+
+        def age(db: object) -> None:
+            db.execute(  # type: ignore[union-attr]
+                "UPDATE sessions SET updated_at=? WHERE id IN (?,?)",
+                (now - 2 * 86_400, work["id"], home["id"]),
+            )
+
+        await hub.store.transaction(age)
+        hub.container.preferences.seed("lucy", {"session_idle_archive_days": 1}, profile="work")
+
+        listed = await hub.http.get("/v1/sessions", headers=bearer())
+
+        assert listed.status_code == 200, listed.text
+        rows = {item["id"]: item for item in listed.json()["data"]}
+        assert rows[work["id"]]["archived_at"] is not None
+        assert rows[home["id"]]["archived_at"] is None, "personal keeps the thirty-day default"
+        assert ("lucy", "work") in hub.container.preferences.asked
+
     async def test_a_listing_holds_only_this_accounts_sessions(self, hub: Hub) -> None:
         await create(hub)
 
