@@ -182,20 +182,24 @@ class Scrubbed:
         return f"scrubbed {len(self.matched)} injection {noun}: {', '.join(self.matched)}"
 
 
-def scrub(text: str) -> Scrubbed:
+def scrub(text: str, *, marked: bool = True) -> Scrubbed:
     """Neutralise harness imitation in one tool or child result, and say what was found.
 
     Untouched text is returned exactly as it arrived, marker and all -- a marker on every
     result would teach the model to skip the line, and it is the difference between the two
     cases that carries the meaning.
+
+    `marked=False` leaves the marker off for a caller that frames the text and says what was
+    found itself, outside the frame: inside it, the marker is escaped with everything else and
+    reads exactly like the forgery it is reporting.
     """
     scrubbed, matched = _apply(text)
-    if not matched:
-        return Scrubbed(text=scrubbed)
+    if not matched or not marked:
+        return Scrubbed(text=scrubbed, matched=matched)
     return Scrubbed(text=f"{_marker(matched)}\n{scrubbed}", matched=matched)
 
 
-def scrub_tree(value: object) -> Scrubbed:
+def scrub_tree(value: object, *, marked: bool = True) -> Scrubbed:
     """`scrub`, for a result that is a structure rather than a string.
 
     Every string in it -- keys included, however deeply nested -- is neutralised first, and
@@ -219,8 +223,8 @@ def scrub_tree(value: object) -> Scrubbed:
     text, again = _apply(_rendered(cleaned))
     found.update(again)
     matched = tuple(rule.name for rule in _RULES if rule.name in found)
-    if not matched:
-        return Scrubbed(text=text)
+    if not matched or not marked:
+        return Scrubbed(text=text, matched=matched)
     return Scrubbed(text=f"{_marker(matched)}\n{text}", matched=matched)
 
 
