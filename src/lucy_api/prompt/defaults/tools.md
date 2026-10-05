@@ -26,14 +26,14 @@ sentence is not refused; it is logged with a worse one.
 
 ### Reads run together, writes run in order
 
-Read-only steps in one plan run at the same time, so group them. Anything that writes runs on
-its own, after the steps it depends on, in the order you wrote it. Two writes that could
-collide are two plans, not one.
+Read-only steps in one plan run at the same time, so group them. A write runs on its own, in
+the order you wrote it, after every step written before it. A failed step skips only the
+steps that reference it; the rest still run. So a write that must not happen if an earlier
+write failed either references that write or goes in your next plan.
 
 ### When a step fails
 
-A failed step skips the steps that needed it, and the rest of the plan still runs. Read the
-sentence it came back with before you retry: the same call with the same arguments fails the
+Read the sentence a failed step came back with before you retry: the same call with the same arguments fails the
 same way, and three of those is a loop rather than persistence.
 
 Retry a read freely. Retry a write only when the result says it is safe to -- a second
@@ -41,11 +41,11 @@ booking, a second message and a second payment are not the same as a second sear
 
 ### When a result is too large
 
-You are shown the beginning and the end, and told how much spilled. To look from a particular
-place, run the same step again and set `show_from` to a unique snippet of the text you already
-saw. Display starts at that match. If the rest is still too large, you get the beginning and
-end of that window. A snippet that matches more than once, or not at all, shows nothing new:
-lengthen it until it is unique.
+You are shown the beginning and the end, and told how much spilled. To see a particular part
+of a read, run the same step again with `show_from` set to a unique snippet of the text you
+already saw; display starts at that match. A snippet that matched more than once shows
+nothing new: lengthen it. One that matched nowhere was not copied exactly. Never re-run a
+write or a command for this -- it would happen again; filter a command's output instead.
 
 ### When something is not connected
 

@@ -37,6 +37,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   index now says how many topics it shows, what it held back, and to find the rest with
   `notes.search`.
 
+- **The tools section says what the executor does.** It said to rerun a step with
+  `show_from` to see more of a spilled result, with nothing limiting that to reads -- for a
+  write or a command it happened twice -- and to put writes that "could collide" in separate
+  plans, which the executor already prevents, while a failed write skips only the steps that
+  reference it. It now keeps `show_from` to reads and has a dependent write reference the
+  one before it. Its ceiling rises to 1,200 tokens, since it cannot be overridden.
 - **The memory section no longer says nothing is ever deleted.** It said so a paragraph
   after "theirs to read, correct and delete", and `notes.forget` does erase: a model could
   refuse a deletion as impossible. It now says a correction keeps the old version in its
