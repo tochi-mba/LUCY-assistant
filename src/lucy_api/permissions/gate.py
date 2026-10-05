@@ -184,6 +184,7 @@ class PermissionGate:
                 floors=floors,
                 once=grants.get(once_key(name, arguments)),
                 tally=_tally(permission, arguments),
+                writes=_effects(name, catalogue) in WRITE_EFFECTS,
             )
             if not verdict.allowed:
                 item = Blocked(
@@ -250,12 +251,21 @@ def _decide(  # noqa: PLR0913 - the permission, and the five things its answer d
     floors: Floors,
     once: Grant | None = None,
     tally: str = "",
+    writes: bool = False,
 ) -> Verdict:
     """`once` is the person's answer to this exact call, when there is one. It stands in for
     the permission's standing grant and goes through the same floors in the same order, so a
     one-time yes can never lift a floor a standing yes could not. `tally` is the call's value of
-    the permission's tally field, which a standing grant limited by `only` has to cover."""
+    the permission's tally field, which a standing grant limited by `only` has to cover.
+
+    `writes` is whether the operation changes something. Plan mode refuses that before any
+    grant is read: it is read-only by definition, and a helper -- which always runs in plan
+    mode, with its parent's grants -- was able to write under a "yes, for this conversation"
+    the person gave Lucy, against every prompt that tells it and Lucy it cannot. A read that
+    spends or executes keeps its grant here, as it always has."""
     floor = _denied_by_floor(permission, floors)
+    if floor is None and mode == "plan" and writes:
+        floor = _mode_verdict(permission, mode, floors.approval_policy)
     if floor is not None:
         return floor
     standing = grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
