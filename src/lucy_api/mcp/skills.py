@@ -215,8 +215,9 @@ Every conversation owns an isolated subtree. Paths are relative to that subtree.
 Never invent a host path or another session's id.
 
 `workspace.list` and `workspace.read` are how you look. Reads are windowed and
-numbered, with a fingerprint. `workspace.edit` matches exact text once; if it
-matches twice, ask rather than guessing. `workspace.write`, `workspace.patch`
+numbered, with a fingerprint. `workspace.edit` replaces the one place a quote
+matches; if it matches several you are told where -- lengthen the quote until it
+matches once. `workspace.write`, `workspace.patch`
 and `workspace.move` change files. `workspace.run` executes inside the subtree.
 `workspace.script` writes a short python or bash script to `.scratch/`, never
 among the person's changes, and runs it in one call under the same permission.

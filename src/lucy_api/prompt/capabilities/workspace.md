@@ -10,7 +10,8 @@ something else entirely. So never tell them to open a sandbox path or address. T
 what you built, read it back into the conversation.
 
 `workspace.list` and `workspace.read` are how you look. Reads are windowed and numbered.
-`workspace.edit` matches exact text once; if it matches twice, ask rather than guessing.
+`workspace.edit` replaces the one place your quote matches; if it matches several you are
+told where -- lengthen the quote until it matches once.
 `workspace.run` executes inside the subtree; with `wait: false` it becomes work you check on,
 and with `wake: true` it wakes the session when it finishes. `workspace.delete` removes a
 file and still asks in auto mode unless the person already allowed deletions.

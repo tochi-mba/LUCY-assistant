@@ -42,8 +42,10 @@ from lucy_api.workspace.scratch import (
     script_for,
 )
 from lucy_api.workspace.text import (
+    APPROXIMATE,
     BINARY_NOTICE,
     DEFAULT_LINE_LIMIT,
+    EXACT,
     apply_edit,
     digest,
     numbered_window,
@@ -504,10 +506,13 @@ class WorkspacePack:
             }
         new = str(run.input.get("new_string") or "")
         result = await client.edit(env_id, path, applied.match.text, new)
+        rung = applied.match.rung
+        approximate = {} if rung == EXACT else {"notice": APPROXIMATE.format(rung=rung)}
         return {
             **_mutation(run.ctx, result),
             "replaced": True,
-            "rung": applied.match.rung,
+            "rung": rung,
+            **approximate,
             "file_fingerprint": digest(applied.text),
         }
 
