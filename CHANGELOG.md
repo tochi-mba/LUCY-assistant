@@ -38,6 +38,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   "6 tool results reclaimable" instead -- about something it could not act on. Its context
   line now says how many older results are not shown, and to run the call again.
 
+- **The keeping decision judges by what Lucy is told is noise, and the recovery decision reads
+  plain lists.** The keeping decider was never given the memory section's definition of
+  noise, so it and Lucy disagreed and each disagreement held a reply back for a round; the
+  recovery decider read each failure list as a JSON string inside JSON, escaped twice over.
 - **A report of earlier work is not a claim of work done this turn.** The claims decision
   asked whether a reply said something "was done", so a turn woken to report a finished
   helper -- whose only step, `work.result`, is bookkeeping -- was held, and the model told,

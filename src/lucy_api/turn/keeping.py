@@ -43,6 +43,13 @@ QUESTION = (
     "that is worth remembering in later conversations, and that none of these steps kept?"
 )
 
+CRITERIA = (
+    "Answer no for anything true only today, anything that could be looked up again, the "
+    "state of this conversation, or what was just done."
+)
+"""The noise the memory section tells Lucy to leave out, said to the decider too. Without it
+the two disagreed, and every disagreement held a reply back and cost a round."""
+
 
 class Keeping:
     """Whether a turn is ending with something worth keeping left unkept.
@@ -68,7 +75,9 @@ class Keeping:
             for step in round_.steps
         ]
         state = json.dumps({"request": decide.request_text, "steps": ran}, ensure_ascii=False)
-        answers = await decide.ask(KEEPING, state, [noul("keeping_missed", QUESTION)])
+        answers = await decide.ask(
+            KEEPING, state, [noul("keeping_missed", QUESTION, criteria=CRITERIA)]
+        )
         gate: Gate[bool] = Gate(THRESHOLD, fail_open=False)
         if not gate.decide(answers, "keeping_missed", answers.noul("keeping_missed")):
             return False

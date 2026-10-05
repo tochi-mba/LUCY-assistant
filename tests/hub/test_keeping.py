@@ -20,7 +20,7 @@ from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.context import PackContext, SilentTokens
 from lucy_api.packs.http import NullHttp
 from lucy_api.settings.policy import TurnPolicy
-from lucy_api.turn.keeping import QUESTION, UNKEPT, Keeping
+from lucy_api.turn.keeping import CRITERIA, QUESTION, UNKEPT, Keeping
 from lucy_api.turn.loop import Turn, run_turn
 from lucy_api.turn.stop import Termination
 from lucy_api.turn.supervisor import _may_keep
@@ -89,6 +89,7 @@ async def test_a_reply_that_leaves_a_fact_unkept_is_held_back_and_the_fact_kept(
     [(state, [question])] = laya.asked
     assert REQUEST in state, "the judgment sees what was said, typos and all"
     assert question.prompt == QUESTION
+    assert question.criteria == CRITERIA, "the decider is told what the memory section calls noise"
     assert "lucy.decision.disagreed" in events
 
 
