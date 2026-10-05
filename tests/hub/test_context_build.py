@@ -28,7 +28,7 @@ SESSION = SessionSnapshot(
     id="ses_1", profile="personal", title="Tour dates", turn_number=42, permission_mode="ask"
 )
 REQUEST = StateRequest(
-    now=NOW, session=SESSION, budget=BudgetSnapshot(used=84_000, window=200_000, reclaimable=6)
+    now=NOW, session=SESSION, budget=BudgetSnapshot(used=84_000, window=200_000, cleared=6)
 )
 
 

@@ -469,9 +469,10 @@ read as a setting to raise rather than as compaction that happened."""
 def _context_line(state: LiveState) -> str:
     """Where the model stands in its own window, which changes what it chooses to do."""
     budget = state.budget
-    reclaimable = (
-        f"{_plural(budget.reclaimable, 'tool result', 'tool results')} reclaimable"
-        if budget.reclaimable
+    cleared = (
+        f"{_plural(budget.cleared, 'older tool result', 'older tool results')} not shown to "
+        "save room; run the call again if you need one"
+        if budget.cleared
         else ""
     )
     threshold = (
@@ -495,7 +496,7 @@ def _context_line(state: LiveState) -> str:
         f"{budget.used:,} of {budget.window:,} tokens ({budget.percent}% used)",
         over,
         threshold,
-        reclaimable,
+        cleared,
         compaction,
     )
 

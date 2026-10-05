@@ -206,7 +206,12 @@ class BudgetSnapshot:
 
     used: int
     window: int
-    reclaimable: int = 0
+    cleared: int = 0
+    """Older tool results left out of this request to save room.
+
+    Said to the model because it was not: the ladder's notice went only to the HTTP preview,
+    so the model read its own sentence about a result that had silently gone, and was told
+    instead "3 tool results reclaimable" -- about something it could not act on."""
     summarised_turns: int = 0
     """How many of the opening turns the model is reading as a summary, not verbatim.
 

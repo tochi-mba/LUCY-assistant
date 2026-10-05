@@ -383,7 +383,7 @@ async def _build(view: SessionView) -> Built:
             budget=BudgetSnapshot(
                 used=reclaimed.used,
                 window=view.window,
-                reclaimable=reclaimed.reclaimable,
+                cleared=reclaimed.tools_cleared,
                 compact_at_percent=view.compact_at_percent,
             ),
         ),
