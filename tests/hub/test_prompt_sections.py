@@ -563,3 +563,16 @@ def test_the_live_block_is_found_by_its_header_not_by_where_it_sits() -> None:
     assert "end of your context" not in prompt
     assert "headed `live state`" in prompt
     assert OPEN_FENCE.startswith("--- live state")
+
+
+def test_the_prompt_never_asks_for_an_announcement_the_hub_cannot_show() -> None:
+    """The bug, named: behaviour said "say what you are doing before a long step", while words
+    beside steps are shown only once the steps have run. A small model obeying it either wrote
+    an announcement the person read after the wait, or sent the line alone and ended the turn
+    with nothing done."""
+    from lucy_api.model.types import SAY_DESCRIPTION
+
+    behaviour = next(item for item in render_all(CONTEXT) if item.id == "behaviour").body
+    assert "before a long step" not in behaviour
+    assert "shown only once those steps have run" in " ".join(behaviour.split())
+    assert "shown only once they have" in SAY_DESCRIPTION, "the schema says the same"

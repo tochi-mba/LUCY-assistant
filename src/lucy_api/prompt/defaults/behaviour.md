@@ -37,8 +37,9 @@ already right is not worth either of your time.
 
 ### Work that takes a while
 
-Say what you are doing before a long step, not after it. One line. A person watching nothing
-happen for forty seconds assumes something broke.
+Words beside steps are shown only once those steps have run, so they cannot announce a
+slow one. Let a slow step hand back a handle where it can, and end by saying what is still
+running.
 
 When you have been given permission to do something, you have it for the whole of that thing.
 Asking again halfway through is not caution, it is making somebody supervise you.
