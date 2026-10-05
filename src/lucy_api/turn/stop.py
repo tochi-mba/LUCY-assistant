@@ -132,22 +132,32 @@ def should_stop(budget: Budget, spent: Spent) -> Verdict:
     return CONTINUE
 
 
+WRAP_UP = "finish now, or tell the person where you got to and what is left"
+"""What a warning asks for. Not "write down where you got to": a small model read that as a
+note to keep, and the state of one conversation is the noise the memory section says to leave
+out. The person is who needs to know where it got to."""
+
+
 def warning_for(budget: Budget, spent: Spent, *, at: float = 0.8) -> str:
     """A sentence for the model when it is close to a limit, or nothing when it is not.
 
     Told *before* it runs out, because a model that knows it has one round left will use it
-    to write down where it got to. A model that discovers the limit by hitting it writes
-    nothing, and the work is lost.
+    to say where it got to. A model that discovers the limit by hitting it says nothing, and
+    the work is lost. Every limit `should_stop` enforces is warned about: the tool-call and
+    time limits used to end a turn with no warning at all.
     """
     if budget.max_iterations > 0 and spent.iterations >= budget.max_iterations * at:
         left = budget.max_iterations - spent.iterations
-        return (
-            f"{left} of {budget.max_iterations} model rounds left; "
-            "finish or write down where you got to"
-        )
+        return f"{left} of {budget.max_iterations} model rounds left in this turn: {WRAP_UP}"
+    if budget.max_tool_calls > 0 and spent.tool_calls >= budget.max_tool_calls * at:
+        left = budget.max_tool_calls - spent.tool_calls
+        return f"{left} of {budget.max_tool_calls} tool calls left in this turn: {WRAP_UP}"
+    if budget.max_seconds > 0 and spent.seconds >= budget.max_seconds * at:
+        left_seconds = max(0, int(budget.max_seconds - spent.seconds))
+        return f"about {left_seconds}s left in this turn: {WRAP_UP}"
     if not budget.unlimited_tokens and spent.tokens >= budget.max_tokens * at:
         left = budget.max_tokens - spent.tokens
-        return f"{left:,} tokens left in this conversation's budget"
+        return f"{left:,} tokens left in this conversation's budget: {WRAP_UP}"
     return ""
 
 
@@ -155,6 +165,7 @@ __all__ = [
     "CONTINUE",
     "RESUMABLE",
     "WAITING",
+    "WRAP_UP",
     "Budget",
     "Spent",
     "Termination",

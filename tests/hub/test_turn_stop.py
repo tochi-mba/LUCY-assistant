@@ -12,6 +12,7 @@ import pytest
 from lucy_api.turn.stop import (
     RESUMABLE,
     WAITING,
+    WRAP_UP,
     Budget,
     Spent,
     Termination,
@@ -112,11 +113,12 @@ def test_nothing_is_said_while_there_is_plenty_left() -> None:
 
 
 def test_the_model_is_warned_with_a_round_still_in_hand() -> None:
-    """So it can write down where it got to. A model that hits the wall writes nothing."""
+    """So it can say where it got to. A model that hits the wall says nothing."""
     notice = warning_for(Budget(max_iterations=10), Spent(iterations=8))
 
     assert "2 of 10 model rounds left" in notice
-    assert "write down where you got to" in notice
+    assert notice.endswith(WRAP_UP)
+    assert "write down" not in notice, "the person needs to know, not a note"
 
 
 def test_a_token_budget_warns_too() -> None:
@@ -131,3 +133,16 @@ def test_an_unlimited_token_budget_never_warns_about_tokens() -> None:
 def test_the_threshold_can_be_moved() -> None:
     early = warning_for(Budget(max_iterations=10), Spent(iterations=5), at=0.5)
     assert "5 of 10 model rounds left" in early
+
+
+def test_every_limit_that_ends_a_turn_is_warned_about_first() -> None:
+    """The bug, named: `should_stop` ends a turn at its tool-call and time limits, and neither
+    was ever warned about, so the turn ended with the work unreported."""
+    calls = warning_for(Budget(max_tool_calls=10), Spent(tool_calls=9))
+    assert calls == f"1 of 10 tool calls left in this turn: {WRAP_UP}"
+    clock = warning_for(Budget(max_seconds=100.0), Spent(seconds=90.5))
+    assert clock == f"about 9s left in this turn: {WRAP_UP}"
+    late = warning_for(Budget(max_seconds=100.0), Spent(seconds=130.0))
+    assert late.startswith("about 0s left")
+    tokens = warning_for(Budget(max_tokens=1_000), Spent(tokens=900))
+    assert tokens == f"100 tokens left in this conversation's budget: {WRAP_UP}"
