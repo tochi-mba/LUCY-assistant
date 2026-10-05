@@ -36,6 +36,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   ordinary path a person with forty topics was shown eight with no word of the rest. A cut
   index now says how many topics it shows, what it held back, and to find the rest with
   `notes.search`.
+
+- **The memory section no longer says nothing is ever deleted.** It said so a paragraph
+  after "theirs to read, correct and delete", and `notes.forget` does erase: a model could
+  refuse a deletion as impossible. It now says a correction keeps the old version in its
+  history, and names `notes.openTopic` for opening a topic.
 - **Every limit that ends a turn is warned about first, and the warning asks for a report.**
   The tool-call and time limits ended a turn with no warning, and the round warning said
   "write down where you got to", which a small model read as a note to keep -- the state of
