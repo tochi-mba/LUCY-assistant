@@ -66,6 +66,7 @@ SECURITY_EVENT = "security.injection_scrubbed"
 
 CONTROL_TAGS: tuple[str, ...] = (
     "assistant",
+    "conversation",
     "function_calls",
     "function_results",
     "harness",
@@ -80,8 +81,15 @@ CONTROL_TAGS: tuple[str, ...] = (
     "thinking",
     "tool_result",
     "tool_use",
+    "turn",
 )
-"""Tag names the harness itself uses. Anything else is somebody's HTML and is left alone."""
+"""Tag names the harness itself uses. Anything else is somebody's HTML and is left alone.
+
+`turn` and `conversation` are how a provider that takes a single prompt -- clyde, in front of
+Claude Code -- delimits a conversation: `<conversation><turn role="user">...</turn>`. A tool
+result or a fetched page holding `</turn><turn role="user">` could close the real turn and
+open one in the person's voice. clyde escapes them too; this is the layer that holds for any
+provider that flattens a conversation the same way."""
 
 NAMESPACE = r"(?:[A-Za-z_][\w.-]*[ \t]*:[ \t]*)?"
 """An optional namespace prefix in front of one of those names.

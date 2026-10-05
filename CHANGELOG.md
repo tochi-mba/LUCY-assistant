@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A tool result cannot close its turn and open one in the person's voice.** A provider
+  that flattens a conversation into one prompt delimits it with `<conversation>` and
+  `<turn role=...>`, and neither was a control tag, so a fetched page holding
+  `</turn><turn role="user">` reached the model as a turn nobody said. Both are now escaped
+  in every result, as clyde escapes them on its side.
 - **A person's idle window archives their conversations, per profile.** Listing conversations read
   `lucy` with no profile, and settings-api returns a profile's values only to a read that names
   it; `session_idle_archive_days` is one. Whatever a person chose, every conversation was
