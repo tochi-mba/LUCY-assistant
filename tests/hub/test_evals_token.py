@@ -7,6 +7,8 @@ stopped as "the hub refused the token" part way through the conversation it was 
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 from typing import TYPE_CHECKING
 
@@ -52,6 +54,72 @@ def test_a_fresh_token_refused_too_stops_the_run_as_a_refusal() -> None:
         hub.health()
     assert refused.value.status == 401
     assert refused.value.fatal
+
+
+def _jwt(claims: object) -> str:
+    """A token shaped like keyring's. Its signature is never checked here, only its expiry."""
+    encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJFUzI1NiJ9.{encoded}.signature"
+
+
+NOW = 1_000_000.0
+
+
+def test_a_turn_is_never_started_on_a_token_about_to_expire() -> None:
+    """The bug, named: a turn started on a token with two minutes left failed part way.
+
+    The hub accepted it at the start, so nothing was refused until the turn was under way;
+    then every call to a sibling was, and the scenario failed for the harness's reason.
+    """
+    fake = FakeLucy()
+    session = str(fake.hub().create_session({})["id"])
+    ending = _jwt({"exp": NOW + 120})
+    fresh = _jwt({"exp": NOW + 900})
+    fake.token = fresh
+    hub = evals_hub.HttpHub(
+        fake.client(), "http://127.0.0.1:8000", ending, renew=lambda: fresh, clock=lambda: NOW
+    )
+    before = len(fake.requests)
+    hub.send_message(session, "hello")
+    sent = [request.headers["Authorization"] for request in fake.requests[before:]]
+    assert sent == [f"Bearer {fresh}"], "renewed before the turn, not after a refusal"
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        _jwt({"exp": NOW + 900}),
+        _jwt({"sub": "no expiry"}),
+        _jwt(["not", "an", "object"]),
+        "an-opaque-token",
+        "not.base64!",
+    ],
+)
+def test_a_token_with_time_left_or_no_expiry_is_kept_for_the_turn(token: str) -> None:
+    fake = FakeLucy()
+    session = str(fake.hub().create_session({})["id"])
+    fake.token = token
+    asked: list[str] = []
+
+    def renew() -> str:
+        asked.append("asked")
+        return "fresh"
+
+    hub = evals_hub.HttpHub(
+        fake.client(), "http://127.0.0.1:8000", token, renew=renew, clock=lambda: NOW
+    )
+    hub.send_message(session, "hello")
+    assert asked == []
+
+
+def test_without_a_token_command_nothing_is_renewed_before_a_turn() -> None:
+    fake = FakeLucy()
+    session = str(fake.hub().create_session({})["id"])
+    ending = _jwt({"exp": NOW + 120})
+    fake.token = ending
+    hub = evals_hub.HttpHub(fake.client(), "http://127.0.0.1:8000", ending, clock=lambda: NOW)
+    hub.send_message(session, "hello")
+    assert fake.requests[-1].headers["Authorization"] == f"Bearer {ending}"
 
 
 def test_the_token_is_whatever_the_command_prints() -> None:

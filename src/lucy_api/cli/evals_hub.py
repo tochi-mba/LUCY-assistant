@@ -14,8 +14,11 @@ request can never start a second session or say a message twice.
 
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
 import tempfile
+import time
 import uuid
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -35,6 +38,15 @@ PAGE = 100
 
 ERROR_FROM = 400
 
+TURN_HEADROOM_SECONDS = 600.0
+"""How long a token must still have to run when a turn is started on it.
+
+The hub acts for the person on their own token for as long as a turn runs. A turn started on
+one with two minutes left failed part way through: every call to a sibling after the expiry
+was refused, and the scenario was marked failed for a reason that was the harness's. Ten
+minutes is longer than any turn a scenario holds.
+"""
+
 
 class HttpHub:
     """The routes a conversation needs, on one authenticated client."""
@@ -46,14 +58,18 @@ class HttpHub:
         token: str,
         *,
         renew: Callable[[], str] | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         """``renew`` is asked for a fresh token when the hub refuses the one in use: a keyring
         token lives fifteen minutes, and a conversation with helpers and restarts outlives it.
-        It is asked once per refusal; refused again, the run stops as it always did."""
+        It is asked once per refusal; refused again, the run stops as it always did. It is
+        also asked before a turn starts on a token too close to its end to see the turn out.
+        """
         self._client = client
         self._url = url.rstrip("/")
         self._token = token
         self._renew = renew
+        self._clock = clock
 
     def health(self) -> dict[str, Any]:
         return self._object("GET", "/healthy")
@@ -123,8 +139,17 @@ class HttpHub:
         self._send("PATCH", f"/v1/sessions/{_segment(session_id)}", body={"archived": True})
 
     def _inputs(self, session_id: str, event: dict[str, Any]) -> dict[str, Any]:
+        self._fresh_for_a_turn()
         path = f"/v1/sessions/{_segment(session_id)}/inputs"
         return self._object("POST", path, body={"events": [event]}, idempotent=True)
+
+    def _fresh_for_a_turn(self) -> None:
+        """Renew before a turn, not after it fails: the hub accepted the old token at the start."""
+        if self._renew is None:
+            return
+        left = _seconds_left(self._token, self._clock())
+        if left is not None and left < TURN_HEADROOM_SECONDS:
+            self._token = self._renew()
 
     def _rows(self, method: str, path: str, *, params: Mapping[str, Any]) -> list[dict[str, Any]]:
         data = self._object(method, path, params=params).get("data")
@@ -236,6 +261,20 @@ def renewed_token(command: str) -> str:
         message = f"the token command exited {ended.returncode} without printing one token"
         raise HubError(message, status=HTTPStatus.UNAUTHORIZED)
     return token
+
+
+def _seconds_left(token: str, now: float) -> float | None:
+    """How long a JWT says it has, read unverified and only to decide when to ask for another.
+
+    Nothing is trusted on the strength of it: the hub verifies every token it is sent. A token
+    that is not a JWT, or carries no expiry, says nothing, and is renewed only when refused.
+    """
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        return float(claims["exp"]) - now
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
 
 
 def _body(response: httpx.Response) -> dict[str, Any]:

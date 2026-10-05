@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The eval harness renews its token before a turn, not only after a refusal.** The hub
+  acts on the person's token for as long as a turn runs, and accepted one with two minutes
+  left; partway through the turn every call to a sibling was refused, and the baseline's
+  research scenario failed for the harness's reason. With `--token-command`, a message or
+  an answer now starts its turn on a token with at least ten minutes to run.
 - **A refusal is not an invitation to route around it.** After a person said no, the model was
   told "Choose a safe alternative", which it read as leave to reach the refused outcome another
   way -- an incognito fact written to a workspace file instead. It is now told not to, to do
