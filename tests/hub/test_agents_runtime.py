@@ -809,3 +809,32 @@ async def test_a_helper_is_told_the_permission_mode_it_actually_has(store: Sessi
     told = " ".join(str(message.content) for message in provider.requests[0].messages)
     assert "permission mode plan" in told
     assert "permission mode auto" not in told
+
+
+async def test_the_return_cap_is_the_persons_and_reading_is_held_to_lucys(
+    store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug, named: `agent_result_token_cap` -- "how much a helper may hand back" -- was
+    wired to what a helper may *read*, so every page it opened was cut to 2,000 tokens while
+    its own return was held to a constant the setting never reached."""
+    from lucy_api.agents import runtime as module
+
+    session = await a_session(store)
+    provider = ScriptedProvider([speaks("word " * 900)])
+    child, capabilities, _agents = runtime_for(store, provider)
+    parent = parent_context(session, capabilities=capabilities)
+    parent.policy = TurnPolicy(agent_result_token_cap=200, max_tool_result_tokens=30_000)
+    seen: list[int] = []
+    real = module.run_turn
+
+    async def watched(turn: Any) -> Any:
+        seen.append(turn.result_token_cap)
+        return await real(turn)
+
+    monkeypatch.setattr(module, "run_turn", watched)
+
+    result = await child.run(parent, objective="Summarise", role="helper")
+
+    assert result["tokens"] == 200
+    assert result["notice"].startswith("showing 200 of")
+    assert seen == [30_000], "a helper reads as deeply as Lucy does"
