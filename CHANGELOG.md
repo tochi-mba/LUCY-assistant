@@ -13,6 +13,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   left; partway through the turn every call to a sibling was refused, and the baseline's
   research scenario failed for the harness's reason. With `--token-command`, a message or
   an answer now starts its turn on a token with at least ten minutes to run.
+
+- **The prompt no longer asks for an announcement the hub cannot show.** It said "say what
+  you are doing before a long step", while words beside steps are shown only once the steps
+  have run. A small model obeying it wrote an announcement the person read after the wait, or
+  sent the line alone and ended the turn with nothing done. It now says so, and steers slow
+  work to a handle.
 - **A refusal is not an invitation to route around it.** After a person said no, the model was
   told "Choose a safe alternative", which it read as leave to reach the refused outcome another
   way -- an incognito fact written to a workspace file instead. It is now told not to, to do
