@@ -247,8 +247,9 @@ class NotesPack:
                 {
                     "name": "notes.setFact",
                     "description": (
-                        "Record a durable fact about the person (preference, constraint, "
-                        "identity). Use remember for a one-off episode."
+                        "Keep a fact about the person for every later conversation: a "
+                        "preference, a constraint, something about their life or work -- "
+                        "including anything they ask you to remember about them."
                     ),
                     "input": object_schema(
                         {
@@ -267,8 +268,9 @@ class NotesPack:
                 {
                     "name": "notes.remember",
                     "description": (
-                        "Keep something from this conversation as an episode. It stays "
-                        "with this session unless they ask to promote it."
+                        "Keep an episode -- what happened here -- for this conversation "
+                        "only. Later conversations do not see it; anything about the person "
+                        "goes in notes.setFact."
                     ),
                     "input": object_schema(
                         {

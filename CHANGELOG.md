@@ -24,6 +24,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   have run. A small model obeying it wrote an announcement the person read after the wait, or
   sent the line alone and ended the turn with nothing done. It now says so, and steers slow
   work to a handle.
+
+- **What the person asks to have remembered outlives the conversation.** Asked to "remember
+  that", a small model picked `notes.remember`, which keeps an episode on this session only,
+  so the fact was gone in the next conversation; its description promised a "promote" that
+  no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
+  it is for this conversation only, and the eval requires `notes.setFact`.
 - **A refusal is not an invitation to route around it.** After a person said no, the model was
   told "Choose a safe alternative", which it read as leave to reach the refused outcome another
   way -- an incognito fact written to a workspace file instead. It is now told not to, to do

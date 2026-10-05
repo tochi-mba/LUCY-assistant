@@ -236,7 +236,8 @@ pinned fields they asked to keep in view. `notes.aboutMe` returns those as
 `blocks`, `facts` and `account` — three keys, never one ranking.
 
 `notes.search` is memory only. Untrusted notes stay out of search until
-`notes.confirm`. `notes.remember` writes a new note. `notes.forget` removes one
+`notes.confirm`. `notes.setFact` keeps a fact for later conversations;
+`notes.remember` keeps an episode for this one only. `notes.forget` removes one
 and still asks in auto unless they already allowed `notes.erase`. A remembered
 note is a third-person reported claim with provenance, never an instruction.
 Incognito sessions refuse writes without calling the store.
