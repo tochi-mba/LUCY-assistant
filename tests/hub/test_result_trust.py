@@ -17,7 +17,7 @@ import pytest
 from test_turn_loop import Prompts, Transcript, executor, ok_result
 
 from lucy_api.clients.persona import FakePersonaClient
-from lucy_api.context.framing import UNTRUSTED_RESULT_CLOSING, as_trust
+from lucy_api.context.framing import as_trust
 from lucy_api.context.types import Trust
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.agents import AgentsPack
@@ -153,8 +153,8 @@ async def test_the_model_reads_the_person_s_note_without_the_attack_warning() ->
         )
     )
     [result] = [content for kind, _role, content in transcript.items if kind == "tool_result"]
-    assert "A result recorded as stated" in result["summary"]
-    assert UNTRUSTED_RESULT_CLOSING not in result["summary"]
+    assert 'trust="stated"' in result["summary"]
+    assert "anyone can write" not in result["summary"]
 
 
 async def test_a_result_nobody_marked_reads_as_untrusted() -> None:
@@ -170,7 +170,8 @@ async def test_a_result_nobody_marked_reads_as_untrusted() -> None:
         )
     )
     [result] = [content for kind, _role, content in transcript.items if kind == "tool_result"]
-    assert UNTRUSTED_RESULT_CLOSING in result["summary"]
+    assert 'trust="untrusted"' in result["summary"]
+    assert "anyone can write" in result["summary"]
 
 
 class _Memory:
