@@ -17,6 +17,7 @@ from lucy_api.context.build import Built, build_context
 from lucy_api.context.build import Turn as ContextTurn
 from lucy_api.context.ladder import Limits, Reclaimed, reclaim
 from lucy_api.context.projection import Compaction, Item, project
+from lucy_api.context.scrub import fence
 from lucy_api.context.sources import StateRequest
 from lucy_api.context.state import SECTION_ID as LIVE_SECTION_ID
 from lucy_api.context.tokens import default_counter
@@ -310,11 +311,18 @@ async def system_and_messages(
     The same assembled sections power ``GET /v1/sessions/{id}/context``. This adapter then
     maps those sections onto provider trust channels: authored instructions become system
     text and all claims, history, results, and live state become data messages.
+
+    The round's notice -- a resumed turn, a budget warning, a plan to repair, a refusal --
+    is the last message, as a harness line. It is a fact about this round, and appended to
+    the system prompt it changed the one part every provider caches: each round that carried
+    one paid for the whole system prompt again. It also said "its result is above" from
+    above the results. A notice can quote text the hub did not write (a sibling's error, a
+    person's instruction), so that text is fenced like any other.
     """
     built = await _build(view)
     system, messages = _model_prompt(view, built)
     if notice:
-        system = f"{system}\n\n{notice}"
+        messages = (*messages, Message(Role.user, f"[harness: {fence(notice)}]"))
     return system, messages
 
 

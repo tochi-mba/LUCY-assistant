@@ -31,6 +31,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **A round's notice no longer costs the cached system prompt.** A resumed turn, a budget
+  warning, a plan to repair, a refusal or the vision line was appended to the system prompt, the
+  one part every provider caches, so each round that carried one paid for the whole prompt
+  again. It is now the last message, as a `[harness: ...]` line, which also makes "its result is
+  above" true. A helper's mail from its parent is its own message, said to come from the
+  assistant that started it, and never a harness line.
 - **A search's summary is paid for once.** The service writes one summary per query, and
   `research.search` copied it onto every hit, with the query and the address twice over: at
   five results the same summary was sent five times, and again on every later round the result

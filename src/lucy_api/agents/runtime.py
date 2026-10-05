@@ -18,9 +18,11 @@ from lucy_api.agents.types import (
     capped_summary,
     declared_return,
 )
+from lucy_api.context.scrub import fence
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import bind
 from lucy_api.model.registry import UnknownModelError, parse_spec
+from lucy_api.model.types import Message, Role
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
@@ -31,7 +33,6 @@ from lucy_api.turn.stop import RESUMABLE, Budget, Termination
 if TYPE_CHECKING:
     from lucy_api.agents.store import AgentStore
     from lucy_api.model.registry import ModelRegistry
-    from lucy_api.model.types import Message
     from lucy_api.packs.context import PackContext
     from lucy_api.packs.service import Capabilities
     from lucy_api.sessions.sql_store import SessionStore
@@ -521,13 +522,9 @@ class ChildRuntime:
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
             mail = await self.agents.drain_mail(parent.account_id, agent_id)
-            extra = ""
-            if mail:
-                extra = "Messages from the parent:\n" + "\n".join(f"- {line}" for line in mail)
-            combined = "\n".join(part for part in (notice, extra) if part)
             rows = await self.store.records(parent.account_id, parent.session_id, "items")
             mine = [row for row in rows if str(row.get("agent_id") or "") in family]
-            return await system_and_messages(
+            system, messages = await system_and_messages(
                 SessionView(
                     session_id=parent.session_id,
                     items=mine,
@@ -543,8 +540,18 @@ class ChildRuntime:
                     ),
                     **view_limits(parent.policy),
                 ),
-                notice=combined,
+                notice=notice,
             )
+            if not mail:
+                return system, messages
+            # The parent is a model, not the system and not the person: its mail is a
+            # message in its own words, never part of a harness line.
+            said = "\n".join(f"- {fence(line)}" for line in mail)
+            heard = Message(
+                Role.user,
+                f"From the assistant that started you (not the person):\n{said}",
+            )
+            return system, (*messages, heard)
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             return await self.capabilities.execute(plan, child)
