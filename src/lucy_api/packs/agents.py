@@ -252,7 +252,10 @@ class AgentsPack:
                     "input": object_schema(
                         {
                             "objective": string_schema().describe(
-                                "What the helper is for, as a sentence, not an argument list."
+                                "Everything the helper needs, in plain sentences: its one "
+                                "question or lens, what to return, where to look, what is "
+                                "already decided and why, and any text it must read (paste "
+                                "the draft). It sees nothing of this conversation."
                             ),
                             "role": string_schema()
                             .optional()

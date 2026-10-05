@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -351,17 +352,30 @@ async def test_the_pack_probe_counts_running_helpers() -> None:
 
 def test_the_brief_names_every_field_the_child_was_handed() -> None:
     text = _brief_text(
-        Delegation(
-            objective="Check the dates",
-            role="reviewer",
-            constraints="do not invent",
-            boundaries="read-only",
-            guidance="prefer primary sources",
-        )
+        Delegation(objective="Check the dates", role="reviewer", guidance="prefer primary sources")
     )
-    assert "do not invent" in text
+    assert "Check the dates" in text
     assert "read-only" in text
     assert "prefer primary sources" in text
+
+
+async def test_the_spawn_schema_asks_for_a_whole_brief_not_one_sentence() -> None:
+    """The bug, named: the field a model fills in said "as a sentence", so a small model
+    wrote one line, and a helper that sees none of the conversation worked from that alone.
+    """
+    from lucy_api.mcp.skills import CATALOGUE
+
+    pack = AgentsPack()
+    capabilities = Capabilities((pack,), work=Registry(now=lambda: datetime.now(UTC)))
+    context = capabilities.context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id="ses_x")
+    )
+    catalogue = await capabilities.probe(context)
+    described = json.dumps(capabilities.plan_schema(catalogue, "ses_x", context))
+    assert "What the helper is for, as a sentence" not in described
+    assert "sees nothing of this conversation" in described
+    team = next(skill for skill in CATALOGUE if '"reviewers"' in skill.body)
+    assert "in this draft: <the draft>" in team.body, "the brief carries its draft"
 
 
 def test_a_short_summary_is_not_clipped() -> None:

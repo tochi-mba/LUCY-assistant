@@ -121,10 +121,6 @@ def _brief_text(delegation: Delegation) -> str:
         f"Return: {delegation.output_format}",
         "You are read-only. Do not write files, change settings, or start more helpers.",
     ]
-    if delegation.constraints:
-        lines.append(f"Constraints: {delegation.constraints}")
-    if delegation.boundaries:
-        lines.append(f"Boundaries: {delegation.boundaries}")
     if delegation.guidance:
         lines.append(f"Guidance: {delegation.guidance}")
     if delegation.return_schema:
