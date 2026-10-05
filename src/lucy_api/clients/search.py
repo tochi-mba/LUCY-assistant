@@ -175,8 +175,10 @@ class SearchClient(Protocol):
         """Run a batch of queries, summarised, and answer one result set per query."""
         ...
 
-    async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
-        """Fetch pages and summarise them together."""
+    async def scrape(
+        self, urls: Sequence[str], *, profile: str = "", looking_for: str = ""
+    ) -> Reading:
+        """Fetch pages and summarise them together, keeping what `looking_for` names."""
         ...
 
     async def summarize(self, body: str, *, topic: str = "", profile: str = "") -> Summary:
@@ -232,9 +234,22 @@ class HttpSearchClient:
         )
         return tuple(_findings(row) for row in rows(payload, "results"))
 
-    async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
-        """Fetch pages, summarised together, keeping each page's text on its own article."""
-        body = {"urls": list(urls), "summarize": True, "summarize_together": True}
+    async def scrape(
+        self, urls: Sequence[str], *, profile: str = "", looking_for: str = ""
+    ) -> Reading:
+        """Fetch pages, summarised together, keeping each page's text on its own article.
+
+        The summary is all the model keeps of a page, so what it opened the page to find
+        goes to the summariser as notes: otherwise a specific figure, date or version can be
+        left out of a general summary, and the page would have to be opened again.
+        """
+        body: dict[str, Any] = {
+            "urls": list(urls),
+            "summarize": True,
+            "summarize_together": True,
+        }
+        if looking_for:
+            body["additional_notes"] = looking_for
         payload = await self._api.send(
             "POST",
             "/v1/scrape",
@@ -330,6 +345,7 @@ class FakeSearchClient:
         self.summary = Summary(executive_summary="a summary")
         self.asked: list[str] = []
         self.opened: list[str] = []
+        self.looked_for: list[str] = []
         self.profiles: list[str] = []
         """Which profile each call carried. Invisible in an answer, wrong in real bugs."""
 
@@ -370,7 +386,9 @@ class FakeSearchClient:
             )
         return tuple(found)
 
-    async def scrape(self, urls: Sequence[str], *, profile: str = "") -> Reading:
+    async def scrape(
+        self, urls: Sequence[str], *, profile: str = "", looking_for: str = ""
+    ) -> Reading:
         """The seeded article for each stocked URL, and a failed row for each of the rest.
 
         A failed row rather than no row, because that is what the service answers: one result
@@ -378,6 +396,7 @@ class FakeSearchClient:
         """
         self.profiles.append(profile)
         self.opened.extend(urls)
+        self.looked_for.append(looking_for)
         articles = tuple(self.library.get(url) or _unfetched(url) for url in urls)
         return Reading(articles=articles, summary=self.summary)
 

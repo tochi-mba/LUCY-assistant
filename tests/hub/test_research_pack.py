@@ -248,3 +248,94 @@ async def test_an_empty_summary_is_no_summary() -> None:
     )
 
     assert "summary_of_all_results" not in result["steps"][0]["data"][0]
+
+
+async def _run(fake: FakeSearchClient, *steps: dict[str, object]) -> dict[str, object]:
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+    return await capabilities.execute({"steps": list(steps)}, context)
+
+
+def _seeded() -> FakeSearchClient:
+    fake = FakeSearchClient()
+    fake.seed(
+        Findings(
+            query="python",
+            hits=tuple(
+                Hit(title=f"Py {n}", url=f"https://py.test/{n}", rank=n) for n in range(1, 6)
+            ),
+        )
+    )
+    return fake
+
+
+async def test_a_search_result_opens_by_reference_and_says_what_it_is_looking_for() -> None:
+    """The bug, named: `research.open` took only a written-out address, though its field
+    invited 'a link research.search found' -- so a small model wrote `$search[1]`, and the
+    open failed with 'Only http, https URLs may be fetched'. Nor could it say what it was
+    after, and the summary is all it keeps of a page."""
+    fake = _seeded()
+
+    result = await _run(
+        fake,
+        {"id": "found", "op": "research.search", "input": {"query": "python"}},
+        {
+            "id": "read",
+            "op": "research.open",
+            "input": {"hit": "$found[2]", "looking_for": "  the exact\nrelease date "},
+        },
+    )
+
+    assert not result["issues"]
+    assert fake.opened == ["https://py.test/2"]
+    assert fake.looked_for == ["the exact release date"]
+
+
+async def test_a_whole_search_opens_its_first_three_and_says_so() -> None:
+    fake = _seeded()
+
+    result = await _run(
+        fake,
+        {"id": "found", "op": "research.search", "input": {"query": "python"}},
+        {"id": "read", "op": "research.open", "input": {"hit": "$found"}},
+    )
+
+    assert fake.opened == ["https://py.test/1", "https://py.test/2", "https://py.test/3"]
+    assert "opened the first 3 of the 5 results referenced" in str(result["steps"][1])
+
+
+async def test_a_reference_written_as_an_address_is_refused_with_the_fix() -> None:
+    fake = _seeded()
+
+    result = await _run(fake, {"id": "read", "op": "research.open", "input": {"url": "$found[1]"}})
+
+    step = result["steps"][0]
+    assert step["status"] == "error"
+    assert '{"hit": "$found[1]"}' in step["error"]
+    assert fake.opened == []
+
+
+async def test_an_open_names_exactly_one_kind_of_source() -> None:
+    fake = _seeded()
+    both = await _run(
+        fake,
+        {"id": "found", "op": "research.search", "input": {"query": "python"}},
+        {
+            "id": "read",
+            "op": "research.open",
+            "input": {"hit": "$found[1]", "url": "https://py.test/9"},
+        },
+    )
+    neither = await _run(fake, {"id": "read", "op": "research.open", "input": {}})
+    empty = FakeSearchClient()
+    empty.seed(Findings(query="none"))
+    nothing = await _run(
+        empty,
+        {"id": "found", "op": "research.search", "input": {"query": "none"}},
+        {"id": "read", "op": "research.open", "input": {"hit": "$found"}},
+    )
+
+    assert "Give `hit` or `url`, not both." in str(both["steps"][1])
+    assert "Name what to open" in str(neither["steps"][0])
+    assert "found no result to open" in str(nothing["steps"][1])

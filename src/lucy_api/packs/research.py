@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from weftai.operation import define_operation
+from weftai.schema import ref
 from weftai.schema.spec import integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
@@ -32,6 +33,35 @@ if TYPE_CHECKING:
 
     from lucy_api.clients.search import Page, SearchClient, Summary
     from lucy_api.packs.context import PackContext
+
+
+HIT_REFERENCE = (
+    'A result an earlier research.search returned, by reference: "$found[2]" for one. '
+    '"$found" opens the first three.'
+)
+URL = (
+    "An address the person gave, written out -- never a reference. To open a result a search "
+    "found, give it as `hit`."
+)
+LOOKING_FOR = (
+    "What you opened it to find: a figure, a date, a version, a claim to check. The summary "
+    "keeps it rather than a general account of the page."
+)
+MAX_OPENED = 3
+"""The most pages one open reads. A reference to a whole search is a list, and reading every
+result of it would cost a fetch and a summary each for pages nobody chose."""
+NOT_A_REFERENCE = (
+    "`url` takes an address, not a reference; {url!r} looks like one. To open a result an "
+    'earlier search found, give it as `hit`: {{"hit": "{url}"}}.'
+)
+EITHER = "Give `hit` or `url`, not both."
+OPEN_WHAT = "Name what to open: `hit` for a search result, or `url` for an address."
+NOTHING_FOUND = "The referenced search found no result to open; search again first."
+TOO_MANY = "opened the first {opened} of the {found} results referenced; open the rest by index"
+
+
+class ResearchInputError(ValueError):
+    """An open the model can fix, said in a sentence it can act on."""
 
 
 class ResearchPack:
@@ -121,14 +151,15 @@ class ResearchPack:
                 {
                     "name": "research.open",
                     "description": (
-                        "Open one web source and return its citation metadata and summary, "
-                        "not the unbounded page body."
+                        "Read a page and return its citation metadata and a summary, not "
+                        "the unbounded page body. The summary is all you keep of it, so say "
+                        "in `looking_for` what you opened it to find."
                     ),
                     "input": object_schema(
                         {
-                            "url": string_schema().describe(
-                                "A link research.search found, or one the person gave."
-                            )
+                            "hit": ref(HIT, description=HIT_REFERENCE).optional(),
+                            "url": string_schema().describe(URL).optional(),
+                            "looking_for": string_schema().describe(LOOKING_FOR).optional(),
                         }
                     ),
                     "output": value(object_schema({})),
@@ -187,8 +218,11 @@ class ResearchPack:
         return hits
 
     async def _open(self, run: RunContext[PackContext]) -> dict[str, Any]:
+        urls = _addresses(run)
         reading = await self._client(run.ctx).scrape(
-            (str(run.input.get("url") or ""),), profile=run.ctx.profile
+            urls,
+            profile=run.ctx.profile,
+            looking_for=" ".join(str(run.input.get("looking_for") or "").split()),
         )
         pages = reading.pages()
         for page in pages:
@@ -203,6 +237,28 @@ class ResearchPack:
             profile=run.ctx.profile,
         )
         return _summary(summary) or {}
+
+
+def _addresses(run: RunContext[PackContext]) -> tuple[str, ...]:
+    """The pages an open names: the results a reference resolved to, or the one address."""
+    url = str(run.input.get("url") or "").strip()
+    picked = run.input.get("hit")
+    if picked is not None and url:
+        raise ResearchInputError(EITHER)
+    if url.startswith("$"):
+        raise ResearchInputError(NOT_A_REFERENCE.format(url=url))
+    if picked is None:
+        if not url:
+            raise ResearchInputError(OPEN_WHAT)
+        return (url,)
+    found = tuple(
+        str(item["url"]) for item in picked.items if isinstance(item, dict) and item.get("url")
+    )
+    if not found:
+        raise ResearchInputError(NOTHING_FOUND)
+    if len(found) > MAX_OPENED:
+        run.notice(TOO_MANY.format(opened=MAX_OPENED, found=len(found)))
+    return found[:MAX_OPENED]
 
 
 def _search_limit(run: RunContext[PackContext]) -> int:

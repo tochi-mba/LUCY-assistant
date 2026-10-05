@@ -235,3 +235,17 @@ async def test_the_provider_probe_keeps_the_short_wait() -> None:
     http = FakeHttp(Answer(body=[]))
     await HttpSearchClient(http, "http://search.test").providers()
     assert http.last.timeout_seconds is None
+
+
+async def test_what_an_open_is_looking_for_reaches_the_summariser_as_notes() -> None:
+    http = FakeHttp(
+        Answer(body={"results": [], "summary": None}),
+        Answer(body={"results": [], "summary": None}),
+    )
+    client = HttpSearchClient(http, "http://search.test")
+
+    await client.scrape(["https://example.invalid"], looking_for="the release date")
+    await client.scrape(["https://example.invalid"])
+
+    assert http.calls[0].json["additional_notes"] == "the release date"
+    assert "additional_notes" not in http.calls[1].json
