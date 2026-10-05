@@ -77,6 +77,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   named `note` or showed `$id`. In an eval the model wrote `$search[0]` and was refused
   because positions start at 1. It now shows `"$found"` and `"$found[2]"`, says positions
   start at 1, and titles the note subsection by its field.
+
+- **`settings.describe` lists one capability's settings, briefly, and says which an assistant
+  may change.** It took no input and returned every setting with its long description --
+  eleven thousand characters for Lucy's own settings alone, read again on every later round --
+  and the capability page told the model to check whether a setting was `never` for an
+  assistant, which nothing it was given said. It now takes a `capability`, lists summaries
+  (`settings.get` gives one in full), and marks Lucy's settings with `assistant`.
 - **The memory index says what it left out, whichever order it is in.** The index is cut to
   the person's limit, and said so only when the relevance decision had reordered it; on the
   ordinary path a person with forty topics was shown eight with no word of the rest. A cut
