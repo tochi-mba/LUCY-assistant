@@ -44,8 +44,6 @@ class Delegation:
     role: str = "helper"
     output_format: str = "a short summary with references, never a raw transcript"
     guidance: str = ""
-    boundaries: str = ""
-    constraints: str = ""
     max_iterations: int = 8
     resume_from: str = ""
     return_schema: str = ""

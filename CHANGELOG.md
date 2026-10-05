@@ -162,6 +162,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
 
+- **`agents.spawn` asks for a whole brief, not one sentence.** The field a model fills in
+  said "as a sentence", so a small model wrote one line, and a helper that sees none of the
+  conversation worked from that alone. It now asks for the question, the shape of the
+  answer, where to look, what is decided, and any text the helper must read; the team
+  recipe's example brief carries its draft. `Delegation.boundaries` and `constraints`,
+  which nothing ever set, are gone.
 - **A helper's system prompt is a helper's, not Lucy's.** A helper read Lucy's whole prompt --
   "you can start helpers", "keep it in that same turn", "you are talking to the person" --
   while its brief, a user message, said it was read-only. A small model believed the system

@@ -316,7 +316,8 @@ Start researchers and reviewers together in one plan, each group under its own
         "group": "researchers", "objective": "Find what the spec requires for retries",
         "return_schema": "<facts schema>"}},
       {"id": "v1", "op": "agents.spawn", "input": {"role": "reviewer",
-        "group": "reviewers", "objective": "Review the draft for protocol risk only",
+        "group": "reviewers",
+        "objective": "Protocol risk only, in this draft: <the draft>. Name each finding's line.",
         "return_schema": "<findings schema>"}}
     ]}
 
