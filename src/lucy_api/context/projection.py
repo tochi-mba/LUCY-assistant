@@ -129,7 +129,7 @@ def project(
             notices.append(f"compaction {compaction.seq} is superseded by compaction {newer}")
             continue
         covered.update(dict.fromkeys(inside, compaction.seq))
-        body = _summary_body(compaction, low, high, len(inside))
+        body = _summary_body(compaction, len(inside))
         position = min(
             (_position(item) for item in ordered if low <= item.seq <= high), default=low
         )
@@ -184,11 +184,14 @@ def _snap(compaction: Compaction, items: Sequence[Item]) -> tuple[int, int]:
     return min(low, *members), max(high, *members)
 
 
-def _summary_body(compaction: Compaction, low: int, high: int, replaced: int) -> str:
+def _summary_body(compaction: Compaction, replaced: int) -> str:
     """A summary that says what it stands for, so nothing looks like it never happened."""
+    # Not "can be read back": no operation reads the transcript, and a model told it could
+    # promised to, or went looking. It says what is gone -- its own replies included, so it
+    # does not answer as though it remembered what it told the person.
     return (
-        f"[summary of {replaced} earlier entries, sequence {low} to {high}. "
-        "The full transcript is unchanged and can be read back.]\n"
+        f"[harness: {replaced} earlier entries were replaced by this extract to save room. "
+        "Your replies and the tool results from that part are not shown.]\n"
         f"{compaction.summary}"
     )
 

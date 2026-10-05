@@ -159,13 +159,17 @@ def test_extractive_helpers_keep_identifiers_and_confess_a_cut() -> None:
     )
     duplicate = _summary(
         [
-            {"seq": 1, "content_json": "see $hits and $hits again", "role": "assistant"},
-            {"seq": 2, "content_json": "later", "role": "assistant"},
+            {
+                "seq": 1,
+                "content_json": "see $hits and $hits again",
+                "role": "assistant",
+                "type": "message",
+            },
+            {"seq": 2, "content_json": "later", "role": "assistant", "type": "message"},
         ],
         covers_to=1,
     )
     assert duplicate.count("$hits") == 1
-    assert "Covered items 1-1" in duplicate
     assert _text(None) == ""
     assert _text([1, 2]) == "[1, 2]"
 

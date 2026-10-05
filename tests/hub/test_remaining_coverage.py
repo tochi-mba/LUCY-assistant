@@ -96,12 +96,16 @@ def test_feed_documents_drop_malformed_rows_rather_than_inventing_a_feed() -> No
 
 
 def test_a_compaction_summary_skips_items_newer_than_the_cover() -> None:
-    text = _summary([{"seq": 9, "content_json": "later", "role": "user"}], covers_to=1)
-    assert "User:" not in text
-    assert "Covered items 1-1" in text
-    kept = _summary([{"seq": 1, "content_json": "hello", "role": "assistant"}], covers_to=1)
-    assert "User:" not in kept
-    assert "Covered items 1-1" in kept
+    text = _summary(
+        [{"seq": 9, "content_json": "later", "role": "user", "type": "message"}], covers_to=1
+    )
+    assert "later" not in text
+    assert "The person asked, oldest first: (nothing)" in text
+    kept = _summary(
+        [{"seq": 1, "content_json": "hello", "role": "assistant", "type": "message"}],
+        covers_to=1,
+    )
+    assert "hello" not in kept
 
     class Rows:
         def execute(self, *_args: object, **_kwargs: object) -> Rows:

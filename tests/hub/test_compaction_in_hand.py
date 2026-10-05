@@ -144,7 +144,7 @@ async def test_the_listing_says_which_compaction_the_model_is_reading(
         (older["id"], True, False),
     ]
     assert listed[0]["trigger"] == "auto"
-    assert listed[0]["summary"].startswith("MUST-PRESERVE")
+    assert listed[0]["summary"].startswith("The person asked")
 
     await uncompact_session(sessions_store, ACCOUNT, session, str(newer["id"]))
     listed = (await list_compactions(sessions_store, ACCOUNT, session))["data"]

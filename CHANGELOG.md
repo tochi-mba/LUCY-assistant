@@ -32,6 +32,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   started the work, which reclaim clears. The line saying "agents.reopen continues it" had
   nothing to pass, and a finished helper showed its last progress note where why it stopped
   belonged.
+
+- **A compaction summary is the person's, bounded, and written for the model.** It read
+  helpers' items too, so a helper's brief was summarised as the person saying "You are
+  read-only"; an approval's JSON counted as a request; it kept the eight oldest requests
+  without a count; every URL of every search went into an uncapped list; and it opened with
+  "MUST-PRESERVE" under a frame claiming the transcript "can be read back". It now reads the
+  main thread only, keeps the first request and the newest with a count, caps identifiers at
+  40 with the ones people said first, and says what is gone -- Lucy's own replies included.
 - **The eval harness survives a keep-alive the hub closed.** Between turns -- archiving a
   session, renewing its token -- the harness left its connection idle, the hub closed it,
   and the next request down it stopped the whole run as "cannot reach Lucy" with the hub up
