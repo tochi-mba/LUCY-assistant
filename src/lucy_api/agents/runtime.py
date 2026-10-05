@@ -581,11 +581,17 @@ class ChildRuntime:
                 max_output_tokens=parent.policy.max_output_tokens,
                 temperature=parent.policy.temperature,
                 thinking=parent.policy.thinking,
-                result_token_cap=parent.policy.agent_result_token_cap,
+                # What a helper reads is held to the same cap as what Lucy reads.
+                # `agent_result_token_cap` -- "how much a helper may hand back" -- was wired
+                # here, so a helper saw every page cut to 2,000 tokens while its own return
+                # was held to a constant the setting never reached.
+                result_token_cap=parent.policy.max_tool_result_tokens,
                 max_thinking_tokens=parent.policy.max_thinking_tokens,
             )
         )
-        summary, tokens, notice = capped_summary(outcome.text or outcome.detail)
+        summary, tokens, notice = capped_summary(
+            outcome.text or outcome.detail, cap=parent.policy.agent_result_token_cap
+        )
         data, schema_notice = declared_return(summary, delegation.return_schema)
         for extra in (schema_notice, model_notice):
             if extra:

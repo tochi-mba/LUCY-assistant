@@ -51,14 +51,17 @@ class Delegation:
     return_schema: str = ""
 
 
-def capped_summary(text: str) -> tuple[str, int, str]:
-    """Clip a helper's return to the contract, and say so when anything was left out."""
+def capped_summary(text: str, cap: int = RESULT_TOKEN_CAP) -> tuple[str, int, str]:
+    """Clip a helper's return to `cap` tokens, and say so when anything was left out.
+
+    `cap` is the person's `agent_result_token_cap`: how much a helper may hand back.
+    """
     tokens = rough_tokens(text)
-    if tokens <= RESULT_TOKEN_CAP:
+    if tokens <= cap:
         return text, tokens, ""
-    clipped = text[: RESULT_CHAR_CAP - 1].rstrip() + "…"
-    notice = f"showing {RESULT_TOKEN_CAP} of {tokens} tokens"
-    return clipped, RESULT_TOKEN_CAP, notice
+    clipped = text[: cap * 4 - 1].rstrip() + "…"
+    notice = f"showing {cap} of {tokens} tokens"
+    return clipped, cap, notice
 
 
 def declared_return(text: str, schema: str) -> tuple[object | None, str]:

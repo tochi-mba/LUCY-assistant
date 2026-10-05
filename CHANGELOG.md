@@ -162,6 +162,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
 
+- **`agent_result_token_cap` caps what a helper hands back, not what it reads.** It was wired to
+  the helper's reading, so every page a helper opened was cut to 2,000 tokens while its own
+  return was held to a constant the setting never reached. A helper now reads to
+  `max_tool_result_tokens`, as Lucy does, and returns at most `agent_result_token_cap`.
 - **`research.open` takes a search result by reference, and says what it is looking for.** Its
   field invited "a link research.search found" but took only a written-out address, so a small
   model wrote `$search[1]` and the open failed. A result now goes as `hit` (a reference to a
