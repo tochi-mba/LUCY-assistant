@@ -108,7 +108,7 @@ HIT: CollectionType[Any, Any] = collection(
     "hit",
     dict,
     label=lambda item: _clip(f"{_get(item, 'title')} ({_get(item, 'source')})"),
-    key=lambda item: _get(item, "id") or _get(item, "link"),
+    key=lambda item: _get(item, "id") or _get(item, "url") or _get(item, "link"),
     description="One result from a search, before anything has been opened.",
     fields=_fields("title", "source", "snippet"),
 )
