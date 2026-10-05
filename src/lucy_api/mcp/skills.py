@@ -95,8 +95,7 @@ can explain what it could do; `lucy_connect` is how the person links it. Pass th
 capability id (`music`), never a backend name.
 
 `lucy_list_capabilities` says which are usable right now and a sentence for the
-ones that are not. `help.operation` (through a plan) is how you read one
-operation's schema before calling something you have only seen as a name.
+ones that are not. `describe_operations` gives each operation's schema.
 """,
     ),
     Skill(

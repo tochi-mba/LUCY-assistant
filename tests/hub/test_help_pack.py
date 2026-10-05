@@ -1,4 +1,4 @@
-"""The always-bound help operations: list, setup, bind, docs, skills, and one operation's schema."""
+"""The always-bound help operations: list, setup, bind, docs and skills."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from lucy_api.packs.help import (
     HelpPack,
     _docs,
     _list,
-    _operation,
     _pack_docs,
     _setup,
     _skill,
@@ -225,19 +224,6 @@ async def test_inline_docs_are_returned_as_written() -> None:
     context = _context(capabilities)
     await capabilities.probe(context)
     assert _pack_docs(context, "gadget") == "# Inline gadget\n"
-
-
-async def test_operation_returns_the_schema_or_says_the_name_is_unknown() -> None:
-    capabilities = Capabilities((HelpPack(), Gadget(state=State.ready)))
-    context = _context(capabilities)
-    await capabilities.probe(context)
-    found = await _operation(_run(context, name="gadget.ping"))
-    missing = await _operation(_run(context, name="gadget.explode"))
-    empty = await _operation(SimpleNamespace(ctx=SimpleNamespace(catalogue=None), input={}))
-    assert found["name"] == "gadget.ping"
-    assert found["examples"] == []
-    assert "no operation" in missing["error"]
-    assert "no operation" in empty["error"]
 
 
 async def test_null_http_and_silent_tokens_fail_closed_without_a_secret() -> None:

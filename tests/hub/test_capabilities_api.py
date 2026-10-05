@@ -38,8 +38,23 @@ async def test_the_model_tools_include_the_help_operations(client: AsyncClient) 
     assert response.status_code == 200, response.text
     names = [tool["name"] for tool in response.json()["tools"]]
     assert "capabilities.list" in names
-    assert "help.operation" in names
+    assert "help.skill" in names
     assert response.json()["deferred"] == []
+
+
+async def test_no_operation_promises_a_schema_the_model_already_holds(client: AsyncClient) -> None:
+    """The bug, named: `help.operation` promised "one operation's full schema and examples",
+    returned neither -- it found only operations already in the plan schema, and nothing
+    defines examples -- and told a small model to spend a round on it before every unfamiliar
+    call. Nothing the model reads names it any more."""
+    from lucy_api.mcp.skills import CATALOGUE
+    from lucy_api.prompt.docs import capability_doc
+
+    response = await client.get("/v1/tools", headers=bearer())
+    names = [tool["name"] for tool in response.json()["tools"]]
+    assert "help.operation" not in names
+    assert "help.operation" not in capability_doc("help").read_text(encoding="utf-8")
+    assert not [skill.name for skill in CATALOGUE if "help.operation" in skill.body]
 
 
 async def test_a_session_prompt_preview_and_context_are_priced_by_band(

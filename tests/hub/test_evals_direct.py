@@ -103,7 +103,7 @@ def test_an_operation_the_session_cannot_call_is_unavailable_and_says_what_it_ca
     assert record.seed[0].status == UNAVAILABLE
     assert record.reason == (
         "seed 1 music.play: status is ok (unavailable: this session cannot call music.play; "
-        "it can call capabilities.use, help.operation, notes.search; deferred: workspace)"
+        "it can call capabilities.use, help.skill, notes.search; deferred: workspace)"
     )
 
 
@@ -117,11 +117,11 @@ def test_binding_that_does_not_bring_the_operation_says_so() -> None:
 
 def test_an_operation_nobody_can_grant_is_refused_with_the_hub_s_reason() -> None:
     fake = FakeLucy()
-    fake.gated["help.operation"] = "help.secret"
-    record, _ = hold(fake, seeded("help.operation"))
+    fake.gated["help.skill"] = "help.secret"
+    record, _ = hold(fake, seeded("help.skill"))
     assert record.seed[0].status == REFUSED
     assert record.seed[0].error == (
-        "POST /v1/tools/help.operation/invoke answered 409: help.secret needs approval (HTTP 409)"
+        "POST /v1/tools/help.skill/invoke answered 409: help.secret needs approval (HTTP 409)"
     )
     assert fake.granted == []
 

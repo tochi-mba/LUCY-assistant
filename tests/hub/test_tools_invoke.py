@@ -41,14 +41,14 @@ def _notes_catalogue() -> Catalogue:
 
 async def test_a_read_tool_runs_without_burning_a_model_token(client: AsyncClient) -> None:
     response = await client.post(
-        "/v1/tools/help.operation/invoke",
-        json={"input": {"name": "help.operation"}},
+        "/v1/tools/help.skill/invoke",
+        json={"input": {"name": "notes"}},
         headers=bearer(),
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["tool"] == "help.operation"
+    assert body["tool"] == "help.skill"
     assert body["steps"]
 
 
@@ -64,7 +64,7 @@ async def test_an_unknown_tool_names_what_this_turn_can_actually_call(
     assert response.status_code == 404, response.text
     detail = response.json()["detail"]
     assert "not.a.tool" in detail
-    assert "help.operation" in detail
+    assert "help.skill" in detail
 
 
 async def test_a_write_in_ask_mode_is_refused_until_it_is_granted() -> None:
@@ -145,14 +145,14 @@ async def test_invoke_and_the_tool_list_can_be_scoped_to_a_session(client: Async
     session_id = created.json()["id"]
     listed = await client.get("/v1/tools", params={"session_id": session_id}, headers=bearer())
     invoked = await client.post(
-        "/v1/tools/help.operation/invoke",
-        json={"input": {"name": "help.operation"}, "session_id": session_id},
+        "/v1/tools/help.skill/invoke",
+        json={"input": {"name": "notes"}, "session_id": session_id},
         headers=bearer(),
     )
 
     assert created.status_code == 201, created.text
     assert listed.status_code == 200, listed.text
-    assert "help.operation" in [tool["name"] for tool in listed.json()["tools"]]
+    assert "help.skill" in [tool["name"] for tool in listed.json()["tools"]]
     assert invoked.status_code == 200, invoked.text
 
 
@@ -161,7 +161,7 @@ async def test_invoke_probes_when_the_catalogue_has_not_been_built() -> None:
     context = capabilities.context_for(
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
     )
-    result = await capabilities.invoke("help.operation", {"name": "capabilities.list"}, context)
+    result = await capabilities.invoke("help.skill", {"name": "notes"}, context)
     assert result["steps"]
     with pytest.raises(LucyError) as missing:
         await capabilities.invoke("gadget.ping", {}, context)
@@ -180,12 +180,12 @@ async def test_invoke_raises_when_the_plan_returns_an_issue() -> None:
 
     capabilities.execute = broken  # type: ignore[method-assign]
     with pytest.raises(LucyError) as failed:
-        await capabilities.invoke("help.operation", {"name": "help.operation"}, context)
+        await capabilities.invoke("help.skill", {"name": "notes"}, context)
     assert "could not run" in str(failed.value) or failed.value.status == 409
 
 
 def test_an_unknown_tool_mentions_what_was_deferred_so_it_can_be_bound() -> None:
-    detail = _unknown_tool("music.play", {"help.operation"}, ["music"])
+    detail = _unknown_tool("music.play", {"help.skill"}, ["music"])
     empty = _unknown_tool("music.play", set(), [])
 
     assert "music.play" in detail

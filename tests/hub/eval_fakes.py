@@ -103,7 +103,7 @@ class FakeLucy:
                 {"provider": "groq", "detail": "", "models": []},
             ],
         }
-        self.bound: set[str] = {"capabilities.use", "help.operation", "notes.search"}
+        self.bound: set[str] = {"capabilities.use", "help.skill", "notes.search"}
         self.deferred: list[str] = ["workspace"]
         self.pack_operations = {
             "workspace": {"workspace.read", "workspace.write", "workspace.delete"},
