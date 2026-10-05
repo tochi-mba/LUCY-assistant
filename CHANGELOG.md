@@ -37,6 +37,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   the model read its own sentence about a result that had silently gone, and was told
   "6 tool results reclaimable" instead -- about something it could not act on. Its context
   line now says how many older results are not shown, and to run the call again.
+
+- **A report of earlier work is not a claim of work done this turn.** The claims decision
+  asked whether a reply said something "was done", so a turn woken to report a finished
+  helper -- whose only step, `work.result`, is bookkeeping -- was held, and the model told,
+  falsely, that the work "was not done". The question is now about this turn, says what does
+  not count, and the hold asks the model to say when if it was done earlier.
 - **Every line about work names the id its follow-up takes, and how finished work ended.**
   Running, finished and woken work was never shown with its id, which `work.result`,
   `work.cancel` and `agents.reopen` all take; it was handed back only in the step that

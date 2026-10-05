@@ -17,7 +17,7 @@ from lucy_api.decide import Decisions
 from lucy_api.decide.types import CLAIMS, USES
 from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.settings.policy import TurnPolicy
-from lucy_api.turn.claims import QUESTION, UNBACKED, ClaimCheck
+from lucy_api.turn.claims import CRITERIA, QUESTION, UNBACKED, ClaimCheck
 from lucy_api.turn.loop import Round, Step, Turn, run_turn
 from lucy_api.turn.stop import Termination
 
@@ -92,7 +92,18 @@ async def test_a_claim_with_no_step_behind_it_is_held_back_and_the_work_done() -
     assert REQUEST in state, "the judgment sees what was asked, typos and all"
     assert FALSE in state
     assert question.prompt == QUESTION
+    assert question.criteria == CRITERIA
     assert "lucy.decision.disagreed" in events
+
+
+def test_the_question_is_about_this_turn_and_a_report_of_earlier_work_is_no_claim() -> None:
+    """The bug, named: a turn woken to report a finished helper ran only work.result, which is
+    bookkeeping, so "Your helper finished the research" was asked about as a claim -- and the
+    model was told, falsely, that the work "was not done"."""
+    assert "in this turn" in QUESTION
+    assert "a helper, a watch or an earlier turn already did" in CRITERIA
+    assert "If it was done earlier, say when." in UNBACKED
+    assert "so it was not done" not in UNBACKED
 
 
 async def test_a_reply_is_held_back_once_and_a_second_is_taken_as_given() -> None:
