@@ -318,7 +318,6 @@ capabilities.list()                → every capability, state, one line each
 capabilities.setup(id)             → a sentence plus a connect_ref
 capabilities.use(id)               → bind a discovered pack for this session
 help.docs(topic, offset?, limit?)  → the pack's authored markdown, windowed, token-capped
-help.operation(name)               → one operation's full schema and examples
 ```
 
 "Not connected" reaches the model as an **actionable tool result**, never an HTTP error,
@@ -348,7 +347,7 @@ sharing one session id — so `$refs` cross tools: `research.search` → `$hits`
 ### 6.1 Tool budget: deferred loading (D20)
 
 Always bound: **`help`**, plus every `ready` pack rendered with a **names-and-one-line**
-description; full prose lives behind `help.operation` / `help.docs`. Past a configured count
+description; full prose lives behind `help.docs`. Past a configured count
 of ready packs, Lucy binds only the *k* most recently used plus `help`, and the model
 reaches the rest with `capabilities.use(id)`. One system-prompt line names the categories so
 the model knows what to look for. Measured elsewhere: >85% fewer definition tokens, and
@@ -358,7 +357,7 @@ selection accuracy moving 49%→74% and 79.5%→88.1%.
 
 | pack | operations | effects |
 | --- | --- | --- |
-| **help** | `capabilities.list` `capabilities.setup` `capabilities.use` `help.docs` `help.operation` | read |
+| **help** | `capabilities.list` `capabilities.setup` `capabilities.use` `help.docs` | read |
 | **notes** | `notes.about_me` `notes.schema` `notes.search` `notes.set_fact` `notes.remember` `notes.confirm` `notes.correct` `notes.forget` | read / write |
 | **workspace** | `workspace.list` `workspace.grep` `workspace.read` `workspace.write` `workspace.edit` `workspace.patch` `workspace.delete` `workspace.move` `workspace.run` | read / write |
 | **research** | `research.search` `research.open` `research.summarize` | read |

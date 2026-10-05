@@ -1,9 +1,15 @@
 """The one pack the model can never lose.
 
-Without ``capabilities.list`` and ``help.operation``, deferred loading is a one-way door:
-the model cannot ask for what was held back, and cannot learn a tool it has never seen.
-Without ``capabilities.setup``, an unconnected capability is a dead end rather than a
-link. Those five operations are therefore always bound, even when every sibling is down.
+Without ``capabilities.list`` and ``capabilities.use``, deferred loading is a one-way
+door: the model cannot ask for what was held back. Without ``capabilities.setup``, an
+unconnected capability is a dead end rather than a link. These operations are therefore
+always bound, even when every sibling is down.
+
+There is no operation for reading one operation in full: every operation bound this turn is
+already in the plan schema with its whole input, and one that is not bound is bound with
+``capabilities.use``. ``help.operation`` used to say otherwise -- "its full schema and
+examples" -- and returned neither, and its description sent a small model to spend a round
+on it before every unfamiliar call.
 
 The handlers read the catalogue off the context rather than closing over it at definition
 time. A probe runs *before* the catalogue exists, and an operation defined against a
@@ -114,8 +120,9 @@ class HelpPack:
                 {
                     "name": "capabilities.use",
                     "description": (
-                        "Bind a deferred capability for the rest of this session. Its "
-                        "operations are callable in your very next plan, in this same turn."
+                        "Load a capability that is ready but not loaded. Its operations "
+                        "are callable in your very next plan, in this same turn, and it "
+                        "stays loaded while you keep using it."
                     ),
                     "input": object_schema({"id": string_schema().describe("The capability id.")}),
                     "output": value(
@@ -144,21 +151,6 @@ class HelpPack:
                     ),
                     "effects": "read",
                     "run": _docs,
-                }
-            ),
-            define_operation(
-                {
-                    "name": "help.operation",
-                    "description": (
-                        "One operation's full schema and examples. Use this before calling "
-                        "something you have only seen as a name and a one-line description."
-                    ),
-                    "input": object_schema(
-                        {"name": string_schema().describe("The operation name, like music.play.")}
-                    ),
-                    "output": value(object_schema({"name": string_schema()})),
-                    "effects": "read",
-                    "run": _operation,
                 }
             ),
             define_operation(
@@ -276,23 +268,6 @@ async def _docs(run: RunContext[PackContext]) -> dict[str, Any]:
         "total": len(text),
         "showing": f"showing {len(window)} of {len(text)} characters",
     }
-
-
-async def _operation(run: RunContext[PackContext]) -> dict[str, Any]:
-    name = str(run.input.get("name", ""))
-    for item in run.ctx.catalogue.bound if run.ctx.catalogue is not None else ():
-        for operation in item.operations:
-            if operation.name == name:
-                examples = [
-                    {"input": example.input, "note": example.note} for example in operation.examples
-                ]
-                return {
-                    "name": operation.name,
-                    "description": operation.description,
-                    "effects": operation.effects,
-                    "examples": examples,
-                }
-    return {"name": name, "error": f"no operation named '{name}' in this turn's catalogue"}
 
 
 async def _skills(run: RunContext[PackContext]) -> dict[str, Any]:

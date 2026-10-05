@@ -7,10 +7,9 @@ workspace, repositories. You never see a service, an address or a wire verb.
 capability is absent from your tools; list it, then `capabilities.setup` if the person
 wants it.
 
-`help.operation` is how you read one operation in full. Names and one-liners are what you
-are bound with; the schema and the examples live here so the preamble stays small.
-
-When a capability was deferred, `capabilities.use` binds it for the rest of this session.
+Every operation you hold is in your plan schema with its full input. A capability that is
+ready but not loaded is named in your prompt; `capabilities.use` loads it for your next plan,
+and it stays loaded while you keep using it.
 
 `help.skills` lists the named docs you can load before using a capability. `help.skill`
 reads one, windowed. Prefer those over guessing how a long job, an approval or a memory

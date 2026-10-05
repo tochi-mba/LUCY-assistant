@@ -225,6 +225,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **No operation promises a schema the model already holds.** `help.operation` promised "one
+  operation's full schema and examples" and returned neither: it found only operations
+  already in the plan schema, and no operation defines examples. Its description sent a small
+  model to spend a round on it before every unfamiliar call. It is gone, along with some 175
+  tokens a round; `capabilities.use` no longer claims a capability stays loaded "for the rest
+  of this session", since one unused for a while is deferred again.
 - **The family is locked on settings-client 0.4.2**, with every service at the commit it was
   rebuilt and verified at on 5 October.
 - **weftai 0.5.2.** Writes in one plan run one at a time, in the order the model wrote them,

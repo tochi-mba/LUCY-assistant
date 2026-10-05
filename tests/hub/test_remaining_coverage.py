@@ -212,7 +212,7 @@ async def test_execute_probes_when_the_turn_has_no_catalogue_yet() -> None:
         SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
     )
     result = await capabilities.execute(
-        {"steps": [{"id": "s", "op": "help.operation", "input": {"name": "help.operation"}}]},
+        {"steps": [{"id": "s", "op": "help.skill", "input": {"name": "notes"}}]},
         context,
     )
     assert result["issues"] is None
