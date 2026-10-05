@@ -246,3 +246,29 @@ def test_a_step_and_the_probe_in_front_of_it_are_widened_by_the_same_figure() ->
     assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * SLOW_MULTIPLE
     assert _ceiling("research", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE
     assert _ceiling("notes", PROBE_SECONDS) == PROBE_SECONDS
+
+
+def test_a_collection_in_play_brings_filter_and_none_of_the_other_seven() -> None:
+    """The cost, named: weftai's eight generated operations per collection were about a
+    third of every round's plan schema -- some 4,300 tokens on a fresh conversation and
+    10,000 once repositories were bound -- and seven of them repeated what the model already
+    reads or a `$id[n]` reference already selects. Only `filter` is generated now."""
+    from lucy_api.packs.collections import HIT
+    from lucy_api.packs.registry import STANDARD_OPERATIONS
+
+    search = define_operation(
+        {
+            "name": "research.search",
+            "description": "Search.",
+            "input": object_schema({"query": string_schema()}),
+            "output": HIT,
+            "run": lambda _ctx: [],
+        }
+    )
+
+    names = set(build_registry((search,)).names())
+
+    assert STANDARD_OPERATIONS == ("filter",)
+    assert "hit.filter" in names
+    for dropped in ("count", "countBy", "distinct", "mostCommon", "first", "pick", "details"):
+        assert f"hit.{dropped}" not in names, dropped

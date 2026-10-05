@@ -97,21 +97,14 @@ async def test_a_collection_comes_back_counted_and_typed() -> None:
     assert len(step["items"]) == 3
 
 
-async def test_the_free_operations_arrive_with_the_collection() -> None:
-    """Eight of them, generated because something bound this turn returns notes."""
+async def test_the_free_operation_arrives_with_the_collection() -> None:
+    """`filter`, generated because something bound this turn returns notes; the other seven
+    weftai could generate are left out of every round's schema (see STANDARD_OPERATIONS)."""
     names = build_registry([a_search_operation()]).names()
 
-    for suffix in (
-        "filter",
-        "count",
-        "countBy",
-        "distinct",
-        "mostCommon",
-        "first",
-        "pick",
-        "details",
-    ):
-        assert f"note.{suffix}" in names
+    assert "note.filter" in names
+    for suffix in ("count", "countBy", "distinct", "mostCommon", "first", "pick", "details"):
+        assert f"note.{suffix}" not in names
 
 
 async def test_a_question_about_a_result_costs_no_second_call() -> None:
