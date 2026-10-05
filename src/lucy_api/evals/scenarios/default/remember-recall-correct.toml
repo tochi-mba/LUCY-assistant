@@ -1,9 +1,11 @@
-# A fact given once, read back, then corrected: the life of a memory in three turns.
+# A fact given once, read back another day, then corrected: a memory's life in three turns.
 
 summary = """\
-Remember a fact, read it back, then correct it. Guards two defects: the memory index \
-read "0 memories" for every topic (the hub read field names Memory-api never sends), and \
-every notes.correct failed with a 409 because the correction dropped the note's scope.\
+Remember a fact, read it back in a new session, then correct it. Guards three defects: a \
+fact kept as an episode of the first conversation, which the next one never sees; the \
+memory index read "0 memories" for every topic (the hub read field names Memory-api never \
+sends); and every notes.correct failed with a 409 because the correction dropped the note's \
+scope.\
 """
 tags = ["memory", "approvals"]
 
@@ -16,6 +18,7 @@ ran = ["notes.setFact"]
 
 [[turns]]
 say = "What do you know about me?"
+new_session = true
 
 [turns.expect]
 reply_matches = ['backend|friday']
