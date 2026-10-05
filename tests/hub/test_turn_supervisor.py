@@ -739,7 +739,9 @@ async def test_vision_off_tells_the_model_images_were_not_sent(store: SessionSto
     running.authorize(str(turn["id"]), PreparedTurn(pack_context=pack_context, live=Live()))
     running.wake()
     await running.join()
-    assert "Vision is off" in provider.requests[0].system
+    request = provider.requests[0]
+    assert "Vision is off" not in request.system, "a per-round fact stays out of the cache"
+    assert "Vision is off" in request.messages[-1].content
     await running.aclose()
 
 
