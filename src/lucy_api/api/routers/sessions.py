@@ -165,12 +165,24 @@ async def create_session(
 async def list_sessions(
     selection: SelectionDep, acting: ActingAsDep, container: ContainerDep
 ) -> Page[SessionResource]:
-    """Page through the caller's own sessions, archiving the idle ones first."""
+    """Page through the caller's own sessions, archiving the idle ones first.
+
+    `session_idle_archive_days` is a per-profile setting, and settings-api returns a
+    profile's values only to a read that names it. Read once with no profile, every
+    person's choice was replaced by the default of thirty days. Each profile with
+    conversations is now read and archived on its own number; deleting archived ones
+    is one choice for the account, and is read once.
+    """
     policy = await container.lucy_policy(acting.token)
     now = time.time()
-    await container.store.archive_idle(
-        acting.account_id, days=policy.session_idle_archive_days, now=now
-    )
+    for profile in await container.store.live_profiles(acting.account_id):
+        chosen = await container.lucy_policy(acting.token, profile)
+        await container.store.archive_idle(
+            acting.account_id,
+            profile=profile,
+            days=chosen.session_idle_archive_days,
+            now=now,
+        )
     expired = await delete_archived(
         container.store,
         acting.account_id,

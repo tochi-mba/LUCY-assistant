@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A person's idle window archives their conversations, per profile.** Listing conversations read
+  `lucy` with no profile, and settings-api returns a profile's values only to a read that names
+  it; `session_idle_archive_days` is one. Whatever a person chose, every conversation was
+  archived on the default of thirty days. Each profile with conversations is now read for its
+  own number, and only its own conversations are archived on it.
 - **A merge on main dropped three pieces of the unattended-work settings.** The
   `subscriptions.tags_json` column was in the schema for new databases but not in the
   migrations, so an existing database never gained it and every watch opened there

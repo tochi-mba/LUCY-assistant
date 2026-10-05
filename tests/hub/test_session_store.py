@@ -58,7 +58,9 @@ if TYPE_CHECKING:
 OWNER = "acct_owner"
 STRANGER = "acct_stranger"
 
-GUARDED_ELSEWHERE = frozenset({"create", "list_sessions", "audit_log", "archive_idle"})
+GUARDED_ELSEWHERE = frozenset(
+    {"create", "list_sessions", "audit_log", "archive_idle", "live_profiles"}
+)
 """Account-taking methods a stranger cannot meet a 404 at, and why.
 
 `create` makes a row rather than finding one, so there is nothing to be refused access to.
@@ -243,6 +245,24 @@ async def test_idle_conversations_are_archived_and_live_ones_are_not(
     assert (await store.get(OWNER, idle))["archived_at"] == now
     listed = await store.list_sessions(OWNER, 50, None, None, "asc")
     assert {row["id"] for row in listed["data"]} >= {idle, parked}
+
+
+async def test_archiving_one_profile_leaves_the_others_alone(store: SessionStore) -> None:
+    now = time.time()
+    work = await a_session(store, profile="work")
+    home = await a_session(store, profile="personal")
+
+    def age(db: sqlite3.Connection) -> None:
+        db.execute("UPDATE sessions SET updated_at=?", (now - 2 * 86_400,))
+
+    await store.transaction(age)
+
+    assert await store.live_profiles(OWNER) == ("personal", "work")
+    assert await store.archive_idle(OWNER, profile="work", days=1, now=now) == 1
+    assert (await store.get(OWNER, work))["archived_at"] == now
+    assert (await store.get(OWNER, home))["archived_at"] is None
+    assert await store.live_profiles(OWNER) == ("personal",)
+    assert await store.live_profiles(STRANGER) == ()
 
 
 async def test_the_audit_log_is_this_account_s_rows_and_a_foreign_session_is_a_miss(
