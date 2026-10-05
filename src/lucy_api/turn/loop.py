@@ -45,6 +45,7 @@ a model that cannot produce a valid plan twice will not produce one on the tenth
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import time
 from dataclasses import dataclass, field, replace
@@ -227,6 +228,13 @@ class Turn:
     fallback_provider: Provider | None = None
     fallback_model: str = ""
     max_thinking_tokens: int = 0
+    object_answer: bool = False
+    """A declared return: an object with no steps is the answer, not a plan.
+
+    A helper told to answer with one JSON object does so, and the wire reads a bare object
+    as a plan it cannot run. Without this the helper was sent to the repair path for
+    doing what its brief said, and failed once the repairs ran out.
+    """
 
 
 @dataclass(slots=True)
@@ -321,6 +329,8 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     they wait for the plan to run (see `_run_plan`), and a turn stopped first never ran it.
     """
     turn = cycle.turn
+    if turn.object_answer and reply.plan is not None and "steps" not in reply.plan:
+        reply = replace(reply, text=json.dumps(reply.plan, ensure_ascii=False), plan=None)
     outcome = cycle.outcome
     spent = outcome.spent
     outcome.spent = _add(spent, reply, turn.clock() - cycle.started)

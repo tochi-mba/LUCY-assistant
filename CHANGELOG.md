@@ -162,6 +162,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
 
+- **A helper that answers with its declared object finishes.** Told to return one JSON object,
+  a helper did, and the wire read the bare object as a plan with no steps: it went to the
+  repair path for doing what its brief said and failed once the repairs ran out. A helper
+  with a `return_schema` now reads that object as its answer, and its brief says plainly
+  that the object, alone, is the whole answer.
 - **A helper's prompt lists what its schema can call.** It listed every ready capability as
   "Ready now" while its plan schema held back everything past the deferral threshold, so a
   helper with seven or more was told it could call capabilities missing from its schema, and

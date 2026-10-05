@@ -16,7 +16,7 @@ from lucy_api.agents.store import AgentStore
 from lucy_api.agents.types import RESULT_TOKEN_CAP, Delegation, capped_summary
 from lucy_api.core.errors import LucyError
 from lucy_api.model.registry import ModelRegistry
-from lucy_api.model.scripted import ScriptedProvider, plans, speaks
+from lucy_api.model.scripted import ScriptedProvider, malformed, plans, speaks
 from lucy_api.model.types import Reply
 from lucy_api.packs.agents import MAX_DEPTH, AgentsPack, _message, _reopen, _spawn
 from lucy_api.packs.base import State as PackState
@@ -628,6 +628,48 @@ async def test_a_declared_schema_is_parsed_or_named_as_a_miss(store: SessionStor
     data, notice = declared_return("{}", "")
     assert data is None
     assert notice == ""
+
+
+async def test_a_helper_answering_with_its_declared_object_finishes(store: SessionStore) -> None:
+    """The bug, named: a helper that answered with the object its brief asked for failed.
+
+    The wire reads a bare object as a plan; with no steps it went to the repair path and the
+    helper ran out of repairs. A declared return now reads it as the answer.
+    """
+    from lucy_api.model.wire import said_and_planned
+
+    said, plan = said_and_planned('{"ok": true, "files": ["a.md"]}')
+    session = await a_session(store)
+    child, capabilities, _agents = runtime_for(
+        store, ScriptedProvider([plans(plan or {}, text=said)])
+    )
+    parent = parent_context(session, capabilities=capabilities)
+    agent_id, task_id = await child.prepare(
+        parent, objective="List files", role="helper", return_schema='{"type":"object"}'
+    )
+    result = await child.run(
+        parent, objective="List files", role="helper", agent_id=agent_id, task_id=task_id
+    )
+    assert result["status"] == "ok"
+    assert result["data"] == {"ok": True, "files": ["a.md"]}
+    assert result["notice"] == ""
+
+
+async def test_without_a_declared_return_a_stepless_object_is_still_a_plan(
+    store: SessionStore,
+) -> None:
+    """Only a declared return reads an object as the answer; anything else is still repaired."""
+    session = await a_session(store)
+    child, capabilities, _agents = runtime_for(
+        store, ScriptedProvider([malformed({"ok": True}), speaks("done")])
+    )
+    parent = parent_context(session, capabilities=capabilities)
+    agent_id, task_id = await child.prepare(parent, objective="Look", role="helper")
+    result = await child.run(
+        parent, objective="Look", role="helper", agent_id=agent_id, task_id=task_id
+    )
+    assert result["summary"] == "done"
+    assert result["data"] is None
 
 
 async def test_journal_tools_and_reopen_go_through_the_pack(store: SessionStore) -> None:
