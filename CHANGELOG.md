@@ -162,6 +162,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
 
+- **A helper's system prompt is a helper's, not Lucy's.** A helper read Lucy's whole prompt --
+  "you can start helpers", "keep it in that same turn", "you are talking to the person" --
+  while its brief, a user message, said it was read-only. A small model believed the system
+  channel and spent rounds on writes that were refused. A helper now reads its own identity
+  and none of the sections about being the lead, which also saves some 1,900 tokens a round (6,045 to 4,165).
 - **A helper that answers with its declared object finishes.** Told to return one JSON object,
   a helper did, and the wire read the bare object as a plan with no steps: it went to the
   repair path for doing what its brief said and failed once the repairs ran out. A helper

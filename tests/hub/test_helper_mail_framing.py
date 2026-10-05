@@ -101,3 +101,33 @@ async def test_a_helpers_prompt_lists_what_its_schema_can_call(
     named = {name.strip(" .") for name in ready.removeprefix("Ready now:").split(",")}
     assert len(named) < len(gadgets) + 2, "the deferred ones are not called ready"
     assert "capabilities.use" in whole
+
+
+async def test_a_helpers_prompt_is_a_helpers_and_not_lucys(sessions_store: SessionStore) -> None:
+    """The bug, named: a helper read Lucy's whole system prompt -- "you can start helpers",
+    "keep it in that same turn", "you are talking to the person" -- while its brief, a user
+    message, said it was read-only. A small model believed the system channel, and every
+    write it tried was refused."""
+    created = await sessions_store.create(ACCOUNT, CreateSession(model="scripted:demo"), "key")
+    provider = ScriptedProvider([speaks("Done.")])
+    capabilities = Capabilities((HelpPack(), AgentsPack()))
+    child = ChildRuntime(
+        sessions_store,
+        AgentStore(sessions_store),
+        ModelRegistry({"scripted": lambda _model: provider}),
+        capabilities,
+    )
+    capabilities.child = child
+    parent = capabilities.context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id=str(created["id"]))
+    )
+
+    await child.run(parent, objective="Look around.", role="reader")
+
+    [request] = provider.requests
+    assert "You are a helper." in request.system
+    assert "You are Lucy." not in request.system
+    assert "talking to the person whose account this is" not in request.system
+    for lead_only in ("Starting helpers", "Learning how this person works", "Remembering"):
+        assert f"## {lead_only}" not in request.system
+    assert "## What you never do" in request.system, "a helper keeps the safety rules"

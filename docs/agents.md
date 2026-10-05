@@ -114,6 +114,13 @@ decisions that the parent cannot reconcile afterwards, and the conflict is usual
 invisible until something downstream is subtly wrong. Writing children, with file ownership
 partitioned by the parent, are not built.
 
+What a child is told agrees with that. Its system prompt is not Lucy's: identity is replaced
+by `prompt/defaults/identity.helper.md` (a helper, read-only, reporting to Lucy rather than
+to the person), and the sections about being the lead -- starting helpers, learning lessons,
+keeping memories -- are left out. A section opts in with `PromptSection.for_helpers`. A
+helper that read "you can start helpers" in its system prompt and "you are read-only" in its
+brief believed the system channel, and spent its rounds on writes that were refused.
+
 At spawn time a child is told what its siblings have already claimed, so it does not
 duplicate work that is already under way. That advice is derived from the shared journal
 rather than written by hand.

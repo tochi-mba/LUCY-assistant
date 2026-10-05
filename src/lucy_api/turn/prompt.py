@@ -59,6 +59,8 @@ class SessionView:
     tool_results_kept: int = 3
     schema_tokens: int = 0
     """The plan schema's size, sent with every request. Only whoever built the turn knows it."""
+    helper: bool = False
+    """A helper's prompt: its own identity, and none of the sections about being the lead."""
 
 
 class ViewLimits(TypedDict):
@@ -229,6 +231,7 @@ def _prompt_context(view: SessionView) -> PromptContext:
         advertised=view.advertised,
         response_style=view.response_style,
         preferences=view.preferences,
+        helper=view.helper,
     )
 
 

@@ -546,6 +546,7 @@ class ChildRuntime:
                         self.capabilities.plan_schema(catalogue, parent.session_id, child)
                     ),
                     **view_limits(parent.policy),
+                    helper=True,
                 ),
                 notice=notice,
             )

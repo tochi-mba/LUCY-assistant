@@ -213,6 +213,7 @@ def test_no_default_names_a_service_a_port_or_an_http_verb() -> None:
         "behaviour.md",
         "context.md",
         "helpers.md",
+        "identity.helper.md",
         "identity.md",
         "lessons.md",
         "memory.md",
@@ -222,6 +223,8 @@ def test_no_default_names_a_service_a_port_or_an_http_verb() -> None:
     }
     for item in render_all(CONTEXT):
         texts[item.id] = f"{item.title}\n{item.body}"
+    for item in render_all(replace(CONTEXT, helper=True)):
+        texts[f"{item.id} for a helper"] = f"{item.title}\n{item.body}"
     for name, text in texts.items():
         for word in FORBIDDEN_WORDS:
             assert not re.search(word, text, re.IGNORECASE), f"{name} names {word}"
@@ -450,10 +453,33 @@ def test_a_section_that_cannot_fit_one_line_still_ships_its_heading_and_its_conf
 
 
 def test_every_built_in_section_fits_inside_its_own_ceiling() -> None:
-    for item in render_all(CONTEXT):
-        declared = next(builtin for builtin in BUILTIN if builtin.id == item.id)
-        assert not item.truncated
-        assert item.tokens <= declared.max_tokens, item.id
+    """Under every response style, and in a helper's prompt as well as Lucy's."""
+    for style in ("brief", "natural", "thorough"):
+        for helper in (False, True):
+            context = replace(CONTEXT, response_style=style, helper=helper)
+            for item in render_all(context):
+                declared = next(builtin for builtin in BUILTIN if builtin.id == item.id)
+                assert not item.truncated, (item.id, style, helper)
+                assert item.tokens <= declared.max_tokens, (item.id, style, helper)
+
+
+def test_a_helper_reads_its_own_identity_even_over_a_persons_override() -> None:
+    """An override is written to Lucy; a helper is not Lucy, and is not talking to the person."""
+    helper = replace(CONTEXT, helper=True)
+    sections = render_all(helper, overrides={"identity": "You are Lucy, and very formal."})
+    identity = next(item for item in sections if item.id == "identity")
+    assert "You are a helper." in identity.body
+    assert "very formal" not in identity.body
+    assert not {"helpers", "lessons", "memory"} & {item.id for item in sections}
+    lead = render_all(CONTEXT, overrides={"identity": "You are Lucy, and very formal."})
+    assert "very formal" in next(item for item in lead if item.id == "identity").body
+
+
+def test_what_a_helper_reads_is_part_of_the_prompt_version() -> None:
+    """A helper's text edited under the same version would name two prompts the same."""
+    [identity, *rest] = BUILTIN
+    edited = replace(identity, for_helpers=lambda _context: "You are a different helper.")
+    assert prompt_version((edited, *rest)) != prompt_version(BUILTIN)
 
 
 def test_the_ceilings_of_a_band_fit_the_share_that_band_is_allocated() -> None:
@@ -522,7 +548,8 @@ def test_the_defaults_are_read_from_package_data_so_an_installed_wheel_works() -
     The grep is a prohibition rather than a description of the code; what follows it is the
     part that would notice. Every shipped markdown file is the body of exactly one section,
     so a default nothing reads any more -- and a section whose text has drifted from the file
-    somebody edits -- both fail here rather than in a prompt nobody diffs.
+    somebody edits -- both fail here rather than in a prompt nobody diffs. `<id>.helper.md` is
+    what a helper reads in that section's place.
     """
     assert "__file__" not in files(PACKAGE).joinpath("sections.py").read_text(encoding="utf-8")
     authored = {
@@ -530,10 +557,16 @@ def test_the_defaults_are_read_from_package_data_so_an_installed_wheel_works() -
         for item in files(PACKAGE).joinpath("defaults").iterdir()
     }
     rendered = {item.id: item.body for item in render_all(PromptContext())}
+    lead = {item.id: item.body for item in render_all(PromptContext())}
+    for item in render_all(PromptContext(helper=True)):
+        if builtin(item.id).for_helpers is not None:
+            rendered[f"{item.id}.helper"] = item.body
     assert set(authored) == set(rendered)
-    for section_id, text in authored.items():
-        assert files(PACKAGE).joinpath("defaults", f"{section_id}.md").is_file()
-        assert rendered[section_id] == f"## {builtin(section_id).title}\n\n{text}"
+    for name, text in authored.items():
+        assert files(PACKAGE).joinpath("defaults", f"{name}.md").is_file()
+        title = builtin(name.removesuffix(".helper")).title
+        assert rendered[name] == f"## {title}\n\n{text}"
+    assert rendered["identity.helper"] != lead["identity"]
 
 
 def test_a_held_back_capability_is_named_as_held_back_not_as_ready() -> None:

@@ -137,6 +137,14 @@ class PromptContext:
     goals: tuple[str, ...] = ()
     """What the person is trying to get done, in the order they said it."""
 
+    helper: bool = False
+    """Whether this prompt is for a helper Lucy started rather than for Lucy.
+
+    A helper read Lucy's whole prompt -- "you can start helpers", "keep it in that same turn",
+    "you are talking to the person" -- while its brief, a user message, said it was read-only.
+    A small model believed the system channel, and every write it tried was refused.
+    """
+
 
 type Renderer = Callable[[PromptContext], str]
 
@@ -175,6 +183,13 @@ class PromptSection:
     overridable: bool = True
     disableable: bool = True
     shrink: Shrinker | None = None
+    for_helpers: Renderer | None = None
+    """What a helper reads in this section's place. Unset, a helper reads what Lucy reads.
+
+    A section that renders nothing for a helper is left out of its prompt, as any empty
+    section is: the parts about starting helpers, learning lessons and keeping memories are
+    about being the lead, and a helper can do none of them.
+    """
 
 
 def _default(name: str) -> str:
@@ -189,6 +204,11 @@ def _fixed(text: str) -> Renderer:
         return text
 
     return render
+
+
+def _nothing(_context: PromptContext) -> str:
+    """For a section only the lead reads."""
+    return ""
 
 
 def _behaviour(context: PromptContext) -> str:
@@ -327,6 +347,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("identity")),
         max_tokens=400,
+        for_helpers=_fixed(_default("identity.helper")),
     ),
     PromptSection(
         id="behaviour",
@@ -376,6 +397,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("lessons")),
         max_tokens=700,
+        for_helpers=_nothing,
     ),
     PromptSection(
         id="helpers",
@@ -385,6 +407,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("helpers")),
         max_tokens=700,
+        for_helpers=_nothing,
     ),
     PromptSection(
         id="workspace",
@@ -403,6 +426,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("memory")),
         max_tokens=600,
+        for_helpers=_nothing,
     ),
     PromptSection(
         id="context",
@@ -579,8 +603,12 @@ def render_all(
     for section in sections:
         if section.id in switched_off:
             continue
+        render = section.render
         replacement = replacements.get(section.id, "")
-        text = replacement or section.render(context)
+        if context.helper and section.for_helpers is not None:
+            # A person's override is written to Lucy, so a helper reads its own text instead.
+            render, replacement = section.for_helpers, ""
+        text = replacement or render(context)
         if not text:
             continue
         # A replacement is prose somebody typed, not the structure the shrinker knows how to
@@ -600,6 +628,7 @@ def prompt_version(sections: Sequence[PromptSection] = BUILTIN) -> str:
     has a shrinker, because each of those decides what a turn was actually shown: a ceiling
     halved ships half a section, a priority changed gives a different section up first, and a
     flag flipped puts a section within reach of a setting that could not touch it yesterday.
+    What a helper reads in a section's place goes in for the same reason.
     A digest blind to those would call the before and the after by the same name, and the
     name is all a resumed session has.
     """
@@ -609,6 +638,7 @@ def prompt_version(sections: Sequence[PromptSection] = BUILTIN) -> str:
         f"\x1f{section.priority}\x1f{section.max_tokens}"
         f"\x1f{section.overridable}\x1f{section.disableable}\x1f{section.shrink is not None}"
         f"\x1f{section.render(empty)}"
+        f"\x1f{'=' if section.for_helpers is None else section.for_helpers(empty)}"
         for section in sections
     )
     return f"{PROMPT_VERSION}.{hashlib.sha256(material.encode()).hexdigest()[:12]}"
