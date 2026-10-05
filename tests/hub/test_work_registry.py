@@ -204,7 +204,8 @@ async def test_a_notice_says_how_big_the_answer_is_and_never_carries_it() -> Non
 
     assert notice.tokens == 10_000
     assert "x" * 100 not in notice.line(), "the answer itself is not in the notice"
-    assert "fetch it to read it" in notice.line()
+    assert "read it with work.result" in notice.line()
+    assert f"id {handle.id}" in notice.line(), "the handle the follow-up takes"
     assert notice.id == handle.id
 
 
@@ -637,3 +638,27 @@ async def test_a_subscription_that_expires_reads_as_expired_like_a_watch() -> No
     assert (
         "without firing; start it again if you still need it" in registry.result(handle.id).detail
     )
+
+
+async def test_finished_work_shows_how_it_ended_and_the_id_its_follow_up_takes() -> None:
+    """The bug, named: a finished helper's line showed its last progress note ("reading page
+    3") where why it stopped belonged, and no line carried the id that work.result,
+    work.cancel or agents.reopen takes -- handed back only in a step reclaim later cleared."""
+    from lucy_api.work import WorkError
+
+    registry, _clock = a_registry()
+    started = asyncio.Event()
+
+    async def stops() -> str:
+        await started.wait()
+        raise WorkError("stopped before it finished: the model was unavailable")
+
+    handle = registry.start(stops(), a_brief())
+    registry.progress(handle.id, "reading page 3")
+    started.set()
+    await settled()
+
+    [finished] = registry.snapshot(SESSION)
+    assert finished.progress == "stopped before it finished: the model was unavailable"
+    [notice] = registry.drain(SESSION)
+    assert f"id {handle.id}" in notice.line()

@@ -263,6 +263,6 @@ def test_a_record_renders_its_own_notice() -> None:
 
     assert notice.elapsed_seconds == 9
     assert notice.line() == (
-        "watch (watch) - Say when it lands - succeeded - "
-        "about 3 tokens of result, fetch it to read it"
+        f"watch (watch) - Say when it lands - succeeded - id {record.id} - "
+        "about 3 tokens of result, read it with work.result"
     )

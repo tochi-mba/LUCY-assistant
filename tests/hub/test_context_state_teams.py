@@ -18,8 +18,8 @@ def test_a_queued_helper_is_in_flight_says_it_is_queued_and_names_its_group() ->
     )
 
     assert entries_of(body_of(state), "in_flight") == [
-        "researcher in skeptics - find every caller of the old ingest API - queued 40s",
-        "reviewer in reviewers - find every caller of the old ingest API - 2m14s",
+        "researcher in skeptics - find every caller of the old ingest API - queued 40s - id a2",
+        "reviewer in reviewers - find every caller of the old ingest API - 2m14s - id a1",
     ]
     assert headline(body_of(state), "in_flight") == "1 thing running, 1 queued"
 
@@ -33,4 +33,5 @@ def test_a_finished_member_of_a_group_is_named_with_its_group() -> None:
 
     assert entries_of(body_of(state), "finished") == [
         "researcher in reviewers - find every caller of the old ingest API - succeeded after 2m14s"
+        " - id a1"
     ]

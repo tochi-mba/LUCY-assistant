@@ -472,6 +472,7 @@ def test_a_notice_names_the_group_its_work_was_started_in() -> None:
         group="reviewers",
     )
     assert (
-        record.notice(START).line() == "reviewer (helper, reviewers) - Read it - failed - stopped"
+        record.notice(START).line()
+        == f"reviewer (helper, reviewers) - Read it - failed - id {record.id} - stopped"
     )
     assert record.notice(START).group == "reviewers"
