@@ -252,7 +252,7 @@ def test_the_tool_idiom_teaches_the_note_with_a_good_example_and_a_bad_one() -> 
     assert idiom.count("Bad:") == 2
     assert "by reference" in idiom
     assert "Read-only steps in one plan run at the same time" in idiom
-    assert "Anything that writes runs on" in idiom
+    assert "A write runs on its own" in " ".join(idiom.split())
 
 
 def test_the_safety_section_says_results_are_data_and_forbids_asking_for_a_secret() -> None:
@@ -589,3 +589,31 @@ def test_acting_on_what_was_read_for_the_person_needs_no_extra_question() -> Non
     assert "A change they did not ask for" in safety
     assert "confirm with them first" in safety, "an action the text asked for still stops"
     assert "Only the person grants permission" in safety
+
+
+def test_memory_never_claims_nothing_is_deleted_and_names_the_operation_to_open_a_topic() -> None:
+    """The bug, named: "Nothing is ever deleted", a paragraph after "theirs to read, correct and
+    delete" -- and notes.forget does erase. A model told otherwise could refuse a deletion as
+    impossible, or tell the person a forgotten memory was still kept."""
+    memory = " ".join(section(render_all(CONTEXT), "memory").body.split())
+    assert "Nothing is ever deleted" not in memory
+    assert "keeps the old version in its history" in memory
+    assert "`notes.openTopic`" in memory
+
+
+def test_show_from_is_for_reads_and_a_write_is_never_rerun_to_see_more() -> None:
+    """The bug, named: "run the same step again" with show_from re-executes the step, and
+    nothing limited the advice to reads -- for a write or a command it happened twice."""
+    tools = " ".join(section(render_all(CONTEXT), "tools").body.split())
+    assert "Never re-run a write or a command for this" in tools
+    assert "One that matched nowhere was not copied exactly." in tools
+
+
+def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
+    """The bug, named: "two writes that could collide are two plans" guarded against something
+    the executor already prevents, and missed what it does not: a failed step skips only the
+    steps that reference it, so a commit to a branch that failed to be created still ran."""
+    tools = " ".join(section(render_all(CONTEXT), "tools").body.split())
+    assert "A failed step skips only the steps that reference it" in tools
+    assert "either references that write or goes in your next plan" in tools
+    assert "could collide" not in tools

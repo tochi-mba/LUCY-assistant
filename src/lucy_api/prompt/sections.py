@@ -353,7 +353,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         priority=5,
         version="1",
         render=_fixed(_default("tools")),
-        max_tokens=1100,
+        max_tokens=1200,
         overridable=False,
         disableable=False,
     ),
