@@ -110,6 +110,10 @@ class TurnRecord:
     """The hub's sentence for refusing this message, when it refused it. A refused turn has
     no id and no reply; whether the refusal was the one expected is one of its checks."""
 
+    session_id: str = ""
+    """The session this turn was sent in. A scenario that comes back another day has more
+    than one; a report written before that existed has none."""
+
     @property
     def passed(self) -> bool:
         return all(check.passed for check in self.checks)

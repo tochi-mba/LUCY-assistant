@@ -143,6 +143,17 @@ class Conversation:
         ``on_event`` hears each step the harness takes before the turn as that step ends,
         then each step and ask of the turn the moment the transcript shows it.
         """
+        record = self._take_turn(index, spec, timeout=timeout, on_event=on_event)
+        return replace(record, session_id=self.session_id)
+
+    def _take_turn(
+        self,
+        index: int,
+        spec: TurnSpec,
+        *,
+        timeout: float,
+        on_event: Callable[[str], None] | None,
+    ) -> TurnRecord:
         taken, unsent = self._before(spec, on_event)
         if unsent:
             return _unsent(index, spec, taken, unsent)

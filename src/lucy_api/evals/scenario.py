@@ -181,6 +181,12 @@ class TurnSpec:
 
     expect: Expect = field(default_factory=Expect)
     verify: tuple[Invocation, ...] = ()
+    new_session: bool = False
+    """Send this turn in a fresh session on the same profile, once the last one is archived.
+
+    How a person comes back another day: nothing of the conversation carries over, only what
+    was kept. A scenario about remembering is only honest when the recall happens here; in
+    the same session the model reads the answer off its own transcript."""
 
 
 @dataclass(frozen=True, slots=True)
