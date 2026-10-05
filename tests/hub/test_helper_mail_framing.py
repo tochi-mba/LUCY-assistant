@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lucy_api.agents.runtime import ChildRuntime
+from lucy_api.agents.runtime import FROM_THE_PARENT, ChildRuntime
 from lucy_api.agents.store import AgentStore
 from lucy_api.model.registry import ModelRegistry
-from lucy_api.model.scripted import ScriptedProvider, speaks
+from lucy_api.model.scripted import ScriptedProvider, plans, speaks
 from lucy_api.packs.agents import AgentsPack
 from lucy_api.packs.help import HelpPack
 from lucy_api.packs.service import Capabilities
@@ -43,8 +43,13 @@ class Posted(AgentStore):
 async def test_a_parents_mail_is_its_own_message_and_never_a_harness_line(
     sessions_store: SessionStore,
 ) -> None:
+    """And it stays. The bug, named: mail was shown for the one round it arrived in, so a
+    helper told "narrow to EU sources" had forgotten it a round later, and `agents.read` never
+    showed it had been steered."""
     created = await sessions_store.create(ACCOUNT, CreateSession(model="scripted:demo"), "key")
-    provider = ScriptedProvider([speaks("Checked.")])
+    provider = ScriptedProvider(
+        [plans({"steps": [{"id": "s", "op": "help.skills", "input": {}}]}), speaks("Checked.")]
+    )
     capabilities = Capabilities((HelpPack(), AgentsPack()))
     child = ChildRuntime(
         sessions_store,
@@ -59,12 +64,16 @@ async def test_a_parents_mail_is_its_own_message_and_never_a_harness_line(
 
     await child.run(parent, objective="Read the docs folder.", role="reader")
 
-    [request] = provider.requests
-    heard = request.messages[-1].content
-    assert heard.startswith("From the assistant that started you (not the person):")
-    assert "- Also check the README." in heard
-    assert "[harness:" not in heard, "a model's words cannot become the system's"
-    assert "Also check the README." not in request.system
+    first, second = provider.requests
+    for request in (first, second):
+        [heard] = [m.content for m in request.messages if "Also check the README." in m.content]
+        assert heard.startswith(FROM_THE_PARENT)
+        assert "[harness:" not in heard, "a model's words cannot become the system's"
+        assert "Also check the README." not in request.system
+    rows = await sessions_store.records(ACCOUNT, str(created["id"]), "items")
+    kept = [row for row in rows if "Also check the README." in str(row.get("content"))]
+    assert len(kept) == 1, "written once, into the helper's own transcript"
+    assert kept[0]["agent_id"]
 
 
 async def test_a_helpers_prompt_lists_what_its_schema_can_call(

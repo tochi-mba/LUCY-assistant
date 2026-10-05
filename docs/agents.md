@@ -29,6 +29,11 @@ A message to a running child is queued and delivered at its next tool-call bound
 mid-tool, because a tool that is half-applied when its caller changes its mind leaves a
 file half-written. Never mid-model-call, because the request has already been sent.
 
+Delivered means written into the child's own transcript, as a message in the parent's words
+(never a `[harness: ...]` line, never the system prompt). It stays for the rest of the run,
+and `agents.read` shows it. Shown only for the round it arrived in, a steer was forgotten a
+round later and left no trace that it had been given.
+
 A message to a child that has already finished is refused, with a pointer to its result;
 continuing it is `agents.reopen`, below. A send reports *delivered* only once the write to
 the inbox succeeded — a parent that believes it steered a child that never heard it is worse
