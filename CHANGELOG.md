@@ -31,6 +31,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **What every step shares is said once, on the steps array.** Every operation in the plan
+  schema carried a phrase on its `note` and its `show_from`, about thirty tokens an
+  operation every round, some 1,500 with fifty bound. The steps array now names both once;
+  the prompt's tools section still says them in full.
 - **The plan schema offers one generated operation per collection, not eight.** weftai can
   generate `filter`, `count`, `countBy`, `distinct`, `mostCommon`, `first`, `pick` and
   `details` for every collection a bound operation returns. Together they were about a third
