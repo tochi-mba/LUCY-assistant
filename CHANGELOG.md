@@ -124,6 +124,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   throughout. A request that cannot land twice -- a repeatable method, or a POST with its
   idempotency key -- is now sent once more on a fresh connection.
 
+- **A search that could not be run fails, rather than finding nothing.** When the provider
+  refused every query -- Google's captcha, say -- `research.search` still succeeded with an
+  empty list, so an open planned beside it failed on "'search' is empty", and a model
+  reading the list could tell the person nothing exists. The step now fails, in fixed words,
+  and nothing that depends on it runs.
 - **Results found without a summary stand, and say what is missing.** Web-search-api failed a
   whole search or open when its summariser did, so a model told research had failed reported
   finding nothing. With the service answering `summary_error` beside results that stand, the

@@ -72,8 +72,25 @@ reported finding nothing. Now the results stand, and these say what is missing i
 nothing of what the provider said about its own failure reaches the model."""
 
 
+SEARCH_FAILED = (
+    "the search could not be run just now, so nothing was found or ruled out; try again in a "
+    "moment, or tell the person research is unavailable"
+)
+"""Why a search step fails when no query could be run. Fixed words: what the provider said
+about itself ("configure an alternate search backend") is advice for an operator."""
+
+
 class ResearchInputError(ValueError):
     """An open the model can fix, said in a sentence it can act on."""
+
+
+class SearchUnavailableError(RuntimeError):
+    """Every query failed, so the step fails: an empty list would read as "nothing exists".
+
+    Reported as a success with an empty list and a notice, a search the provider refused --
+    Google's captcha, say -- let a later step in the same plan open `$search[1]` of nothing,
+    and a model reading only the list could tell the person there was nothing to find.
+    """
 
 
 class ResearchPack:
@@ -229,6 +246,8 @@ class ResearchPack:
                 run.notice(f"research for {result.query!r}: {result.detail}")
             if result.summary_failed and result.hits:
                 run.notice(NO_SEARCH_SUMMARY)
+        if findings and not hits and all(result.status != "ok" for result in findings):
+            raise SearchUnavailableError(SEARCH_FAILED)
         return hits
 
     async def _open(self, run: RunContext[PackContext]) -> dict[str, Any]:
