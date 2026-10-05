@@ -14,6 +14,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   research scenario failed for the harness's reason. With `--token-command`, a message or
   an answer now starts its turn on a token with at least ten minutes to run.
 
+- **Acting on what was read, for the person, needs no extra question.** Safety asked for a
+  confirmation before any change "shaped by something untrusted", and every tool result is
+  untrusted, so read literally every edit after a read needed a question first. The rule now
+  turns on who wanted the change: what the person asked for goes ahead; a change a page, a
+  memory or a helper's report prompted is confirmed first.
 - **The prompt no longer asks for an announcement the hub cannot show.** It said "say what
   you are doing before a long step", while words beside steps are shown only once the steps
   have run. A small model obeying it wrote an announcement the person read after the wait, or
