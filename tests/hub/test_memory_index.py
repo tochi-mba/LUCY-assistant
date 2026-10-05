@@ -108,3 +108,29 @@ async def test_the_live_index_carries_unconfirmed_members_to_the_block() -> None
     snapshots = await MemoryIndex(listing, profile="personal").fetch("ses_1")
     assert snapshots[0].count == 2
     assert snapshots[0].unconfirmed == 3
+
+
+async def test_a_cut_index_says_so_on_the_ordinary_path_too() -> None:
+    """The bug, named: the index was cut to the limit and said so only when the relevance
+    decision had reordered it. Without that decision, a person with five topics was shown two
+    with no word of the rest -- and the live block's own confession never fired, because its
+    ceiling equals the cut."""
+    listing = Listing(
+        (
+            *(card(id=f"t-{n}", importance=n / 10) for n in range(5)),
+            card(id="t-new", importance=0.9, trust="untrusted"),
+        )
+    )
+
+    first, second = await MemoryIndex(listing, profile="work", limit=2).fetch("ses_1")
+
+    assert first.index_notice == (
+        "showing 2 of 5 topics; 1 unconfirmed topic held back until confirmed; "
+        "find the rest with notes.search"
+    )
+    assert second.index_notice == ""
+
+
+async def test_an_index_that_shows_everything_confesses_nothing() -> None:
+    (only,) = await MemoryIndex(Listing((card(),)), profile="work", limit=8).fetch("ses_1")
+    assert only.index_notice == ""
