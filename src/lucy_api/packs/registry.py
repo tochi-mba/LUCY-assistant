@@ -393,7 +393,7 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
-    return _with_words(_ids_said_once(allow_show_from(schema)))
+    return _with_words(_said_once(allow_show_from(schema)))
 
 
 def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
@@ -410,16 +410,26 @@ def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
     return {**schema, "properties": properties, "required": required}
 
 
-def _ids_said_once(schema: dict[str, Any]) -> dict[str, Any]:
-    """Every operation's `id` without the sentence explaining ids, which is said elsewhere.
+STEPS_DESCRIPTION = (
+    "Steps to run. A step may reference earlier steps' results with $id; independent steps "
+    "run together. Each step's `note` says in one plain sentence what it is for; `show_from` "
+    "re-shows a spilled result from a unique snippet of it onward."
+)
+"""What every step's `id`, `note` and `show_from` are for, said once rather than per operation.
 
-    weftai puts "Short name for this step's result; later steps reference it as $id." on the `id`
-    of every operation, and a family with fifty operations sent it fifty times a round. The
-    steps array and the prompt's tools section already say how `$id` works.
-    """
+weftai put "Short name for this step's result; later steps reference it as $id." on the `id` of
+every operation, and the hub put a phrase on every `note` and `show_from`: three sentences
+times every operation, every round -- about thirty tokens each, some 1,500 a round with fifty
+operations bound. A provider that shows the model only the schema still reads each
+once, here; the prompt's tools section says them in full."""
+
+
+def _said_once(schema: dict[str, Any]) -> dict[str, Any]:
+    """Every operation's `id` without its description, and the steps array saying it once."""
     steps = schema.get("properties", {}).get("steps", {})
     for variant in steps.get("items", {}).get("anyOf", ()):
         variant.get("properties", {}).get("id", {}).pop("description", None)
+    steps["description"] = STEPS_DESCRIPTION
     return schema
 
 

@@ -279,16 +279,12 @@ def _patch_steps(node: Any) -> None:
         return
     props = node.get("properties")
     if isinstance(props, dict) and "id" in props and "op" in props and "show_from" not in props:
-        props[NOTE] = {
-            "type": "string",
-            "description": "What this call is for, in one plain sentence.",
-        }
-        # Short on purpose: this is copied onto every operation in the schema, and the full
-        # explanation is said once, in the prompt's tools section.
-        props["show_from"] = {
-            "type": "string",
-            "description": "Show a spilled result from this unique snippet onward.",
-        }
+        # No description on either: this is copied onto every operation in the schema, so a
+        # sentence here was paid for once per operation per round. What both are for is said
+        # once, on the steps array (`lucy_api.packs.registry.STEPS_DESCRIPTION`), and in full
+        # in the prompt's tools section.
+        props[NOTE] = {"type": "string"}
+        props["show_from"] = {"type": "string"}
     for value in node.values():
         _patch_steps(value)
 
