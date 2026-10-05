@@ -339,3 +339,53 @@ async def test_an_open_names_exactly_one_kind_of_source() -> None:
     assert "Give `hit` or `url`, not both." in str(both["steps"][1])
     assert "Name what to open" in str(neither["steps"][0])
     assert "found no result to open" in str(nothing["steps"][1])
+
+
+async def test_results_found_without_a_summary_stand_and_say_what_is_missing() -> None:
+    """The bug, named: a summariser timeout failed the whole search or open in the service, so
+    the model was told research failed and reported finding nothing. The results now stand,
+    and a fixed sentence says only the summary is missing."""
+    from lucy_api.packs.research import NO_PAGE_SUMMARY, NO_SEARCH_SUMMARY
+
+    fake = FakeSearchClient()
+    fake.seed(
+        Findings(
+            query="tea",
+            hits=(Hit(title="Tea", url="https://tea.example/a", rank=1),),
+            summary_failed=True,
+        )
+    )
+    fake.stock(Article(Page(url="https://tea.example/a", title="Tea", word_count=40)))
+    fake.summary_fails = True
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    searched = await capabilities.execute(
+        {"steps": [{"id": "s", "op": "research.search", "input": {"query": "tea"}}]}, context
+    )
+    opened = await capabilities.execute(
+        {"steps": [{"id": "o", "op": "research.open", "input": {"url": "https://tea.example/a"}}]},
+        context,
+    )
+
+    [search_step] = searched["steps"]
+    assert search_step["status"] == "ok"
+    assert search_step["data"][0]["url"] == "https://tea.example/a"
+    assert NO_SEARCH_SUMMARY in search_step["notices"]
+    [open_step] = opened["steps"]
+    assert open_step["data"]["summary"] is None
+    assert NO_PAGE_SUMMARY in open_step["notices"]
+
+
+async def test_a_search_that_found_nothing_does_not_mention_a_missing_summary() -> None:
+    fake = FakeSearchClient()
+    fake.seed(Findings(query="nothing", summary_failed=True))
+    capabilities = Capabilities([ResearchPack("https://search.test", client=fake)])
+    context = _context()
+    await capabilities.probe(context)
+
+    searched = await capabilities.execute(
+        {"steps": [{"id": "s", "op": "research.search", "input": {"query": "nothing"}}]}, context
+    )
+    assert not searched["steps"][0]["notices"]

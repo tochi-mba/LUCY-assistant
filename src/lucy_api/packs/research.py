@@ -58,6 +58,18 @@ EITHER = "Give `hit` or `url`, not both."
 OPEN_WHAT = "Name what to open: `hit` for a search result, or `url` for an address."
 NOTHING_FOUND = "The referenced search found no result to open; search again first."
 TOO_MANY = "opened the first {opened} of the {found} results referenced; open the rest by index"
+NO_SEARCH_SUMMARY = (
+    "no summary this time: the research model did not answer; the results are listed"
+)
+NO_PAGE_SUMMARY = (
+    "the page was fetched, but the research model did not summarise it, so nothing of it is kept; "
+    "open it again to read it"
+)
+"""What the model is told when the service's summariser failed and the rest did not.
+
+The service used to fail the whole search or open with it, so a model told "research failed"
+reported finding nothing. Now the results stand, and these say what is missing in fixed words:
+nothing of what the provider said about its own failure reaches the model."""
 
 
 class ResearchInputError(ValueError):
@@ -215,6 +227,8 @@ class ResearchPack:
                 hits.append(row)
             if result.detail:
                 run.notice(f"research for {result.query!r}: {result.detail}")
+            if result.summary_failed and result.hits:
+                run.notice(NO_SEARCH_SUMMARY)
         return hits
 
     async def _open(self, run: RunContext[PackContext]) -> dict[str, Any]:
@@ -228,6 +242,8 @@ class ResearchPack:
         for page in pages:
             if not page.fetched:
                 run.notice(f"could not open {page.url}: {page.detail}")
+        if reading.summary_failed:
+            run.notice(NO_PAGE_SUMMARY)
         return {"pages": [_page(page) for page in pages], "summary": _summary(reading.summary)}
 
     async def _summarize(self, run: RunContext[PackContext]) -> dict[str, Any]:
