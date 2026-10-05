@@ -12,7 +12,7 @@ say = "I'm a backend engineer and I review my week on Friday afternoons. Please 
 approve = "yes"
 
 [turns.expect]
-ran = ["notes.setFact|notes.remember"]
+ran = ["notes.setFact"]
 
 [[turns]]
 say = "What do you know about me?"

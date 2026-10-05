@@ -807,3 +807,17 @@ async def test_a_reference_to_a_search_that_found_nothing_is_refused_with_the_fi
     assert str(result["steps"][1]["error"]).endswith(
         "The referenced step found no note; find it first."
     )
+
+
+def test_what_the_person_asks_to_have_remembered_outlives_the_conversation() -> None:
+    """The bug, named: asked to "remember that", a small model picked the operation named
+    `remember`, which keeps an episode on this session only, so the fact was gone in the next
+    conversation. Its description promised a "promote" that no operation does."""
+    capabilities, context = _capabilities(FakeHttp())
+    pack = next(pack for pack in capabilities.packs if isinstance(pack, NotesPack))
+    said = {op.name: op.description for op in pack.operations(context)}
+    assert "anything they ask you to remember about them" in said["notes.setFact"]
+    assert "for this conversation only" in said["notes.remember"]
+    assert "promote" not in said["notes.remember"]
+    page = " ".join(capability_doc("notes").read_text(encoding="utf-8").split())
+    assert "what they ask you to remember about them goes there" in page
