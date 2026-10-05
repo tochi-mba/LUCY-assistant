@@ -275,25 +275,33 @@ def apply_disabled(catalogue: Catalogue, disabled: Sequence[str]) -> Catalogue:
     return replace(catalogue, bound=tuple(bound))
 
 
+STANDARD_OPERATIONS: tuple[str, ...] = ("filter",)
+"""The one generated operation worth its place in every round's plan schema.
+
+weftai can generate eight for each collection a bound operation returns: `filter`, `count`,
+`countBy`, `distinct`, `mostCommon`, `first`, `pick` and `details`. `details` repeated what
+a step's result already shows, `first` and `pick` repeated what a `$id[n]` reference already
+selects, and the counting ones are covered by `filter`, whose result carries how many
+matched -- even of a result too large to be shown whole. None of them ran in any eval.
+Together they were about a third of the schema, sent on every round: some 4,300 tokens on a
+fresh conversation and 10,000 once repositories were bound, and up to forty-nine more names
+for a small model to choose between. `filter` stays: it narrows a stored result before a
+later step acts on it by reference, which nothing else does without fetching the list again.
+"""
+
+
 def build_registry(
     operations: Sequence[AnyOperation], *, with_standard: bool = True
 ) -> Registry[Any]:
-    """One registry for one turn, plus the operations every collection gets for free.
+    """One registry for one turn, plus `<collection>.filter` for each collection in play.
 
     Cheap enough to build per turn, which is what makes capability gating per-person
-    possible at all.
-
-    `filter`, `count`, `countBy`, `distinct`, `mostCommon`, `first`, `pick` and `details`
-    are generated for each declared collection. They are worth having for one reason above
-    the others: they run against a result that is **already stored**, so "how many of those
-    were confirmed" is arithmetic over something already paid for rather than a second call
-    and a second page of tokens. Without them a model answers that question by asking for
-    the whole list again and counting in its head, which is both slower and less reliable.
+    possible at all. See `STANDARD_OPERATIONS` for why only `filter` is generated.
     """
     generated: list[AnyOperation] = []
     if with_standard:
         for declared in _collections_in_play(operations):
-            generated.extend(standard_operations(declared))
+            generated.extend(standard_operations(declared, {"include": list(STANDARD_OPERATIONS)}))
     return create_registry({"operations": [*operations, *generated]})
 
 

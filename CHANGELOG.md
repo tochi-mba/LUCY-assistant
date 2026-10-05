@@ -31,6 +31,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The plan schema offers one generated operation per collection, not eight.** weftai can
+  generate `filter`, `count`, `countBy`, `distinct`, `mostCommon`, `first`, `pick` and
+  `details` for every collection a bound operation returns. Together they were about a third
+  of every round's schema -- some 4,300 tokens on a fresh conversation and 10,000 once
+  repositories were bound -- and seven repeated what the model already reads or what `$id[n]`
+  already selects. Only `filter` is generated now.
 - **A round's notice no longer costs the cached system prompt.** A resumed turn, a budget
   warning, a plan to repair, a refusal or the vision line was appended to the system prompt, the
   one part every provider caches, so each round that carried one paid for the whole prompt

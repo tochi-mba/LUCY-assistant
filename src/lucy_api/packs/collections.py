@@ -13,10 +13,11 @@ A **collection** turns the same data into something the runtime understands:
 * **References work by position.** `$notes[0,2]` resolves against the whole result, not
   against the lines that happened to be shown, so a step can act on something the model
   never actually read.
-* **Eight operations come free.** `filter`, `count`, `countBy`, `distinct`, `mostCommon`,
-  `first`, `pick` and `details` are generated for every declared collection. They run
-  against a stored result rather than re-fetching it, so "how many of those were confirmed"
-  costs no network call and no second page of tokens.
+* **One operation comes free.** `<collection>.filter` is generated for every declared
+  collection in play. It narrows a stored result before a later step acts on it by
+  reference, so "the confirmed ones" costs no network call and no second page of tokens.
+  weftai can generate seven more, and `packs.registry.STANDARD_OPERATIONS` says why they
+  are not offered.
 * **The formatter can be honest.** Knowing the entry count is what makes `showing 5 of 41`
   possible; an opaque blob can only be truncated silently.
 
