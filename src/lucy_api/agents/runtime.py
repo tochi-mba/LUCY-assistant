@@ -129,8 +129,8 @@ def _brief_text(delegation: Delegation) -> str:
         lines.append(f"Guidance: {delegation.guidance}")
     if delegation.return_schema:
         lines.append(
-            "Return JSON matching this schema as your whole answer, no markdown: "
-            + delegation.return_schema
+            "When you are finished, your whole answer is one JSON object matching this "
+            "schema, with nothing before or after it and no code fence: " + delegation.return_schema
         )
     if delegation.resume_from:
         lines.append(
@@ -594,6 +594,7 @@ class ChildRuntime:
                 # was held to a constant the setting never reached.
                 result_token_cap=parent.policy.max_tool_result_tokens,
                 max_thinking_tokens=parent.policy.max_thinking_tokens,
+                object_answer=bool(delegation.return_schema),
             )
         )
         summary, tokens, notice = capped_summary(
