@@ -74,8 +74,25 @@ def _approval_response(content: dict[str, Any]) -> str:
     return f"[the person declined it: {instruction}]" if instruction else "[the person declined it]"
 
 
+PAST = {
+    "invalid_plan": "[harness: a plan here was invalid and none of it ran: {detail}]",
+    "empty_reply": "[harness: a reply here was empty; nothing reached the person]",
+}
+"""How a repair round's error reads once it is history: what happened, where it happened.
+
+Written as the round's own instruction -- "The previous plan was invalid", "Answer the person
+in prose" -- it stayed in the transcript for the rest of the session, and a weak model read
+"previous" as its latest plan and the imperative as standing."""
+
+LEGACY_PREFIX = "The previous plan was invalid: "
+"""What an invalid-plan item's detail began with before it held only the reason."""
+
+
 def _error(content: dict[str, Any]) -> str:
-    return f"[error {content.get('code')}: {content.get('detail')}]"
+    code = str(content.get("code") or "")
+    detail = str(content.get("detail") or "").removeprefix(LEGACY_PREFIX)
+    template = PAST.get(code)
+    return template.format(detail=detail) if template else f"[error {code}: {detail}]"
 
 
 _RENDERERS: dict[str, tuple[frozenset[str], Callable[[dict[str, Any]], str]]] = {

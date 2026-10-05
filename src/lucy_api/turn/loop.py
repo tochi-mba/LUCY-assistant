@@ -88,6 +88,14 @@ CAUGHT = (
 )
 """Said beside a result the scrubber had to change, in the hub's voice, outside its frame."""
 
+INVALID_PLAN = (
+    "Your last plan was invalid and none of it ran; the reason is just above. Send a "
+    "corrected plan, or answer in prose."
+)
+"""The repair round's instruction. The reason is the error item just above it in history, so
+weftai's issue text is read once: it used to be both the item and this notice, paid for twice,
+and the item said "The previous plan was invalid" for the rest of the session."""
+
 EMPTY_REPLY = (
     "Your previous reply was empty: nothing reached the person, and no plan was sent. "
     "Answer the person in prose, or send a plan."
@@ -408,8 +416,8 @@ async def _run_plan(
     repair_notice = ""
     said = ""
     if not _is_valid(result):
-        repair_notice = "The previous plan was invalid: " + _issue_text(result)
-        await _invalid_item(turn, repair_notice)
+        repair_notice = INVALID_PLAN
+        await _invalid_item(turn, _issue_text(result) or "the plan could not be understood")
         if cycle.repairs < MAX_PLAN_REPAIRS:
             cycle.repairs += 1
             cycle.repair_notice = repair_notice
@@ -473,9 +481,9 @@ def _finished(outcome: Outcome, round_: Round, reply: Reply) -> Outcome:
     return outcome
 
 
-async def _invalid_item(turn: Turn, notice: str) -> None:
+async def _invalid_item(turn: Turn, issue: str) -> None:
     if turn.append is not None:
-        await turn.append("error", "tool", {"code": "invalid_plan", "detail": notice})
+        await turn.append("error", "tool", {"code": "invalid_plan", "detail": issue})
 
 
 async def _assistant_item(turn: Turn, text: str) -> None:
@@ -878,6 +886,7 @@ def _never() -> bool:
 __all__ = [
     "CAUGHT",
     "EMPTY_REPLY",
+    "INVALID_PLAN",
     "MAX_PLAN_REPAIRS",
     "RESULT_TOKEN_CAP",
     "Outcome",

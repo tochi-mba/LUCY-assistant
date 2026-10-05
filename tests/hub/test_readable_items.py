@@ -86,9 +86,24 @@ def test_a_failed_step_reads_as_its_purpose_notices_and_error() -> None:
 
 
 def test_an_error_reads_as_its_code_and_detail() -> None:
-    assert readable("error", {"code": "empty_reply", "detail": "nothing was said"}) == (
-        "[error empty_reply: nothing was said]"
+    assert readable("error", {"code": "model_error", "detail": "the model stopped"}) == (
+        "[error model_error: the model stopped]"
     )
+
+
+def test_a_repair_round_s_error_reads_as_what_happened_not_as_an_instruction() -> None:
+    """The bug, named: "The previous plan was invalid" and "Answer the person in prose" stayed
+    in history for the rest of the session, relative to a moment that had passed."""
+    assert readable("error", {"code": "empty_reply", "detail": "anything"}) == (
+        "[harness: a reply here was empty; nothing reached the person]"
+    )
+    for detail in (
+        "step 1: no such operation",
+        "The previous plan was invalid: step 1: no such operation",
+    ):
+        assert readable("error", {"code": "invalid_plan", "detail": detail}) == (
+            "[harness: a plan here was invalid and none of it ran: step 1: no such operation]"
+        )
 
 
 @pytest.mark.parametrize(

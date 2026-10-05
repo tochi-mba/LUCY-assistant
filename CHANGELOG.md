@@ -31,6 +31,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **A repair round reads its reason once, and history reads as what happened.** An invalid
+  plan's reason was both an error item in history and the round's notice, paid for twice,
+  and the item said "The previous plan was invalid" -- and an empty reply's "Answer the
+  person in prose" -- for the rest of the session. The notice now points at the item, and
+  both read in the past tense: what happened, where it happened.
 - **A tool result's frame is paid for once, and briefly.** Every result in history is re-sent
   every round, and its frame repeated the source in an introduction, said one thing in two
   closing lines and indented every line twice: 89 tokens an untrusted result, 55 a trusted
