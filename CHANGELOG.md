@@ -26,6 +26,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Every line about work names the id its follow-up takes, and how finished work ended.**
+  Running, finished and woken work was never shown with its id, which `work.result`,
+  `work.cancel` and `agents.reopen` all take; it was handed back only in the step that
+  started the work, which reclaim clears. The line saying "agents.reopen continues it" had
+  nothing to pass, and a finished helper showed its last progress note where why it stopped
+  belonged.
 - **The eval harness survives a keep-alive the hub closed.** Between turns -- archiving a
   session, renewing its token -- the harness left its connection idle, the hub closed it,
   and the next request down it stopped the whole run as "cannot reach Lucy" with the hub up

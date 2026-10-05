@@ -294,6 +294,7 @@ def test_a_running_agent_shows_its_role_objective_elapsed_time_and_last_progress
 
     assert entries_of(body_of(state), "in_flight") == [
         "researcher - find every caller of the old ingest API - 2m14s - read 12 files, 3 left"
+        " - id a1"
     ]
     assert headline(body_of(state), "in_flight") == "1 thing running"
 
@@ -302,7 +303,7 @@ def test_an_agent_with_nothing_to_report_yet_renders_no_empty_field() -> None:
     state = a_state(in_flight=(running_agent(),))
 
     assert entries_of(body_of(state), "in_flight") == [
-        "researcher - find every caller of the old ingest API - 2m14s"
+        "researcher - find every caller of the old ingest API - 2m14s - id a1"
     ]
 
 
@@ -330,11 +331,11 @@ def test_an_agent_that_finished_since_the_last_turn_is_called_out_separately() -
     rendered = body_of(state)
 
     assert entries_of(rendered, "in_flight") == [
-        "researcher - find every caller of the old ingest API - 2m14s"
+        "researcher - find every caller of the old ingest API - 2m14s - id a1"
     ]
     assert headline(rendered, "finished") == "1 thing finished since your last turn"
     assert entries_of(rendered, "finished") == [
-        "writer - draft the migration note - done after 4m02s - wrote docs/migration.md"
+        "writer - draft the migration note - done after 4m02s - wrote docs/migration.md - id a2"
     ]
 
 
@@ -346,7 +347,7 @@ def test_a_finished_agent_is_reported_even_though_it_is_no_longer_running() -> N
 
     assert not has_group(rendered, "in_flight")
     assert entries_of(rendered, "finished") == [
-        "researcher - find every caller of the old ingest API - failed after 2m14s"
+        "researcher - find every caller of the old ingest API - failed after 2m14s - id a1"
     ]
 
 
@@ -588,13 +589,13 @@ def test_a_crowd_in_one_group_cannot_spend_another_groups_room() -> None:
         )
     )
 
-    squeezed = body_of(state, limit=300)
+    squeezed = body_of(state, limit=310)
     assert len(entries_of(squeezed, "in_flight")) == 2
     assert len(entries_of(squeezed, "memory")) == 3
 
     # Tighter still, the index goes and the roster stays: what is already under way cannot
     # be fetched back the way a topic can. See the ranks in `QUOTAS`.
-    tighter = body_of(state, limit=270)
+    tighter = body_of(state, limit=280)
     assert not has_group(tighter, "memory")
     assert len(entries_of(tighter, "in_flight")) == 2
 
@@ -832,7 +833,7 @@ def test_the_block_fits_the_budget_however_the_caller_counts_tokens(limit: int) 
 
 
 def test_every_group_bends_to_its_floor_before_any_group_is_dropped() -> None:
-    rendered = body_of(a_crowd(), limit=330)
+    rendered = body_of(a_crowd(), limit=340)
 
     assert len(entries_of(rendered, "in_flight")) == 2
     assert len(entries_of(rendered, "memory")) == 3
@@ -840,7 +841,7 @@ def test_every_group_bends_to_its_floor_before_any_group_is_dropped() -> None:
 
 
 def test_a_group_with_no_room_for_its_entries_keeps_its_headline_and_says_none_are_shown() -> None:
-    rendered = body_of(a_crowd(), limit=330)
+    rendered = body_of(a_crowd(), limit=340)
 
     assert headline(rendered, "workspace").endswith("(showing none of 30)")
     assert entries_of(rendered, "workspace") == []
@@ -848,7 +849,7 @@ def test_a_group_with_no_room_for_its_entries_keeps_its_headline_and_says_none_a
 
 def test_the_workspace_listing_is_surrendered_before_the_memory_index() -> None:
     """A listing costs one tool call to fetch again. That is the whole argument."""
-    rendered = body_of(a_crowd(), limit=300)
+    rendered = body_of(a_crowd(), limit=310)
 
     assert not has_group(rendered, "workspace")
     assert has_group(rendered, "memory")
@@ -861,14 +862,14 @@ def test_the_memory_index_is_surrendered_before_the_children_still_running() -> 
     that does not know a child is running will duplicate it, contradict it, or answer as
     though nothing were pending.
     """
-    rendered = body_of(a_crowd(), limit=260)
+    rendered = body_of(a_crowd(), limit=270)
 
     assert not has_group(rendered, "memory")
     assert has_group(rendered, "in_flight")
 
 
 def test_a_dropped_group_is_named_in_the_block_rather_than_vanishing_from_it() -> None:
-    rendered = body_of(a_crowd(), limit=260)
+    rendered = body_of(a_crowd(), limit=270)
 
     assert headline(rendered, "omitted").startswith("tasks (25), memory (40), workspace (30)")
     assert headline(rendered, "omitted").endswith("dropped for space, ask if you need them")

@@ -177,9 +177,9 @@ class Notice:
         """One line, for the tool-boundary notice the model actually reads."""
         kind = f"{self.kind}, {self.group}" if self.group else str(self.kind)
         who = f"{self.role} ({kind})"
-        parts = [who, self.objective, self.state.value]
+        parts = [who, self.objective, self.state.value, f"id {self.id}"]
         if self.state is State.succeeded and self.tokens:
-            parts.append(f"about {self.tokens:,} tokens of result, fetch it to read it")
+            parts.append(f"about {self.tokens:,} tokens of result, read it with work.result")
         if self.detail:
             parts.append(self.detail)
         return " - ".join(part for part in parts if part)

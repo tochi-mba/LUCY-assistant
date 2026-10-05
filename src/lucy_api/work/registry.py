@@ -584,7 +584,13 @@ class Registry:
                     kind=record.kind.value,
                     depth=record.depth,
                     elapsed_seconds=record.elapsed(now),
-                    progress=record.progress or record.detail or _due_line(record, now),
+                    # How it ended, once it has: a finished helper's last progress note
+                    # ("reading page 3") stood where why it stopped belonged.
+                    progress=(
+                        (record.detail or record.progress)
+                        if record.state.finished
+                        else (record.progress or record.detail or _due_line(record, now))
+                    ),
                     finished_since_last_turn=fresh,
                     group=record.group,
                 )

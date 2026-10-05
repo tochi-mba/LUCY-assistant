@@ -753,7 +753,18 @@ def _work_line(work: WorkSnapshot) -> str:
         _clean(work.objective, OBJECTIVE_CHARS),
         f"queued {_duration(work.elapsed_seconds)}" if waited else _duration(work.elapsed_seconds),
         _clean(work.progress, PROGRESS_CHARS),
+        _handle(work),
     )
+
+
+def _handle(work: WorkSnapshot) -> str:
+    """The id every follow-up takes -- work.result, work.wait, work.cancel, agents.reopen.
+
+    Handed back only in the step that started the work, which reclaim clears and compaction
+    summarises away, so the line saying "agents.reopen continues it" offered nothing to pass and
+    every follow-up cost a round of work.list. The same was fixed for topics, below.
+    """
+    return f"id {_clean(work.id, NAME_CHARS)}"
 
 
 def _who(work: WorkSnapshot) -> str:
@@ -769,6 +780,7 @@ def _finished_line(work: WorkSnapshot) -> str:
         _clean(work.objective, OBJECTIVE_CHARS),
         f"{_clean(work.status, STATUS_CHARS)} after {_duration(work.elapsed_seconds)}",
         _clean(work.progress, PROGRESS_CHARS),
+        _handle(work),
     )
 
 
