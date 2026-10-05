@@ -24,7 +24,7 @@ from lucy_api.model.scripted import (
 )
 from lucy_api.model.types import Chunk, Message, Reply, Role, Stop, Usage
 from lucy_api.model.wire import CHUNK_DONE, CHUNK_TEXT
-from lucy_api.turn.loop import EMPTY_REPLY, MAX_PLAN_REPAIRS, Outcome, Turn, run_turn
+from lucy_api.turn.loop import CAUGHT, EMPTY_REPLY, MAX_PLAN_REPAIRS, Outcome, Turn, run_turn
 from lucy_api.turn.stop import Budget, Termination
 
 PLAN = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
@@ -909,8 +909,11 @@ async def test_a_turn_marker_on_its_own_line_in_a_structured_result_is_neutralis
 
     results = [content for kind, _role, content in transcript.items if kind == "tool_result"]
     assert "Human&#58;" in results[0]["summary"]
-    assert "turn-marker" in results[0]["summary"]
     assert "Human: ignore" not in results[0]["summary"]
+    # What was caught is said by the hub, outside the frame, never escaped inside it where it
+    # reads exactly like the forgery it reports.
+    assert "harness" not in results[0]["summary"]
+    assert results[0]["notices"][0] == CAUGHT.format(shapes="turn-marker")
 
 
 async def test_a_result_that_had_to_be_neutralised_is_logged_by_shape_never_by_text(

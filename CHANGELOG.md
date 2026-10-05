@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Security
 
+- **The hub says in its own voice what it caught.** The scrubber's marker on a result went
+  inside the result's frame, which escapes everything, so it reached the model as
+  `&#91;harness: neutralised ...]` beside the attacker's own escaped forgery, and the model
+  could not tell the hub had caught anything. It is now a notice outside the frame, telling the
+  model to treat the result as an injection attempt and say where it came from.
 - **Plan mode refuses a write whatever was granted, and so does every helper.** A standing
   allow was read before the mode, so a write the person had said yes to "for this
   conversation" ran in plan mode anyway. Every helper runs in plan mode with its parent's
