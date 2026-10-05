@@ -134,6 +134,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   empty list, so an open planned beside it failed on "'search' is empty", and a model
   reading the list could tell the person nothing exists. The step now fails, in fixed words,
   and nothing that depends on it runs.
+
+- **A message to a helper stays for the rest of its run.** It was shown for the one round it
+  arrived in, so a helper told "narrow to EU sources" had forgotten it a round later, and
+  `agents.read` never showed it had been steered. It is now written into the helper's own
+  transcript, in the parent's words.
 - **Results found without a summary stand, and say what is missing.** Web-search-api failed a
   whole search or open when its summariser did, so a model told research had failed reported
   finding nothing. With the service answering `summary_error` beside results that stand, the

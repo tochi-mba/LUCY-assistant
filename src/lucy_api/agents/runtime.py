@@ -22,7 +22,6 @@ from lucy_api.context.scrub import fence
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import bind
 from lucy_api.model.registry import UnknownModelError, parse_spec
-from lucy_api.model.types import Message, Role
 from lucy_api.sessions.scope import SessionScope, WorkspaceScope
 from lucy_api.sessions.sql_store import NewItem
 from lucy_api.turn.loop import Turn, run_turn
@@ -33,6 +32,7 @@ from lucy_api.turn.stop import RESUMABLE, Budget, Termination
 if TYPE_CHECKING:
     from lucy_api.agents.store import AgentStore
     from lucy_api.model.registry import ModelRegistry
+    from lucy_api.model.types import Message
     from lucy_api.packs.context import PackContext
     from lucy_api.packs.service import Capabilities
     from lucy_api.sessions.sql_store import SessionStore
@@ -45,6 +45,9 @@ STOPPED_STATUSES = frozenset({"failed", "interrupted"})
 """Roster states of a helper that ended without finishing."""
 
 NO_SUCH_HELPER = "no helper of this conversation has that id; agents.list shows them"
+
+FROM_THE_PARENT = "From Lucy, who started you (not the person):"
+"""How a message from the parent opens, in the helper's own transcript."""
 
 HELPER_MODEL_UNUSABLE = (
     "the helper model {chosen} cannot run here, so this helper ran on the conversation's "
@@ -133,7 +136,10 @@ def _brief_text(delegation: Delegation) -> str:
             f"You are continuing helper {delegation.resume_from}. Its earlier runs "
             "are in this transcript; do not repeat finished work."
         )
-    lines.append("Messages from the parent arrive as notices before a round, never mid-tool.")
+    lines.append(
+        "Messages from Lucy arrive in this conversation between rounds, never mid-tool. "
+        "Follow them for the rest of your run."
+    )
     return "\n".join(lines)
 
 
@@ -517,7 +523,18 @@ class ChildRuntime:
         family = {agent_id, *_earlier_runs(roster, delegation.resume_from)}
 
         async def assemble(notice: str) -> tuple[str, tuple[Message, ...]]:
-            mail = await self.agents.drain_mail(parent.account_id, agent_id)
+            # Mail is written into the helper's own transcript, not shown beside it: shown for
+            # the one round it arrived in, "narrow to EU sources" was forgotten by the next,
+            # and `agents.read` never showed the helper had been steered. The parent is a
+            # model, not the system and not the person, so it speaks in its own words.
+            for line in await self.agents.drain_mail(parent.account_id, agent_id):
+                await self.store.append(
+                    parent.account_id,
+                    parent.session_id,
+                    NewItem(
+                        "message", "user", f"{FROM_THE_PARENT} {fence(line)}", agent_id=agent_id
+                    ),
+                )
             rows = await self.store.records(parent.account_id, parent.session_id, "items")
             mine = [row for row in rows if str(row.get("agent_id") or "") in family]
             # What the helper's schema and executor can call, recomputed every round because
@@ -546,16 +563,7 @@ class ChildRuntime:
                 ),
                 notice=notice,
             )
-            if not mail:
-                return system, messages
-            # The parent is a model, not the system and not the person: its mail is a
-            # message in its own words, never part of a harness line.
-            said = "\n".join(f"- {fence(line)}" for line in mail)
-            heard = Message(
-                Role.user,
-                f"From the assistant that started you (not the person):\n{said}",
-            )
-            return system, (*messages, heard)
+            return system, messages
 
         async def execute(plan: dict[str, Any]) -> dict[str, Any]:
             return await self.capabilities.execute(plan, child)
