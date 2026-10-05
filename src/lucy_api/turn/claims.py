@@ -31,9 +31,9 @@ BOOKKEEPING = frozenset({"capabilities", "help", "work"})
 """Capabilities whose steps are about Lucy's own tools, and never do anything for the person."""
 
 UNBACKED = (
-    "Your reply said something was done -- saved, written, changed or started -- but no step "
-    "this turn did it, so it was not done. If it still needs doing, do it now with a plan. If "
-    "not, tell the person plainly what you did and did not do."
+    "Your reply said something was done this turn -- saved, written, changed or started -- but "
+    "no step this turn did it. If it still needs doing, do it now with a plan. If it was done "
+    "earlier, say when. Otherwise tell the person plainly what you did and did not do."
 )
 """What the model is told when a reply is held back."""
 
@@ -41,9 +41,18 @@ THRESHOLD = 0.9
 """How sure the decision has to be that a reply claims completed work before it is held back."""
 
 QUESTION = (
-    "Does this reply tell the person that something was done -- saved, recorded, remembered, "
-    "written, changed, sent, started or set up?"
+    "Does this reply tell the person that something was done just now, in this turn -- saved, "
+    "recorded, remembered, written, changed, sent, started or set up?"
 )
+
+CRITERIA = (
+    "Answer no when the reply only reports what a helper, a watch or an earlier turn already "
+    "did, offers or plans to do something, or asks a question."
+)
+"""What does not count. Without it a turn woken to report a finished helper -- whose only
+step, work.result, is bookkeeping -- was held as claiming work nothing did, and the model was
+told, falsely, that the helper's work "was not done": an invitation to do it again, or to
+retract a true report. "Yes, I saved that last week" was held the same way."""
 
 
 def did_work(rounds: Iterable[Round]) -> bool:
@@ -72,7 +81,9 @@ class ClaimCheck:
         if decide is None or CLAIMS.id not in decide.enabled or did_work(rounds):
             return False
         state = json.dumps({"request": decide.request_text, "reply": text}, ensure_ascii=False)
-        answers = await decide.ask(CLAIMS, state, [noul("claims_done", QUESTION)])
+        answers = await decide.ask(
+            CLAIMS, state, [noul("claims_done", QUESTION, criteria=CRITERIA)]
+        )
         gate: Gate[bool] = Gate(THRESHOLD, fail_open=False)
         if not gate.decide(answers, "claims_done", answers.noul("claims_done")):
             return False
@@ -80,4 +91,12 @@ class ClaimCheck:
         return decide.live(CLAIMS)
 
 
-__all__ = ["BOOKKEEPING", "QUESTION", "THRESHOLD", "UNBACKED", "ClaimCheck", "did_work"]
+__all__ = [
+    "BOOKKEEPING",
+    "CRITERIA",
+    "QUESTION",
+    "THRESHOLD",
+    "UNBACKED",
+    "ClaimCheck",
+    "did_work",
+]
