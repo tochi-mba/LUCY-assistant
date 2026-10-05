@@ -127,3 +127,49 @@ async def test_a_settings_write_without_a_probe_cache_still_returns_the_setting(
     )
     assert not result["issues"]
     assert fake.writes == [("lucy", "max_llm_turns", 8)]
+
+
+async def test_describe_lists_one_capability_briefly_and_get_gives_it_in_full() -> None:
+    """The bug, named: describe took no input and returned every setting with its long
+    description -- eleven thousand characters for the lucy namespace alone, read again on every
+    later round -- and never said which settings an assistant may not change, which the
+    capability page told the model to check."""
+    fake = FakeSettingsPackClient(
+        [
+            Setting("lucy", "max_llm_turns", 12, summary="Rounds.", description="Long text."),
+            Setting("lucy", "prompt_sections_disabled", [], summary="Sections left out."),
+            Setting("spotify", "default_market", "GB", summary="Market.", description="More."),
+        ]
+    )
+    capabilities = Capabilities([SettingsPack("https://settings.test", client=fake)])
+    context = capabilities.context_for(
+        SessionScope(account_id="acct_a", profile="personal", session_id="sess_a")
+    )
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {
+            "steps": [
+                {"id": "music", "op": "settings.describe", "input": {"capability": "Music"}},
+                {"id": "all", "op": "settings.describe", "input": {}},
+                {
+                    "id": "one",
+                    "op": "settings.get",
+                    "input": {"namespace": "lucy", "key": "max_llm_turns"},
+                },
+            ]
+        },
+        context,
+    )
+
+    music, everything, one = (step["data"] for step in result["steps"])
+    assert [item["key"] for item in music["settings"]] == ["default_market"]
+    assert len(everything["settings"]) == 3
+    assert all("description" not in item for item in everything["settings"])
+    assert one["description"] == "Long text."
+    access = {item["key"]: item.get("assistant") for item in everything["settings"]}
+    assert access == {
+        "max_llm_turns": "with_approval",
+        "prompt_sections_disabled": "never",
+        "default_market": None,
+    }

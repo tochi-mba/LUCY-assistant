@@ -33,6 +33,10 @@ class SettingsRefusedError(ValueError):
     """A write the model asked for that only the person may make."""
 
 
+ADDRESSED = "As settings.describe lists it."
+"""Where a namespace and a key come from: describe's rows, service names and all."""
+
+
 def _person_only(namespace: str, key: str) -> bool:
     """Whether Lucy's own catalogue says no assistant may write this key.
 
@@ -101,12 +105,20 @@ class SettingsPack:
                 {
                     "name": "settings.describe",
                     "description": (
-                        "Describe available settings, each placed under the capability that "
-                        "owns it, with its current value, type, bounds, meaning, and whether "
-                        "it is account-wide or for this conversation's profile. Call before "
-                        "changing an unfamiliar setting."
+                        "List the person's settings for one capability, each with its value, "
+                        "bounds, scope and whether you may change it. Omit `capability` for "
+                        "every one, which is long. settings.get gives one setting in full."
                     ),
-                    "input": object_schema({}),
+                    "input": object_schema(
+                        {
+                            "capability": string_schema()
+                            .optional()
+                            .describe(
+                                "lucy, account, persona, memory, music, research, workspace "
+                                "or repos."
+                            )
+                        }
+                    ),
                     "output": value(object_schema({})),
                     "effects": "read",
                     "run": self._describe,
@@ -116,10 +128,15 @@ class SettingsPack:
                 {
                     "name": "settings.get",
                     "description": (
-                        "Read one explicit preference, where the value came from, and whether "
-                        "it is account-wide or for this conversation's profile."
+                        "Read one setting in full: what it means, its value, where the value "
+                        "came from, and whether it is account-wide or for this profile."
                     ),
-                    "input": object_schema({"namespace": string_schema(), "key": string_schema()}),
+                    "input": object_schema(
+                        {
+                            "namespace": string_schema().describe(ADDRESSED),
+                            "key": string_schema().describe(ADDRESSED),
+                        }
+                    ),
                     "output": value(object_schema({})),
                     "effects": "read",
                     "run": self._get,
@@ -129,15 +146,14 @@ class SettingsPack:
                 {
                     "name": "settings.set",
                     "description": (
-                        "Change one preference only because the person explicitly requested it; "
-                        "never tune settings for your own convenience. Account-wide settings "
-                        "apply under every profile; profile-wide ones apply only to this "
-                        "conversation's profile. describe reports which is which."
+                        "Change one setting the person asked to change -- never for your own "
+                        "convenience. `scope` from settings.describe says whether it applies "
+                        "to every profile or only this one."
                     ),
                     "input": object_schema(
                         {
-                            "namespace": string_schema(),
-                            "key": string_schema(),
+                            "namespace": string_schema().describe(ADDRESSED),
+                            "key": string_schema().describe(ADDRESSED),
                             "value": any_schema(),
                         }
                     ),
@@ -155,7 +171,11 @@ class SettingsPack:
 
     async def _describe(self, run: RunContext[PackContext]) -> dict[str, Any]:
         settings = await self._client(run.ctx).describe(profile=run.ctx.profile)
-        return {"settings": [_resource(item, detailed=True) for item in settings]}
+        wanted = str(run.input.get("capability") or "").strip().lower()
+        listed = [_resource(item, listing=True) for item in settings]
+        if wanted:
+            listed = [item for item in listed if item["capability"] == wanted]
+        return {"settings": listed}
 
     async def _get(self, run: RunContext[PackContext]) -> dict[str, Any]:
         setting = await self._client(run.ctx).get(
@@ -163,7 +183,7 @@ class SettingsPack:
             str(run.input.get("key") or ""),
             profile=run.ctx.profile,
         )
-        return _resource(setting)
+        return _resource(setting, full=True)
 
     async def _set(self, run: RunContext[PackContext]) -> dict[str, Any]:
         namespace = str(run.input.get("namespace") or "")
@@ -187,12 +207,16 @@ class SettingsPack:
         return _resource(setting)
 
 
-def _resource(setting: Setting, *, detailed: bool = False) -> dict[str, Any]:
+def _resource(setting: Setting, *, listing: bool = False, full: bool = False) -> dict[str, Any]:
     """One setting as the model sees it: addressed by namespace and key, placed by capability.
 
     The address is settings-api's, because that is what `settings.get` and `settings.set`
     take. The placement is Lucy's: `spotify.default_market` is a Music setting, and
     `lucy.feeds_music_now_playing` is one too, whichever namespace stores it.
+
+    A listing carries the one-line summary and leaves the long description to `settings.get`:
+    describe returned both for every setting, and the lucy namespace alone came to eleven
+    thousand characters of it, read again on every later round of the turn.
     """
     result = {
         "capability": group_for(f"{setting.namespace}.{setting.key}"),
@@ -204,14 +228,24 @@ def _resource(setting: Setting, *, detailed: bool = False) -> dict[str, Any]:
         "pinned": setting.pinned,
         "scope": setting.scope,
     }
-    if detailed:
-        result.update(
-            type=setting.kind,
-            summary=setting.summary,
-            description=setting.description,
-            bounds=setting.bounds,
-        )
+    if listing or full:
+        result.update(type=setting.kind, summary=setting.summary, bounds=setting.bounds)
+        access = _access(setting.namespace, setting.key)
+        if access:
+            result["assistant"] = access
+    if full:
+        result["description"] = setting.description
     return result
+
+
+def _access(namespace: str, key: str) -> str:
+    """Whether an assistant may change this, where the hub knows: its own namespace.
+
+    settings.md tells the model a setting that is `never` for an assistant is the person's to
+    change, and nothing it was given ever said which those were.
+    """
+    item = knob(key) if namespace == "lucy" else None
+    return item.agent.value if item is not None else ""
 
 
 __all__ = ["SettingsPack"]
