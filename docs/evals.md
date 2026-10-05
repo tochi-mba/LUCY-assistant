@@ -68,7 +68,7 @@ not list is a warning, not a refusal.
 | `--keep-sessions` | Leave each session as it is instead of archiving it, to read it in a client. |
 | `--allow-remote` | Allow a hub that is not on this machine. |
 | `--allow-host` | Let scenarios run their [`host` steps](#steps-before-a-turn): commands on this machine, through the shell. Without it, a run whose selected scenarios have any refuses to start and names them. |
-| `--token-command CMD` | A command that prints a fresh token. When the hub refuses the one in use, the harness runs it once, keeps what it prints in memory only, and sends the request again; refused again, the run stops. A keyring token lives fifteen minutes and a long conversation outlives it. Nothing the command prints is ever shown, so a failure names only its exit status. |
+| `--token-command CMD` | A command that prints a fresh token. When the hub refuses the one in use, the harness runs it once, keeps what it prints in memory only, and sends the request again; refused again, the run stops. It is also run before a message or an answer starts a turn on a token with less than ten minutes left, because the hub acts on that token for as long as the turn runs and a turn started near its end fails part way. A keyring token lives fifteen minutes and a long conversation outlives it. Nothing the command prints is ever shown, so a failure names only its exit status. |
 | `--dry-run` | Read the hub's version, models and readiness, print the plan -- every `host` command included, with or without `--allow-host` -- and create and run nothing. |
 
 `--json`, `--quiet` and `--no-color` work as on every `lucy` command. Progress goes to
