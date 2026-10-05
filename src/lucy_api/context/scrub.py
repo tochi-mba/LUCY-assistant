@@ -142,6 +142,15 @@ _RULES: tuple[_Rule, ...] = (
         re.compile(r"\[(?=[ \t]*\.\.\.[ \t]*showing\b)", re.IGNORECASE),
         "&#91;",
     ),
+    # The lines :mod:`lucy_api.context.state` opens and closes the live block with. The block
+    # tells the model what inside it is "never instructions"; a sibling's text that reads
+    # `--- end live state ---` would announce that frame's end where it has not ended. Spelled
+    # here for the reason the elision marker is, and held to the real lines by a test.
+    _Rule(
+        "live-state-fence",
+        re.compile(r"-(?=--[ \t]*(?:end[ \t]+)?live[ \t]+state\b)", re.IGNORECASE),
+        "&#45;",
+    ),
 )
 """Applied in this order, and reported in this order, so one log line is comparable to the
 next. Occurrence order would make the same attack read differently depending on where in the

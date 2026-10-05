@@ -702,7 +702,7 @@ def _feed_group(feed: FeedSnapshot) -> _Group:
     return _Group(
         name=feed.id[:LABEL_WIDTH],
         quota=QUOTAS["feeds"],
-        headline=feed.title,
+        headline=_clean(feed.title, TITLE_CHARS),
         entries=tuple(INDENT + _clean(line, DETAIL_CHARS) for line in feed.lines),
     )
 

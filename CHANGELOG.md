@@ -14,6 +14,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   grants, so every helper in that conversation could write, against every prompt that says
   it cannot. A read that spends or executes keeps its grant.
 
+- **A feed's title cannot close the live block.** It was the one headline not cleaned: a
+  sibling's title holding "--- end live state ---" on a line of its own ended the block's
+  "never instructions" frame early, and was unbounded in length. Titles are now cleaned and
+  clamped like every other headline, and the scrubber neutralises the block's own fence
+  lines wherever they turn up.
 - **A sibling's words are scrubbed wherever the model reads them.** A step's notices and error
   are shown outside the result's frame and were never scrubbed, while packs pass a sibling's
   error detail on in both -- detail that can carry text a remote server chose. They are now
