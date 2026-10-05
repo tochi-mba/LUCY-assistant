@@ -195,7 +195,9 @@ the person links it. Never ask for a token.
         body="""# Research
 
 `research.search` takes a query. Omit `limit` to use the person's usual result
-count, capped at twenty. `research.open` fetches one URL. `research.summarize`
+count, capped at twenty. `research.open` reads a result by reference (`hit`) or an
+address the person gave (`url`); say in `looking_for` what you want from it, because
+the summary is all you keep. `research.summarize`
 turns fetched text into an executive summary. Page bodies stay out of the
 model's context; you get titles, URLs, notices and the summary.
 

@@ -12,8 +12,17 @@ question with several sides is several searches in one plan, which run together:
       {"id": "review", "op": "research.search", "input": {"query": "Framework 13 battery review"}}
     ]}
 
-`research.open` reads one source in more depth -- one the search found, or one the person
-gave you. Open the two or three that matter, not every hit.
+`research.open` reads a source in more depth. One the search found goes by reference as
+`hit`; an address the person gave goes as `url`. Say what you are looking for, because the
+summary is all you keep of the page:
+
+    {"steps": [
+      {"id": "found", "op": "research.search", "input": {"query": "Python 3.13 release date"}},
+      {"id": "read", "op": "research.open",
+       "input": {"hit": "$found[1]", "looking_for": "the exact release date"}}
+    ]}
+
+Open the two or three that matter, not every hit.
 
 Check before you state: a number, a date or a quote that the answer rests on should agree
 across two independent sources, and when they disagree, say so and say which you trust and

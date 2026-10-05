@@ -135,6 +135,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   so the fact was gone in the next conversation; its description promised a "promote" that
   no operation does. `notes.setFact` now says it is where those go, `notes.remember` says
   it is for this conversation only, and the eval requires `notes.setFact`.
+
+- **`research.open` takes a search result by reference, and says what it is looking for.** Its
+  field invited "a link research.search found" but took only a written-out address, so a small
+  model wrote `$search[1]` and the open failed. A result now goes as `hit` (a reference to a
+  whole search opens its first three), an address as `url`, and a reference written as an
+  address is refused with the fix. `looking_for` reaches the summariser, because the summary
+  is all Lucy keeps of a page and a general one can leave out the figure she opened it for.
 - **A refusal is not an invitation to route around it.** After a person said no, the model was
   told "Choose a safe alternative", which it read as leave to reach the refused outcome another
   way -- an incognito fact written to a workspace file instead. It is now told not to, to do
