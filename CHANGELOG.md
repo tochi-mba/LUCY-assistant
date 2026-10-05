@@ -31,6 +31,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **A finished helper hands back its answer once.** `work.result` carried the whole runtime
+  result, so a helper with a declared return was read twice -- its JSON as `summary` and
+  again as the parsed `data` -- up to two thousand tokens a team member, beside an
+  `agent_id` repeating the work's id and counts that decided nothing. Lucy now reads the
+  role, the answer and any notice; the roster keeps the rest.
 - **A repair round reads its reason once, and history reads as what happened.** An invalid
   plan's reason was both an error item in history and the round's notice, paid for twice,
   and the item said "The previous plan was invalid" -- and an empty reply's "Answer the
