@@ -41,6 +41,11 @@ STRICT_NOTICE = {
     WHITESPACE: " Edits here must quote the file's text exactly apart from spacing; re-read it.",
 }
 """Why a near miss was refused, when the person asked for less forgiving matching."""
+APPROXIMATE = "matched approximately ({rung}), not exactly; check the diff."
+"""Said beside an edit that landed on a looser rung, so it is never taken for an exact one.
+
+The result used to carry only `"rung": "fuzzy"`, which nothing explained, while the
+description promised exact quoting -- and a fuzzy match can be a different line."""
 STALE_NOTICE = (
     "the file changed since you read it; re-read the file and reapply the edit "
     "against the current contents"
@@ -187,13 +192,17 @@ def apply_edit(haystack: str, needle: str, replacement: str, *, loosest: str = F
     if located.matches:
         lines = ", ".join(str(line) for line in located.lines_of(haystack))
         notice = (
-            "No replacement was performed. Multiple occurrences of old_str in "
-            f"lines: {lines}. Please ensure it is unique."
+            f"No change made: `old_string` matches {len(located.matches)} places, at lines "
+            f"{lines}. Quote more of the surrounding text so it matches exactly one."
         )
         return Applied(located=located, notice=notice)
-    nearest = f"\n{located.nearest}" if located.nearest else ""
+    nearest = ""
+    if located.nearest:
+        nearest = (
+            f" The closest text is below; copy it exactly, whitespace included.\n{located.nearest}"
+        )
     strict = STRICT_NOTICE.get(loosest, "")
-    notice = f"No replacement was performed. old_str was not found.{strict}{nearest}"
+    notice = f"No change made: `old_string` was not found.{strict}{nearest}"
     return Applied(located=located, notice=notice)
 
 
@@ -328,7 +337,9 @@ def _nearest_diff(haystack: str, needle: str) -> str:
             best = window
     if best_ratio < NEAR_FLOOR or not best:
         return ""
-    diff = difflib.unified_diff(needle_lines, best, fromfile="old_str", tofile="file", lineterm="")
+    diff = difflib.unified_diff(
+        needle_lines, best, fromfile="old_string", tofile="file", lineterm=""
+    )
     return "\n".join(diff)
 
 

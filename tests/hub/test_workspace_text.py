@@ -62,7 +62,7 @@ def test_an_ambiguous_exact_match_names_every_line() -> None:
     applied = apply_edit("one\nmid\none\n", "one", "two")
 
     assert not applied.replaced
-    assert "lines: 1, 3" in applied.notice
+    assert "at lines 1, 3." in applied.notice
 
 
 def test_whitespace_normalised_match_replaces_the_original_slice() -> None:
@@ -77,11 +77,17 @@ def test_whitespace_normalised_match_replaces_the_original_slice() -> None:
 
 
 def test_ambiguous_whitespace_matches_are_refused() -> None:
+    """The bug, named: the refusal said "Please ensure it is unique" about a field, `old_str`,
+    the input does not have, and the docs said to ask the person -- for a problem the model
+    fixes itself by quoting more. It now names the field, the places, and the next action."""
     haystack = "def f():\n    x\ndef f():\n    x\n"
     applied = apply_edit(haystack, "def f():\n  x", "pass")
 
     assert not applied.replaced
-    assert "Multiple occurrences" in applied.notice
+    assert applied.notice == (
+        "No change made: `old_string` matches 2 places, at lines 1, 3. Quote more of the "
+        "surrounding text so it matches exactly one."
+    )
 
 
 def test_line_ending_differences_are_absorbed_by_whitespace_normalisation() -> None:
@@ -110,7 +116,7 @@ def test_ambiguous_fuzzy_windows_are_refused() -> None:
     applied = apply_edit(haystack, needle, "x")
 
     assert not applied.replaced
-    assert "Multiple occurrences" in applied.notice or "not found" in applied.notice
+    assert "matches" in applied.notice or "not found" in applied.notice
 
 
 def test_a_miss_shows_the_nearest_window_as_a_diff() -> None:
@@ -118,7 +124,7 @@ def test_a_miss_shows_the_nearest_window_as_a_diff() -> None:
 
     assert not applied.replaced
     assert "not found" in applied.notice
-    assert "old_str" in applied.notice or "---" in applied.notice or applied.located.nearest
+    assert "old_string" in applied.notice or "---" in applied.notice or applied.located.nearest
 
 
 def test_fuzzy_skips_windows_that_are_too_different_or_missing_an_anchor() -> None:
@@ -241,4 +247,4 @@ def test_the_default_ladder_says_nothing_about_strictness_on_a_miss() -> None:
     """Fuzzy, the default, is the ladder as it was, and its miss notice is unchanged."""
     applied = apply_edit("alpha\nbeta\n", "zzz", "gamma")
 
-    assert applied.notice == "No replacement was performed. old_str was not found."
+    assert applied.notice == "No change made: `old_string` was not found."

@@ -484,7 +484,7 @@ async def test_an_ambiguous_edit_names_the_lines() -> None:
         },
         context,
     )
-    assert "lines: 1, 3" in result["steps"][0]["data"]["notice"]
+    assert "at lines 1, 3." in result["steps"][0]["data"]["notice"]
 
 
 async def test_a_stale_patch_is_refused() -> None:
@@ -751,3 +751,6 @@ async def test_an_exact_only_profile_refuses_an_edit_the_default_ladder_would_ap
 
     assert forgiving["steps"][0]["data"]["replaced"] is True
     assert forgiving["steps"][0]["data"]["rung"] == "whitespace"
+    assert forgiving["steps"][0]["data"]["notice"] == (
+        "matched approximately (whitespace), not exactly; check the diff."
+    ), "an approximate edit is never taken for an exact one"

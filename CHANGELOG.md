@@ -25,6 +25,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   sent the line alone and ended the turn with nothing done. It now says so, and steers slow
   work to a handle.
 
+- **An edit refusal names the field, the places, and what to do next.** It said "Please ensure
+  it is unique" about `old_str`, a field the input does not have, and the capability page
+  and skill said to ask the person, against the system prompt's "lengthen the quote". An edit
+  that landed on a looser match now says so beside its diff, rather than an unexplained
+  `"rung": "fuzzy"`.
 - **What the person asks to have remembered outlives the conversation.** Asked to "remember
   that", a small model picked `notes.remember`, which keeps an episode on this session only,
   so the fact was gone in the next conversation; its description promised a "promote" that
