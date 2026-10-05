@@ -24,7 +24,15 @@ from lucy_api.model.scripted import (
 )
 from lucy_api.model.types import Chunk, Message, Reply, Role, Stop, Usage
 from lucy_api.model.wire import CHUNK_DONE, CHUNK_TEXT
-from lucy_api.turn.loop import CAUGHT, EMPTY_REPLY, MAX_PLAN_REPAIRS, Outcome, Turn, run_turn
+from lucy_api.turn.loop import (
+    CAUGHT,
+    EMPTY_REPLY,
+    INVALID_PLAN,
+    MAX_PLAN_REPAIRS,
+    Outcome,
+    Turn,
+    run_turn,
+)
 from lucy_api.turn.stop import Budget, Termination
 
 PLAN = {"steps": [{"id": "hits", "op": "research.search", "input": {"query": "tour dates"}}]}
@@ -442,9 +450,10 @@ async def test_a_malformed_plan_is_handed_back_for_correction() -> None:
     assert execute.calls == [PLAN, corrected]  # type: ignore[attr-defined]
     assert outcome.spent.iterations == 3
     assert outcome.spent.tokens == 45
-    assert "step 1: no such operation" in prompts.notices[1]
+    assert prompts.notices[1] == INVALID_PLAN, "the reason is in the item, said once"
+    assert "step 1: no such operation" not in prompts.notices[1]
     assert prompts.notices[2] == ""
-    assert transcript.items[0][2]["code"] == "invalid_plan"
+    assert transcript.items[0][2] == {"code": "invalid_plan", "detail": "step 1: no such operation"}
 
 
 async def test_repair_gives_up_rather_than_spending_the_turn_on_it() -> None:
@@ -808,7 +817,7 @@ async def test_a_non_dict_issue_is_treated_as_a_broken_plan() -> None:
         )
     )
     assert outcome.termination is Termination.success
-    assert "nope" in prompts.notices[1]
+    assert prompts.notices[1] == INVALID_PLAN
 
 
 def test_a_plan_that_is_not_a_mapping_has_no_first_step() -> None:
