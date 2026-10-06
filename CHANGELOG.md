@@ -93,6 +93,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   there was a live source read once and missed, and the context section said not to retry what
   it listed, so a music feed timing out read as "do not call music". It now says which live
   sources were not read this turn and that their calls may still work.
+
+- An imported MCP tool now says its arguments: the pinned `inputSchema`'s properties (type, description, enum) and required fields, fenced and capped at 600 characters, where it used to say only "pass this tool's parameters as `arguments`" and leave the model to guess the names. Its description in the schema is capped at 600 characters too, so sixty-four pinned tools cannot fill every round.
 - **The workspace section names its files and says what a resume already read.** It spoke of
   "a running note and a task list" without naming `progress.md` or `tasks.json`, told the
   model to read them on resume when the live block already had, and said to "print what it
