@@ -107,6 +107,32 @@ async def test_approving_once_requeues_the_turn_and_is_visible_only_on_that_clai
     assert "notes.write" not in grants, "a one-time answer is not the whole permission"
 
 
+async def test_a_yes_for_the_conversation_also_answers_for_the_calls_on_its_card(
+    sessions_store: SessionStore,
+) -> None:
+    """A call that needs a yes of its own is replayed through the gate, which ignores standing
+    grants for it; answered "for this conversation", it was asked about again as it ran."""
+    session = await a_session(sessions_store)
+    turn = await a_running_turn(sessions_store, session)
+    approval_id = await park(sessions_store, session, turn)
+
+    await answer_approval(
+        sessions_store,
+        OWNER,
+        session,
+        {
+            "type": "input.approval",
+            "approval_id": approval_id,
+            "approved": True,
+            "lifetime": "session",
+        },
+        "session-key",
+    )
+
+    grants = await grants_for(sessions_store, OWNER, "personal", session_id=session, turn_id=turn)
+    assert grants[ASKED].decision == "allow"
+
+
 async def test_an_account_lifetime_grant_survives_into_the_next_session(
     sessions_store: SessionStore,
 ) -> None:

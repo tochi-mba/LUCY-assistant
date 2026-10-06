@@ -310,6 +310,12 @@ async def test_changing_a_setting_invalidates_cached_probes() -> None:
             permission_mode="auto",
         )
     )
+    from lucy_api.permissions.gate import Grant, once_key
+
+    arguments = {"namespace": "lucy", "key": "max_llm_turns", "value": 20}
+    context.grants[once_key("settings.set", arguments)] = Grant(
+        "settings.write", "allow", "personal"
+    )
     await capabilities.probe(context)
     assert gadget.probes == 1
     await capabilities.execute(

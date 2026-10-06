@@ -41,7 +41,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation
@@ -126,6 +126,10 @@ class Permission:
     """The input field that tells one call of this permission from another -- `role` for a
     helper -- so a card asking about several in one plan can count them: "researcher x2,
     reviewer x3". Empty, the card counts the calls and names none."""
+    each_call: Callable[[Mapping[str, object]], bool] | None = None
+    """Whether a call, by its arguments, needs the person's yes to that call alone: neither
+    `auto` nor a standing grant covers it. A setting declared `with_approval` is the case --
+    "you can manage my settings" is not approval to lower a memory floor."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -20,7 +20,7 @@ from lucy_api.settings.catalogue import AgentAccess, knob
 from lucy_api.settings.groups import group_for
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation, RunContext
@@ -74,6 +74,10 @@ class SettingsPack:
         self.base_url = base_url.rstrip("/")
         self.audience = audience
         self._override = client
+        self._declared: dict[tuple[str, str], str] = {}
+        """What settings-api said each setting allows an assistant, from every row read.
+        The gate decides before anything runs and cannot ask the network; a setting it has
+        not seen is one it asks about."""
 
     @property
     def docs(self) -> str | Path | None:
@@ -87,8 +91,27 @@ class SettingsPack:
                 description="Change an explicit preference only after you ask for it.",
                 risk="write",
                 covers=("settings.set",),
+                each_call=self._needs_a_yes,
             ),
         )
+
+    def _needs_a_yes(self, arguments: Mapping[str, object]) -> bool:
+        """Whether changing this setting needs the person's yes to that change alone.
+
+        Only `freely` goes without, and `never` is refused when it runs, so asking would be
+        a question whose yes changes nothing. Everything else -- `with_approval`, or a
+        setting not seen yet -- is asked about in every mode: `auto` used to change a
+        `with_approval` setting without a word.
+        """
+        namespace = str(arguments.get("namespace") or "")
+        key = str(arguments.get("key") or "")
+        access = _own(namespace, key) or self._declared.get((namespace, key), "")
+        return access not in {AgentAccess.FREELY.value, AgentAccess.NEVER.value}
+
+    def _remember(self, settings: Sequence[Setting]) -> None:
+        for item in settings:
+            if item.agent:
+                self._declared[(item.namespace, item.key)] = item.agent
 
     def result_trust(self, operation: str, data: object) -> Trust:
         """The person's own settings, read from their store."""
@@ -180,6 +203,7 @@ class SettingsPack:
 
     async def _describe(self, run: RunContext[PackContext]) -> dict[str, Any]:
         settings = await self._client(run.ctx).describe(profile=run.ctx.profile)
+        self._remember(settings)
         wanted = str(run.input.get("capability") or "").strip().lower()
         listed = [_resource(item, listing=True) for item in settings]
         if wanted:
@@ -192,6 +216,7 @@ class SettingsPack:
             str(run.input.get("key") or ""),
             profile=run.ctx.profile,
         )
+        self._remember((setting,))
         return _resource(setting, full=True)
 
     async def _set(self, run: RunContext[PackContext]) -> dict[str, Any]:
