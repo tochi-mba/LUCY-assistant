@@ -285,6 +285,7 @@ def _run(ctx: Context) -> int:
         profile=_run_profile(args.profile),
         timeout=args.timeout,
         keep_sessions=args.keep_sessions,
+        apart=args.profile is None,
     )
     previous = _previous(args.compare)
     _require_loopback(ctx.url, allowed=args.allow_remote)
@@ -605,7 +606,11 @@ def _plan_line(plan: Plan, hub_info: dict[str, Any]) -> str:
         f"{len(plan.scenarios)} scenario(s) x {len(plan.models)} model(s) x {plan.repeat} "
         f"run(s) = {jobs} conversation(s), {plan.prompts} prompt(s), with "
         f"{', '.join(plan.models)} on {hub_info['url']} (hub {hub_info['version'] or 'unknown'}) "
-        f"as profile {plan.profile}"
+        + (
+            f"in profiles {plan.profile}-1 to -{jobs}, one per conversation"
+            if plan.apart
+            else f"as profile {plan.profile}"
+        )
     )
 
 

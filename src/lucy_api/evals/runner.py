@@ -61,6 +61,7 @@ class Job:
     scenario: Scenario
     model: str
     repeat: int
+    profile: str = DEFAULT_PROFILE
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,14 +74,31 @@ class Plan:
     profile: str = DEFAULT_PROFILE
     timeout: float = DEFAULT_TIMEOUT
     keep_sessions: bool = False
+    apart: bool = False
+    """Each conversation in a profile of its own, `<profile>-<n>`, rather than all in one.
+
+    One profile per run still shared memory between the run's own conversations: the tea a
+    scenario asked Lucy to remember sat beside the review day another asked about, and a
+    repeat found the fact its predecessor saved and corrected it instead of saving it --
+    failing for the run before, not for anything it did.
+    """
 
     def jobs(self) -> tuple[Job, ...]:
         """Model by model, each scenario's repeats together."""
-        return tuple(
-            Job(scenario=scenario, model=model, repeat=repeat)
+        combos = [
+            (scenario, model, repeat)
             for model in self.models
             for scenario in self.scenarios
             for repeat in range(1, self.repeat + 1)
+        ]
+        return tuple(
+            Job(
+                scenario=scenario,
+                model=model,
+                repeat=repeat,
+                profile=f"{self.profile}-{number}" if self.apart else self.profile,
+            )
+            for number, (scenario, model, repeat) in enumerate(combos, start=1)
         )
 
     @property
@@ -166,17 +184,17 @@ class Runner:
         """One scenario with one model: its own session, from requirements to archive."""
         started = self._pace.clock()
         try:
-            missing = self._unmet(job.scenario, plan.profile)
+            missing = self._unmet(job.scenario, job.profile)
             if missing:
                 return _record(job, SKIPPED, reason=missing)
-            session = self._hub.create_session(_session_body(job, plan))
+            session = self._hub.create_session(_session_body(job))
         except HubError as exc:
             return _record(job, ERROR, reason=self._failure(exc, "before a session existed"))
         sessions = _Sessions(
             Conversation(self._hub, session, pace=self._pace, shell=self._shell),
             start=lambda: Conversation(
                 self._hub,
-                self._hub.create_session(_session_body(job, plan)),
+                self._hub.create_session(_session_body(job)),
                 pace=self._pace,
                 shell=self._shell,
             ),
@@ -328,12 +346,12 @@ def unmet(scenario: Scenario, capabilities: list[dict[str, Any]]) -> str:
     return "; ".join(missing)
 
 
-def _session_body(job: Job, plan: Plan) -> dict[str, object]:
+def _session_body(job: Job) -> dict[str, object]:
     scenario = job.scenario
     return {
         "title": TITLE.format(name=scenario.name),
         "model": job.model,
-        "profile": plan.profile,
+        "profile": job.profile,
         "permission_mode": scenario.permission_mode,
         "incognito": scenario.incognito,
         "input_policy": INPUT_POLICY,
