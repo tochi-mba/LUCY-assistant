@@ -41,6 +41,7 @@ class Play:
     denied_reply: str = ""
     status: str = "completed"
     termination: str = "success"
+    error_code: str = ""
     running_polls: int = 0
     forever: bool = False
     summary: str = ""
@@ -397,6 +398,7 @@ class FakeLucy:
         turn.update(
             status=play.rest_as or play.status,
             termination=play.termination,
+            error_code=play.error_code or None,
             iterations=play.iterations,
             input_tokens=spent_in,
             output_tokens=spent_out,
