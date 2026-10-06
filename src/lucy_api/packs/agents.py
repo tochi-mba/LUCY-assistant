@@ -74,7 +74,10 @@ class AgentsPack:
                 title="Start a helper",
                 description="Spin up a helper on this conversation with a written brief.",
                 risk="write",
-                covers=("agents.spawn", "agents.reopen", "journal.claim", "journal.complete"),
+                # Not the journal: claiming a task is a helper's bookkeeping, not the
+                # person's business. Covered, a helper in plan mode was refused it and the
+                # main thread asked the person "Start a helper?" for it.
+                covers=("agents.spawn", "agents.reopen"),
                 tally="role",
             ),
         )
@@ -208,8 +211,8 @@ class AgentsPack:
             {
                 "name": "journal.claim",
                 "description": (
-                    "Claim one open journal task so siblings can see who is doing it. "
-                    "A dead claim expires on its own."
+                    "Claim an open task from journal.read so the other helpers on this "
+                    "job see it is yours. An abandoned claim lapses on its own."
                 ),
                 "input": object_schema(
                     {"id": string_schema().describe("The task id journal.read returned.")}
@@ -222,9 +225,7 @@ class AgentsPack:
         journal_complete = define_operation(
             {
                 "name": "journal.complete",
-                "description": (
-                    "Mark a journal task finished. Other helpers waiting on it can then proceed."
-                ),
+                "description": ("Mark your journal task done, so helpers waiting on it can start."),
                 "input": object_schema(
                     {"id": string_schema().describe("The task id journal.read returned.")}
                 ),
@@ -233,9 +234,12 @@ class AgentsPack:
                 "run": run_journal_complete,
             }
         )
-        shared = (listed, read, message, journal_read, journal_claim, journal_complete)
+        shared = (listed, read, message)
         if context.agent_id:
-            return shared
+            # The journal is how helpers on one job see each other. The main thread never
+            # had a use for it -- the runtime marks each helper's task itself -- and paid for
+            # three unexplained tools on every round.
+            return (*shared, journal_read, journal_claim, journal_complete)
         return (
             shared[0],
             define_operation(

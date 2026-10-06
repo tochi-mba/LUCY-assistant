@@ -745,14 +745,23 @@ async def test_pack_operations_dispatch_reopen_and_journal(store: SessionStore) 
     context.child = child
     pack = next(pack for pack in capabilities.packs if pack.id == "agents")
     ops = {operation.name: operation for operation in pack.operations(context)}
-    listed = await ops["journal.read"].run(SimpleNamespace(input={}, ctx=context))
-    assert listed["tasks"] == []
+    assert not {"journal.read", "journal.claim", "journal.complete"} & set(ops), (
+        "the journal is a helper's tool, not the main thread's"
+    )
     helper = await agents.insert(ACCOUNT, session, role="helper", objective="go", depth=1)
+    scope = SessionScope(account_id=ACCOUNT, profile="personal", session_id=session)
+    helping = capabilities.context_for(scope.for_agent(helper, permission_mode="plan"))
+    helping.child = child
+    journal = {operation.name: operation for operation in pack.operations(helping)}
+    listed = await journal["journal.read"].run(SimpleNamespace(input={}, ctx=helping))
+    assert listed["tasks"] == []
     task = await agents.add_task(ACCOUNT, session, title="open", status="pending")
-    claimed = await ops["journal.claim"].run(SimpleNamespace(input={"id": str(task)}, ctx=context))
+    claimed = await journal["journal.claim"].run(
+        SimpleNamespace(input={"id": str(task)}, ctx=helping)
+    )
     assert claimed["status"] == "claimed"
-    finished = await ops["journal.complete"].run(
-        SimpleNamespace(input={"id": str(task)}, ctx=context)
+    finished = await journal["journal.complete"].run(
+        SimpleNamespace(input={"id": str(task)}, ctx=helping)
     )
     assert finished["status"] == "completed"
     await agents.finish(ACCOUNT, helper, status="completed", result="plain text")
