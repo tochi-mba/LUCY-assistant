@@ -31,6 +31,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The length the person chose is one of their choices, said last, and never cut first.** It
+  was appended to the behaviour section, the one closest to its ceiling, where a line at the
+  end is the first cut, and it made behaviour differ between profiles, so nothing after it
+  in the system prompt could be shared. It now goes in the preferences section, which moves
+  to the end of the system prompt, and that section no longer repeats its own heading.
 - **No operation description ends in a list of search keywords.** Twenty-one ended in lists
   like "(search, recall, remember, lookup)"; nothing searches descriptions, so they cost tokens
   every round, and "remember" on `notes.search` pulled a "remember this" request towards a

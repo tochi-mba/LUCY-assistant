@@ -493,16 +493,25 @@ def test_rendering_twice_produces_the_same_bytes_so_the_cached_prefix_holds() ->
     assert render_all(CONTEXT) == render_all(CONTEXT)
 
 
-def test_response_style_adds_a_length_instruction_without_rewriting_the_rest() -> None:
-    natural = section(
-        render_all(PromptContext(capabilities=("agents", "notes", "workspace"))), "behaviour"
-    ).body
-    brief = section(render_all(PromptContext(response_style="brief")), "behaviour").body
-    thorough = section(render_all(PromptContext(response_style="thorough")), "behaviour").body
-    assert natural in brief
-    assert "Keep this reply short" in brief
-    assert natural in thorough
-    assert "complete answer" in thorough
+def test_the_length_the_person_chose_is_one_of_their_choices_and_never_cut_first() -> None:
+    """The bug, named: the length line was appended to behaviour, the section closest to its
+    ceiling, where a line at the end is the first cut -- and it made behaviour, second in the
+    system channel, differ between profiles so nothing after it could be shared."""
+    styles = ("brief", "natural", "thorough")
+    behaviours = {
+        section(render_all(PromptContext(response_style=style)), "behaviour").body
+        for style in styles
+    }
+    assert len(behaviours) == 1, "behaviour is the same text for everybody"
+    brief = section(render_all(PromptContext(response_style="brief")), "preferences").body
+    thorough = section(render_all(PromptContext(response_style="thorough")), "preferences").body
+    assert "Keep replies short" in brief
+    assert "complete answers" in thorough
+    natural = [s.id for s in render_all(PromptContext(response_style="natural"))]
+    assert "preferences" not in natural, "nothing chosen, nothing said"
+    chosen = replace(CONTEXT, response_style="brief")
+    system = [s.id for s in render_all(chosen) if s.band is Band.system]
+    assert system[-1] == "preferences", "the only per-person system text comes last"
     assert brief != thorough
 
 

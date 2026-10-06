@@ -129,7 +129,8 @@ class Conventions:
             chosen.append("Do not use emoji.")
         if not chosen:
             return ""
-        return "This person chose how they are written to. " + " ".join(chosen)
+        # No lead-in: the section's heading already says these are their choices.
+        return " ".join(chosen)
 
 
 NOTHING_CHOSEN = Conventions()
