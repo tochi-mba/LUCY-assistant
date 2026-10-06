@@ -437,7 +437,13 @@ async def test_results_the_ladder_cleared_are_named_in_the_line_the_model_reads(
             }
         )
     _system, messages = await system_and_messages(
-        SessionView(session_id="s", items=rows, tool_results_kept=2, window=7_000)
+        SessionView(
+            session_id="s",
+            items=rows,
+            tool_results_kept=2,
+            window=7_000,
+            capabilities=("agents", "notes", "workspace"),
+        )
     )
     told = "\n".join(message.content for message in messages)
     assert "3 older tool results not shown to save room" in told

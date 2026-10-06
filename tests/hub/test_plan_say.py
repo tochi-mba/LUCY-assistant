@@ -142,6 +142,11 @@ def test_words_beside_steps_say_what_is_about_to_happen_not_that_it_happened() -
     """
     assert "shown only once they have" in SAY_DESCRIPTION
     assert "never that it is done" in SAY_DESCRIPTION
-    prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
+    prompt = " ".join(
+        " ".join(
+            section.body
+            for section in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+        ).split()
+    )
     assert "once it is kept say so in a clause" in prompt
     assert "nothing you wrote beside it is shown" in prompt

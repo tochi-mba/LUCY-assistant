@@ -440,7 +440,11 @@ async def test_one_plan_runs_two_groups_at_once_and_skeptics_queue_behind_them(
 
 
 def test_the_always_on_section_sizes_a_team_to_the_job_and_points_at_the_recipe() -> None:
-    helpers = next(section for section in render_all(PromptContext()) if section.id == "helpers")
+    helpers = next(
+        section
+        for section in render_all(PromptContext(capabilities=("agents",)))
+        if section.id == "helpers"
+    )
     text = " ".join(helpers.body.split())
 
     assert "Start with one or two" not in text, "a five-helper team is allowed"

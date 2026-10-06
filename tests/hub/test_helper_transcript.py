@@ -135,7 +135,12 @@ async def test_a_helper_can_read_its_own_helpers_too(sessions_store: SessionStor
 
 
 def test_the_model_is_told_it_can_read_and_stop_a_helper() -> None:
-    prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
+    prompt = " ".join(
+        " ".join(
+            section.body
+            for section in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+        ).split()
+    )
     assert "What it did before it failed is not lost" in prompt
     assert "stopping it keeps what it had found" in prompt
 

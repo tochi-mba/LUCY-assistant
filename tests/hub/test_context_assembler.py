@@ -119,9 +119,13 @@ def test_a_window_with_nothing_in_it_is_still_the_stable_prompt() -> None:
 
 
 def test_a_person_can_turn_a_section_off_and_replace_another() -> None:
-    default = assemble(Window())
+    default = assemble(Window(prompt=PromptContext(capabilities=("agents", "notes", "workspace"))))
     changed = assemble(
-        Window(overrides={"identity": "You are Lucy. Be brief."}, disabled=["memory"])
+        Window(
+            prompt=PromptContext(capabilities=("agents", "notes", "workspace")),
+            overrides={"identity": "You are Lucy. Be brief."},
+            disabled=["memory"],
+        )
     )
     assert "Be brief." in changed.text()
     assert "memory" not in {part.id for part in changed.sections}

@@ -109,7 +109,7 @@ async def test_queued_input_becomes_an_assistant_item_and_a_completed_turn(
 
 def claimed_session_is_named(system: str) -> bool:
     """The live runner's prompt is the context engine's, not a capabilities-only prefix."""
-    return "context:" in system.lower() or "session" in system.lower()
+    return "## working in a finite window" in system.lower()
 
 
 async def test_one_session_runs_queued_messages_in_order_without_parallel_writers(
