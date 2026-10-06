@@ -185,6 +185,7 @@ class PermissionGate:
                 once=grants.get(once_key(name, arguments)),
                 tally=_tally(permission, arguments),
                 writes=_effects(name, catalogue) in WRITE_EFFECTS,
+                each=permission.each_call is not None and permission.each_call(arguments),
             )
             if not verdict.allowed:
                 item = Blocked(
@@ -252,6 +253,7 @@ def _decide(  # noqa: PLR0913 - the permission, and the five things its answer d
     once: Grant | None = None,
     tally: str = "",
     writes: bool = False,
+    each: bool = False,
 ) -> Verdict:
     """`once` is the person's answer to this exact call, when there is one. It stands in for
     the permission's standing grant and goes through the same floors in the same order, so a
@@ -262,13 +264,18 @@ def _decide(  # noqa: PLR0913 - the permission, and the five things its answer d
     grant is read: it is read-only by definition, and a helper -- which always runs in plan
     mode, with its parent's grants -- was able to write under a "yes, for this conversation"
     the person gave Lucy, against every prompt that tells it and Lucy it cannot. A read that
-    spends or executes keeps its grant here, as it always has."""
+    spends or executes keeps its grant here, as it always has.
+
+    `each` is whether this call needs a yes of its own (`Permission.each_call`). Then only
+    `once` answers: no standing grant and no mode stands in for the person's answer to it."""
     floor = _denied_by_floor(permission, floors)
     if floor is None and mode == "plan" and writes:
         floor = _mode_verdict(permission, mode, floors.approval_policy)
     if floor is not None:
         return floor
     standing = grants.get(permission.id) or grants.get(f"{ACCOUNT_PROFILE}:{permission.id}")
+    if each:
+        standing = None
     grant = once or (standing.covering(tally) if standing is not None else None)
     if grant is not None and grant.decision.startswith("deny"):
         message = grant.instruction or f"{permission.title} is not allowed."
@@ -281,13 +288,15 @@ def _decide(  # noqa: PLR0913 - the permission, and the five things its answer d
         and mode != "plan"
     ):
         return Verdict(True, bypassed=True)
-    if floors.confirm_outward and permission.outward and mode != "plan":
-        return Verdict(
-            False,
-            f"{permission.title} is something other people will see, so it needs approval.",
-            permission.id,
-            permission.title,
+    outward = floors.confirm_outward and permission.outward and mode != "plan"
+    if each or outward:
+        why = (
+            "this change needs your yes to it, whatever the mode"
+            if each
+            else "is something other people will see, so it needs approval"
         )
+        joined = f"{permission.title}: {why}." if each else f"{permission.title} {why}."
+        return Verdict(False, joined, permission.id, permission.title)
     return _mode_verdict(permission, mode, floors.approval_policy)
 
 

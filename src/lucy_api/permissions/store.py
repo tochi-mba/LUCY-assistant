@@ -87,7 +87,7 @@ def _profiles(profile: str, session_id: str) -> tuple[str, ...]:
 def _oneshots(db: sqlite3.Connection, turn_id: str, profile: str) -> dict[str, Grant]:
     rows = db.execute(
         "SELECT input_json, operation, status, instruction FROM approvals "
-        "WHERE turn_id=? AND lifetime='once' AND status IN ('granted','denied') "
+        "WHERE turn_id=? AND status IN ('granted','denied') "
         "AND executed_at IS NULL",
         (turn_id,),
     ).fetchall()
@@ -97,7 +97,9 @@ def _oneshots(db: sqlite3.Connection, turn_id: str, profile: str) -> dict[str, G
         payload = loaded if isinstance(loaded, dict) else {}
         permission = str(payload.get("permission") or row["operation"])
         # One key per call the card covered, and only those: a card of five helpers
-        # answers for those five calls, by their own arguments, and nothing else.
+        # answers for those five calls, by their own arguments, and nothing else. Whatever
+        # its lifetime: a "yes, for this conversation" is a yes to these calls too, and a
+        # call that needs a yes of its own was otherwise asked about again as it replayed.
         for operation, arguments, _stored in calls_of(str(row["operation"]), payload):
             found[once_key(operation, arguments)] = Grant(
                 permission=permission,

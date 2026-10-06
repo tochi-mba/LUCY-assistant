@@ -2,11 +2,34 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from lucy_api.clients.settings import FakeSettingsPackClient, Setting
 from lucy_api.packs.base import State
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.settings import SettingsPack
+from lucy_api.permissions.gate import Grant, once_key
 from lucy_api.sessions.scope import SessionScope
+
+
+def yes_to(context: Any, namespace: str, key: str, value: object) -> None:
+    """The person's yes to one exact settings change, as an approved card leaves it."""
+    arguments = {"namespace": namespace, "key": key, "value": value}
+    context.grants[once_key("settings.set", arguments)] = Grant(
+        "settings.write", "allow", "personal", source="person"
+    )
+
+
+def set_step(namespace: str, key: str, value: object) -> dict[str, Any]:
+    return {
+        "steps": [
+            {
+                "id": "set",
+                "op": "settings.set",
+                "input": {"namespace": namespace, "key": key, "value": value},
+            }
+        ]
+    }
 
 
 def setup() -> tuple[FakeSettingsPackClient, Capabilities, object]:
@@ -34,7 +57,64 @@ def setup() -> tuple[FakeSettingsPackClient, Capabilities, object]:
             permission_mode="auto",
         )
     )
+    for value in (20, 9, 8):
+        yes_to(context, "lucy", "max_llm_turns", value)
     return fake, capabilities, context
+
+
+async def test_a_with_approval_setting_asks_even_in_auto() -> None:
+    """The bug, named: `max_llm_turns` is declared `with_approval` -- an assistant may propose
+    it and the person confirms that change -- and in `auto` it changed without a word."""
+    fake, capabilities, context = setup()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(set_step("lucy", "max_llm_turns", 50), context)
+
+    assert result["issues"][0]["code"] == "permission_required"
+    assert "needs your yes to it, whatever the mode" in result["issues"][0]["message"]
+    assert fake.writes == []
+
+
+async def test_a_yes_for_the_whole_conversation_does_not_cover_a_with_approval_change() -> None:
+    """The confirmation is of the change, not of the assistant: "you can manage my settings"
+    is not a yes to raising its own limit."""
+    fake, capabilities, context = setup()
+    context.grants["settings.write"] = Grant("settings.write", "allow", "personal")
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(set_step("lucy", "max_llm_turns", 50), context)
+
+    assert result["issues"][0]["code"] == "permission_required"
+    assert fake.writes == []
+
+
+async def test_a_sibling_setting_is_asked_about_until_its_declaration_is_known() -> None:
+    fake = FakeSettingsPackClient(
+        [
+            Setting("search", "max_results", 5, agent="freely"),
+            Setting("user", "erasure_mode", "grace", agent="never"),
+        ]
+    )
+    capabilities = Capabilities([SettingsPack("https://settings.test", client=fake)])
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct_a", profile="personal", session_id="sess_a", permission_mode="auto"
+        )
+    )
+    await capabilities.probe(context)
+
+    unseen = await capabilities.execute(set_step("search", "max_results", 8), context)
+    assert unseen["issues"][0]["code"] == "permission_required", "not seen yet: asked"
+
+    await capabilities.execute(
+        {"steps": [{"id": "all", "op": "settings.describe", "input": {}}]}, context
+    )
+    freely = await capabilities.execute(set_step("search", "max_results", 8), context)
+    assert not freely["issues"], "declared freely: auto changes it"
+    never = await capabilities.execute(set_step("user", "erasure_mode", "immediate"), context)
+    assert not never["issues"], "never is not asked about: a yes would change nothing"
+    assert never["steps"][0]["status"] == "error"
+    assert fake.writes == [("search", "max_results", 8)]
 
 
 async def test_settings_pack_is_ready_and_declares_its_write_permission() -> None:

@@ -252,6 +252,16 @@ def _pack(*settings: Setting) -> tuple[FakeSettingsPackClient, Capabilities, Any
     return fake, capabilities, context
 
 
+def _yes(context: Any, namespace: str, key: str, value: object) -> None:
+    """The person's yes to one exact change, as an approved card leaves it."""
+    from lucy_api.permissions.gate import Grant, once_key
+
+    arguments = {"namespace": namespace, "key": key, "value": value}
+    context.grants[once_key("settings.set", arguments)] = Grant(
+        "settings.write", "allow", "personal"
+    )
+
+
 def _set(namespace: str, key: str, value: object) -> dict[str, Any]:
     return {
         "steps": [
@@ -285,6 +295,7 @@ async def test_the_same_key_in_another_namespace_is_that_namespace_s_business() 
     fake, capabilities, context = _pack(
         Setting("persona", "prompt_sections_disabled", [], agent="with_approval")
     )
+    _yes(context, "persona", "prompt_sections_disabled", ["notes"])
     await capabilities.probe(context)
 
     result = await capabilities.execute(
@@ -302,6 +313,7 @@ async def test_a_sibling_setting_no_assistant_may_change_is_refused(declared: st
     memory protection -- every setting in user, keyring and memory is `never` -- without a
     word in `auto`. A setting that says nothing is treated as `never`, as settings-api says."""
     fake, capabilities, context = _pack(Setting("user", "erasure_mode", "grace", agent=declared))
+    _yes(context, "user", "erasure_mode", "immediate")  # even a yes to it changes nothing
     await capabilities.probe(context)
 
     result = await capabilities.execute(_set("user", "erasure_mode", "immediate"), context)
