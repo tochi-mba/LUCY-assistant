@@ -14,6 +14,7 @@ from lucy_api.agents.store import QUEUED
 from lucy_api.agents.types import (
     RESTARTED,
     RESTARTED_QUEUED,
+    RESULT_TOKEN_CAP,
     Delegation,
     capped_summary,
     declared_return,
@@ -117,11 +118,22 @@ def _helper_spec(models: ModelRegistry, chosen: str, conversation: str) -> tuple
     return chosen, ""
 
 
-def _brief_text(delegation: Delegation) -> str:
+WORDS_PER_TOKEN = 0.75
+"""Roughly, for English prose: the brief states the cap in words, the unit a model writes in."""
+
+
+def _brief_text(delegation: Delegation, *, cap_tokens: int = RESULT_TOKEN_CAP) -> str:
+    """The helper's first message: what to do, what to hand back, and how much of it fits.
+
+    The answer is cut at `agent_result_token_cap`, and nothing said so: a helper wrote a
+    long report and its conclusion -- usually last -- was the part that never reached Lucy.
+    """
+    words = int(cap_tokens * WORDS_PER_TOKEN) // 50 * 50
     lines = [
         f"You are a helper named {delegation.role}.",
         f"Objective: {delegation.objective}",
-        f"Return: {delegation.output_format}",
+        f"Return: {delegation.output_format}, in at most about {words:,} words; anything "
+        "longer is cut off.",
         "You are read-only. Do not write files, change settings, or start more helpers.",
     ]
     if delegation.guidance:
@@ -137,8 +149,8 @@ def _brief_text(delegation: Delegation) -> str:
             "are in this transcript; do not repeat finished work."
         )
     lines.append(
-        "Messages from Lucy arrive in this conversation between rounds, never mid-tool. "
-        "Follow them for the rest of your run."
+        "If Lucy sends you a message while you work, it appears in this conversation. "
+        "Follow it for the rest of your run."
     )
     return "\n".join(lines)
 
@@ -248,7 +260,12 @@ class ChildRuntime:
             await self.store.append(
                 parent.account_id,
                 parent.session_id,
-                NewItem("message", "user", _brief_text(delegation), agent_id=agent_id),
+                NewItem(
+                    "message",
+                    "user",
+                    _brief_text(delegation, cap_tokens=parent.policy.agent_result_token_cap),
+                    agent_id=agent_id,
+                ),
             )
             # Its lines carry its own id, and its parent's when it is a helper's helper, on
             # top of the conversation and turn it inherited from the turn that started it.
@@ -376,9 +393,12 @@ class ChildRuntime:
         summary = ""
         if isinstance(result, dict):
             summary = str(result.get("summary") or "")
-        guidance = f"Continue from helper {agent_id}."
-        if summary:
-            guidance += f" Its last report was:\n{summary}"
+        # The earlier runs are in the new run's transcript (`_earlier_runs`), so a report the
+        # last one finished with is already there; pasted into the brief as well, up to two
+        # thousand tokens were paid for twice on every round of the continuation. What is
+        # not in the transcript is why a run that did not finish stopped.
+        stopped = summary if summary and row["status"] != "completed" else ""
+        guidance = f"It stopped: {stopped}" if stopped else ""
         schema = return_schema.strip()
         stored = row.get("delegation")
         if not schema and isinstance(stored, dict):
