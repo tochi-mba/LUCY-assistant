@@ -74,6 +74,14 @@ def test_a_small_suffix_is_not_spilled() -> None:
     assert not any("spilled" in notice for notice in viewed.notices)
 
 
+def test_a_spilled_result_says_which_part_was_cut_and_how_to_read_it() -> None:
+    """The bug, named: "the rest spilled" said neither that the middle was the part cut nor
+    how to read it, so a model either guessed at it or asked for the whole thing again."""
+    _kept, notices = spill("a" * 400 + "b" * 400, cap=20)
+    assert "the start and the end; the middle spilled" in notices[0]
+    assert "show_from" in notices[0]
+
+
 def test_spill_under_the_cap_is_a_no_op() -> None:
     kept, notices = spill("short", cap=100)
     assert kept == "short"

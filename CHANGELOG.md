@@ -95,6 +95,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   sources were not read this turn and that their calls may still work.
 
 - An imported MCP tool now says its arguments: the pinned `inputSchema`'s properties (type, description, enum) and required fields, fenced and capped at 600 characters, where it used to say only "pass this tool's parameters as `arguments`" and leave the model to guess the names. Its description in the schema is capped at 600 characters too, so sixty-four pinned tools cannot fill every round.
+
+- The live block no longer says what is not true. A dropped group names the call that shows what it held (`work.list`, `work.check`, `notes.search`, `capabilities.list`) instead of "ask if you need them", which left only the person to ask. Finished work is "since you last looked", because it is shown on the next round of the same turn. The workspace counts uncommitted files, which is what `git status` gives, not files "changed since your last turn". The session line drops the session id, which no operation takes and which cost about ten tokens a round. A spilled result says the middle was cut and that `show_from` reads on from a point in it.
 - **The workspace section names its files and says what a resume already read.** It spoke of
   "a running note and a task list" without naming `progress.md` or `tasks.json`, told the
   model to read them on resume when the live block already had, and said to "print what it

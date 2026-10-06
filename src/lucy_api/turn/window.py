@@ -180,7 +180,11 @@ def spill(text: str, *, cap: int = RESULT_TOKEN_CAP) -> tuple[str, tuple[str, ..
     tail = max(budget_chars - head, 1)
     kept = f"{text[:head]}\n…\n{text[-tail:]}"
     shown = Estimate().count(kept)
-    notice = f"showing {shown} of {tokens} tokens; the rest spilled"
+    notice = (
+        f"showing {shown} of {tokens} tokens, the start and the end; the middle spilled. "
+        "To read on from a point in it, run the read again with show_from set to a unique "
+        "snippet from there"
+    )
     return kept, (notice,)
 
 

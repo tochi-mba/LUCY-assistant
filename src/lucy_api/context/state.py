@@ -196,6 +196,14 @@ class _Quota:
 #
 # `ceiling` is what a group may show when there is room; `floor` is how few entries still
 # earn a header.
+FETCH: Mapping[str, str] = {
+    "in_flight": "work.list",
+    "finished": "work.check",
+    "memory": "notes.search",
+    "capabilities": "capabilities.list",
+}
+"""The call that shows a dropped group's entries, for the groups that have one."""
+
 QUOTAS: Mapping[str, _Quota] = {
     "in_flight": _Quota(rank=40, ceiling=5, floor=2),
     "finished": _Quota(rank=10, ceiling=4, floor=2),
@@ -356,11 +364,19 @@ def _anything_dropped(plan: _Plan) -> bool:
 
 
 def _omitted(gone: Sequence[_Group], confess: int) -> str:
-    """The line that keeps a dropped group from vanishing, in one of its two sizes."""
-    if confess == CONFESS_FULL:
-        named = ", ".join(f"{group.name}{group.size}" for group in gone)
-        return f"{named} - dropped for space, ask if you need them"
-    return f"{_plural(len(gone), 'group', 'groups')} dropped for space, ask what is missing"
+    """The line that keeps a dropped group from vanishing, in one of its two sizes.
+
+    It said "ask if you need them", and there is nobody to ask: no operation reads the live
+    block, so a model that took it at its word asked the person. It names the call that
+    brings each group back instead, where there is one.
+    """
+    if confess != CONFESS_FULL:
+        return f"{_plural(len(gone), 'group', 'groups')} dropped for space"
+    named = ", ".join(f"{group.name}{group.size}" for group in gone)
+    calls = sorted({FETCH[group.name] for group in gone if group.name in FETCH})
+    if not calls:
+        return f"{named} - dropped for space"
+    return f"{named} - dropped for space; {' and '.join(calls)} show what they held"
 
 
 def _worst(groups: Sequence[_Group], plan: _Plan, *, only_above_floor: bool) -> int | None:
@@ -444,12 +460,14 @@ def _offset(moment: datetime) -> str:
 
 
 def _session_line(state: LiveState) -> str:
-    """Which conversation this is, and under which rules it is being held."""
+    """Which conversation this is, and under which rules it is being held.
+
+    No session id: no operation takes one, and it cost about ten tokens every round.
+    """
     session = state.session
     title = f'"{_clean(session.title, TITLE_CHARS)}"' if session.title else ""
     incognito = "incognito: nothing here is written to memory" if session.incognito else ""
     return _label("session") + _joined(
-        _clean(session.id, NAME_CHARS),
         title,
         f"profile {_clean(session.profile, NAME_CHARS)}",
         f"turn {session.turn_number}",
@@ -570,8 +588,10 @@ def _finished_group(finished: Sequence[WorkSnapshot]) -> _Group:
     return _Group(
         name="finished",
         quota=QUOTAS["finished"],
+        # "since your last turn" was false between rounds: what ends while the model's
+        # own steps run is told on the next round of the same turn.
         headline=_plural(len(finished), "thing finished", "things finished")
-        + " since your last turn",
+        + " since you last looked",
         entries=tuple(_finished_line(work) for work in finished),
     )
 
@@ -646,8 +666,10 @@ def _workspace_group(workspace: WorkspaceSnapshot, facts: Sequence[str] = ()) ->
     thing under the same word.
     """
     ready = "ready" if workspace.ready else "not ready"
+    # From `git status --short`: files not yet committed, of any age, not files changed since
+    # the model last looked, which is what this used to claim.
     changed = (
-        f"{_plural(len(workspace.changed_files), 'file', 'files')} changed since your last turn"
+        _plural(len(workspace.changed_files), "uncommitted file", "uncommitted files")
         if workspace.changed_files
         else ""
     )

@@ -193,7 +193,7 @@ async def test_a_flood_of_tool_results_cannot_cost_lucy_its_own_state() -> None:
 async def test_with_no_live_systems_at_all_the_turn_still_knows_where_it_is() -> None:
     built = await build_context(REQUEST, Turn(items=conversation(1)))
     live = built.context.sections[-1].body
-    assert "ses_1" in live
+    assert "profile personal" in live
     assert "turn 42" in live
     assert "84,000 of 200,000" in live
     assert "running" not in live, "a group with nothing in it is left out, not printed empty"
