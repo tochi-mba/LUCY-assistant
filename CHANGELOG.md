@@ -525,6 +525,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- Web search has a fallback that answers. Google returned a captcha to automated searches after twenty to fifty seconds, past the hub's thirty-second step, so research failed without failing over, and no other backend was configured. The family now runs SearXNG: a pinned image on the family network only, never published on the host, with JSON on and its public-instance limiter off. Web-search tries it first and falls back to Google. A person's `search_backend` still decides. `scripts/genenv.py` writes `SEARXNG_SECRET`, so no secret is committed. SearXNG's per-engine timeout is raised from 3s to 8s, because at 3s every engine timed out on a slow uplink and was then suspended.
 - **A scenario can come back another day.** A turn with `new_session = true` is said in a fresh
   session on the same profile once the last one is closed, so a scenario about remembering
   can recall where only what was kept carries over. Every scenario used to hold one session,
