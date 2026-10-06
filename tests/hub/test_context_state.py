@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from lucy_api.context.state import render_state
+from lucy_api.context.state import CONFESS_FULL, _Group, _omitted, _Quota, render_state
 from lucy_api.context.types import (
     BudgetSnapshot,
     CapabilitySnapshot,
@@ -165,7 +165,7 @@ def test_the_block_always_states_the_date_the_session_and_the_context_position()
     rendered = body_of(a_state())
 
     assert headline(rendered, "now") == "2026-09-17 14:32 UTC (Thursday)"
-    assert headline(rendered, "session").startswith("ses_4f2a")
+    assert headline(rendered, "session").startswith("profile builder")
     assert headline(rendered, "context").startswith("84,000 of 200,000 tokens")
 
 
@@ -227,8 +227,27 @@ def test_the_session_line_names_the_conversation_when_it_has_been_named() -> Non
 
 def test_the_session_line_carries_no_empty_slot_when_the_conversation_is_unnamed() -> None:
     assert headline(body_of(a_state()), "session") == (
-        "ses_4f2a - profile builder - turn 12 - permission mode accept edits"
+        "profile builder - turn 12 - permission mode accept edits"
     )
+
+
+def test_the_session_line_spends_nothing_on_an_id_no_operation_takes() -> None:
+    """The bug, named: every round paid about ten tokens for "ses_4f2a", which no operation
+    accepts and the model has no use for."""
+    assert "ses_4f2a" not in body_of(a_state())
+
+
+def test_finished_work_is_not_said_to_have_ended_since_the_last_turn() -> None:
+    """The bug, named: what ends while the model's own steps run is shown on the next round of
+    the same turn, under a heading that said "since your last turn"; and the workspace said
+    "changed since your last turn" of `git status`, which is every uncommitted file."""
+    state = a_state(
+        in_flight=(running_agent(status="done", finished_since_last_turn=True),),
+        workspace=a_workspace(changed_files=("old.py",)),
+    )
+    rendered = body_of(state)
+    assert "since your last turn" not in headline(rendered, "finished")
+    assert headline(rendered, "workspace").endswith("1 uncommitted file")
 
 
 def test_incognito_is_stated_only_when_it_is_on_because_it_changes_what_may_be_written() -> None:
@@ -337,7 +356,7 @@ def test_an_agent_that_finished_since_the_last_turn_is_called_out_separately() -
     assert entries_of(rendered, "in_flight") == [
         "researcher - find every caller of the old ingest API - 2m14s - id a1"
     ]
-    assert headline(rendered, "finished") == "1 thing finished since your last turn"
+    assert headline(rendered, "finished") == "1 thing finished since you last looked"
     assert entries_of(rendered, "finished") == [
         "writer - draft the migration note - done after 4m02s - wrote docs/migration.md - id a2"
     ]
@@ -380,7 +399,7 @@ def test_more_agents_finishing_than_fit_is_confessed_with_the_count() -> None:
     rendered = body_of(state)
 
     assert (
-        headline(rendered, "finished") == "9 things finished since your last turn (showing 4 of 9)"
+        headline(rendered, "finished") == "9 things finished since you last looked (showing 4 of 9)"
     )
     assert len(entries_of(rendered, "finished")) == 4
 
@@ -625,9 +644,7 @@ def test_the_workspace_line_names_the_path_its_readiness_and_what_moved() -> Non
     state = a_state(workspace=a_workspace(changed_files=("src/ingest/api.py", "docs/migration.md")))
     rendered = body_of(state)
 
-    assert headline(rendered, "workspace") == (
-        "/work/ingest - ready - 2 files changed since your last turn"
-    )
+    assert headline(rendered, "workspace") == ("/work/ingest - ready - 2 uncommitted files")
     assert entries_of(rendered, "workspace") == ["src/ingest/api.py", "docs/migration.md"]
 
 
@@ -664,9 +681,7 @@ def test_a_resume_says_each_thing_once_and_names_the_files_it_read() -> None:
     )
     rendered = body_of(state)
 
-    assert headline(rendered, "workspace") == (
-        "/work/ingest - ready - 1 file changed since your last turn"
-    )
+    assert headline(rendered, "workspace") == ("/work/ingest - ready - 1 uncommitted file")
     assert entries_of(rendered, "workspace") == [
         "recent commits: abc123 first; def456 second",
         "progress.md, latest: Did the dates.",
@@ -713,7 +728,7 @@ def test_thirty_changed_files_show_six_and_say_how_many_changed() -> None:
     rendered = body_of(a_crowd())
 
     assert headline(rendered, "workspace").endswith("(showing 6 of 30)")
-    assert "30 files changed since your last turn" in headline(rendered, "workspace")
+    assert "30 uncommitted files" in headline(rendered, "workspace")
     assert len(entries_of(rendered, "workspace")) == 6
 
 
@@ -876,7 +891,26 @@ def test_a_dropped_group_is_named_in_the_block_rather_than_vanishing_from_it() -
     rendered = body_of(a_crowd(), limit=270)
 
     assert headline(rendered, "omitted").startswith("tasks (25), memory (40), workspace (30)")
-    assert headline(rendered, "omitted").endswith("dropped for space, ask if you need them")
+    assert headline(rendered, "omitted").endswith(
+        "dropped for space; capabilities.list and notes.search show what they held"
+    )
+
+
+def test_a_dropped_group_names_the_call_that_brings_it_back_not_somebody_to_ask() -> None:
+    """The bug, named: "dropped for space, ask if you need them" -- and no operation reads the
+    live block, so the only one a model could ask was the person."""
+    rendered = body_of(a_crowd(), limit=270)
+    omitted = headline(rendered, "omitted")
+
+    assert "ask if" not in omitted
+    assert "notes.search" in omitted, "memory went, and notes.search finds what it held"
+
+
+def test_a_dropped_group_with_no_call_to_fetch_it_is_named_without_one() -> None:
+    gone = [
+        _Group(name="trouble", quota=_Quota(rank=1, ceiling=1, floor=1), headline="x", entries=())
+    ]
+    assert _omitted(gone, CONFESS_FULL) == "trouble - dropped for space"
 
 
 def test_a_group_whose_content_is_its_headline_is_not_confessed_as_having_held_nothing() -> None:
@@ -897,12 +931,12 @@ def test_a_group_whose_content_is_its_headline_is_not_confessed_as_having_held_n
 def test_the_list_of_dropped_groups_becomes_a_count_before_the_context_position_goes() -> None:
     rendered = body_of(a_crowd(), limit=100)
 
-    assert headline(rendered, "omitted") == "7 groups dropped for space, ask what is missing"
+    assert headline(rendered, "omitted") == "7 groups dropped for space"
     assert has_group(rendered, "context")
 
 
 def test_the_header_lines_are_given_up_only_after_every_group_has_gone() -> None:
-    rendered = body_of(a_crowd(), limit=80)
+    rendered = body_of(a_crowd(), limit=70)
 
     assert has_group(rendered, "now")
     assert has_group(rendered, "session")
@@ -949,7 +983,7 @@ def test_the_notice_accounts_for_the_header_lines_and_the_delimiters_too() -> No
 
 
 def test_one_missing_header_line_is_reported_in_the_singular() -> None:
-    assert "1 header line omitted" in render(a_crowd(), limit=80).notice
+    assert "1 header line omitted" in render(a_crowd(), limit=70).notice
 
 
 def test_a_shortened_list_of_dropped_groups_is_itself_reported() -> None:
