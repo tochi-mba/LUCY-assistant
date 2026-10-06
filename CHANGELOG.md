@@ -31,6 +31,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **No operation description ends in a list of search keywords.** Twenty-one ended in lists
+  like "(search, recall, remember, lookup)"; nothing searches descriptions, so they cost tokens
+  every round, and "remember" on `notes.search` pulled a "remember this" request towards a
+  read. They are gone, and `notes.search` no longer speaks of "the model".
 - **A finished helper hands back its answer once.** `work.result` carried the whole runtime
   result, so a helper with a declared return was read twice -- its JSON as `summary` and
   again as the parsed `data` -- up to two thousand tokens a team member, beside an

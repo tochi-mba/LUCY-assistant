@@ -193,7 +193,7 @@ class WorkPack:
                     "description": (
                         "What is still running for this session -- helpers, downloads and "
                         "commands together, with what each one is for and how long it has "
-                        "been going (running, in flight, status, progress, background)."
+                        "been going."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({})),
@@ -207,7 +207,7 @@ class WorkPack:
                     "description": (
                         "What finished since you last checked. Says how it went and roughly "
                         "how big the answer is; never the answer itself. Read one with "
-                        "work.result (finished, done, notices, completed)."
+                        "work.result."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({})),
@@ -221,7 +221,7 @@ class WorkPack:
                     "description": (
                         "Read what one finished piece of work produced. Fetching is "
                         "deliberate: a large result stays out of the conversation until you "
-                        "ask for it (result, output, findings, report)."
+                        "ask for it."
                     ),
                     "input": object_schema(
                         {
@@ -241,7 +241,7 @@ class WorkPack:
                     "description": (
                         "Wait for one piece of work, for a bounded time. Giving up does not "
                         "stop it. Prefer answering now and picking the result up when its "
-                        "notice arrives (wait, block, until, finish)."
+                        "notice arrives."
                     ),
                     "input": object_schema(
                         {
@@ -266,8 +266,7 @@ class WorkPack:
                         "then with a notice naming the objective, and the turn it opens can "
                         "act. Say `at` with its offset, or `in_seconds`; at least a minute "
                         "away, at most a week. Prefer a watch or a subscription when something "
-                        "can tell you the moment it happens; a check-in is for a time (later, "
-                        "remind, at, backstop, follow up)."
+                        "can tell you the moment it happens; a check-in is for a time."
                     ),
                     "input": object_schema(
                         {
@@ -293,7 +292,7 @@ class WorkPack:
                     "name": "work.cancel",
                     "description": (
                         "Stop something that is running. Safe to call twice; the second call "
-                        "changes nothing (cancel, stop, abort, kill)."
+                        "changes nothing."
                     ),
                     "input": object_schema(
                         {"work_id": string_schema().describe("The id to stop.")}

@@ -237,8 +237,7 @@ class WatchPack:
                         "Say when a workspace file appears or changes (or matches, with a "
                         "pattern), a public URL answers or matches, or another piece of work "
                         "finishes. Give exactly one of path, url or work_id. Returns a handle "
-                        "at once; a notice arrives when it fires or expires (watch, wait for, "
-                        "monitor, when, notify)."
+                        "at once; a notice arrives when it fires or expires."
                     ),
                     "input": object_schema(
                         {
@@ -270,7 +269,7 @@ class WatchPack:
                     "description": (
                         "Run a workspace command every few seconds until it exits 0 or its "
                         "output matches, then say so. One approval covers every run. Returns "
-                        "a handle at once (watch, poll, until, wait for a command)."
+                        "a handle at once."
                     ),
                     "input": object_schema(
                         {

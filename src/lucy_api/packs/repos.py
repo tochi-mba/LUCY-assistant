@@ -572,8 +572,7 @@ class ReposPack:
             "(`pull_merged`), a review lands (`review_submitted`), or a run completes "
             "(`run_completed`, with `run`). Returns a handle at once; a notice arrives when "
             f"it happens. With `wake` (default {'true' if wakes else 'false'}) an idle "
-            "conversation is woken to act on it, under the person's standing consent (watch, "
-            "wait for, when, notify, until).",
+            "conversation is woken to act on it, under the person's standing consent.",
             {
                 "repo": repo_field("The repository, as owner/name, written out."),
                 "until": enum_schema(*WATCH_KINDS),

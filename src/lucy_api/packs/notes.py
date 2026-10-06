@@ -176,8 +176,7 @@ class NotesPack:
                     "description": (
                         "Who this person is: pinned memory blocks, the highest-ranked "
                         "memories, and pinned account facts as a separate list. Do not "
-                        "merge the lists or treat their order as one ranking (about me, "
-                        "profile, identity, preferences)."
+                        "merge the lists or treat their order as one ranking."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({})),
@@ -202,10 +201,9 @@ class NotesPack:
                 {
                     "name": "notes.search",
                     "description": (
-                        "Find remembered notes worth putting in front of the model. This "
-                        "is memory only — pinned account fields are on notes.aboutMe, not "
-                        "here, because the scores are not comparable. Untrusted and "
-                        "forgotten notes are excluded (search, recall, remember, lookup)."
+                        "Search what you remember about the person, by keywords. Memory "
+                        "only: pinned account fields are on notes.aboutMe. Untrusted and "
+                        "forgotten notes are excluded."
                     ),
                     "input": object_schema(
                         {
