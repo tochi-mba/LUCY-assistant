@@ -743,6 +743,14 @@ def test_the_context_section_says_which_note_to_write_and_when() -> None:
     assert "When your tools change" not in context, "said once, under the present tense"
 
 
+def test_the_tools_section_says_the_person_never_sees_a_result() -> None:
+    """The bug, named: asked "what do you know about me?", Lucy ran notes.aboutMe and replied
+    "That's it. What do you want to do?" -- as if the person had read the result. Nothing in
+    the prompt said results come back to the model alone."""
+    tools = " ".join(section(render_all(CONTEXT), "tools").body.split())
+    assert "A step's result comes back to you, never to the person." in tools
+
+
 def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     """The bug, named: "two writes that could collide are two plans" guarded against something
     the executor already prevents, and missed what it does not: a failed step skips only the

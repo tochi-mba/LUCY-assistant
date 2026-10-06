@@ -8,6 +8,9 @@ the same tokens twice, and retyping is where the mistakes come from.
 Find a song, then play it: the play step's `track` is `"$found"`. Only a field that says it
 takes a reference accepts one; what you write yourself, write in full.
 
+A step's result comes back to you, never to the person. When a step found what they asked
+for, your reply says it: "That's it" after a lookup they never saw tells them nothing.
+
 ### Every step's `note` says what it is for
 
 One sentence, in plain words: active voice, what the call does rather than what it is. Write it for the person who will be asked
