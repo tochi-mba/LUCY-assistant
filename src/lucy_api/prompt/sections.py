@@ -220,29 +220,30 @@ def _nothing(_context: PromptContext) -> str:
     return ""
 
 
-def _behaviour(context: PromptContext) -> str:
-    """Standing rules, plus the length the person asked for on this profile."""
-    extra = {
-        "brief": "Keep this reply short unless the person asked for more.",
-        "thorough": (
-            "Give a complete answer, with the steps and caveats that change the decision."
-        ),
-    }.get(context.response_style, "")
-    base = _default("behaviour")
-    if not extra:
-        return base
-    return f"{base}\n\n{extra}"
+LENGTH = {
+    "brief": "Keep replies short unless the person asks for more.",
+    "thorough": "Give complete answers, with the steps and caveats that change the decision.",
+}
+"""How long an ordinary answer should run, when the person chose other than natural.
+
+It was appended to `behaviour`, the section closest to its ceiling, where a line added at
+the end is the first one cut -- the placement this section exists to avoid -- and it made
+behaviour, second in the system channel, differ between profiles, so nothing after it could
+be shared. It is one of the person's choices, and is said with the rest of them."""
 
 
 def _preferences(context: PromptContext) -> str:
-    """The person's own choices, in a section of their own.
+    """The person's own choices, in a section of their own, last in the system channel.
 
     Not a paragraph of `behaviour`: that section runs close to its ceiling, and a line
     added at its end is the first one cut. A choice somebody made must not be what is
     given up to make room for prose. Its ceiling holds every choice at once, so a person who
-    chose everything is never told that part of it was cut.
+    chose everything is never told that part of it was cut. Last, because it is the only
+    system text that differs from one person to the next: everything before it is the same
+    for everybody, and their choices are read just before the conversation.
     """
-    return context.preferences
+    chosen = (LENGTH.get(context.response_style, ""), context.preferences)
+    return " ".join(part for part in chosen if part)
 
 
 def _capabilities(context: PromptContext) -> str:
@@ -364,17 +365,8 @@ BUILTIN: tuple[PromptSection, ...] = (
         band=Band.system,
         priority=30,
         version="1",
-        render=_behaviour,
+        render=_fixed(_default("behaviour")),
         max_tokens=850,
-    ),
-    PromptSection(
-        id="preferences",
-        title="How this person asked to be written to",
-        band=Band.system,
-        priority=32,
-        version="1",
-        render=_preferences,
-        max_tokens=300,
     ),
     PromptSection(
         id="tools",
@@ -449,6 +441,15 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("context")),
         max_tokens=700,
+    ),
+    PromptSection(
+        id="preferences",
+        title="How this person asked to be written to",
+        band=Band.system,
+        priority=32,
+        version="1",
+        render=_preferences,
+        max_tokens=300,
     ),
     PromptSection(
         id="capabilities",

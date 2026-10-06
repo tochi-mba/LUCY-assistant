@@ -143,34 +143,28 @@ def test_a_key_that_cannot_be_resolved_is_not_guessed() -> None:
 
 def test_each_choice_is_one_sentence_and_only_the_chosen_ones_are_said() -> None:
     assert conventions(locale="fr-FR").hint() == (
-        "This person chose how they are written to. Write to them in fr-FR: its language, "
+        "Write to them in fr-FR: its language, "
         "its spelling, and its date and number formats. If they write to you in another "
         "language, answer in that one."
     )
     assert conventions(units="imperial").hint() == (
-        "This person chose how they are written to. "
         "Give distances, weights and temperatures in imperial units."
     )
     assert conventions(time_format="12h").hint() == (
-        "This person chose how they are written to. "
         "Write clock times on the 12-hour clock, as 2:20 pm."
     )
-    assert conventions(currency="GBP").hint() == (
-        "This person chose how they are written to. Give costs in GBP."
-    )
+    assert conventions(currency="GBP").hint() == ("Give costs in GBP.")
     assert conventions(formatting="plain").hint() == (
-        "This person chose how they are written to. Write plain text: no Markdown "
+        "Write plain text: no Markdown "
         "headings, lists, tables or emphasis marks. What they read you on shows text "
         "exactly as it arrives."
     )
     assert conventions(formatting="markdown").hint() == (
-        "This person chose how they are written to. What they read you on renders "
+        "What they read you on renders "
         "Markdown, so use headings, lists and tables where they make an answer easier "
         "to read."
     )
-    assert conventions(emoji=False).hint() == (
-        "This person chose how they are written to. Do not use emoji."
-    )
+    assert conventions(emoji=False).hint() == ("Do not use emoji.")
     assert conventions(timezone="Asia/Tokyo").hint() == ""
     assert conventions(formatting="auto", emoji=True).hint() == ""
 
@@ -283,6 +277,6 @@ async def test_a_turn_shows_the_model_the_persons_clock_and_their_choices() -> N
 
     system, messages = await system_and_messages(view)
 
-    assert "This person chose how they are written to. Give costs in JPY." in system
+    assert "Give costs in JPY." in system
     live = next(message.content for message in messages if "Asia/Tokyo" in message.content)
     assert "Asia/Tokyo, UTC+09:00" in live
