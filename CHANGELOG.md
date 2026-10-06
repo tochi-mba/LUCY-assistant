@@ -88,6 +88,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- The context section says which note to write and when: "where you are, in `progress.md` when you have a workspace, while the detail is still in front of you", in place of "write the note before the eviction", which named no note and used a word a small model does not map to a summary replacing older turns. The "When your tools change mid-conversation" subsection, which repeated the one above it, is folded into it.
 - **The live block says which sources it missed, and never to avoid a capability for it.** Its
   trouble group was headed "operations failing repeatedly" while the only thing ever put
   there was a live source read once and missed, and the context section said not to retry what
