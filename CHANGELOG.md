@@ -88,6 +88,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- The fixed prompt says each rule once, and says where a connect link comes from. "Offer the link" was said four times and "do not wait in a loop" three, but nothing said that for a capability not yet connected the link comes from `capabilities.setup`, so a small model could make one up. Identity and helpers drop their copies. Tools names `capabilities.setup` and covers helpers, commands and downloads in one no-polling rule. The always-on "When a capability is not in front of you" subsection is gone: the capabilities section that appears when something is deferred already says how to bind one, and now adds that each one bound spends room.
 - The context section says which note to write and when: "where you are, in `progress.md` when you have a workspace, while the detail is still in front of you", in place of "write the note before the eviction", which named no note and used a word a small model does not map to a summary replacing older turns. The "When your tools change mid-conversation" subsection, which repeated the one above it, is folded into it.
 - **The live block says which sources it missed, and never to avoid a capability for it.** Its
   trouble group was headed "operations failing repeatedly" while the only thing ever put

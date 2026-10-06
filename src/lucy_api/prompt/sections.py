@@ -258,13 +258,13 @@ def _capabilities(context: PromptContext) -> str:
             "Ready but not loaded this turn, to keep this list short: "
             f"{', '.join(context.deferred)}. To use one, bind it by name with "
             "capabilities.use; its operations are callable in your very next plan, in this "
-            "same turn."
+            "same turn. Bind only the one the work needs: each one bound spends room."
         )
     if context.advertised:
         lines.append(
             "Not connected yet, and this profile asked to hear about them: "
             f"{', '.join(context.advertised)}. Offer the person the connect link "
-            "for those rather than working around them."
+            "(`capabilities.setup` returns it) rather than working around them."
         )
     return "\n".join(lines)
 
