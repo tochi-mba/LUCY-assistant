@@ -821,3 +821,11 @@ def test_what_the_person_asks_to_have_remembered_outlives_the_conversation() -> 
     assert "promote" not in said["notes.remember"]
     page = " ".join(capability_doc("notes").read_text(encoding="utf-8").split())
     assert "what they ask you to remember about them goes there" in page
+
+
+def test_searching_notes_is_never_described_as_remembering() -> None:
+    capabilities, context = _capabilities(FakeHttp())
+    pack = next(pack for pack in capabilities.packs if isinstance(pack, NotesPack))
+    said = {op.name: op.description for op in pack.operations(context)}
+    assert "remember" not in said["notes.search"].lower().replace("what you remember", "")
+    assert "the model" not in said["notes.search"]

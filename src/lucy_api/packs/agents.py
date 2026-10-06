@@ -149,7 +149,7 @@ class AgentsPack:
                 "description": (
                     "Helpers running for this conversation, and any that stopped before "
                     "finishing and were not continued. Finished ones arrive as work.check "
-                    "notices, not here (helpers, subagents, roster, stopped, resume)."
+                    "notices, not here."
                 ),
                 "input": object_schema({}),
                 "output": value(object_schema({})),
@@ -162,7 +162,7 @@ class AgentsPack:
                 "name": "agents.message",
                 "description": (
                     "Steer a running helper. The message is delivered at the next tool "
-                    "boundary, never mid-tool (delegate, helper, inbox, steer)."
+                    "boundary, never mid-tool."
                 ),
                 "input": object_schema(
                     {
@@ -183,8 +183,7 @@ class AgentsPack:
                 "description": (
                     "What a helper has done so far, in order: its brief, each step and what "
                     "came back, and what it said. Works while it runs and after it "
-                    "finished, stopped or was cancelled, and changes nothing (transcript, "
-                    "progress, partial, inspect)."
+                    "finished, stopped or was cancelled, and changes nothing."
                 ),
                 "input": object_schema({"id": string_schema().describe("The helper's handle.")}),
                 "output": value(object_schema({})),
@@ -197,7 +196,7 @@ class AgentsPack:
                 "name": "journal.read",
                 "description": (
                     "The blackboard of tasks for this conversation: who claimed what, "
-                    "what is blocked, what is still open (journal, tasks, helpers)."
+                    "what is blocked, what is still open."
                 ),
                 "input": object_schema({}),
                 "output": value(object_schema({})),
@@ -210,7 +209,7 @@ class AgentsPack:
                 "name": "journal.claim",
                 "description": (
                     "Claim one open journal task so siblings can see who is doing it. "
-                    "A dead claim expires on its own (journal, lease, helper)."
+                    "A dead claim expires on its own."
                 ),
                 "input": object_schema(
                     {"id": string_schema().describe("The task id journal.read returned.")}
@@ -224,8 +223,7 @@ class AgentsPack:
             {
                 "name": "journal.complete",
                 "description": (
-                    "Mark a journal task finished. Other helpers waiting on it can then "
-                    "proceed (journal, complete, helper)."
+                    "Mark a journal task finished. Other helpers waiting on it can then proceed."
                 ),
                 "input": object_schema(
                     {"id": string_schema().describe("The task id journal.read returned.")}
@@ -246,8 +244,7 @@ class AgentsPack:
                     "description": (
                         "Start a helper with a brief saying what it is for. It returns a "
                         "handle immediately, running or queued behind the cap; read the "
-                        "result with work.result when the notice arrives (delegate, helper, "
-                        "subagent, spawn, team)."
+                        "result with work.result when the notice arrives."
                     ),
                     "input": object_schema(
                         {
@@ -285,7 +282,7 @@ class AgentsPack:
                     "description": (
                         "Continue a finished helper from its transcript. The new run sees "
                         "the previous items and last report; it does not revive the old "
-                        "process (reopen, helper, resume)."
+                        "process."
                     ),
                     "input": object_schema(
                         {

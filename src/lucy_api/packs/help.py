@@ -76,11 +76,7 @@ class HelpPack:
             define_operation(
                 {
                     "name": "capabilities.list",
-                    "description": (
-                        "List every capability, its state, and one line each (capabilities, "
-                        "tools, what is connected, music, research, notes, workspace, "
-                        "repositories)."
-                    ),
+                    "description": ("List every capability, its state, and one line each."),
                     "input": object_schema({}),
                     "output": value(
                         object_schema(
@@ -137,7 +133,7 @@ class HelpPack:
                     "name": "help.docs",
                     "description": (
                         "A capability's authored markdown, windowed. Prefer many small reads "
-                        "over one large one (documentation, how to, help)."
+                        "over one large one."
                     ),
                     "input": object_schema(
                         {

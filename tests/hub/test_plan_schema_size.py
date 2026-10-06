@@ -59,3 +59,20 @@ def test_the_prompt_still_explains_both_once() -> None:
     prompt = json.dumps([section.body for section in render_all(PromptContext())])
     assert "show_from" in prompt
     assert "$id" in prompt or "earlier result" in prompt
+
+
+def test_no_operation_description_ends_in_a_list_of_search_keywords() -> None:
+    """The bug, named: twenty-one descriptions ended in "(search, recall, remember, lookup)"
+    and the like. Nothing searches descriptions, so they were tokens every round, and one
+    misled: "remember" on notes.search pulled a "remember this" request towards a read."""
+    import re
+    from importlib.resources import files
+
+    # A description string closes with `."`; a docstring with `."""`, and is left alone.
+    tags = re.compile(r' \((?:[a-z][a-z ]*, )+[a-z][a-z ]*\)\."(?!")')
+    packs = files("lucy_api.packs")
+    for module in packs.iterdir():
+        if module.name.endswith(".py"):
+            text = " ".join(module.read_text(encoding="utf-8").replace('"\n', '" ').split())
+            text = text.replace('" "', "")
+            assert not tags.search(text), module.name
