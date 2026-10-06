@@ -81,6 +81,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   model to -- and `help.skills` listed the MCP client's own skills to Lucy, pointing her at
   tools she does not have. The window is 4,000, client-only skills are marked and left out of
   her list, and the settings skill no longer misdescribes `settings.describe`.
+
+- **The journal is a helper's tool, and a helper can use it.** `journal.read`, `claim` and
+  `complete` were bound on every main-thread round with nothing saying when to use them, and
+  claim and complete fell under "Start a helper": a helper, always in plan mode, was refused
+  them, and the main thread would have asked the person to approve one. They are bound for
+  helpers only now, outside that permission.
 - **The tools section shows how to reference a result and names the `note` field.** It asked
   for "one sentence" per step and for a step to "point at" an earlier result, and never
   named `note` or showed `$id`. In an eval the model wrote `$search[0]` and was refused

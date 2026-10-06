@@ -160,3 +160,14 @@ async def test_a_helper_cannot_write_under_the_grant_its_parent_was_given(
     assert ran == [], "the write never ran"
     told = " ".join(str(message.content) for message in provider.requests[1].messages)
     assert "plan mode is read-only" in told
+
+
+async def test_a_helper_may_claim_a_journal_task_in_plan_mode() -> None:
+    """The bug, named: journal.claim and journal.complete fell under "Start a helper", a write,
+    so a helper -- always in plan mode -- was refused them, and the main thread would have asked
+    the person "Start a helper?" to claim a task. Nobody could use them."""
+    from lucy_api.packs.agents import AgentsPack
+
+    [delegate] = AgentsPack().permissions()
+    assert "journal.claim" not in delegate.covers
+    assert "journal.complete" not in delegate.covers
