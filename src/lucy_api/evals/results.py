@@ -23,6 +23,9 @@ OUTCOMES = (PASSED, FAILED, SKIPPED, ERROR)
 harness could not hold the conversation as written -- the hub refused a request, or a seed
 or before-step did not end as the scenario said -- so it is not a verdict on the model."""
 
+MODEL_UNAVAILABLE = "model_unavailable"
+"""The hub's code on a turn whose model it could not reach, before or during the turn."""
+
 
 @dataclass(frozen=True, slots=True)
 class Check:
@@ -110,6 +113,14 @@ class TurnRecord:
     """The hub's sentence for refusing this message, when it refused it. A refused turn has
     no id and no reply; whether the refusal was the one expected is one of its checks."""
 
+    error_code: str = ""
+    """The hub's code for why the turn failed (``error_code`` on the turn), or empty."""
+
+    @property
+    def unanswered(self) -> bool:
+        """Whether no model ever answered this turn: the hub could not reach one."""
+        return self.error_code == MODEL_UNAVAILABLE
+
     session_id: str = ""
     """The session this turn was sent in. A scenario that comes back another day has more
     than one; a report written before that existed has none."""
@@ -156,9 +167,12 @@ def outcome_for(turns: tuple[TurnRecord, ...]) -> str:
     """Passed only when every check on every turn held; an error when a turn went unsent.
 
     A turn that could not be sent leaves a conversation that was not the one written down,
-    so whatever the turns before it did, the run is not a verdict on the model.
+    so whatever the turns before it did, the run is not a verdict on the model. Nor is a turn
+    no model answered: a subscription's session limit failed nine of fourteen runs in one
+    evening, and the comparison called four scenarios regressions that had never reached the
+    model at all.
     """
-    if any(turn.unsent for turn in turns):
+    if any(turn.unsent or turn.unanswered for turn in turns):
         return ERROR
     return PASSED if all(turn.passed for turn in turns) else FAILED
 
@@ -166,6 +180,7 @@ def outcome_for(turns: tuple[TurnRecord, ...]) -> str:
 __all__ = [
     "ERROR",
     "FAILED",
+    "MODEL_UNAVAILABLE",
     "OUTCOMES",
     "PASSED",
     "SKIPPED",

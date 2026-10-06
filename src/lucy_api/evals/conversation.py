@@ -231,6 +231,7 @@ class Conversation:
             checks=tuple(checks),
             halted=seen.halted,
             before=taken,
+            error_code=str(turn.get("error_code") or ""),
         )
 
     def close(self, *, keep: bool) -> tuple[str, ...]:

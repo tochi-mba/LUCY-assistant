@@ -575,6 +575,25 @@ def test_a_step_that_fails_halts_the_turn_and_the_scenario() -> None:
     assert [request.url.path for request in fake.requests].count("/v1/sessions/ses_1/inputs") == 1
 
 
+def test_a_turn_no_model_answered_is_an_error_not_a_failure() -> None:
+    """The bug, named: a subscription's session limit failed nine of fourteen runs, and the
+    comparison counted four scenarios as regressions that had never reached the model."""
+    fake = FakeLucy()
+    fake.say(
+        "Play it.",
+        Play(
+            reply="",
+            status="failed",
+            termination="failed",
+            error_code="model_unavailable",
+            errors=("model_unavailable",),
+        ),
+    )
+    held = Held(fake, scenario(one_turn("Play it.")))
+    assert held.record.outcome == ERROR
+    assert held.record.turns[0].unanswered
+
+
 def test_an_ask_for_a_call_already_answered_is_halted_before_it_is_answered_again() -> None:
     """The bug, named: the same ``music.play`` was asked for ten times in one turn, and the
     harness approved every one. The second ask for the same call is never answered."""
