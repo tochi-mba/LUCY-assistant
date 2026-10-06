@@ -168,7 +168,9 @@ class ResearchPack:
                     "input": object_schema(
                         {
                             "query": string_schema().describe("The question or search terms."),
-                            "limit": integer_schema().optional(),
+                            "limit": integer_schema()
+                            .optional()
+                            .describe("How many; the person's usual number when omitted."),
                         }
                     ),
                     "output": HIT,
