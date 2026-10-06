@@ -28,6 +28,7 @@ from lucy_api.api.routers import (
     signals,
     webhooks,
     wellknown,
+    workspaces,
 )
 
 ROUTERS = (
@@ -47,6 +48,7 @@ ROUTERS = (
     webhooks.router,
     signals.router,
     agents.router,
+    workspaces.router,
     sessions.router,
 )
 

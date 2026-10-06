@@ -182,7 +182,9 @@ While a turn runs, stderr shows it as it goes:
 - **Memory is real, and each conversation's is its own.** A scenario that asks Lucy to
   remember something writes a real note. By default every conversation gets a new profile, so
   nothing it writes reaches your notes, and nothing you, an earlier run, another scenario or an
-  earlier repeat wrote is read back as though it were remembered. `--profile` names one for the
+  earlier repeat wrote is read back as though it were remembered. When the conversation ends,
+  its profile's sandbox is given back (`DELETE /v1/workspaces/{profile}`) so a long run does
+  not fill the account's twenty; its notes stay to be read. `--profile` names one for the
   whole run to share, knowing that it will.
 - **Sessions are archived, not deleted**, so every conversation can be read afterwards.
 - **This machine, only when you say so.** A `host` step runs a command here, as you, with

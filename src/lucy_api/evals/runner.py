@@ -212,7 +212,7 @@ class Runner:
         except HubError as exc:
             reason, outcome = self._failure(exc, "mid-conversation"), ERROR
         finally:
-            tidy = sessions.close()
+            tidy = (*sessions.close(), *self._release(job, plan))
         reason = "; ".join(filter(None, (reason, *tidy)))
         return _record(
             job,
@@ -224,6 +224,21 @@ class Runner:
             turns=tuple(turns),
             usage=sessions.usage(),
         )
+
+    def _release(self, job: Job, plan: Plan) -> tuple[str, ...]:
+        """Give a conversation's own profile's sandbox back; its notes stay to be read.
+
+        Each conversation in a profile of its own held a sandbox of its own, and the account
+        may hold twenty: the eighth conversation of a two-run suite answered 503 on a full
+        account, and every run before this one had left its sandbox behind as well.
+        """
+        if not plan.apart or plan.keep_sessions:
+            return ()
+        try:
+            self._hub.release_workspace(job.profile)
+        except HubError as exc:
+            return (f"could not release the sandbox of {job.profile}: {exc}",)
+        return ()
 
     def _unmet(self, scenario: Scenario, profile: str) -> str:
         """Asked again for every job: readiness moves, and a cold capability warms up."""

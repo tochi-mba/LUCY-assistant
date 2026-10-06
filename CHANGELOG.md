@@ -88,6 +88,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- A profile's sandbox can be given back: `DELETE /v1/workspaces/{profile}` destroys it once no live conversation uses it (409 while one does) and forgets it on the archived ones. Nothing used to release a sandbox. The account's cap is twenty, every eval run made a profile, and after #101 every eval conversation did too, so the cap filled and every new session in a new profile answered 503 "could not be provisioned". The eval harness now releases each conversation's own profile when the conversation ends.
 - A model can no longer change a sibling's setting that no assistant may change. Settings-api enforces nothing itself and says the hub must apply its declaration, but the hub checked only `lucy.*`. So in `auto`, a model could switch off a protection in user, keyring or memory, where every setting is `never`, without a word, or after one "yes" in `ask`. `settings.set` now asks settings-api what the setting declares and refuses `never`, and also refuses a setting that declares nothing, as settings-api's own default does. `settings.describe` and `settings.get` show the `assistant` access for every namespace, not just Lucy's own.
 
 - The tools section says a step's result comes back to Lucy, never to the person. Asked "what do you know about me?", Lucy ran `notes.aboutMe` and replied "That's it. What do you want to do?", as if the person had read the result. Nothing in the prompt said otherwise.

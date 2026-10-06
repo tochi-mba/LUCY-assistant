@@ -127,6 +127,8 @@ class FakeLucy:
         self.answered: list[dict[str, Any]] = []
         self.cancelled: list[str] = []
         self.archived: list[str] = []
+        self.released: list[str] = []
+        self.release_status = 200
         self.granted: list[tuple[str, str]] = []
         self.revoked: list[tuple[str, str]] = []
         self._live: dict[str, _Live] = {}
@@ -191,6 +193,9 @@ class FakeLucy:
             return self._invoke(parts[2], body)
         if parts[:2] == ["v1", "permissions"]:
             return self._permissions(request, parts, body)
+        if parts[:2] == ["v1", "workspaces"] and method == "DELETE":
+            self.released.append(parts[2])
+            return httpx.Response(self.release_status, json={"released": True})
         raise AssertionError(f"unrouted {method} {path}")
 
     # --- sessions ------------------------------------------------------------------------

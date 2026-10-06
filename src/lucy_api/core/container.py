@@ -330,6 +330,11 @@ class Container:
                 workspace.root,
             )
 
+    def workspace_lock(self, account: str, profile: str) -> tuple[str, asyncio.Lock]:
+        """A profile's sandbox name, and the lock every change to that sandbox is made under."""
+        name = _workspace_name(account, profile)
+        return name, self._workspace_locks.setdefault(name, asyncio.Lock())
+
     def workspace_view(self, session: dict[str, object]) -> dict[str, object]:
         """What a client may know: an environment id and a relative path, never a host path."""
         env_id = str(session.get("workspace_environment_id") or "")

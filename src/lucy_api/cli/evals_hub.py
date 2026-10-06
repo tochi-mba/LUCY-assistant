@@ -141,6 +141,9 @@ class HttpHub:
     def archive(self, session_id: str) -> None:
         self._send("PATCH", f"/v1/sessions/{_segment(session_id)}", body={"archived": True})
 
+    def release_workspace(self, profile: str) -> None:
+        self._send("DELETE", f"/v1/workspaces/{_segment(profile)}")
+
     def _inputs(self, session_id: str, event: dict[str, Any]) -> dict[str, Any]:
         self._fresh_for_a_turn()
         path = f"/v1/sessions/{_segment(session_id)}/inputs"
