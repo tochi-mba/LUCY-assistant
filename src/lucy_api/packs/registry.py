@@ -54,6 +54,7 @@ from weftai import create_formatter, create_registry, create_runtime, standard_o
 from lucy_api.model.types import SAY, SAY_DESCRIPTION
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
+from lucy_api.packs.spoken import spoken
 from lucy_api.packs.steplog import step_hooks
 from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
 
@@ -302,7 +303,8 @@ def build_registry(
     if with_standard:
         for declared in _collections_in_play(operations):
             generated.extend(standard_operations(declared, {"include": list(STANDARD_OPERATIONS)}))
-    return create_registry({"operations": [*operations, *generated]})
+    said = [spoken(operation) for operation in operations]
+    return create_registry({"operations": [*said, *generated]})
 
 
 def _collections_in_play(

@@ -88,6 +88,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   poll, against the tools section -- and a plan naming an operation of a capability that was
   ready but not loaded got weftai's list of every operation the turn could call. The first now
   says a notice arrives when it ends; the second says to add a `capabilities.use` step.
+
+- **A failed step says what it means for the person and what to do next.** Only repos
+  translated a sibling's refusal; every other pack let `memory answered 409: ...` through -- a
+  service name and a status code, and no next step -- and weftai's timeout advised raising a
+  limit the model may not touch. Every operation's uncaught refusal is now said in product
+  words with a next step, and a timeout says to retry a read once, then tell the person.
 - **Playbooks arrive whole, and Lucy is shown only hers.** A 2,000-character window cut
   helper-team mid-JSON and repos before its Triage -- the two playbooks the prompt sends the
   model to -- and `help.skills` listed the MCP client's own skills to Lucy, pointing her at
