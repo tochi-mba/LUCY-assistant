@@ -395,7 +395,52 @@ def plan_schema_for(registry: Registry[Any], policy: TurnPolicy | None = None) -
     schema: dict[str, Any] = registry.plan_schema({"maxSteps": steps})
     from lucy_api.turn.window import allow_show_from  # noqa: PLC0415 - turn imports packs
 
-    return _with_words(_said_once(allow_show_from(schema)))
+    return _with_words(_said_once(_fields_described(allow_show_from(schema), registry)))
+
+
+WRAPPERS = frozenset({"optional", "default", "prefault", "readonly", "nonoptional", "catch"})
+"""weftai's wrapper kinds: a schema around an inner one, which may carry the description."""
+
+
+def _fields_described(schema: dict[str, Any], registry: Registry[Any]) -> dict[str, Any]:
+    """Every input field with the description its operation gave it.
+
+    weftai 0.5.2 renders a description only on string and object fields, and a wrapper drops
+    its own: every described optional field, and every described integer, boolean, enum or
+    array, reached the model with none -- `research.open`'s `hit`, `agents.spawn`'s `group`,
+    every `limit`. Fixed upstream in weftai's converter; this restores them until the hub pins
+    a release with that fix, and adds nothing a field already says.
+    """
+    steps = schema.get("properties", {}).get("steps", {})
+    for variant in steps.get("items", {}).get("anyOf", ()):
+        properties = variant.get("properties", {})
+        name = properties.get("op", {}).get("const")
+        fields = properties.get("input", {}).get("properties", {})
+        operation = registry.get(name) if isinstance(name, str) else None
+        if operation is None:
+            continue
+        for key, child in _shape(operation.input).items():
+            said = _said(child)
+            if said and key in fields and "description" not in fields[key]:
+                fields[key]["description"] = said
+    return schema
+
+
+def _shape(schema: Any) -> dict[str, Any]:
+    """The fields of an object schema, looking through any wrapper around it."""
+    while schema is not None and schema.kind in WRAPPERS:
+        schema = schema.inner
+    shape = getattr(schema, "shape", None)
+    return dict(shape) if isinstance(shape, dict) else {}
+
+
+def _said(schema: Any) -> str:
+    """A field's description: the outermost one, through every wrapper."""
+    while schema is not None:
+        if schema.description:
+            return str(schema.description)
+        schema = schema.inner if schema.kind in WRAPPERS else None
+    return ""
 
 
 def _with_words(schema: dict[str, Any]) -> dict[str, Any]:
