@@ -119,3 +119,25 @@ def test_no_operation_description_ends_in_a_list_of_search_keywords() -> None:
             text = " ".join(module.read_text(encoding="utf-8").replace('"\n', '" ').split())
             text = text.replace('" "', "")
             assert not tags.search(text), module.name
+
+
+async def test_a_field_says_its_default_where_a_small_model_would_guess_it() -> None:
+    """The bug, named: `timeout_ms` read as seconds, a device's name passed as `device_id`,
+    `wait` and `limit` with nothing said about what leaving them out does."""
+    from test_workspace_pack import setup
+
+    _fake, capabilities, context = setup()
+    schema = capabilities.plan_schema(await capabilities.probe(context), "sess-a", context)
+    run = next(
+        variant
+        for variant in schema["properties"]["steps"]["items"]["anyOf"]
+        if variant["properties"]["op"].get("const") == "workspace.run"
+    )
+    fields = run["properties"]["input"]["properties"]
+    assert "milliseconds" in fields["timeout_ms"]["description"]
+    assert "Default true" in fields["wait"]["description"]
+    assert "Default false" in fields["wake"]["description"]
+
+    from lucy_api.packs.music import DEVICE
+
+    assert "music.devices" in DEVICE

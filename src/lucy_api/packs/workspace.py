@@ -92,6 +92,9 @@ STILL_RUNNING = (
 the model to poll, against the tools section's "do not sit and poll" and the registry's own
 "wait for its notice"."""
 
+TIMEOUT_MS = "Most it may run, in milliseconds; the person's setting by default, 600000 at most."
+"""Said on the field, because a small model guessed seconds, and nothing said the default."""
+
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
 
@@ -319,18 +322,25 @@ class WorkspacePack:
             ),
             self._operation(
                 "run",
-                "Run a command inside this session's workspace subtree. "
-                "Long commands return a handle, and a notice arrives when they end. "
-                "With wake, a command that finishes while nobody is talking wakes the session. "
-                "Long output shows its end, where a test run or a build prints its verdict; "
-                "ask for show=start for the beginning.",
+                "Run a shell command in this conversation's sandbox. It waits for the answer "
+                "while this step lasts; one that takes longer keeps running and hands back a "
+                "work_id, and its end arrives as a notice. Long output shows its end, where a "
+                "verdict is printed.",
                 {
                     "command": string_schema(),
-                    "show": enum_schema(*SHOW).optional(),
-                    "timeout_ms": integer_schema().optional(),
-                    "wait": boolean_schema().optional(),
-                    "wait_seconds": integer_schema().optional(),
-                    "wake": boolean_schema().optional(),
+                    "show": enum_schema(*SHOW)
+                    .optional()
+                    .describe("Which end of a long output to keep. Default end."),
+                    "timeout_ms": integer_schema().optional().describe(TIMEOUT_MS),
+                    "wait": boolean_schema()
+                    .optional()
+                    .describe("false: hand back a work_id at once. Default true."),
+                    "wait_seconds": integer_schema()
+                    .optional()
+                    .describe("How long to wait in this step before handing back a work_id."),
+                    "wake": boolean_schema()
+                    .optional()
+                    .describe("Wake an idle conversation when it ends. Default false."),
                 },
                 value(object_schema({})),
                 self._run,
@@ -346,8 +356,10 @@ class WorkspacePack:
                     "language": enum_schema(*LANGUAGES),
                     "code": string_schema(),
                     "name": string_schema().optional(),
-                    "show": enum_schema(*SHOW).optional(),
-                    "timeout_ms": integer_schema().optional(),
+                    "show": enum_schema(*SHOW)
+                    .optional()
+                    .describe("Which end of a long output to keep. Default end."),
+                    "timeout_ms": integer_schema().optional().describe(TIMEOUT_MS),
                 },
                 value(object_schema({})),
                 self._script,

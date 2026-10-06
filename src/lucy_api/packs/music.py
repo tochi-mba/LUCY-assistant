@@ -104,6 +104,10 @@ UNREACHABLE = "music could not be reached"
 NOT_REACHED = f"not tried: {UNREACHABLE}"
 
 
+DEVICE = "An id from music.devices; omit it for the person's default speaker."
+"""A device is named by its id, never its name, and leaving it out is a choice too."""
+
+
 class MusicInputError(ValueError):
     """A play or queue that names its track in a way the operation cannot use."""
 
@@ -238,7 +242,7 @@ class MusicPack:
                         {
                             "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
                             "uri": string_schema().regex(URI_PATTERN).describe(URI).optional(),
-                            "device_id": string_schema().optional(),
+                            "device_id": string_schema().optional().describe(DEVICE),
                         }
                     ),
                     "output": value(object_schema({})),
@@ -258,7 +262,7 @@ class MusicPack:
                         {
                             "track": ref(TRACK, description=TRACK_REFERENCE).optional(),
                             "uri": string_schema().regex(URI_PATTERN).describe(URI).optional(),
-                            "device_id": string_schema().optional(),
+                            "device_id": string_schema().optional().describe(DEVICE),
                         }
                     ),
                     "output": value(object_schema({})),
@@ -270,7 +274,9 @@ class MusicPack:
                 {
                     "name": "music.pause",
                     "description": "Pause playback, optionally on one device.",
-                    "input": object_schema({"device_id": string_schema().optional()}),
+                    "input": object_schema(
+                        {"device_id": string_schema().optional().describe(DEVICE)}
+                    ),
                     "output": value(object_schema({})),
                     "effects": "write",
                     "run": self._pause,

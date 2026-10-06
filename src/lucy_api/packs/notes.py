@@ -210,7 +210,9 @@ class NotesPack:
                             "query": string_schema().describe(
                                 "Keywords, or empty for the top notes."
                             ),
-                            "limit": integer_schema().optional(),
+                            "limit": integer_schema()
+                            .optional()
+                            .describe("How many; the person's usual number when omitted."),
                         }
                     ),
                     # A collection rather than an opaque value: the model is shown one line

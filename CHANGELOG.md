@@ -94,6 +94,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   would do before it does it" beside a tool that writes and runs in one call. 795 tokens
   become 737.
 
+- **A field says its default where a small model would guess it.** `workspace.run`'s
+  `timeout_ms` (milliseconds, the person's setting by default, 600,000 at most), `wait`,
+  `wait_seconds`, `wake` and `show`, music's `device_id` (an id from `music.devices`, or
+  the default speaker), and notes' and research's `limit` now say what they take and what
+  leaving them out does.
 - **Every described field reaches the model, however it is wrapped.** weftai 0.5.2 renders a
   description only on string and object fields, and drops a wrapper's own, so every
   described optional field -- `research.open`'s `hit`, `agents.spawn`'s `group`, every
