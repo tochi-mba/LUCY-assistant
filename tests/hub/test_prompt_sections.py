@@ -678,6 +678,19 @@ def test_the_tools_section_shows_the_reference_syntax_and_names_the_note_field()
     )
 
 
+def test_the_workspace_section_names_the_files_and_says_what_the_resume_already_read() -> None:
+    """The bug, named: "a running note and a task list" were never named, so a small model
+    could not keep them; it was told to read them on resume, which the live block had already
+    done; and "print what it would do before it does it" read as a two-call dry run beside a
+    tool that writes and runs in one."""
+    workspace = " ".join(section(render_all(CONTEXT), "workspace").body.split())
+    assert "`progress.md` is this conversation's running note" in workspace
+    assert "`tasks.json` is its task list" in workspace
+    assert "the live block shows the note's latest entries" in workspace
+    assert "Print what it would do before it does it" not in workspace
+    assert "print each path it changes" in workspace
+
+
 def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     """The bug, named: "two writes that could collide are two plans" guarded against something
     the executor already prevents, and missed what it does not: a failed step skips only the
