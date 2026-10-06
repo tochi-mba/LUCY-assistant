@@ -30,6 +30,7 @@ from lucy_api.packs.registry import (
 from lucy_api.packs.repos import ReposPack
 from lucy_api.packs.research import ResearchPack
 from lucy_api.packs.settings import SettingsPack
+from lucy_api.packs.spoken import timed_out
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
 from lucy_api.permissions.gate import Floors, PermissionGate
@@ -399,8 +400,16 @@ def as_loop_result(result: Any) -> dict[str, Any]:
     return {
         "issues": issues,
         "text": result.get("text") if isinstance(result, dict) else "",
-        "steps": list(steps or ()),
+        "steps": [_in_time(step) for step in steps or ()],
     }
+
+
+def _in_time(step: Any) -> Any:
+    """A step that ran out of time, told what it can do about it rather than to raise a limit."""
+    error = step.get("error") if isinstance(step, dict) else None
+    if not isinstance(error, str) or not error:
+        return step
+    return {**step, "error": timed_out(error)}
 
 
 __all__ = ["Capabilities", "as_loop_result", "installed_packs"]
