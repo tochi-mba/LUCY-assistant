@@ -91,17 +91,19 @@ def test_every_kind_of_change_lands_in_its_own_list() -> None:
         run("default/was-skipped", "skipped"),
         run("default/steady", "passed", ("s", True), digest="old"),
         run("default/gone", "passed"),
+        run("default/outage", "passed", ("o", True)),
     )
     after = document(
         run("default/regressed", "failed", ("x", False)),
         run("default/fixed", "passed", ("y", True)),
         run("default/flaky", "passed", ("z", True)),
         run("default/flaky", "passed", ("z", True)),
-        run("default/flaky", "error", ("z", False)),
+        run("default/flaky", "failed", ("z", False)),
         run("default/now-skipped", "skipped"),
         run("default/was-skipped", "passed"),
         run("default/steady", "passed", ("s", True), digest="new"),
         run("default/arrived", "passed"),
+        run("default/outage", "error", ("o", False)),
     )
 
     result = compare(before, after, label="old/report.json")
@@ -117,9 +119,10 @@ def test_every_kind_of_change_lands_in_its_own_list() -> None:
         ("clyde:haiku", "default/flaky", "passed 33% of runs", "passed 67% of runs")
     ]
     assert rows("skipped") == [
-        ("clyde:haiku", "default/now-skipped", "passed", "skipped"),
-        ("clyde:haiku", "default/was-skipped", "skipped", "passed"),
-    ]
+        ("clyde:haiku", "default/now-skipped", "passed", "not measured"),
+        ("clyde:haiku", "default/outage", "passed", "not measured"),
+        ("clyde:haiku", "default/was-skipped", "not measured", "passed"),
+    ], "an error is coverage lost, not a regression: it says nothing about the model"
     assert rows("new") == [("clyde:haiku", "default/arrived")]
     assert rows("removed") == [("clyde:haiku", "default/gone")]
     assert rows("changed") == [("clyde:haiku", "default/steady")]

@@ -1,7 +1,10 @@
 """What changed since a previous run: regressions first.
 
-Scenarios are compared per model by pass rate over the runs that were not skipped, so a
-single run and ``--repeat 5`` read the same way: 1.0 is passing, anything less is not.
+Scenarios are compared per model by pass rate over the runs that were a verdict -- not
+skipped, and not an error -- so a single run and ``--repeat 5`` read the same way: 1.0 is
+passing, anything less is not. An error is the harness or the model's provider failing (a
+token that would not renew, a subscription's session limit), and counting it as a failure
+listed five regressions for one evening's outage.
 
 * **regressions** -- passing before, not passing now. The reason this command exists.
 * **fixes** -- not passing before, passing now.
@@ -27,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from lucy_api.evals.efficiency import efficiency, prompt_change
 from lucy_api.evals.report import FORMAT, JSON_NAME, VERSION
-from lucy_api.evals.results import PASSED, SKIPPED
+from lucy_api.evals.results import ERROR, PASSED, SKIPPED
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -97,6 +100,10 @@ def compare(previous: dict[str, Any], current: dict[str, Any], *, label: str) ->
     return result
 
 
+UNMEASURED = frozenset({SKIPPED, ERROR})
+"""Outcomes that say nothing about the model, so no pass rate or check rate counts them."""
+
+
 def _bucket(old: float | None, new: float | None) -> str:
     """Which list a changed pass rate belongs in, or nothing when it did not change."""
     if old == new:
@@ -116,7 +123,7 @@ def _standings(runs: list[dict[str, Any]]) -> dict[Key, dict[str, Any]]:
         grouped[(str(run["model"]), str(run["scenario"]))].append(run)
     standings: dict[Key, dict[str, Any]] = {}
     for key, group in grouped.items():
-        counted = [run for run in group if run["outcome"] != SKIPPED]
+        counted = [run for run in group if run["outcome"] not in UNMEASURED]
         passed = sum(1 for run in counted if run["outcome"] == PASSED)
         standings[key] = {
             "rate": passed / len(counted) if counted else None,
@@ -148,6 +155,8 @@ def _checks(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> li
 def _check_rates(runs: list[dict[str, Any]]) -> dict[tuple[str, str, str], tuple[int, int]]:
     tallies: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0])
     for run in runs:
+        if run["outcome"] in UNMEASURED:
+            continue
         for turn in run["turns"]:
             for check in turn["checks"]:
                 tally = tallies[(str(run["model"]), str(run["scenario"]), str(check["name"]))]
@@ -162,7 +171,7 @@ def _row(key: Key) -> dict[str, str]:
 
 def _verdict(rate: float | None) -> str:
     if rate is None:
-        return "skipped"
+        return "not measured"
     if rate == 1.0:
         return "passed"
     if rate == 0.0:
