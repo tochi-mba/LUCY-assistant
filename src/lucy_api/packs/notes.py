@@ -624,7 +624,12 @@ async def _schema(run: RunContext[PackContext]) -> dict[str, Any]:
             "fact": "A durable claim about the person.",
             "episode": "Something that happened in a session.",
             "procedure": "How they like something done, as a memory about them.",
-            "summary": "A distilled cluster of older notes.",
+            # Not "distilled": no model writes it. Consolidation joins idle notes' bodies with
+            # semicolons, and a model told otherwise read the list as a curated digest.
+            "summary": (
+                "Older notes on one topic merged into one; its body is their bodies joined "
+                "with semicolons, as trusted as the least trusted of them."
+            ),
         },
         "sections": {
             "blocks": "Pinned memory blocks that travel with every turn.",
