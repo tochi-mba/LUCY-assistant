@@ -190,6 +190,15 @@ class PromptSection:
     section is: the parts about starting helpers, learning lessons and keeping memories are
     about being the lead, and a helper can do none of them.
     """
+    requires: str = ""
+    """The capability this section is about, or empty for one every prompt carries.
+
+    Sent without it, "You have a sandbox" told a conversation with no workspace about an
+    ability it did not have -- against identity's "Your abilities are exactly the capabilities
+    you have been given" -- and the four sections cost some 2,500 tokens a round. Present
+    means callable this turn or ready and deferred, so the guidance is there before
+    `capabilities.use` binds it.
+    """
 
 
 def _default(name: str) -> str:
@@ -398,6 +407,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         render=_fixed(_default("lessons")),
         max_tokens=700,
         for_helpers=_nothing,
+        requires="notes",
     ),
     PromptSection(
         id="helpers",
@@ -408,6 +418,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         render=_fixed(_default("helpers")),
         max_tokens=700,
         for_helpers=_nothing,
+        requires="agents",
     ),
     PromptSection(
         id="workspace",
@@ -417,6 +428,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         version="1",
         render=_fixed(_default("workspace")),
         max_tokens=800,
+        requires="workspace",
     ),
     PromptSection(
         id="memory",
@@ -427,6 +439,7 @@ BUILTIN: tuple[PromptSection, ...] = (
         render=_fixed(_default("memory")),
         max_tokens=600,
         for_helpers=_nothing,
+        requires="notes",
     ),
     PromptSection(
         id="context",
@@ -601,7 +614,7 @@ def render_all(
     pricing = counter if counter is not None else ESTIMATE
     rendered: list[Section] = []
     for section in sections:
-        if section.id in switched_off:
+        if section.id in switched_off or not _available(section, context):
             continue
         render = section.render
         replacement = replacements.get(section.id, "")
@@ -616,6 +629,12 @@ def render_all(
         shrink = None if replacement else section.shrink
         rendered.append(_fit(section, context, text, pricing, shrink=shrink))
     return tuple(rendered)
+
+
+def _available(section: PromptSection, context: PromptContext) -> bool:
+    """Whether the capability a section is about is here this turn, bound or deferred."""
+    needed = section.requires
+    return not needed or needed in context.capabilities or needed in context.deferred
 
 
 def prompt_version(sections: Sequence[PromptSection] = BUILTIN) -> str:
@@ -639,6 +658,7 @@ def prompt_version(sections: Sequence[PromptSection] = BUILTIN) -> str:
         f"\x1f{section.overridable}\x1f{section.disableable}\x1f{section.shrink is not None}"
         f"\x1f{section.render(empty)}"
         f"\x1f{'=' if section.for_helpers is None else section.for_helpers(empty)}"
+        f"\x1f{section.requires}"
         for section in sections
     )
     return f"{PROMPT_VERSION}.{hashlib.sha256(material.encode()).hexdigest()[:12]}"

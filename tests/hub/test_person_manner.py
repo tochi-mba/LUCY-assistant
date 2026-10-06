@@ -147,8 +147,8 @@ def test_the_choices_go_in_preferences_and_leave_the_authored_sections_alone() -
     first when a section is over its ceiling, and a person may leave either section out."""
     hint = manner(**EVERYTHING).hint()
 
-    chosen = bodies(PromptContext(preferences=hint))
-    authored = bodies(PromptContext())
+    chosen = bodies(PromptContext(preferences=hint, capabilities=("agents", "notes", "workspace")))
+    authored = bodies(PromptContext(capabilities=("agents", "notes", "workspace")))
 
     assert chosen["preferences"] == hint
     for section_id in ("identity", "behaviour", "memory"):

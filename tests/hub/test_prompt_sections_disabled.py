@@ -72,6 +72,7 @@ def view(disabled: object = ()) -> SessionView:
             }
         ],
         session={"profile": "personal", "title": "", "permission_mode": "ask", "incognito": 0},
+        capabilities=("agents", "notes", "workspace"),
         **view_limits(policy(disabled)),
     )
 
@@ -120,7 +121,10 @@ def test_the_protected_pair_is_filtered_out_and_the_rest_kept() -> None:
     chosen = policy(["safety", "workspace", "tools", "context"])
 
     assert chosen.prompt_sections_disabled == ("workspace", "context")
-    render_all(PromptContext(), disabled=chosen.prompt_sections_disabled)
+    render_all(
+        PromptContext(capabilities=("agents", "notes", "workspace")),
+        disabled=chosen.prompt_sections_disabled,
+    )
 
 
 def test_a_list_that_cannot_be_resolved_is_not_guessed() -> None:
@@ -156,7 +160,11 @@ async def test_a_dropped_section_is_not_sent_and_the_rest_is_unchanged() -> None
 
     assert SANDBOX in whole
     assert SANDBOX not in trimmed
-    workspace = next(s for s in render_all(PromptContext()) if s.id == "workspace").body
+    workspace = next(
+        s
+        for s in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+        if s.id == "workspace"
+    ).body
     assert whole.replace(f"{workspace}\n\n", "") == trimmed
 
 
@@ -203,7 +211,11 @@ async def test_a_profile_s_choices_reach_its_conversation_s_context(
 def test_the_window_counts_the_prompt_that_is_actually_sent() -> None:
     """A dropped section still counted would tell the person the window was fuller than it
     is, and compact their conversation early for text the model never saw."""
-    workspace = next(s for s in render_all(PromptContext()) if s.id == "workspace").tokens
+    workspace = next(
+        s
+        for s in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+        if s.id == "workspace"
+    ).tokens
 
     _rows, whole = projected_rows(view())
     _rows, trimmed = projected_rows(view(["workspace"]))

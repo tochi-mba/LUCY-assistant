@@ -59,7 +59,7 @@ FORBIDDEN_WORDS = (
 FORBIDDEN_VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 
 CONTEXT = PromptContext(
-    capabilities=("music", "research", "workspace", "notes"),
+    capabilities=("music", "research", "workspace", "notes", "agents"),
     notes=(
         Claim(
             body="prefers tea",
@@ -494,7 +494,9 @@ def test_rendering_twice_produces_the_same_bytes_so_the_cached_prefix_holds() ->
 
 
 def test_response_style_adds_a_length_instruction_without_rewriting_the_rest() -> None:
-    natural = section(render_all(PromptContext()), "behaviour").body
+    natural = section(
+        render_all(PromptContext(capabilities=("agents", "notes", "workspace"))), "behaviour"
+    ).body
     brief = section(render_all(PromptContext(response_style="brief")), "behaviour").body
     thorough = section(render_all(PromptContext(response_style="thorough")), "behaviour").body
     assert natural in brief
@@ -556,9 +558,18 @@ def test_the_defaults_are_read_from_package_data_so_an_installed_wheel_works() -
         item.name.removesuffix(".md"): item.read_text(encoding="utf-8").strip()
         for item in files(PACKAGE).joinpath("defaults").iterdir()
     }
-    rendered = {item.id: item.body for item in render_all(PromptContext())}
-    lead = {item.id: item.body for item in render_all(PromptContext())}
-    for item in render_all(PromptContext(helper=True)):
+    rendered = {
+        item.id: item.body
+        for item in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+    }
+    rendered.pop("capabilities")  # rendered from the turn, not authored
+    lead = {
+        item.id: item.body
+        for item in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+    }
+    for item in render_all(
+        PromptContext(helper=True, capabilities=("agents", "notes", "workspace"))
+    ):
         if builtin(item.id).for_helpers is not None:
             rendered[f"{item.id}.helper"] = item.body
     assert set(authored) == set(rendered)
@@ -592,7 +603,10 @@ def test_nothing_is_said_when_nothing_was_held_back() -> None:
 def test_the_live_block_is_found_by_its_header_not_by_where_it_sits() -> None:
     """It was "the live block at the end of your context", and it is not at the end: it sits
     before the person's newest message, and only after a round of results is it last."""
-    prompt = " ".join(section.body for section in render_all(PromptContext()))
+    prompt = " ".join(
+        section.body
+        for section in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+    )
     assert "end of your context" not in prompt
     assert "headed `live state`" in prompt
     assert OPEN_FENCE.startswith("--- live state")
@@ -663,3 +677,21 @@ def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     assert "A failed step skips only the steps that reference it" in tools
     assert "either references that write or goes in your next plan" in tools
     assert "could collide" not in tools
+
+
+def test_a_section_about_a_capability_is_sent_only_when_the_capability_is_here() -> None:
+    """The bug, named: "You have a sandbox" went to conversations with no workspace, against
+    identity's "Your abilities are exactly the capabilities you have been given", and the four
+    capability sections cost some 2,500 tokens a round whether or not they applied."""
+    bare = {item.id for item in render_all(PromptContext())}
+    assert not {"workspace", "helpers", "memory", "lessons"} & bare
+    bound = {item.id for item in render_all(PromptContext(capabilities=("notes",)))}
+    assert {"memory", "lessons"} <= bound
+    assert "workspace" not in bound
+    deferred = {item.id for item in render_all(PromptContext(deferred=("workspace", "agents")))}
+    assert {"workspace", "helpers"} <= deferred, "there before capabilities.use binds it"
+
+
+def test_what_a_section_requires_is_part_of_the_prompt_version() -> None:
+    [*rest, last] = BUILTIN
+    assert prompt_version((*rest, replace(last, requires="music"))) != prompt_version(BUILTIN)

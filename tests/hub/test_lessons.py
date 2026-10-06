@@ -287,7 +287,12 @@ async def test_a_lesson_carries_the_persons_authority_whoever_worded_it() -> Non
 
 
 def test_the_prompt_says_where_lessons_come_back() -> None:
-    prompt = " ".join(" ".join(section.body for section in render_all(PromptContext())).split())
+    prompt = " ".join(
+        " ".join(
+            section.body
+            for section in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
+        ).split()
+    )
     assert "marked `lesson:`, with the ref you revise or unlearn it by" in prompt
     assert "Once one is written, say so." in prompt
 
