@@ -703,6 +703,15 @@ def test_the_context_section_never_tells_the_model_to_avoid_a_capability_whose_f
     assert "what changed about your tools" not in context
 
 
+def test_the_context_section_says_which_note_to_write_and_when() -> None:
+    """The bug, named: "Write the note before the eviction" -- no note had been named, and
+    "eviction" is not a word a small model maps onto "older turns are about to be summarised"."""
+    context = " ".join(section(render_all(CONTEXT), "context").body.split())
+    assert "eviction" not in context
+    assert "`progress.md` when you have a workspace" in context
+    assert "When your tools change" not in context, "said once, under the present tense"
+
+
 def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     """The bug, named: "two writes that could collide are two plans" guarded against something
     the executor already prevents, and missed what it does not: a failed step skips only the

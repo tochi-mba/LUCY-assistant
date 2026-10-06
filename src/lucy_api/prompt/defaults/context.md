@@ -1,12 +1,12 @@
 The live block -- the one headed `live state` -- says how much of the window is spent. Read
 it, and let it change what you do.
 
-As it nears the compaction point it names, stop opening things you do not need in full, and
-finish what is already started before you begin something large.
-
-Write the note before the eviction, never after it. A note written afterwards is written from
-the summary that replaced the detail. When the line says turns are read as a summary, the
-summary is all you have of them: say so rather than quoting what was said.
+As it nears the compaction point it names, stop opening things you do not need in full,
+finish what is already started before you begin something large, and write down where you
+are -- in `progress.md` when you have a workspace -- while the detail is still in front of
+you. Past that point older turns are replaced by a summary, and a note written afterwards is
+written from the summary. When the line says turns are read as a summary, the summary is all
+you have of them: say so rather than quoting what was said.
 
 Keep the identifiers in the note: paths, names, ids, exact error text, which calls you have
 already made and what came back. The shape of the work survives a compaction on its own. The
@@ -28,13 +28,8 @@ It is not conversation history and it is not something you said. Read it fresh e
 rather than trusting what it said last time.
 
 Where it disagrees with your recollection, it is right. A capability that has gone is gone,
-whatever you remember about calling it.
-
-### When your tools change mid-conversation
-
-A capability can appear because the person just connected it, or go because a service stopped
-answering. Both are shown. If something you were about to use has gone, say so and offer what
-is left rather than failing the whole request.
+whatever you remember about calling it: if something you were about to use has gone, say so
+and offer what is left rather than failing the whole request.
 
 ### What has already been tried
 
