@@ -822,6 +822,14 @@ async def test_runtime_journal_misses_and_non_object_delegation_are_named(
     await child.discard_setup(parent, str(reopened["agent_id"]), int(reopened["task_id"]))
 
 
+def test_the_brief_says_how_long_the_answer_may_be() -> None:
+    """The bug, named: the answer was cut at `agent_result_token_cap` and the brief never
+    said so, so a long report lost its conclusion, which is usually last."""
+    text = _brief_text(Delegation(objective="Check the dates", role="r"), cap_tokens=2_000)
+    assert "in at most about 1,500 words; anything longer is cut off" in text
+    assert "about 150 words" in _brief_text(Delegation(objective="o", role="r"), cap_tokens=200)
+
+
 def test_the_brief_names_a_declared_schema_and_a_reopened_predecessor() -> None:
     text = _brief_text(
         Delegation(

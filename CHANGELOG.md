@@ -93,6 +93,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 - The context section says which note to write and when: "where you are, in `progress.md` when you have a workspace, while the detail is still in front of you", in place of "write the note before the eviction", which named no note and used a word a small model does not map to a summary replacing older turns. The "When your tools change mid-conversation" subsection, which repeated the one above it, is folded into it.
 
 - `notes.schema` says what a `summary` note is: older notes on one topic merged into one, with their bodies joined by semicolons and as trusted as the least trusted of them. It said "a distilled cluster of older notes", but no model writes one, and a model told otherwise read the list as a curated digest.
+
+- A helper is told that nobody can answer its questions (make the most reasonable assumption, say which, and carry on) and how long its answer may be, in words, before it is cut off at `agent_result_token_cap`. A long report used to lose its conclusion, which is usually last. A continued helper's brief no longer re-pastes the earlier run's report, which is already in its transcript; up to 2,000 tokens were paid for twice on every round. It now carries only why an unfinished run stopped.
 - **The live block says which sources it missed, and never to avoid a capability for it.** Its
   trouble group was headed "operations failing repeatedly" while the only thing ever put
   there was a live source read once and missed, and the context section said not to retry what

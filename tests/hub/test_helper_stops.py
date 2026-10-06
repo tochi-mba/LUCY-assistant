@@ -106,7 +106,7 @@ async def test_a_stopped_helper_is_continued_from_where_it_got_to(store: Session
     assert "resumable" not in finished.payload, "a finished helper's answer, and only that"
     handed = [str(message.content) for message in provider.requests[-1].messages]
     assert any("A helper is work" in text for text in handed), "the first run's read is lost"
-    assert any(f"Continue from helper {started['id']}" in text for text in handed)
+    assert any(f"You are continuing helper {started['id']}" in text for text in handed)
 
 
 def test_a_helper_that_finished_hands_back_its_answer_once() -> None:
