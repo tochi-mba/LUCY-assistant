@@ -24,3 +24,4 @@ see. [evals.md](../evals.md#baselines-measure-an-optimisation-do-not-guess-it) h
 | File | What it measured | Result |
 | --- | --- | --- |
 | `clyde-haiku-2026-10-05.json` | `main` at 039a00a on `clyde:haiku`, before the efficiency branch: the fixed prompt at 6,066 tokens. | 7 of 7, 107 of 107 checks; 455,806 tokens in, 11,924 out, 109,041 cache reads over 10 turns; median turn 66s. |
+| `clyde-haiku-2026-10-06.json` | `main` at 821524a with clyde 73350bc, after the efficiency work (#77, #79 and the prompt audit). Research hit Google's captcha that hour, so its row is a failure for an external reason; compare the other six. | 6 of 7, 101 of 107 checks; 175,896 tokens in (−61%), 19 rounds (−24%), 542s (−34%). Per passing scenario: protected-setting 122,907 → 21,854 tokens, remember-recall-correct 116,658 → 66,024. |
