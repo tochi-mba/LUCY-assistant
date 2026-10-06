@@ -127,5 +127,9 @@ class Hub(Protocol):
         """``PATCH /v1/sessions/{id}`` with ``archived: true``. Reversible."""
         ...
 
+    def release_workspace(self, profile: str) -> None:
+        """``DELETE /v1/workspaces/{profile}``: give a finished profile's sandbox back."""
+        ...
+
 
 __all__ = ["SESSION_GRANT_PREFIX", "Hub", "HubError", "HubUnreachable"]

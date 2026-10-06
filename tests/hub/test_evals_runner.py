@@ -150,6 +150,21 @@ def test_each_conversation_of_a_run_has_a_profile_of_its_own() -> None:
     Held(fake, scenario(one_turn()), profile="eval-x", repeat=2, apart=True)
     profiles = [body["profile"] for body in posted(fake, "/v1/sessions")]
     assert profiles == ["eval-x-1", "eval-x-2"]
+    assert fake.released == ["eval-x-1", "eval-x-2"], "each gives its sandbox back"
+
+
+def test_a_shared_or_kept_profile_keeps_its_sandbox() -> None:
+    fake = FakeLucy()
+    Held(fake, scenario(one_turn()), profile="work")
+    Held(fake, scenario(one_turn()), profile="eval-x", apart=True, keep_sessions=True)
+    assert fake.released == []
+
+
+def test_a_sandbox_that_could_not_be_released_is_said_not_raised() -> None:
+    fake = FakeLucy()
+    fake.release_status = 503
+    held = Held(fake, scenario(one_turn()), profile="eval-x", apart=True)
+    assert "could not release the sandbox of eval-x-1" in held.record.reason
 
 
 def test_a_failed_check_fails_the_scenario() -> None:
