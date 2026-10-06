@@ -127,7 +127,7 @@ created without a model falls back to one the hub can actually run
 fallback tells "nobody chose" from "somebody chose this and it cannot run here".
 """
 
-PROMPT_SECTIONS = ("behaviour", "lessons", "helpers", "workspace", "memory", "context")
+PROMPT_SECTIONS = ("behaviour", "memory", "lessons", "helpers", "workspace", "context")
 """What `prompt_sections_disabled` may name, in prompt order. A turn filters by this list
 (`policy.OPTIONAL_SECTIONS`), so the catalogue's choices and what the hub accepts are one.
 `goals` can be disabled in code but is not offered: nothing on a real turn fills it, and a

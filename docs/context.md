@@ -20,7 +20,7 @@ whole is worse than one that knows it is missing something.
 
 | zone | what | changes |
 | --- | --- | --- |
-| 0 static | identity, behaviour, tool idiom, safety | on deploy |
+| 0 static | identity, safety, tool idiom, behaviour, then the optional sections and the person's preferences | on deploy |
 | 1 slow | persona, pinned account facts, pinned memory blocks, capability names | on connect or edit |
 | 2 history | the conversation, projected through active compactions | grows at the end |
 | 3 live | the state block | **every turn** |
@@ -121,7 +121,7 @@ developed amnesia halfway through a task.
 
 | band | share | holds |
 | --- | ---: | --- |
-| system | 4% | identity, behaviour, tool idiom, safety |
+| system | 4% | identity, safety, tool idiom, behaviour, … preferences |
 | pinned | 3% | the person, active goals, the live state |
 | history | 30% | the conversation after compaction |
 | tools | 50% | tool results, the first band reclaimed |

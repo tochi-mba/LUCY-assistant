@@ -102,16 +102,18 @@ def notes(count: int, *, size: int = 40) -> tuple[Claim, ...]:
 
 
 def test_the_built_in_sections_are_rendered_in_prompt_order_into_two_bands() -> None:
+    """The bug, named: safety and the tool idiom -- the two sections that cannot be turned
+    off -- came fourth and fifth, behind the tone and style, in the middle of the prompt."""
     rendered = render_all(CONTEXT)
     assert [item.id for item in rendered] == [
         "identity",
-        "behaviour",
-        "tools",
         "safety",
+        "tools",
+        "behaviour",
+        "memory",
         "lessons",
         "helpers",
         "workspace",
-        "memory",
         "context",
         "capabilities",
         "person",
@@ -162,7 +164,7 @@ def test_every_other_section_may_be_overridden_and_disabled() -> None:
     for section_id in settable:
         assert "a replacement rule" in section(rendered, section_id).body
     kept = render_all(CONTEXT, disabled=settable)
-    assert [item.id for item in kept] == ["tools", "safety"]
+    assert [item.id for item in kept] == ["safety", "tools"]
 
 
 def test_an_override_replaces_only_the_section_it_names() -> None:
@@ -181,7 +183,7 @@ def test_an_unknown_section_id_is_refused_with_the_ids_that_do_exist() -> None:
         render_all(CONTEXT, overrides={"identiy": "typo"})
     assert refused.value.code == "unknown-prompt-section"
     assert "'identiy'" in str(refused.value)
-    assert "identity, behaviour" in str(refused.value)
+    assert "identity, safety, tools, behaviour" in str(refused.value)
     with pytest.raises(LucyError):
         render_all(CONTEXT, disabled=["memories"])
 
