@@ -37,17 +37,26 @@ ADDRESSED = "As settings.describe lists it."
 """Where a namespace and a key come from: describe's rows, service names and all."""
 
 
-def _person_only(namespace: str, key: str) -> bool:
-    """Whether Lucy's own catalogue says no assistant may write this key.
+MAY_WRITE = frozenset({AgentAccess.WITH_APPROVAL.value, AgentAccess.FREELY.value})
+"""What a setting must declare before a model may write it. Anything else -- `never`, or a
+service that did not say -- is the person's to change: settings-api's own rule is that a
+setting nobody thought about is one an assistant may not touch."""
 
-    Settings-api declares the same thing, and says the hub must apply it. Applied here, from
-    the namespace this hub owns, a model in `auto` cannot switch off the rules about what it
-    reads, or leave sections out of its own instructions, whatever settings-api enforces.
+
+def _own(namespace: str, key: str) -> str:
+    """Lucy's own catalogue's answer for its own namespace, or empty for anyone else's."""
+    item = knob(key) if namespace == "lucy" else None
+    return item.agent.value if item is not None else ""
+
+
+def _access(setting: Setting) -> str:
+    """Whether an assistant may change this, as the hub knows it.
+
+    Its own namespace from its own catalogue, so a stale settings-api cannot loosen it; every
+    other namespace as settings-api declares it. Only `lucy.*` was ever answered, so every
+    sibling setting reached the model with no word on whether it could be changed at all.
     """
-    if namespace != "lucy":
-        return False
-    item = knob(key)
-    return item is not None and item.agent is AgentAccess.NEVER
+    return _own(setting.namespace, setting.key) or setting.agent
 
 
 class SettingsPack:
@@ -188,7 +197,15 @@ class SettingsPack:
     async def _set(self, run: RunContext[PackContext]) -> dict[str, Any]:
         namespace = str(run.input.get("namespace") or "")
         key = str(run.input.get("key") or "")
-        if _person_only(namespace, key):
+        # Settings-api cannot tell a model's write from the person's and says the hub must
+        # apply its declaration. Only `lucy.*` was checked, so a model could switch off a
+        # protection in any other namespace -- every setting in user, keyring and memory is
+        # `never` -- in `auto` without a word, or after one "yes" in `ask`.
+        access = _own(namespace, key)
+        if not access:
+            client = self._client(run.ctx)
+            access = (await client.get(namespace, key, profile=run.ctx.profile)).agent
+        if access not in MAY_WRITE:
             message = (
                 f"{namespace}.{key} can only be changed by the person, in their settings, and "
                 "never by an assistant, even with approval. Tell them where to change it."
@@ -230,22 +247,12 @@ def _resource(setting: Setting, *, listing: bool = False, full: bool = False) ->
     }
     if listing or full:
         result.update(type=setting.kind, summary=setting.summary, bounds=setting.bounds)
-        access = _access(setting.namespace, setting.key)
+        access = _access(setting)
         if access:
             result["assistant"] = access
     if full:
         result["description"] = setting.description
     return result
-
-
-def _access(namespace: str, key: str) -> str:
-    """Whether an assistant may change this, where the hub knows: its own namespace.
-
-    settings.md tells the model a setting that is `never` for an assistant is the person's to
-    change, and nothing it was given ever said which those were.
-    """
-    item = knob(key) if namespace == "lucy" else None
-    return item.agent.value if item is not None else ""
 
 
 __all__ = ["SettingsPack"]

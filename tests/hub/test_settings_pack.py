@@ -129,6 +129,23 @@ async def test_a_settings_write_without_a_probe_cache_still_returns_the_setting(
     assert fake.writes == [("lucy", "max_llm_turns", 8)]
 
 
+async def test_a_setting_whose_service_did_not_say_claims_no_access() -> None:
+    """An older settings-api says nothing about assistants; the row says nothing either,
+    rather than guessing -- and a write to it is refused, as a `never` would be."""
+    fake = FakeSettingsPackClient([Setting("memory", "write_importance_floor", 3)])
+    capabilities = Capabilities([SettingsPack("https://settings.test", client=fake)])
+    context = capabilities.context_for(
+        SessionScope(account_id="acct_a", profile="personal", session_id="sess_a")
+    )
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "all", "op": "settings.describe", "input": {}}]}, context
+    )
+
+    assert "assistant" not in result["steps"][0]["data"]["settings"][0]
+
+
 async def test_describe_lists_one_capability_briefly_and_get_gives_it_in_full() -> None:
     """The bug, named: describe took no input and returned every setting with its long
     description -- eleven thousand characters for the lucy namespace alone, read again on every
@@ -138,7 +155,14 @@ async def test_describe_lists_one_capability_briefly_and_get_gives_it_in_full() 
         [
             Setting("lucy", "max_llm_turns", 12, summary="Rounds.", description="Long text."),
             Setting("lucy", "prompt_sections_disabled", [], summary="Sections left out."),
-            Setting("spotify", "default_market", "GB", summary="Market.", description="More."),
+            Setting(
+                "spotify",
+                "default_market",
+                "GB",
+                summary="Market.",
+                description="More.",
+                agent="freely",
+            ),
         ]
     )
     capabilities = Capabilities([SettingsPack("https://settings.test", client=fake)])
@@ -171,5 +195,5 @@ async def test_describe_lists_one_capability_briefly_and_get_gives_it_in_full() 
     assert access == {
         "max_llm_turns": "with_approval",
         "prompt_sections_disabled": "never",
-        "default_market": None,
+        "default_market": "freely",
     }

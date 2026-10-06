@@ -29,6 +29,9 @@ class Setting:
     pinned: bool = False
     bounds: Any = None
     scope: str = ""
+    agent: str = ""
+    """Whether an assistant may change it -- `never`, `with_approval`, `freely` -- as
+    settings-api declares it; empty when the service did not say."""
 
 
 class SettingsClient(Protocol):
@@ -88,6 +91,7 @@ class FakeSettingsPackClient:
             pinned=previous.pinned,
             bounds=previous.bounds,
             scope=previous.scope,
+            agent=previous.agent,
         )
         self.settings[(namespace, key)] = updated
         return updated
@@ -106,6 +110,7 @@ def _setting(payload: Any) -> Setting:
         pinned=flag(payload, "pinned"),
         bounds=field(payload, "bounds"),
         scope=text(payload, "scope"),
+        agent=text(payload, "agent_writable"),
     )
 
 

@@ -282,7 +282,9 @@ async def test_a_model_cannot_write_a_setting_only_the_person_may_change(key: st
 
 
 async def test_the_same_key_in_another_namespace_is_that_namespace_s_business() -> None:
-    fake, capabilities, context = _pack(Setting("persona", "prompt_sections_disabled", []))
+    fake, capabilities, context = _pack(
+        Setting("persona", "prompt_sections_disabled", [], agent="with_approval")
+    )
     await capabilities.probe(context)
 
     result = await capabilities.execute(
@@ -291,3 +293,20 @@ async def test_the_same_key_in_another_namespace_is_that_namespace_s_business() 
 
     assert not result["issues"]
     assert fake.writes == [("persona", "prompt_sections_disabled", ["notes"])]
+
+
+@pytest.mark.parametrize("declared", ["never", ""])
+async def test_a_sibling_setting_no_assistant_may_change_is_refused(declared: str) -> None:
+    """The bug, named: only `lucy.*` was checked against what an assistant may change, and
+    settings-api enforces nothing itself, so a model could switch off `user.erasure_mode` or a
+    memory protection -- every setting in user, keyring and memory is `never` -- without a
+    word in `auto`. A setting that says nothing is treated as `never`, as settings-api says."""
+    fake, capabilities, context = _pack(Setting("user", "erasure_mode", "grace", agent=declared))
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(_set("user", "erasure_mode", "immediate"), context)
+
+    step = result["steps"][0]
+    assert step["status"] == "error"
+    assert "user.erasure_mode can only be changed by the person" in step["error"]
+    assert fake.writes == []
