@@ -703,6 +703,22 @@ def test_the_context_section_never_tells_the_model_to_avoid_a_capability_whose_f
     assert "what changed about your tools" not in context
 
 
+def test_each_rule_is_said_once_and_the_link_says_where_it_comes_from() -> None:
+    """The bug, named: "offer the link" four times, "do not wait in a loop" three, and never a
+    word on where a link comes from for a capability not yet connected -- so a small model,
+    told four times to offer one, made one up."""
+    rendered = render_all(CONTEXT)
+    identity = " ".join(section(rendered, "identity").body.split())
+    tools = " ".join(section(rendered, "tools").body.split())
+    helpers = " ".join(section(rendered, "helpers").body.split())
+
+    assert "offer the link" not in identity
+    assert "`capabilities.setup` returns; never one you made up" in tools
+    assert "When a capability is not in front of you" not in tools
+    assert "not a helper, not a command, not a download" in tools
+    assert "wait in a loop" not in helpers
+
+
 def test_the_context_section_says_which_note_to_write_and_when() -> None:
     """The bug, named: "Write the note before the eviction" -- no note had been named, and
     "eviction" is not a word a small model maps onto "older turns are about to be summarised"."""
