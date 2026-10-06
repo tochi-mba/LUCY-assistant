@@ -866,8 +866,7 @@ def _plural(count: int, singular: str, plural: str) -> str:
 
 
 def _times(count: int) -> str:
-    if count == 1:
-        return "once"
+    """Only ever more than once: a source missed once is named with no count."""
     if count == TWICE:
         return "twice"
     return f"{count} times"
