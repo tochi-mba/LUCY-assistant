@@ -61,6 +61,9 @@ services:
       LUCY_LOG_FORMAT: json
       # One file on the host a person can read and filter: `lucy logs --session ses_...`.
       LUCY_LOG_FILE: /var/log/lucy/lucy.jsonl
+      # On the volume. Left at its default, var/lucy.sqlite3 under /app, every conversation,
+      # grant and pinned server lived in the container and went with each rebuild.
+      LUCY_DATABASE_PATH: /var/lib/lucy/lucy.sqlite3
     volumes:
       - lucy-data:/var/lib/lucy
       - ./var/log:/var/log/lucy
