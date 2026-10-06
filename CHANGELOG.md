@@ -83,6 +83,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A long command says a notice is coming, and a held-back capability says how to load it.**
+  A command that outlasted its step told the model to "check work.check or work.wait" -- to
+  poll, against the tools section -- and a plan naming an operation of a capability that was
+  ready but not loaded got weftai's list of every operation the turn could call. The first now
+  says a notice arrives when it ends; the second says to add a `capabilities.use` step.
 - **Playbooks arrive whole, and Lucy is shown only hers.** A 2,000-character window cut
   helper-team mid-JSON and repos before its Triage -- the two playbooks the prompt sends the
   model to -- and `help.skills` listed the MCP client's own skills to Lucy, pointing her at

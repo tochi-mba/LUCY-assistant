@@ -586,7 +586,8 @@ async def test_a_long_command_returns_a_handle_when_the_model_asks_not_to_wait()
         payload = result["steps"][0]["data"]
         assert payload["status"] == "running"
         assert payload["work_id"].startswith("wrk_")
-        assert "work.check" in payload["notice"]
+        assert "A notice arrives when it ends" in payload["notice"]
+        assert "work.check" not in payload["notice"], "a notice comes; nothing to poll"
     finally:
         await work.shutdown()
 

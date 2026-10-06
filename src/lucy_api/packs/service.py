@@ -236,8 +236,16 @@ class Capabilities:
         if catalogue is None:
             catalogue = await self.probe(context)
         stripped = executable(plan)
-        bound, _deferred = self.bound_for(catalogue, context.session_id)
+        bound, deferred = self.bound_for(catalogue, context.session_id)
         registry = self.registry_for(catalogue, context.session_id)
+        held = _held_back(stripped, deferred, set(registry.names()))
+        if held:
+            message = NOT_LOADED.format(capability=held)
+            return {
+                "issues": [{"code": "capability_not_loaded", "message": message}],
+                "text": message,
+                "steps": [],
+            }
         limits = limits_for(bound, context.policy)
         # The gate asks a person about a write before anything runs, so a plan that could
         # not run is refused first: a bad reference or a malformed step is the model's to
@@ -316,6 +324,27 @@ class Capabilities:
             message = str(first.get("message") or TOOL_FAILED)
             raise conflict(message)
         return result
+
+
+NOT_LOADED = (
+    "{capability} is ready but not loaded: add a capabilities.use step for it, and call this "
+    "in your next plan."
+)
+"""What a plan naming a held-back capability's operation is told, in one line.
+
+weftai's own issue listed every operation the turn could call -- fifty to a hundred and thirty
+names -- for the model to search for the one it meant, and never said the fix."""
+
+
+def _held_back(plan: dict[str, Any], deferred: Sequence[str], callable_now: set[str]) -> str:
+    """The first deferred capability a plan reaches for, or empty when it reaches for none."""
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    for step in steps if isinstance(steps, list) else ():
+        name = str(step.get("op") or "") if isinstance(step, dict) else ""
+        capability = name.split(".", 1)[0]
+        if name not in callable_now and capability in deferred:
+            return capability
+    return ""
 
 
 def _unknown_tool(name: str, bound: set[str], deferred: list[str]) -> str:

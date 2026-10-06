@@ -80,6 +80,18 @@ call off while the sandbox was still closing the shell, so a command the sandbox
 already killed, or had finished within its margin, was reported as perhaps still running
 and its output thrown away. Outlasting the call means it always gets to end on its own.
 """
+STARTED = (
+    "The command is running as {work_id}. A notice arrives when it ends; read its output then "
+    "with work.result. Carry on, or finish your answer."
+)
+STILL_RUNNING = (
+    "The command is still running after {seconds}s and has not been stopped. A notice arrives "
+    "when it ends; then work.result reads its output."
+)
+"""What a command that outlasts its step says. Not "check work.check or work.wait": that sent
+the model to poll, against the tools section's "do not sit and poll" and the registry's own
+"wait for its notice"."""
+
 ABSOLUTE_PATH = "workspace paths must be relative to this session"
 OUTSIDE_SESSION = "workspace path resolves outside this session"
 
@@ -308,7 +320,7 @@ class WorkspacePack:
             self._operation(
                 "run",
                 "Run a command inside this session's workspace subtree. "
-                "Long commands return a handle; check work.check or work.wait. "
+                "Long commands return a handle, and a notice arrives when they end. "
                 "With wake, a command that finishes while nobody is talking wakes the session. "
                 "Long output shows its end, where a test run or a build prints its verdict; "
                 "ask for show=start for the beginning.",
@@ -648,7 +660,7 @@ class WorkspacePack:
             return {
                 "status": "running",
                 "work_id": handle.id,
-                "notice": "command started; check work.check or work.wait when you need the output",
+                "notice": STARTED.format(work_id=handle.id),
             }
         try:
             finished = await registry.wait(handle.id, wait_seconds)
@@ -656,10 +668,7 @@ class WorkspacePack:
             return {
                 "status": "running",
                 "work_id": handle.id,
-                "notice": (
-                    f"command is still running after {wait_seconds:.0f}s; "
-                    "it has not been stopped. Use work.check or work.wait."
-                ),
+                "notice": STILL_RUNNING.format(seconds=f"{wait_seconds:.0f}"),
             }
         if finished.payload is None:
             # It ended without an answer; how it ended is the only thing there is to say.
