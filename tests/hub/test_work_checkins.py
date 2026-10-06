@@ -27,7 +27,7 @@ from lucy_api.sessions.models import CreateSession
 from lucy_api.sessions.sql_store import SessionStore
 from lucy_api.store.worker import SqlWorker
 from lucy_api.work import Kind, State
-from lucy_api.work.registry import Registry
+from lucy_api.work.registry import Registry, StillRunningError
 from lucy_api.work.subscriptions import (
     CHECKIN_CAPABILITY,
     CHECKIN_GRACE_SECONDS,
@@ -135,6 +135,23 @@ async def settled() -> None:
         await asyncio.sleep(0.005)
 
 
+async def result_of(registry: Registry, work_id: str) -> Any:
+    """A firing's result, waited for rather than assumed after a fixed pause.
+
+    The firing writes through the SQLite worker thread, and a slow CI runner took longer than
+    `settled()`'s tenth of a second: the result was read while the check-in still ran, and the
+    test failed with "check-in is still running" on a change that never touched it.
+    """
+    deadline = asyncio.get_running_loop().time() + 5
+    while True:
+        try:
+            return registry.result(work_id)
+        except StillRunningError:
+            if asyncio.get_running_loop().time() > deadline:
+                raise
+            await asyncio.sleep(0.01)
+
+
 async def rows(store: SessionStore) -> list[dict[str, Any]]:
     def read(db: Any) -> list[dict[str, Any]]:
         return [dict(row) for row in db.execute("SELECT * FROM subscriptions").fetchall()]
@@ -193,7 +210,7 @@ async def test_firing_on_time_ends_it_fired_and_the_notice_says_it_is_time(
     harness.sleeper.release()
     await settled()
 
-    result = harness.registry.result(opened.handle.id)
+    result = await result_of(harness.registry, opened.handle.id)
     assert result.state is State.succeeded
     assert result.payload == {
         "state": "fired",
@@ -229,7 +246,7 @@ async def test_firing_late_says_how_late(store: SessionStore) -> None:
     harness.sleeper.release()
     await settled()
 
-    result = harness.registry.result(opened.handle.id)
+    result = await result_of(harness.registry, opened.handle.id)
     assert result.payload["summary"] == "It was time 130s ago"  # type: ignore[index]
     assert result.payload["facts"]["late_seconds"] == 130  # type: ignore[index]
     await harness.registry.shutdown()
@@ -393,7 +410,7 @@ async def test_a_restart_before_the_due_time_arms_the_timer_again_for_what_is_le
     clock.advance(2000)
     second.sleeper.release()
     await settled()
-    assert second.registry.result(opened.handle.id).payload["summary"] == "It is time"  # type: ignore[index]
+    assert (await result_of(second.registry, opened.handle.id)).payload["summary"] == "It is time"  # type: ignore[index]
     await second.registry.shutdown()
 
 
@@ -421,7 +438,7 @@ async def test_a_checkin_that_fell_due_while_lucy_was_down_fires_at_once_and_say
     assert second.sleeper.asked == [0.0]
     second.sleeper.release()
     await settled()
-    result = second.registry.result(opened.handle.id)
+    result = await result_of(second.registry, opened.handle.id)
     assert result.state is State.succeeded
     assert result.payload["summary"] == f"It was time {int(2 * CHECKIN_GRACE_SECONDS)}s ago"  # type: ignore[index]
     await second.registry.shutdown()
