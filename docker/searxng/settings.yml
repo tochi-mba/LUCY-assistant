@@ -1,0 +1,27 @@
+# SearXNG for the family: web-search's fallback when a backend refuses it.
+#
+# Reachable only on the family network, never published on the host. web-search asks it
+# for JSON, which SearXNG's defaults switch off, and is its only caller, so the limiter
+# that protects a public instance from strangers would only rate-limit the family.
+# The secret comes from SEARXNG_SECRET in .env.family (scripts/genenv.py), never this file.
+use_default_settings: true
+
+general:
+  instance_name: "lucy-family"
+
+server:
+  limiter: false
+  image_proxy: false
+  public_instance: false
+
+outgoing:
+  # Three seconds, the default, timed every engine out on a slow uplink, and a timed-out
+  # engine is suspended: the first search after start returned nothing at all.
+  request_timeout: 8.0
+  max_request_timeout: 12.0
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json

@@ -264,9 +264,16 @@ services:
       WSA_KEYRING_ISSUER: "http://127.0.0.1:8001"
       WSA_KEYRING_SERVICE_NAME: web-search-api
       WSA_JSON_LOGS: "true"
+      # SearXNG first: Google answered automated searches with a captcha after twenty to
+      # fifty seconds, past the hub's thirty-second step, so research failed instead of
+      # failing over. Google stays behind it, and a person's search_backend still wins.
+      WSA_SEARCH_BACKEND: searxng
+      WSA_SEARXNG_BASE_URL: http://searxng:8080
     depends_on:
       keyring:
         condition: service_healthy
+      searxng:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -275,6 +282,22 @@ services:
           "-c",
           "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8006/healthy', timeout=4).status == 200 else 1)",
         ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [lucy]
+
+  # Not a family service: a pinned third-party image web-search falls back to. No host port;
+  # only web-search, on the family network, ever calls it.
+  searxng:
+    image: searxng/searxng:2026.10.4-d48c4b555@sha256:76b0bf285aca014c7191fc4d9234c4bfb358624ac33d8883833d496c059ec072
+    env_file:
+      - .env.family
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

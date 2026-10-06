@@ -321,6 +321,10 @@ def build_env(
     env["MEMORY_SERVICE_TOKENS"] = json.dumps({"lucy-api": memory_token}, separators=(",", ":"))
     env["LUCY_MEMORY_API_TOKEN"] = memory_token
 
+    # SearXNG refuses to start on its published default secret; this one is never read by
+    # anything but the SearXNG container, so it rotates with the rest on a refresh.
+    env["SEARXNG_SECRET"] = new_token()
+
     for name, value in load_local_env(extras_path).items():
         if name in env:
             raise ExtraConfigError(

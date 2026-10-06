@@ -38,6 +38,9 @@ CONTEXTS = {
     "github": "./Github-api",
 }
 
+SUPPORT = ("searxng",)
+"""Third-party images the family runs beside itself: pinned, never built, never published."""
+
 HOST_PORTS = {
     "lucy": "8000:8000",
     "keyring": "8001:8001",
@@ -87,10 +90,14 @@ def test_github_mounts_the_directory_its_image_makes_writable() -> None:
     assert service["volumes"] == ["github-data:/app/var"]
 
 
+def family(document: dict) -> dict:
+    return {name: document["services"][name] for name in FAMILY}
+
+
 def test_every_family_service_is_on_one_network() -> None:
     document = load()
-    assert list(document["services"]) == list(FAMILY)
-    for name, service in document["services"].items():
+    assert sorted(document["services"]) == sorted((*FAMILY, *SUPPORT))
+    for name, service in family(document).items():
         assert "lucy" in service["networks"]
         assert service["build"] == {"context": CONTEXTS[name], "secrets": ["github_token"]}
         assert HOST_PORTS[name] in service["ports"]
@@ -103,7 +110,7 @@ def test_each_service_is_told_to_listen_on_its_own_port() -> None:
     # Compose used to hand persona its pre-move port, so it listened
     # where nothing was published and its healthcheck never answered.
     document = load()
-    for name, service in document["services"].items():
+    for name, service in family(document).items():
         port = HOST_PORTS[name].split(":")[1]
         env = service.get("environment", {})
         for key, value in env.items():
@@ -117,12 +124,31 @@ def test_github_credential_is_only_a_build_secret() -> None:
     for service in document["services"].values():
         assert "secrets" not in service
         assert all("GITHUB" not in key for key in service.get("environment", {}))
+    for service in family(document).values():
         assert "args" not in service["build"]
+
+
+def test_a_support_service_is_a_pinned_image_on_the_family_network_only() -> None:
+    """SearXNG is web-search's fallback: nothing outside the family reaches it, and the image
+    that runs is the one that was reviewed, not whatever `latest` is today."""
+    document = load()
+    searxng = document["services"]["searxng"]
+    assert "@sha256:" in searxng["image"]
+    assert "build" not in searxng
+    assert "ports" not in searxng
+    assert searxng["networks"] == ["lucy"]
+    assert "/healthz" in " ".join(searxng["healthcheck"]["test"])
+    web_search = document["services"]["web-search"]
+    assert web_search["environment"]["WSA_SEARXNG_BASE_URL"] == "http://searxng:8080"
+    assert web_search["environment"]["WSA_SEARCH_BACKEND"] == "searxng"
+    settings = yaml.safe_load((ROOT / "docker" / "searxng" / "settings.yml").read_text())
+    assert "json" in settings["search"]["formats"]
+    assert "secret_key" not in settings.get("server", {}), "the secret is .env.family's"
 
 
 def test_consumers_depend_on_keyring() -> None:
     document = load()
-    for name, service in document["services"].items():
+    for name, service in family(document).items():
         if name == "keyring":
             assert "depends_on" not in service
             continue
