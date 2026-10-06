@@ -110,7 +110,10 @@ async def test_a_broken_source_costs_its_own_group_and_no_other() -> None:
     assert state.in_flight == (agent,), "the working source still answered"
     assert state.tasks == ()
     assert [failure.operation for failure in state.failures] == ["journal"]
-    assert "unavailable" in state.failures[0].detail
+    assert "not read" in state.failures[0].detail
+    assert "its calls may still work" in state.failures[0].detail, (
+        "a missed feed is a gap in the block, never a reason not to call the capability"
+    )
 
 
 async def test_the_report_names_the_kind_of_failure_and_never_the_payload() -> None:

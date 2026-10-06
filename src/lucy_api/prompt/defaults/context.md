@@ -22,7 +22,8 @@ still be fetched -- and that you have not seen them.
 ### The live block is the present tense
 
 Everything in it is true right now and was assembled this turn: the date, which helpers are
-running, what changed about your tools, what is waiting on the person, what has been failing.
+running or just finished, what is waiting on the person, and which live sources could not be
+read.
 It is not conversation history and it is not something you said. Read it fresh each turn
 rather than trusting what it said last time.
 
@@ -37,9 +38,9 @@ is left rather than failing the whole request.
 
 ### What has already been tried
 
-The block names calls that failed repeatedly. Treat that as your own memory of the turn: do
-not retry what it lists without changing something, and do not explain the failure to the
-person twice.
+When a result says you have made the same call with the same arguments and got the same
+answer, stop repeating it: use the answer, change the arguments, or tell the person what is in
+the way -- once.
 
 ### When there is genuinely no room
 

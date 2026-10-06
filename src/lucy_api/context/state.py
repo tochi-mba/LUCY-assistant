@@ -726,13 +726,18 @@ def _pending_group(pending: PendingSnapshot) -> _Group:
 
 
 def _trouble_group(failures: Sequence[FailureSnapshot]) -> _Group:
-    """The cheapest loop-breaker there is: the model can see that it has already tried."""
+    """The live sources this block could not read this turn, so a gap is not read as nothing.
+
+    Headed "operations failing repeatedly" while the only thing ever put here was a source
+    read once and missed -- and the next line said "failed once" -- so a music feed timing
+    out read, with the prompt's "do not retry what it lists", as "do not call music".
+    """
     ordered = sorted(failures, key=lambda failure: (-failure.count, failure.operation))
     return _Group(
         name="trouble",
         quota=QUOTAS["trouble"],
         headline=_plural(
-            len(ordered), "operation failing repeatedly", "operations failing repeatedly"
+            len(ordered), "live source not read this turn", "live sources not read this turn"
         ),
         entries=tuple(_failure_line(failure) for failure in ordered),
     )
@@ -833,7 +838,8 @@ def _pending_line(wait: str, item: str) -> str:
 
 
 def _failure_line(failure: FailureSnapshot) -> str:
-    line = f"{_clean(failure.operation, NAME_CHARS)} failed {_times(failure.count)}"
+    times = f" ({_times(failure.count)})" if failure.count > 1 else ""
+    line = f"{_clean(failure.operation, NAME_CHARS)}{times}"
     if failure.detail:
         line += f": {_clean(failure.detail, DETAIL_CHARS)}"
     return INDENT + line
