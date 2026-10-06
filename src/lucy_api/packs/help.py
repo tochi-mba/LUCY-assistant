@@ -37,12 +37,13 @@ if TYPE_CHECKING:
 
     from lucy_api.packs.context import PackContext
 
-DOCS_WINDOW = 2_000
-"""How many characters ``help.docs`` returns by default.
+DOCS_WINDOW = 4_000
+"""How many characters ``help.docs`` and ``help.skill`` return by default.
 
-Small on purpose: the model asked for a topic, not the whole manual, and dumping a
-capability's entire markdown into the context is how a help tool becomes the largest
-thing in the window.
+Enough for every capability page and playbook to arrive whole in one read: the longest,
+helper-team, is about 3,100. At 2,000 it was cut mid-JSON and repos lost its Triage, and a
+small model rarely asks for the second window. Still a bound, so a page that grows past it
+is windowed rather than dumped.
 """
 
 
@@ -131,10 +132,7 @@ class HelpPack:
             define_operation(
                 {
                     "name": "help.docs",
-                    "description": (
-                        "A capability's authored markdown, windowed. Prefer many small reads "
-                        "over one large one."
-                    ),
+                    "description": ("A capability's manual, by id."),
                     "input": object_schema(
                         {
                             "topic": string_schema().describe("A capability id, or 'help'."),
@@ -153,8 +151,8 @@ class HelpPack:
                 {
                     "name": "help.skills",
                     "description": (
-                        "Named docs you can load before using a capability. Prefer these "
-                        "over guessing how a long job, an approval, or a memory write works."
+                        "Playbooks for longer jobs: a repository review or CI fix, a helper "
+                        "team, research. Read one with help.skill before starting that job."
                     ),
                     "input": object_schema({}),
                     "output": value(object_schema({"skills": array_schema(object_schema({}))})),
@@ -165,9 +163,7 @@ class HelpPack:
             define_operation(
                 {
                     "name": "help.skill",
-                    "description": (
-                        "One named doc, windowed. Same corpus an MCP client loads by digest."
-                    ),
+                    "description": ("Read one playbook from help.skills, whole."),
                     "input": object_schema(
                         {
                             "name": string_schema().describe("A skill name from help.skills."),
@@ -272,8 +268,15 @@ async def _skills(run: RunContext[PackContext]) -> dict[str, Any]:
         "skills": [
             {"name": row["name"], "title": row["title"], "summary": row["description"]}
             for row in listed()["skills"]
+            if _for_lucy(str(row["name"]))
         ]
     }
+
+
+def _for_lucy(name: str) -> bool:
+    """Whether a skill is about tools Lucy holds, rather than an MCP client's alone."""
+    skill = resolve(name)
+    return skill is None or skill.audience != "client"
 
 
 async def _skill(run: RunContext[PackContext]) -> dict[str, Any]:

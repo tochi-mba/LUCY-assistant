@@ -29,6 +29,10 @@ class Skill:
     title: str
     summary: str
     body: str
+    audience: str = "both"
+    """`client` for a skill about tools only an MCP client holds -- `lucy_chat`, an approval's
+    `approved: true` -- which Lucy's own `help.skills` leaves out: listed to her, they pointed
+    her at tools she does not have."""
 
     @property
     def uri(self) -> str:
@@ -64,6 +68,7 @@ class Skill:
 CATALOGUE: tuple[Skill, ...] = (
     Skill(
         name="talking",
+        audience="client",
         title="Have a conversation",
         summary="Create a session, send a message, read the transcript.",
         body="""# Talking to Lucy
@@ -83,6 +88,7 @@ into the next message.
     ),
     Skill(
         name="capabilities",
+        audience="client",
         title="What Lucy can do",
         summary=(
             "Product names: music, research, workspace, repos, notes, settings, work, helpers."
@@ -253,9 +259,9 @@ Incognito sessions refuse writes without calling the store.
         ),
         body="""# Settings
 
-`settings.describe` is the catalogue for one namespace, written for a person
-deciding. `settings.get` reads the resolved value. `settings.set` changes one
-key they named; it is a write under `settings.write`.
+`settings.describe` lists one capability's settings. `settings.get` reads one
+in full. `settings.set` changes one the person named; it is a write under
+`settings.write`.
 
 Capabilities have product names. Never ask to change a setting whose description
 says an assistant may not. A settings outage that cannot confirm a safety floor
@@ -367,6 +373,7 @@ ask before acting on any of it.
     ),
     Skill(
         name="approvals",
+        audience="client",
         title="Writes the person has to confirm",
         summary="A gated write parks the turn. The person's yes is an input, not an authorization.",
         body="""# Approvals
@@ -409,6 +416,7 @@ Prefer asking the person over treating an unconfirmed memory as fact.
     ),
     Skill(
         name="external-tools",
+        audience="client",
         title="Tools from servers the person registered",
         summary=(
             "Imported tools are namespaced and hash-pinned. A listing change is a pin mismatch."

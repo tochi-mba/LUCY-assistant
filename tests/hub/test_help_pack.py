@@ -270,13 +270,27 @@ async def test_bound_for_keeps_ready_capabilities() -> None:
     assert {item.pack.id for item in bound} >= {"help", "gadget"}
 
 
-async def test_skills_list_the_same_corpus_an_mcp_client_loads() -> None:
+async def test_skills_list_lucys_playbooks_and_leave_the_clients_out() -> None:
+    """The bug, named: help.skills listed every skill to Lucy's own model, the client-only
+    ones too -- `lucy_chat`, an approval's `approved: true` -- and pointed it straight at "an
+    approval", with tools it did not have."""
     listed = await _skills(_run(_context(Capabilities((HelpPack(),)))))
     names = [row["name"] for row in listed["skills"]]
-    assert names == [skill.name for skill in CATALOGUE]
-    talking = next(row for row in listed["skills"] if row["name"] == "talking")
-    assert talking["title"]
-    assert talking["summary"]
+    assert names == [skill.name for skill in CATALOGUE if skill.audience != "client"]
+    assert not {"talking", "capabilities", "approvals", "external-tools"} & set(names)
+    team = next(row for row in listed["skills"] if row["name"] == "helper-team")
+    assert team["title"]
+    assert team["summary"]
+
+
+async def test_every_playbook_arrives_whole_in_one_read() -> None:
+    """The bug, named: a 2,000-character window cut helper-team mid-JSON and repos before
+    Triage, the two playbooks the prompt sends the model to; a small model rarely asks for the
+    next window."""
+    context = _context(Capabilities((HelpPack(),)))
+    for skill in CATALOGUE:
+        page = await _skill(_run(context, name=skill.name))
+        assert page["text"] == skill.body, skill.name
 
 
 async def test_skill_windows_named_docs_and_names_unknowns() -> None:
