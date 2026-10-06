@@ -360,13 +360,15 @@ BUILTIN: tuple[PromptSection, ...] = (
         for_helpers=_fixed(_default("identity.helper")),
     ),
     PromptSection(
-        id="behaviour",
-        title="How you work",
+        id="safety",
+        title="What you never do",
         band=Band.system,
-        priority=30,
+        priority=0,
         version="1",
-        render=_fixed(_default("behaviour")),
-        max_tokens=850,
+        render=_fixed(_default("safety")),
+        max_tokens=700,
+        overridable=False,
+        disableable=False,
     ),
     PromptSection(
         id="tools",
@@ -380,15 +382,24 @@ BUILTIN: tuple[PromptSection, ...] = (
         disableable=False,
     ),
     PromptSection(
-        id="safety",
-        title="What you never do",
+        id="behaviour",
+        title="How you work",
         band=Band.system,
-        priority=0,
+        priority=30,
         version="1",
-        render=_fixed(_default("safety")),
-        max_tokens=700,
-        overridable=False,
-        disableable=False,
+        render=_fixed(_default("behaviour")),
+        max_tokens=850,
+    ),
+    PromptSection(
+        id="memory",
+        title="Remembering",
+        band=Band.system,
+        priority=40,
+        version="1",
+        render=_fixed(_default("memory")),
+        max_tokens=600,
+        for_helpers=_nothing,
+        requires="notes",
     ),
     PromptSection(
         id="lessons",
@@ -421,17 +432,6 @@ BUILTIN: tuple[PromptSection, ...] = (
         render=_fixed(_default("workspace")),
         max_tokens=800,
         requires="workspace",
-    ),
-    PromptSection(
-        id="memory",
-        title="Remembering",
-        band=Band.system,
-        priority=40,
-        version="1",
-        render=_fixed(_default("memory")),
-        max_tokens=600,
-        for_helpers=_nothing,
-        requires="notes",
     ),
     PromptSection(
         id="context",
@@ -483,7 +483,12 @@ BUILTIN: tuple[PromptSection, ...] = (
 """Prompt order, which is not priority order: the model reads this top to bottom, and the
 trimmer gives sections up by `priority`. Zone 0 is the markdown; zone 1 is everything that a
 connect or a correction can change under a running session, which is why it is banded
-`pinned` rather than `system`."""
+`pinned` rather than `system`.
+
+Safety and the tool idiom come straight after identity. They are the two sections whose
+absence is not a matter of taste, and they used to sit behind some 1,150 tokens of tone and
+style, in the middle of the prompt, where a small model weighs what it reads least. The
+person's own choices close the band, nearest the conversation."""
 
 
 ESTIMATE = Estimate()
