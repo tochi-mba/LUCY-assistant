@@ -93,6 +93,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   model to read them on resume when the live block already had, and said to "print what it
   would do before it does it" beside a tool that writes and runs in one call. 795 tokens
   become 737.
+
+- **Every described field reaches the model, however it is wrapped.** weftai 0.5.2 renders a
+  description only on string and object fields, and drops a wrapper's own, so every
+  described optional field -- `research.open`'s `hit`, `agents.spawn`'s `group`, every
+  `limit` -- and every described integer, boolean, enum or array reached the model as a bare
+  type. The plan schema now carries them; the converter is fixed upstream in weftai.
 - **A long command says a notice is coming, and a held-back capability says how to load it.**
   A command that outlasted its step told the model to "check work.check or work.wait" -- to
   poll, against the tools section -- and a plan naming an operation of a capability that was

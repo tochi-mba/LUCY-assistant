@@ -61,6 +61,49 @@ def test_the_prompt_still_explains_both_once() -> None:
     assert "$id" in prompt or "earlier result" in prompt
 
 
+async def test_every_described_field_reaches_the_model_however_it_is_wrapped() -> None:
+    """The bug, named: weftai 0.5.2 drops the description of every optional field and of every
+    integer, boolean, enum or array field, so `research.open`'s `hit`, `agents.spawn`'s
+    `group` and every `limit` reached the model as a bare type."""
+    from datetime import UTC, datetime
+
+    from lucy_api.packs.agents import AgentsPack
+    from lucy_api.work.registry import Registry
+
+    capabilities = Capabilities(
+        (HelpPack(), AgentsPack()), work=Registry(now=lambda: datetime.now(UTC))
+    )
+    context = capabilities.context_for(
+        SessionScope(account_id="acct", profile="personal", session_id="ses")
+    )
+    schema = capabilities.plan_schema(await capabilities.probe(context), "ses", context)
+    spawn = next(
+        variant
+        for variant in schema["properties"]["steps"]["items"]["anyOf"]
+        if variant["properties"]["op"].get("const") == "agents.spawn"
+    )
+    fields = spawn["properties"]["input"]["properties"]
+    assert fields["group"]["description"].startswith("A short team name")
+    assert fields["return_schema"]["description"].startswith("JSON Schema the helper must")
+    assert "description" in fields["objective"], "a field already described keeps its own"
+
+
+def test_a_field_with_no_description_and_an_unknown_operation_are_left_alone() -> None:
+    from types import SimpleNamespace
+
+    from lucy_api.packs.registry import _fields_described, _said, _shape
+
+    bare = {"properties": {"op": {"const": "nope.nope"}, "input": {"properties": {"x": {}}}}}
+    schema = {"properties": {"steps": {"items": {"anyOf": [bare]}}}}
+    registry = SimpleNamespace(get=lambda _name: None)
+    assert _fields_described(schema, registry) is schema  # type: ignore[arg-type]
+    assert bare["properties"]["input"]["properties"]["x"] == {}
+    assert _shape(None) == {}
+    wrapped = SimpleNamespace(kind="optional", inner=SimpleNamespace(kind="object", shape={"a": 1}))
+    assert _shape(wrapped) == {"a": 1}
+    assert _said(SimpleNamespace(description="", kind="string", inner=None)) == ""
+
+
 def test_no_operation_description_ends_in_a_list_of_search_keywords() -> None:
     """The bug, named: twenty-one descriptions ended in "(search, recall, remember, lookup)"
     and the like. Nothing searches descriptions, so they were tokens every round, and one
