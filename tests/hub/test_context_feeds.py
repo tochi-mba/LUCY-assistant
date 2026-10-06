@@ -287,7 +287,7 @@ async def test_a_failed_feed_source_does_not_fail_the_turn() -> None:
     built = await build_context(STATE, Turn(), live_from=Live(feeds=(BreakingFeeds(),)))
     live = built.context.sections[-1].body
     assert "broken" in live
-    assert "unavailable" in live
+    assert "not read" in live
     assert built.context.total > 0
 
 

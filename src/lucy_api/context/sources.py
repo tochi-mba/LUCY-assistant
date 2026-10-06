@@ -38,7 +38,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from lucy_api.context.types import FailureSnapshot, LiveState, PendingSnapshot
+from lucy_api.context.types import UNREAD, FailureSnapshot, LiveState, PendingSnapshot
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -95,7 +95,7 @@ async def _fetch[T](
             FailureSnapshot(
                 operation=name,
                 count=1,
-                detail=f"unavailable ({type(exc).__name__}); omitted from this turn",
+                detail=UNREAD.format(kind=type(exc).__name__),
             )
         )
         return fallback

@@ -791,25 +791,25 @@ def test_repeated_failures_are_counted_in_words_a_model_will_not_misread() -> No
     )
     rendered = body_of(state)
 
-    assert headline(rendered, "trouble") == "3 operations failing repeatedly"
+    assert headline(rendered, "trouble") == "3 live sources not read this turn"
     assert entries_of(rendered, "trouble") == [
-        "music.play failed 7 times: no device",
-        "research.search failed twice: 429",
-        "workspace.write failed once: read-only",
-    ]
+        "music.play (7 times): no device",
+        "research.search (twice): 429",
+        "workspace.write: read-only",
+    ], "a source missed once says so without the count it does not need"
 
 
 def test_a_failure_with_no_detail_still_names_the_operation_and_the_count() -> None:
     state = a_state(failures=(FailureSnapshot(operation="research.search", count=2),))
 
-    assert entries_of(body_of(state), "trouble") == ["research.search failed twice"]
-    assert headline(body_of(state), "trouble") == "1 operation failing repeatedly"
+    assert entries_of(body_of(state), "trouble") == ["research.search (twice)"]
+    assert headline(body_of(state), "trouble") == "1 live source not read this turn"
 
 
 def test_twelve_failing_operations_show_four_and_confess_the_rest() -> None:
     rendered = body_of(a_crowd())
 
-    assert headline(rendered, "trouble") == "12 operations failing repeatedly (showing 4 of 12)"
+    assert headline(rendered, "trouble") == "12 live sources not read this turn (showing 4 of 12)"
     assert len(entries_of(rendered, "trouble")) == 4
 
 

@@ -691,6 +691,18 @@ def test_the_workspace_section_names_the_files_and_says_what_the_resume_already_
     assert "print each path it changes" in workspace
 
 
+def test_the_context_section_never_tells_the_model_to_avoid_a_capability_whose_feed_failed() -> (
+    None
+):
+    """The bug, named: "The block names calls that failed repeatedly ... do not retry what it
+    lists" -- and the only thing it ever listed was a live source read once and missed, so a
+    music feed timing out read as "do not call music"."""
+    context = " ".join(section(render_all(CONTEXT), "context").body.split())
+    assert "do not retry what it lists" not in context
+    assert "which live sources could not be read" in context
+    assert "what changed about your tools" not in context
+
+
 def test_a_write_that_depends_on_an_earlier_write_references_it() -> None:
     """The bug, named: "two writes that could collide are two plans" guarded against something
     the executor already prevents, and missed what it does not: a failed step skips only the

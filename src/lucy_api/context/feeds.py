@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
-from lucy_api.context.types import Claim, FailureSnapshot, Trust
+from lucy_api.context.types import UNREAD, Claim, FailureSnapshot, Trust
 
 FEED_ID = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 """Product names: ``persona``, ``music``, ``workspace``. Not a service, not a port."""
@@ -251,7 +251,7 @@ async def _fetch(
             FailureSnapshot(
                 operation=source.name,
                 count=1,
-                detail=f"unavailable ({type(exc).__name__}); omitted from this turn",
+                detail=UNREAD.format(kind=type(exc).__name__),
             )
         )
         return ()

@@ -345,6 +345,10 @@ class FeedSnapshot:
     lines: tuple[str, ...] = ()
 
 
+UNREAD = "not read ({kind}); this part of the block is missing, but its calls may still work"
+"""What a live source that failed this turn says: a gap in the block, not a broken capability."""
+
+
 @dataclass(frozen=True, slots=True)
 class FailureSnapshot:
     """A recent failure, kept so the model stops retrying what cannot work.

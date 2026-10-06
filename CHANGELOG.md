@@ -88,6 +88,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The live block says which sources it missed, and never to avoid a capability for it.** Its
+  trouble group was headed "operations failing repeatedly" while the only thing ever put
+  there was a live source read once and missed, and the context section said not to retry what
+  it listed, so a music feed timing out read as "do not call music". It now says which live
+  sources were not read this turn and that their calls may still work.
 - **The workspace section names its files and says what a resume already read.** It spoke of
   "a running note and a task list" without naming `progress.md` or `tasks.json`, told the
   model to read them on resume when the live block already had, and said to "print what it

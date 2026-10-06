@@ -92,7 +92,7 @@ async def test_a_journal_that_is_down_becomes_a_line_the_model_can_read() -> Non
     )
     live = built.context.sections[-1].body
     assert "journal" in live
-    assert "unavailable" in live
+    assert "not read" in live
     assert "TimeoutError" in live, "the kind of failure is named"
     assert "restarting" not in live, "the message it carried is not"
 
