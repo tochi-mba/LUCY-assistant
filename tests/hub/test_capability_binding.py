@@ -351,3 +351,32 @@ async def test_a_preference_never_binds_a_capability_the_person_turned_off() -> 
     assert held_back not in _bound(capabilities, context)
     assert context.catalogue is not None
     assert context.catalogue.preferred == (held_back,)
+
+
+async def test_a_plan_reaching_for_a_held_back_capability_is_told_to_load_it() -> None:
+    """The bug, named: weftai's issue for an operation the turn had not bound listed every
+    operation it could call -- fifty to a hundred and thirty names -- and never said the fix:
+    the capability was ready, only not loaded."""
+    from lucy_api.packs.service import NOT_LOADED, _held_back
+
+    plan = {"steps": [{"id": "a", "op": "workspace.read", "input": {}}]}
+    assert _held_back(plan, ["workspace"], {"help.skills"}) == "workspace"
+    assert _held_back(plan, ["workspace"], {"workspace.read"}) == "", "bound already"
+    assert _held_back(plan, [], set()) == "", "not deferred: weftai's own issue stands"
+    assert _held_back({"steps": "nope"}, ["workspace"], set()) == ""
+    assert _held_back({"steps": ["nope"]}, ["workspace"], set()) == ""
+    assert "add a capabilities.use step" in NOT_LOADED.format(capability="workspace")
+
+
+async def test_calling_a_held_back_capability_before_loading_it_says_how_to_load_it() -> None:
+    from lucy_api.packs.service import NOT_LOADED
+
+    capabilities, context = _crowded()
+    await capabilities.probe(context)
+    held_back = f"g{DEFER_ABOVE}"
+
+    result = await capabilities.execute(_ping_plan(held_back), context)
+
+    assert result["text"] == NOT_LOADED.format(capability=held_back)
+    assert result["issues"][0]["code"] == "capability_not_loaded"
+    assert result["steps"] == []
