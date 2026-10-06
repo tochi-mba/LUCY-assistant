@@ -197,6 +197,10 @@ async def test_schema_and_writes_go_through_memory_api() -> None:
 
     assert "fact" in schema["steps"][0]["data"]["kinds"]
     assert "account" in schema["steps"][0]["data"]["sections"]
+    # The bug, named: a summary was "a distilled cluster", and no model distils it.
+    summary = schema["steps"][0]["data"]["kinds"]["summary"]
+    assert "distilled" not in summary
+    assert "joined with semicolons" in summary
     assert fact["steps"][0]["data"]["id"] == "mem_2"
     assert confirmed["steps"][0]["data"]["id"] == "mem_2"
     assert corrected["steps"][0]["data"]["id"] == "mem_2"
