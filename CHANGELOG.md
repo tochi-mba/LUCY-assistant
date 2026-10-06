@@ -88,6 +88,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- `--compare` counts only runs that are a verdict. A run that ended in `error` (a token that would not renew, a provider's session limit, a sandbox that could not be reached) was counted as a failure, so one evening's outage was listed as five regressions. An error now counts toward neither pass rates nor check rates. A scenario that was measured before and not now is listed as `not measured`, beside the skipped ones, because losing coverage still matters.
 - An eval turn that no model answered is an error, not a failure. A subscription's session limit failed nine of fourteen runs in one evening, and `--compare` reported four regressions in scenarios that never reached the model. A turn whose `error_code` is `model_unavailable` now makes its run an `error`, like a turn that could not be sent: not a verdict on the model.
 - A profile's sandbox can be given back: `DELETE /v1/workspaces/{profile}` destroys it once no live conversation uses it (409 while one does) and forgets it on the archived ones. Nothing used to release a sandbox. The account's cap is twenty, every eval run made a profile, and after #101 every eval conversation did too, so the cap filled and every new session in a new profile answered 503 "could not be provisioned". The eval harness now releases each conversation's own profile when the conversation ends.
 
