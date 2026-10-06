@@ -51,7 +51,8 @@ USER lucy
 
 ENV LUCY_HOST=0.0.0.0 \
     LUCY_PORT=8000 \
-    LUCY_LOG_FORMAT=json
+    LUCY_LOG_FORMAT=json \
+    LUCY_DATABASE_PATH=/var/lib/lucy/lucy.sqlite3
 
 EXPOSE 8000
 

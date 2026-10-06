@@ -65,6 +65,21 @@ def test_yaml_parses_as_a_mapping() -> None:
     assert "networks" in document
 
 
+def test_every_database_is_on_its_service_s_volume() -> None:
+    """The bug, named: the hub mounted `lucy-data` at /var/lib/lucy and wrote its database to
+    /app/var, its default, so every rebuild of the image started it with no conversations,
+    grants or pinned servers -- and a run's history was gone by the time anyone looked."""
+    services = load()["services"]
+    assert services["lucy"]["environment"]["LUCY_DATABASE_PATH"].startswith("/var/lib/lucy/")
+    for name, service in services.items():
+        mounts = [str(volume).split(":")[1] for volume in service.get("volumes", [])]
+        for key, value in (service.get("environment") or {}).items():
+            if key.endswith("DATABASE_PATH"):
+                assert any(str(value).startswith(mount + "/") for mount in mounts), (
+                    f"{name}: {key}={value} is not on any of its volumes {mounts}"
+                )
+
+
 def test_github_mounts_the_directory_its_image_makes_writable() -> None:
     """The bug, named: Compose moved the database to a root-owned volume."""
     service = load()["services"]["github"]
