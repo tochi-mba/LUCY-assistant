@@ -60,7 +60,7 @@ not list is a warning, not a refusal.
 | `--suite NAME\|PATH` | A shipped suite (`default`) or a folder of `.toml` files, or one file. Repeatable. Default: `default`. |
 | `--scenario NAME` | Only this scenario, by `name` or `suite/name`. Repeatable. |
 | `--tag TAG` | Only scenarios carrying any of these tags. Repeatable. |
-| `--profile P` | The profile every session runs as. Default: a new one for this run, `eval-<time>`, so a run shares no memory with you or with any other run. |
+| `--profile P` | The profile every session runs as, so the run's conversations share its memory. Default: a new one per conversation, `eval-<time>-<n>`, so no conversation shares memory with you, another run, or another conversation in this one. |
 | `--repeat N` | Hold each conversation N times. The report shows pass rates per check. |
 | `--timeout SECONDS` | Cancel a turn that has not come to rest by then. Default 300. A scenario's `timeout_seconds` wins. |
 | `--report-dir DIR` | Default `var/evals/<UTC time>/` (gitignored). A folder already holding a report is refused. |
@@ -179,10 +179,11 @@ While a turn runs, stderr shows it as it goes:
 - **Deferred capabilities are bound the way the model binds them.** If a seed, before or
   verify operation is not callable yet and its capability is deferred, the harness calls
   `capabilities.use` first. That counts as a use of the capability in that session.
-- **Memory is real, and each run's is its own.** A scenario that asks Lucy to remember
-  something writes a real note, to the run's profile. By default every run gets a new profile,
-  so nothing it writes reaches your notes and nothing you or an earlier run wrote is read back
-  as though it were remembered. `--profile` names one to reuse, knowing that it will.
+- **Memory is real, and each conversation's is its own.** A scenario that asks Lucy to
+  remember something writes a real note. By default every conversation gets a new profile, so
+  nothing it writes reaches your notes, and nothing you, an earlier run, another scenario or an
+  earlier repeat wrote is read back as though it were remembered. `--profile` names one for the
+  whole run to share, knowing that it will.
 - **Sessions are archived, not deleted**, so every conversation can be read afterwards.
 - **This machine, only when you say so.** A `host` step runs a command here, as you, with
   your environment, through the shell. A run whose scenarios have one refuses to start
@@ -311,10 +312,10 @@ lucy eval run --model clyde:haiku --suite ./explore --profile explore --allow-ho
   -- so number them to say the order: `01-watch.toml`, `02-outage.toml`. With `--repeat`, a
   file's repeats run together; with several models, every file runs with one model before
   the next model starts.
-- **Memory is the profile's, not the session's.** Every session in a run is held in the
-  run's profile, so the files in one run already share memory. Name the profile with
-  `--profile` to keep that memory for the next run -- to hold the next part tomorrow -- and
-  to find it afterwards; without it, each run starts a new, empty `eval-<time>` profile.
+- **Memory is the profile's, not the session's.** Name the profile with `--profile` when
+  the files are parts of one story: every session in the run is then held in it, so they share
+  memory, and the next run -- the next part, tomorrow -- can be held in it too. Without it,
+  each conversation starts in a new, empty `eval-<time>-<n>` profile.
 - **Steps between turns** change the world while the conversation waits: an `op` through
   the hub, a `host` command on this machine, a pause. See
   [steps before a turn](#steps-before-a-turn).

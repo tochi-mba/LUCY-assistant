@@ -388,7 +388,7 @@ def test_a_run_holds_its_conversations_in_a_profile_of_its_own(fake: FakeLucy) -
     something found it already remembered from the run before."""
     code, out, _err = run("--dry-run")
     assert code == OK
-    named = re.search(r"as profile (\S+)\.", out)
+    named = re.search(r"in profiles (\S+)-1 to -(\d+), one per conversation\.", out)
     assert named is not None
     assert re.fullmatch(r"eval-\d{8}t\d{6}z", named.group(1))
 

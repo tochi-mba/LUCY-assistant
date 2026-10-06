@@ -142,6 +142,16 @@ def test_the_session_takes_the_scenario_s_mode_and_the_run_s_profile() -> None:
     assert body["profile"] == "work"
 
 
+def test_each_conversation_of_a_run_has_a_profile_of_its_own() -> None:
+    """The bug, named: a run's conversations shared one profile, so a repeat of a memory
+    scenario found the fact its predecessor saved and corrected it instead of saving it, and
+    failed for the run before rather than for anything it did."""
+    fake = FakeLucy()
+    Held(fake, scenario(one_turn()), profile="eval-x", repeat=2, apart=True)
+    profiles = [body["profile"] for body in posted(fake, "/v1/sessions")]
+    assert profiles == ["eval-x-1", "eval-x-2"]
+
+
 def test_a_failed_check_fails_the_scenario() -> None:
     fake = FakeLucy()
     fake.say("Hello?", Play(reply="0 of 200,000 tokens"))
