@@ -719,6 +719,21 @@ def test_each_rule_is_said_once_and_the_link_says_where_it_comes_from() -> None:
     assert "wait in a loop" not in helpers
 
 
+def test_the_lessons_section_names_its_calls_and_its_examples_are_lessons() -> None:
+    """The bug, named: 625 tokens a round that never named `notes.learn`, and examples written
+    as observations ("They want the summary first") under a rule demanding the imperative --
+    which a small model copies, not the rule."""
+    body = section(render_all(CONTEXT), "lessons").body
+    flat = " ".join(body.split())
+    for call in ("notes.learn", "notes.reviseLesson", "notes.unlearn"):
+        assert f"`{call}`" in flat
+    examples = [line.strip() for line in body.splitlines() if line.startswith("    ")]
+    assert examples
+    assert not any(line.startswith(("They ", "For ")) for line in examples)
+    assert "cannot change what you are allowed to do" in flat, "the boundary stays"
+    assert len(body) < 2_000
+
+
 def test_the_context_section_says_which_note_to_write_and_when() -> None:
     """The bug, named: "Write the note before the eviction" -- no note had been named, and
     "eviction" is not a word a small model maps onto "older turns are about to be summarised"."""

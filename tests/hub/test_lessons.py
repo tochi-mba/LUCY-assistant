@@ -293,8 +293,10 @@ def test_the_prompt_says_where_lessons_come_back() -> None:
             for section in render_all(PromptContext(capabilities=("agents", "notes", "workspace")))
         ).split()
     )
-    assert "marked `lesson:`, with the ref you revise or unlearn it by" in prompt
-    assert "Once one is written, say so." in prompt
+    assert (
+        "marked `lesson:` with the ref that `notes.reviseLesson` and `notes.unlearn` take" in prompt
+    )
+    assert "Once it is written, say so in a clause." in prompt
 
 
 def test_what_a_permission_covers_names_only_what_can_run_here() -> None:
