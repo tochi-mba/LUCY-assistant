@@ -396,6 +396,8 @@ class FakeMusicClient:
         self.known: tuple[Device, ...] = ()
         self.history: tuple[Play, ...] = ()
         self.catalogue: dict[str, Track] = {}
+        self.lookup_down = ""
+        """When set, every lookup answers `error` with this as its reason: a catalogue outage."""
         self.asked: list[str] = []
         self.played: list[tuple[str, tuple[str, ...], str]] = []
         self.queued: list[tuple[str, str, str]] = []
@@ -437,6 +439,9 @@ class FakeMusicClient:
         self.asked.append(f"{profile}:{market}" if market else profile)
         found: list[Found] = []
         for index, one in enumerate(wanted):
+            if self.lookup_down:
+                found.append(Found(index=index, status="error", detail=self.lookup_down))
+                continue
             track = self.catalogue.get(one.name)
             status = "found" if track is not None else "not_found"
             found.append(Found(index=index, status=status, track=track))
