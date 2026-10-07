@@ -133,8 +133,11 @@ while the client underneath it was willing to wait ninety (`WORK_TIMEOUT_SECONDS
 figure for the call and another for the step, and only one of them could be right.
 """
 
-MODEL_MULTIPLE = 6
-"""A model-backed step's allowance over the plain step timeout: a minute at the default."""
+MODEL_MULTIPLE = 9
+"""A model-backed step's allowance over the plain step timeout: ninety seconds at the default,
+the client's own `WORK_TIMEOUT_SECONDS`. web-search gives its model a minute and the page
+fetch comes before that, so a step of a minute was cut off just before web-search answered -- with
+the summary, or with why there was none -- and the model was told only that time ran out."""
 
 
 def _ceiling(pack_id: str, seconds: float) -> float:

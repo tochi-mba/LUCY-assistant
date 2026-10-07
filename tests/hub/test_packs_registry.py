@@ -147,8 +147,8 @@ def test_slow_capabilities_widen_the_plan_timeouts() -> None:
     )
     ordinary = limits_for((help_bound,))
     slow = limits_for((help_bound, research))
-    assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * 6
-    assert slow["planTimeoutMs"] == ordinary["planTimeoutMs"] * 6
+    assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * 9
+    assert slow["planTimeoutMs"] == ordinary["planTimeoutMs"] * 9
 
 
 def test_a_research_step_waits_as_long_as_its_summary_takes() -> None:
@@ -159,7 +159,7 @@ def test_a_research_step_waits_as_long_as_its_summary_takes() -> None:
     research = Bound(pack=Gadget("research"), availability=Availability(state=State.ready))
     music = Bound(pack=Gadget("music"), availability=Availability(state=State.ready))
     step = limits_for((research, music))["stepTimeoutMs"] / 1_000
-    assert 34 < step <= WORK_TIMEOUT_SECONDS
+    assert step == WORK_TIMEOUT_SECONDS, "the step waits exactly as long as the call inside it"
     assert limits_for((music,))["stepTimeoutMs"] / 1_000 == 30, "music keeps its own figure"
     assert _ceiling("research", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE, (
         "the probe in front of it is a health check, and keeps the short figure"
