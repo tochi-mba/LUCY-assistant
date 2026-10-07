@@ -153,3 +153,27 @@ async def test_a_helper_started_by_the_main_thread_wakes_and_a_helpers_helper_do
         assert records[nested["id"]].wake is False
     finally:
         await work.shutdown()
+
+
+async def test_a_helper_finishing_in_quiet_hours_waits_for_them_to_end() -> None:
+    """The bug, named: a helper's ending woke the conversation whatever the time, because
+    only watches and check-ins carried the person's quiet hours."""
+    from dataclasses import replace
+
+    from lucy_api.work.quiet import QUIET_TAG
+
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities((AgentsPack(),), work=work)
+    context = capabilities.context_for(scope())
+    context.policy = replace(context.policy, quiet_hours="23:00-07:00")
+    context.child = Helpers()
+    try:
+        top = await _spawn(work, context, depth=0, objective="Find the date", role="researcher")
+        nested = await _spawn(work, context, depth=1, objective="Check it", role="checker")
+        await work.wait(top["id"], 5)
+        await work.wait(nested["id"], 5)
+        records = {record.id: record for record in work._records.values()}
+        assert QUIET_TAG in records[top["id"]].tags
+        assert records[nested["id"]].tags == {}, "a helper's helper wakes nobody"
+    finally:
+        await work.shutdown()
