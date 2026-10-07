@@ -33,6 +33,7 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, StillRunningError
+from lucy_api.work.quiet import quiet_tags
 from lucy_api.work.types import Brief, Kind
 from lucy_api.workspace.scratch import (
     IGNORE_ALL,
@@ -215,7 +216,7 @@ class WorkspacePack:
         return Availability(state=State.ready, detail=f"attached ({ready.sandbox_tier})")
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
-        del context
+        wakes = "true" if context.policy.wake_by_default else "false"
         return (
             self._operation(
                 "list",
@@ -340,7 +341,7 @@ class WorkspacePack:
                     .describe("How long to wait in this step before handing back a work_id."),
                     "wake": boolean_schema()
                     .optional()
-                    .describe("Wake an idle conversation when it ends. Default false."),
+                    .describe(f"Wake an idle conversation when it ends. Default {wakes}."),
                 },
                 value(object_schema({})),
                 self._run,
@@ -584,7 +585,10 @@ class WorkspacePack:
                 tail=run.input.get("show") != "start",
                 wait=wait if isinstance(wait, bool) else True,
                 wait_seconds=None if raw_wait is None else max(0.0, float(raw_wait)),
-                wake=bool(run.input.get("wake", False)),
+                # The person's own `wake_by_default`, as watches and repository watches
+                # use it. Hard-wired false, "run it and tell me when it's done" never told
+                # anyone unless the model remembered a flag the person had already set.
+                wake=_wake(run.input.get("wake"), run.ctx),
             ),
         )
 
@@ -664,6 +668,7 @@ class WorkspacePack:
                     timeout_seconds=deadline,
                     account_id=context.account_id,
                     wake=command.wake,
+                    tags=quiet_tags(context.policy.quiet, wake=command.wake),
                 ),
             )
         except AtCapacityError as exc:
@@ -686,6 +691,12 @@ class WorkspacePack:
             # It ended without an answer; how it ended is the only thing there is to say.
             return {"status": finished.state.value, "work_id": handle.id, "notice": finished.detail}
         return _completed_command(finished.payload, handle.id)
+
+
+def _wake(asked: Any, context: PackContext) -> bool:
+    """Whether a command that outlives its step wakes the conversation: as asked, or as the
+    person set `wake_by_default`."""
+    return asked if isinstance(asked, bool) else context.policy.wake_by_default
 
 
 def _timeout_ms(asked: Any, context: PackContext) -> int:

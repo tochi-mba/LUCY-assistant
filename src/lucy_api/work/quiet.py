@@ -108,4 +108,13 @@ class QuietHours:
         )
 
 
-__all__ = ["NEAR_SECONDS", "QUIET_TAG", "WINDOW", "QuietHours"]
+def quiet_tags(quiet: QuietHours | None, *, wake: bool) -> dict[str, str]:
+    """The tag that holds a waking ending back for quiet hours, or none.
+
+    Every kind of work that may wake a conversation carries it, or an ending at 3am wakes
+    the person at 3am: watches and check-ins did, commands and helpers did not.
+    """
+    return {QUIET_TAG: quiet.tag()} if wake and quiet is not None else {}
+
+
+__all__ = ["NEAR_SECONDS", "QUIET_TAG", "WINDOW", "QuietHours", "quiet_tags"]
