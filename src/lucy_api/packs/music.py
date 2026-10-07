@@ -31,10 +31,11 @@ from weftai.schema.spec import integer_schema, object_schema, string_schema
 from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
-from lucy_api.clients.errors import DownstreamError
+from lucy_api.clients.errors import DownstreamError, UnavailableError
 from lucy_api.clients.music import (
     AUDIENCE,
     DEFAULT_RECENT,
+    SERVICE,
     HttpMusicClient,
     UnconfirmedError,
     Wanted,
@@ -306,6 +307,12 @@ class MusicPack:
             ),
             profile=run.ctx.profile,
         )
+        failed = [item for item in result if item.status == "error"]
+        if result and len(failed) == len(result):
+            # The catalogue could not be searched. Dropped as "no track", that read as a song
+            # that does not exist: Lucy asked the person whether they had the artist right
+            # while YouTube was refusing every search.
+            raise UnavailableError(SERVICE, 502, failed[0].detail)
         return [_track(item.track) for item in result if item.track is not None]
 
     async def _now_playing(self, run: RunContext[PackContext]) -> dict[str, Any]:

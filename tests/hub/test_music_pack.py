@@ -266,6 +266,25 @@ async def test_a_command_accepted_but_not_confirmed_is_an_answer_rather_than_a_f
     assert fake.played == [("personal", ("spotify:track:1",), "")]
 
 
+async def test_a_search_that_could_not_run_is_an_outage_not_a_missing_song() -> None:
+    """The bug, named: every lookup failed while the catalogue refused searches, the pack kept
+    only items with a track, and Lucy told the person the song "didn't show up in the search
+    -- do you remember the artist?"."""
+    fake = FakeMusicClient()
+    fake.lookup_down = "the catalogue could not be searched"
+    capabilities, context = setup(fake)
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        {"steps": [{"id": "found", "op": "music.find", "input": {"name": "Joha"}}]}, context
+    )
+
+    step = result["steps"][0]
+    assert step["status"] == "error"
+    assert "music could not be reached just now" in step["error"]
+    assert "do you remember" not in step["error"]
+
+
 async def test_a_confirmed_command_carries_no_note() -> None:
     fake = FakeMusicClient()
     capabilities, context = setup(fake)
