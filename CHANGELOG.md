@@ -92,6 +92,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A profile's habits no longer crowd memory out of a new conversation.** Seeding a new
+  session's recency from its profile's habits (2026-10-07) could fill every `KEEP_RECENT`
+  slot: with music, research, settings and workspace as the habits, `notes` -- first in
+  `FIRST_LOADED` because remembering is a standing instruction -- was deferred in every new
+  conversation, and "worth remembering" got "Noted." with no step, since the tool was not in
+  the schema and the model would not spend a round binding it. A seed now fills at most all
+  but one slot; what the conversation itself uses still takes every slot it earns.
 - **The prompt says that keeping a memory is a step, never a sentence.** Told "i'm allergic
   to peanuts, worth remembering", the weakest model answered "Noted." and ran nothing: the
   memory section said "keep it in that same turn, and once it is kept say so in a clause",
