@@ -259,7 +259,8 @@ async def test_a_command_accepted_but_not_confirmed_is_an_answer_rather_than_a_f
     for step in result["steps"]:
         answer = step["data"]
         assert answer["confirmed"] is False
-        assert answer["note"] == UNCONFIRMED_NOTE
+        assert "note" not in answer, "the hub's advice is not part of the service's answer"
+        assert UNCONFIRMED_NOTE in step["notices"]
         assert answer["track"]["name"] == "Reverie"
         assert answer["progress_ms"] == 64_000
     assert fake.played == [("personal", ("spotify:track:1",), "")]
@@ -545,10 +546,11 @@ async def test_a_queue_stops_before_the_step_s_ceiling_and_says_what_was_left() 
         "queued": False,
         "reason": NOT_TRIED,
     }
-    assert answer["note"] == (
+    assert list(result["steps"][1]["notices"]) == [
         "Queuing stopped after 5 of 6 so this step could answer before its time ran out; "
         "1 left unqueued. Queue those in a new step."
-    )
+    ]
+    assert "note" not in answer
     assert "confirmed" not in answer
     assert len(fake.queued) == 5
     assert fake.clock.now - 100.0 + 5.0 > context.step_seconds - STEP_MARGIN_SECONDS
@@ -604,7 +606,7 @@ async def test_an_unconfirmed_queue_of_several_tracks_says_so_once_and_per_track
     answer = await queue_recent(fake)
 
     assert answer["confirmed"] is False
-    assert answer["note"] == UNCONFIRMED_NOTE
+    assert "note" not in answer
     assert all(item["queued"] and item["confirmed"] is False for item in answer["queued"])
 
 
