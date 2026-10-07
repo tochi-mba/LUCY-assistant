@@ -269,6 +269,10 @@ services:
       # failing over. Google stays behind it, and a person's search_backend still wins.
       WSA_SEARCH_BACKEND: searxng
       WSA_SEARXNG_BASE_URL: http://searxng:8080
+      # A page is summarised from at most this much text. Forty thousand characters, the
+      # service default, took the family's summarising model past its own minute, so every
+      # page read came back with no summary. A person's max_content_chars still wins.
+      WSA_MAX_CONTENT_CHARS: "16000"
     depends_on:
       keyring:
         condition: service_healthy

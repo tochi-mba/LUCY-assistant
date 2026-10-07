@@ -141,6 +141,9 @@ def test_a_support_service_is_a_pinned_image_on_the_family_network_only() -> Non
     web_search = document["services"]["web-search"]
     assert web_search["environment"]["WSA_SEARXNG_BASE_URL"] == "http://searxng:8080"
     assert web_search["environment"]["WSA_SEARCH_BACKEND"] == "searxng"
+    assert int(web_search["environment"]["WSA_MAX_CONTENT_CHARS"]) <= 16_000, (
+        "a page read past the step: forty thousand characters outran the summarising model"
+    )
     settings = yaml.safe_load((ROOT / "docker" / "searxng" / "settings.yml").read_text())
     assert "json" in settings["search"]["formats"]
     assert "secret_key" not in settings.get("server", {}), "the secret is .env.family's"
