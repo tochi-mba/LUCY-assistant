@@ -123,6 +123,20 @@ generous enough to fetch a page but not to say that it can.
 """
 
 
+MODEL_BACKED = frozenset({"research"})
+"""Capabilities whose step waits on a model as well as a service: a search is a fetch and
+then a summary the summarising model writes.
+
+Their probe is a health check like any other and keeps `SLOW_MULTIPLE`; their step gets
+`MODEL_MULTIPLE`. At thirty seconds a search whose summary took thirty-four was stopped,
+while the client underneath it was willing to wait ninety (`WORK_TIMEOUT_SECONDS`) -- one
+figure for the call and another for the step, and only one of them could be right.
+"""
+
+MODEL_MULTIPLE = 6
+"""A model-backed step's allowance over the plain step timeout: a minute at the default."""
+
+
 def _ceiling(pack_id: str, seconds: float) -> float:
     """How long this capability has to answer, before it is called down."""
     return seconds * SLOW_MULTIPLE if pack_id in SLOW_SERVICES else seconds
@@ -334,8 +348,8 @@ def limits_for(bound: Sequence[Bound], policy: TurnPolicy | None = None) -> dict
     default. That failure is invisible until something times out early in production.
     """
     limits = policy if policy is not None else TurnPolicy()
-    slow = any(item.pack.id in SLOW_SERVICES for item in bound)
-    multiple = SLOW_MULTIPLE if slow else 1
+    ids = {item.pack.id for item in bound}
+    multiple = MODEL_MULTIPLE if ids & MODEL_BACKED else SLOW_MULTIPLE if ids & SLOW_SERVICES else 1
     return {
         "maxSteps": limits.max_steps,
         "maxParallel": limits.max_parallel,
@@ -440,6 +454,8 @@ __all__ = [
     "DEFER_ABOVE",
     "FIRST_LOADED",
     "KEEP_RECENT",
+    "MODEL_BACKED",
+    "MODEL_MULTIPLE",
     "SLOW_MULTIPLE",
     "SLOW_SERVICES",
     "apply_disabled",
