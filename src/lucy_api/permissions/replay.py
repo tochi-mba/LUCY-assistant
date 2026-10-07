@@ -14,6 +14,13 @@ step and every step it reads from, directly or through another step, in plan ord
 resume those steps run together, under their own ids, and a reference resolves exactly as
 it would have. A step it needs that was itself parked must have been approved too: a call
 that reads from something the person refused is not run, and the model is told why.
+
+A call also needs the steps written before it that were free to run: writes run in the order
+they are written, so a plan may rely on order, not a reference. On 2026-10-07 a plan wrote
+`count.py` and then ran `python count.py`; the run parked, was approved, and ran alone --
+"can't open file count.py" -- and the model planned the same two steps again, which parked
+the same way, with no way out. A step before it that was parked is not run for it: that one
+needs its own yes, and the executor's own rule is that a step skips only what references it.
 """
 
 from __future__ import annotations
@@ -93,8 +100,11 @@ def needs(plan: Mapping[str, Any] | None, step_id: str, *, parked: Iterable[str]
     """
     steps = _steps(plan)
     by_id = {str(step.get("id") or ""): step for step in steps}
+    order = [str(step.get("id") or "") for step in steps]
+    held = set(parked)
+    before = order[: order.index(step_id)] if step_id in by_id else []
     wanted: set[str] = set()
-    pending = [step_id]
+    pending = [step_id, *(earlier for earlier in before if earlier not in held)]
     while pending:
         current = pending.pop()
         if current in wanted or current not in by_id:

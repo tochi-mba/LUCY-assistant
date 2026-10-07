@@ -64,10 +64,10 @@ instead -- take the instruction, do not simply try the same thing another way.
 
 When a plan is stopped for approval, **no step in it runs**, and nothing you wrote beside it
 is shown: the person sees the approval instead. A yes runs the approved call, exactly as the
-person saw it, before you are asked anything; you are told so, and its result is in your
-transcript. Do not ask for it again. The rest of that
-plan did not run, so put what you still need in your next plan. A yes covers that one call,
-once.
+person saw it, with the steps written before it that needed no yes, before you are asked
+anything; you are told so, and their results are in your transcript. Do not ask for it again.
+The steps after it did not run, so put what you still need in your next plan. A yes covers
+that one call, once.
 
 ### Work that keeps going after the step ends
 
