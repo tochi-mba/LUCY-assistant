@@ -92,6 +92,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The prompt says that keeping a memory is a step, never a sentence.** Told "i'm allergic
+  to peanuts, worth remembering", the weakest model answered "Noted." and ran nothing: the
+  memory section said "keep it in that same turn, and once it is kept say so in a clause",
+  and the clause half was satisfied without the step half. With announcements off, nothing
+  said the fact would die with the conversation. The section now says it outright, and that
+  notes being unloaded is no excuse.
 - **Reading a helper's transcript is no longer announced as an injection attempt.** A
   helper's transcript stores each tool result as the harness framed it, `<result ...>`
   fences and all. `agents.read` handed those fences back inside its own payload, the
