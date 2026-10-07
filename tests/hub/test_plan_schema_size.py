@@ -120,7 +120,7 @@ async def test_a_field_says_its_default_where_a_small_model_would_guess_it() -> 
     fields = run["properties"]["input"]["properties"]
     assert "milliseconds" in fields["timeout_ms"]["description"]
     assert "Default true" in fields["wait"]["description"]
-    assert "Default false" in fields["wake"]["description"]
+    assert "Default true" in fields["wake"]["description"], "the person's wake_by_default"
 
     from lucy_api.packs.music import DEVICE
 

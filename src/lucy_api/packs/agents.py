@@ -24,6 +24,7 @@ from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan
 from lucy_api.packs.base import State as PackState
 from lucy_api.prompt.docs import capability_doc
+from lucy_api.work.quiet import quiet_tags
 from lucy_api.work.registry import AtCapacityError, Registry
 from lucy_api.work.types import Brief, Kind, State, WorkError
 
@@ -470,6 +471,9 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             # helpers do not, because their parent is still running and is the one that
             # will read them. A member of a group wakes it once, with its group.
             wake=depth == 0,
+            # A helper that finishes inside the person's quiet hours is told when they end,
+            # as a watch's ending is; without the tag it woke them at 3am.
+            tags=quiet_tags(context.policy.quiet, wake=depth == 0),
             group=team,
         ),
         work_id=agent_id,
