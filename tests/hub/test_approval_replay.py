@@ -578,7 +578,38 @@ async def test_the_approval_card_says_what_the_step_s_note_says(store: SessionSt
         store, [plans(FIND_AND_PLAY), speaks("Playing x.")], {"shelf.play": True}
     )
     [ask] = [item["content"] for item in items if item["type"] == "approval_request"]
-    assert ask["description"] == "Play x"
+    assert ask["description"].startswith("Play x")
+
+
+async def test_a_card_names_what_a_referenced_step_looks_for(store: SessionStore) -> None:
+    """The bug, named: no step in a parked plan runs before the card is answered, so a play
+    read `{"track": "$found"}` and the card said "Start playing it." -- the person approved a
+    song nobody had named."""
+    _shelf, items, _turn, _provider = await _hold(
+        store, [plans(FIND_AND_PLAY), speaks("Playing x.")], {"shelf.play": True}
+    )
+    [ask] = [item["content"] for item in items if item["type"] == "approval_request"]
+    assert ask["description"] == "Play x (record: what shelf.find returns for name 'x')"
+
+
+def test_a_referenced_step_is_described_by_its_plain_inputs_only() -> None:
+    from lucy_api.permissions.approvals import _said, _what_it_reads
+    from lucy_api.permissions.replay import needs
+
+    plan = {
+        "steps": [
+            {"id": "a", "op": "shelf.find", "input": {"name": "y" * 80, "year": 1999, "ok": True}},
+            {"id": "b", "op": "shelf.pick", "input": {"from": "$a"}},
+            {"id": "c", "op": "shelf.play", "input": {"record": "$b", "also": "$gone"}},
+        ]
+    }
+    said = _what_it_reads(needs(plan, "c"), {"record": "$b", "also": "$gone"})
+    assert said == "record: what shelf.pick returns for what it was given"
+    assert _said({"name": "y" * 80, "year": 1999, "ok": True}) == (
+        f"name '{'y' * 59}\N{HORIZONTAL ELLIPSIS}', year 1999"
+    )
+    assert _said("not a mapping") == "what it was given"
+    assert _what_it_reads(None, {"record": "$b"}) == ""
 
 
 async def test_a_play_that_reads_from_a_refused_fetch_does_not_run(store: SessionStore) -> None:

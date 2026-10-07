@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 from lucy_api.core.errors import absent, conflict
 from lucy_api.permissions.gate import ACCOUNT_PROFILE, Grant
 from lucy_api.permissions.replay import needs as needs_of_plan
+from lucy_api.permissions.replay import references
 from lucy_api.permissions.store import SESSION_PROFILE_PREFIX, calls_of, upsert_grant
 from lucy_api.sessions.sql_store import (
     IdempotentWrite,
@@ -117,6 +118,9 @@ async def open_approval(
         now = time.time()
         labelled = ask.operation or ask.permission
         reason = ask.description or labelled
+        named = _what_it_reads(ask.needs, ask.arguments)
+        if named:
+            reason = f"{reason} ({named})"
         db.execute(
             "INSERT INTO approvals (id, session_id, turn_id, agent_id, operation, "
             "description, input_json, status, policy, lifetime, instruction, "
@@ -459,6 +463,56 @@ async def reopen(
             )
 
     await store.worker.call(write)
+
+
+READS = "{field}: what {operation} returns for {said}"
+"""How a card names an argument that is another step's result, since that step has not run."""
+
+SAID_FIELDS = 3
+SAID_CHARS = 60
+
+
+def _what_it_reads(needs: Needs | None, arguments: Mapping[str, Any]) -> str:
+    """Each argument that refers to an earlier step, named by what that step looks for.
+
+    No step in a parked plan runs before the card is answered, so a play read
+    `{"track": "$found"}` and the card said "Start playing it." -- the person approved a
+    song nobody had named. The step it reads from has: `music.find` for "Lonely At The Top",
+    by Asake.
+    """
+    if needs is None:
+        return ""
+    steps = {str(step.get("id") or ""): step for step in needs.steps}
+    named: list[str] = []
+    for key, value in arguments.items():
+        for ref in references(value):
+            step = steps.get(ref)
+            if step is not None:
+                said = _said(step.get("input"))
+                named.append(READS.format(field=key, operation=step.get("op"), said=said))
+    return "; ".join(named)
+
+
+def _said(given: object) -> str:
+    """A step's own plain inputs, the few a person needs to recognise what it looks for."""
+    plain = [
+        (key, value)
+        for key, value in (given.items() if isinstance(given, dict) else ())
+        if isinstance(value, str | int | float)
+        and not isinstance(value, bool)
+        and not references(value)
+    ]
+    if not plain:
+        return "what it was given"
+    shown = [
+        f"{key} {_clipped(str(value))!r}" if isinstance(value, str) else f"{key} {value}"
+        for key, value in plain[:SAID_FIELDS]
+    ]
+    return ", ".join(shown)
+
+
+def _clipped(text: str) -> str:
+    return text if len(text) <= SAID_CHARS else text[: SAID_CHARS - 1] + "\N{HORIZONTAL ELLIPSIS}"
 
 
 def _needs_payload(needs: Needs | None) -> dict[str, Any]:
