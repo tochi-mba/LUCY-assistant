@@ -88,7 +88,7 @@ def test_a_call_needs_itself_and_every_step_it_reads_from_in_plan_order() -> Non
         ]
     }
     found = needs(chained, "keep", parked=("keep",))
-    assert [step["id"] for step in found.steps] == ["search", "pick", "keep"]
+    assert [step["id"] for step in found.steps] == ["search", "devices", "pick", "keep"]
     assert found.step == "keep"
     assert found.gated == ()
     assert all(set(step) == {"id", "op", "input"} for step in found.steps)
@@ -103,6 +103,33 @@ def test_a_step_it_needs_that_was_parked_beside_it_is_named() -> None:
         ]
     }
     assert needs(plan, "play", parked=("fetch", "play")).gated == ("fetch",)
+
+
+def test_an_approved_run_runs_after_the_write_its_plan_put_before_it() -> None:
+    """The bug, named: a plan wrote count.py and then ran it; the run parked, was approved, and
+    ran alone -- "can't open file count.py" -- and the same two steps parked again, forever."""
+    plan = {
+        "steps": [
+            {"id": "write", "op": "workspace.write", "input": {"path": "count.py"}},
+            {"id": "run", "op": "workspace.run", "input": {"command": "python count.py"}},
+        ]
+    }
+    found = needs(plan, "run", parked=("run",))
+    assert [step["id"] for step in found.steps] == ["write", "run"]
+    assert found.gated == ()
+
+
+def test_a_step_before_it_that_needed_its_own_yes_is_not_run_for_it() -> None:
+    plan = {
+        "steps": [
+            {"id": "wipe", "op": "workspace.delete", "input": {"path": "old"}},
+            {"id": "note", "op": "notes.remember", "input": {"body": "x"}},
+            {"id": "run", "op": "workspace.run", "input": {"command": "ls"}},
+        ]
+    }
+    found = needs(plan, "run", parked=("wipe", "run"))
+    assert [step["id"] for step in found.steps] == ["note", "run"]
+    assert found.gated == (), "an unreferenced refusal does not hold the call back"
 
 
 def test_a_call_that_reads_from_nothing_needs_only_itself() -> None:
@@ -157,6 +184,7 @@ def test_an_approved_call_runs_with_the_steps_it_reads_from_under_their_own_ids(
     played = replay((call("apr_1", needs(PLAN, "play", parked=("play",))),))
     assert played.plan == {
         "steps": [
+            {"id": "devices", "op": "music.devices", "input": {}},
             {"id": "find_track", "op": "music.find", "input": {"name": "Clair de lune"}},
             {"id": "play", "op": "music.play", "input": {"track": "$find_track"}},
         ]
