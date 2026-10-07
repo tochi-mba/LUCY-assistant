@@ -136,10 +136,10 @@ machine is listed as in progress, however finished it looks.
   request), and Lucy as an MCP **client**: hash-pinned `/v1/mcp/servers` plus
   namespaced `mcp.<server>.<tool>` operations gated by `mcp.invoke`. External tools
   never appear under a service name.
-- **M3 probe cache and refresh serialisation.** Availability is cached per
-  (account, profile, pack) for fifteen seconds. A connect, disconnect, settings write, or
-  502 naming a missing credential drops the row. Outbound calls to one sibling audience
-  for one person take one lock, so two turns cannot refresh the same grant at once.
+- **M3 probe cache.** Availability is cached per (account, profile, pack) for fifteen
+  seconds. A connect, disconnect, settings write, or 502 naming a missing credential drops
+  the row. Refreshes are single-flighted by keyring, per grant; the hub's per-audience
+  lock was removed on 2026-10-07, because it held a sandbox for a whole command's run.
 - **M6 remainder.** `agents.reopen` continues a finished helper from its transcript.
   `journal.read` / `journal.claim` / `journal.complete` are model-facing tools. Mail
   carries a hop counter, a burst cap, a size cap and dedupe of identical unread steers.

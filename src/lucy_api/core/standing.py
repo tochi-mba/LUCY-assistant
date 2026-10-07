@@ -169,7 +169,6 @@ class Standing:
                 client=container.outbound,
                 service_tokens=_sibling_service_tokens(container.settings),
             ),
-            container.capabilities.providers,
             account_id=account_id,
             profile=profile,
             on_disconnect=lambda: container.capabilities.forget_probes(account_id, profile),

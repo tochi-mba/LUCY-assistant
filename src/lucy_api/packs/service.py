@@ -18,7 +18,7 @@ from lucy_api.packs.help import HelpPack
 from lucy_api.packs.http import NullHttp
 from lucy_api.packs.music import MusicPack
 from lucy_api.packs.notes import NotesPack
-from lucy_api.packs.probes import ProbeCache, ProviderLocks
+from lucy_api.packs.probes import ProbeCache
 from lucy_api.packs.registry import (
     build_registry,
     build_runtime,
@@ -101,7 +101,6 @@ class Capabilities:
         self.work = work
         self.child: ChildRuntime | None = None
         self.probes = probes if probes is not None else ProbeCache()
-        self.providers = ProviderLocks()
         self._uses: dict[str, list[str]] = {}
 
     def forget_probes(self, account_id: str, profile: str, pack_id: str | None = None) -> None:

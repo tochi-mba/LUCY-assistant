@@ -92,6 +92,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Calls to a sibling no longer queue behind each other.** Every call took a lock per
+  person and audience, so two calls could not make a sibling renew one stored grant twice,
+  and held it for as long as the call took. A background `python count.py` held the
+  person's sandbox for 25 seconds: the next round's live block waited for it, and the turn
+  answered only after the command ended, then woke to say so again. Of two helpers
+  searching at once, the second timed out after 90 seconds queueing behind the first's
+  slow searches. No sibling holds a refresh token -- every one asks keyring, which now
+  renews one grant once however many ask -- so the lock is gone.
 - An approved call runs after what its plan wrote first. A plan wrote `count.py` and then ran `python count.py`. The run parked, was approved, and replayed alone, because a replay ran only the steps the call references, and the run relies on order rather than a reference. Python answered "can't open file count.py", and the model planned the same two steps again, which parked the same way with no way out. A replayed call now also runs the steps written before it that needed no yes of their own. An earlier step that did need one is still not run for it, and it holds the call back only if the call references it, which is the executor's own rule. The tools section says so.
 
 - Background work follows the person's wake rules. `workspace.run` hard-wired "don't wake" over `wake_by_default`, so "run it and tell me when it's done" told nobody unless the model remembered a flag the person had already set. Commands and helpers that did wake also ignored quiet hours, which watches and check-ins kept. A command now wakes as asked, or as `wake_by_default` says, and any work that wakes carries the quiet-hours window (`quiet_tags`).

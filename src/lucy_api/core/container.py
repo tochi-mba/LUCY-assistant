@@ -239,7 +239,6 @@ class Container:
                 client=self.outbound,
                 service_tokens=_sibling_service_tokens(self.settings),
             ),
-            self.capabilities.providers,
             account_id=request.caller.account_id,
             profile=request.profile,
             on_disconnect=lambda: self.capabilities.forget_probes(
