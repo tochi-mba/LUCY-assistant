@@ -22,7 +22,7 @@ from lucy_api.clients.environments import Environment, FakeEnvironmentsClient, R
 from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, State
 from lucy_api.packs.context import STEP_MARGIN_SECONDS
-from lucy_api.packs.registry import SLOW_MULTIPLE
+from lucy_api.packs.registry import MODEL_MULTIPLE
 from lucy_api.packs.service import Capabilities
 from lucy_api.packs.work import WorkPack
 from lucy_api.packs.workspace import WorkspacePack
@@ -159,7 +159,7 @@ async def test_a_slow_capability_in_the_plan_widens_the_step_it_waits_in() -> No
     work = Registry(now=lambda: datetime.now(UTC))
     capabilities, context = _hub(WorkPack(), Research(), work=work)
     capabilities.runtime_for(await capabilities.probe(context), "sess-a", context)
-    assert context.step_seconds == STEP_MS / 1000 * SLOW_MULTIPLE
+    assert context.step_seconds == STEP_MS / 1000 * MODEL_MULTIPLE
 
 
 @pytest.mark.parametrize(

@@ -147,8 +147,23 @@ def test_slow_capabilities_widen_the_plan_timeouts() -> None:
     )
     ordinary = limits_for((help_bound,))
     slow = limits_for((help_bound, research))
-    assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * 3
-    assert slow["planTimeoutMs"] == ordinary["planTimeoutMs"] * 3
+    assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * 6
+    assert slow["planTimeoutMs"] == ordinary["planTimeoutMs"] * 6
+
+
+def test_a_research_step_waits_as_long_as_its_summary_takes() -> None:
+    """The bug, named: a search whose summary took thirty-four seconds was stopped at thirty,
+    while the client underneath it would have waited ninety."""
+    from lucy_api.clients.search import WORK_TIMEOUT_SECONDS
+
+    research = Bound(pack=Gadget("research"), availability=Availability(state=State.ready))
+    music = Bound(pack=Gadget("music"), availability=Availability(state=State.ready))
+    step = limits_for((research, music))["stepTimeoutMs"] / 1_000
+    assert 34 < step <= WORK_TIMEOUT_SECONDS
+    assert limits_for((music,))["stepTimeoutMs"] / 1_000 == 30, "music keeps its own figure"
+    assert _ceiling("research", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE, (
+        "the probe in front of it is a health check, and keeps the short figure"
+    )
 
 
 def test_a_runtime_keeps_a_store_when_one_is_handed_over() -> None:
@@ -240,11 +255,11 @@ def test_a_step_and_the_probe_in_front_of_it_are_widened_by_the_same_figure() ->
     slow = limits_for(
         (
             Bound(pack=HelpPack(), availability=Availability(state=State.ready)),
-            Bound(pack=Gadget("research"), availability=Availability(state=State.ready)),
+            Bound(pack=Gadget("music"), availability=Availability(state=State.ready)),
         )
     )
     assert slow["stepTimeoutMs"] == ordinary["stepTimeoutMs"] * SLOW_MULTIPLE
-    assert _ceiling("research", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE
+    assert _ceiling("music", PROBE_SECONDS) == PROBE_SECONDS * SLOW_MULTIPLE
     assert _ceiling("notes", PROBE_SECONDS) == PROBE_SECONDS
 
 
