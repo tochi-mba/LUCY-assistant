@@ -38,6 +38,7 @@ from lucy_api.permissions.gate import Floors, PermissionGate, once_key
 from lucy_api.permissions.replay import needs, replay
 from lucy_api.permissions.store import grants_for
 from lucy_api.sessions.compact import compact_session
+from lucy_api.sessions.habits import recent_capabilities
 from lucy_api.sessions.scope import disabled_in, scope_from_row
 from lucy_api.sessions.sql_store import NewItem, TurnSpend
 from lucy_api.stream.emitter import NewEvent
@@ -313,6 +314,12 @@ class TurnSupervisor:
         # the change to apply to the running turn.
         pack_ctx.policy = pack_ctx.policy.for_session(disabled_in(session))
         pack_ctx.permission_mode = str(session.get("permission_mode") or pack_ctx.permission_mode)
+        await self._capabilities.seed_recent(
+            claimed.session_id,
+            lambda: recent_capabilities(
+                self._store, claimed.account_id, str(session["profile"]), now=time.time()
+            ),
+        )
         catalogue = await self._capabilities.probe(pack_ctx)
         ready = tuple(item.pack.id for item in catalogue.ready())
         # What the prompt may name is what the schema was built from, which is not everything
