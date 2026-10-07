@@ -20,6 +20,7 @@ from lucy_api.packs.music import MusicPack
 from lucy_api.packs.notes import NotesPack
 from lucy_api.packs.probes import ProbeCache
 from lucy_api.packs.registry import (
+    KEEP_RECENT,
     build_registry,
     build_runtime,
     choose_bound,
@@ -130,9 +131,17 @@ class Capabilities:
 
         Asked once per conversation per process, and never over what the conversation itself
         used: that is the better guess, and seeding on every turn would reorder it.
+
+        A guess fills at most all but one of the `KEEP_RECENT` slots. A profile with four
+        habits used to fill every slot at turn one, and `notes` -- first in `FIRST_LOADED`
+        because remembering is a standing instruction -- was deferred in every new
+        conversation: "worth remembering" got "Noted." and no step, because the tool was not
+        in the schema and the model would not spend a round binding it. What the conversation
+        itself uses still takes every slot it earns.
         """
         if session_id not in self._uses:
-            self._uses[session_id] = list(dict.fromkeys(await habits()))
+            seeded = list(dict.fromkeys(await habits()))
+            self._uses[session_id] = seeded[: max(0, KEEP_RECENT - 1)]
 
     def context_for(
         self,

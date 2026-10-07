@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from conftest import ACCOUNT
 
+from lucy_api.packs.registry import KEEP_RECENT
 from lucy_api.packs.service import Capabilities
 from lucy_api.sessions.habits import DAY_SECONDS, HABIT_DAYS, recent_capabilities
 from lucy_api.sessions.models import CreateSession
@@ -92,3 +93,21 @@ async def test_a_conversations_own_recency_is_never_replaced_by_its_profiles() -
     capabilities.remember_use("ses_used", "workspace")
     await capabilities.seed_recent("ses_used", habits)
     assert capabilities.recent("ses_used") == ("workspace",)
+
+
+async def test_a_seed_never_fills_every_slot_so_memory_keeps_its_tool() -> None:
+    """The bug, named: a profile with four habits -- music, research, settings, workspace --
+    filled every `KEEP_RECENT` slot at turn one, and `notes`, first in `FIRST_LOADED`, was
+    deferred in every new conversation. "i'm allergic to peanuts, worth remembering" got
+    "Noted." and no step, three times out of three: the memory section's standing instruction
+    had lost its tool. A guess fills at most all but one slot; what the conversation itself
+    uses still takes every slot it earns."""
+
+    async def habits() -> tuple[str, ...]:
+        return ("music", "research", "settings", "workspace")
+
+    capabilities = Capabilities(())
+    await capabilities.seed_recent("ses_new", habits)
+    seeded = capabilities.recent("ses_new")
+    assert len(seeded) == KEEP_RECENT - 1
+    assert seeded == ("music", "research", "settings"), "the most recent habits, in order"
