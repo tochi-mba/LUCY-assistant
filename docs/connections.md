@@ -93,6 +93,8 @@ Probe answers are cached per person, profile and capability for fifteen seconds,
 conversation that never mentions music does not wait on a devices list every turn. Starting
 a connection, opening its link, a poll that sees it settle, a disconnect, a settings write,
 or a `502` naming a missing credential drops the cache, so connecting or disconnecting shows
-on the next turn. Outbound calls for one person and profile to one service audience are
-serialised: two turns refreshing the same grant at once are indistinguishable from replay,
-and RFC 9700 tells the authorization server to revoke the chain.
+on the next turn. Two calls that need the same expiring grant at once must not both
+refresh it -- RFC 9700 tells the authorization server to treat that as replay and revoke
+the chain -- and keyring, which holds every grant, renews one grant once however many ask.
+The hub's calls to a sibling run side by side: until 2026-10-07 they took a lock per person
+and audience, which held a person's sandbox for as long as a background command ran.

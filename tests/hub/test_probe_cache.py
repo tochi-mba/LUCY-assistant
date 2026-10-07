@@ -12,7 +12,7 @@ from test_packs_registry import Gadget
 from lucy_api.clients.errors import CREDENTIAL_CODES, problem_code
 from lucy_api.packs.base import Availability, State
 from lucy_api.packs.context import Call
-from lucy_api.packs.probes import PROBE_TTL_SECONDS, GuardedHttp, ProbeCache, ProviderLocks
+from lucy_api.packs.probes import PROBE_TTL_SECONDS, GuardedHttp, ProbeCache
 from lucy_api.packs.registry import probe_all
 from lucy_api.packs.service import Capabilities
 from lucy_api.sessions.scope import SessionScope
@@ -181,36 +181,31 @@ class _RoutingHttp:
         return SimpleNamespace(status_code=200, json=lambda: {"ok": True}, body={"ok": True})
 
 
-async def test_two_calls_to_the_same_audience_are_serialised() -> None:
+async def test_two_calls_to_the_same_audience_run_side_by_side() -> None:
+    """The bug, named: each call held a lock on its audience for as long as it took. A
+    background command held the person's sandbox for its whole run -- the next round's live
+    block waited 25 seconds for `python count.py` -- and of two helpers searching at once,
+    the second timed out queueing behind the first's slow searches."""
     started = asyncio.Event()
     release = asyncio.Event()
     inner = _RoutingHttp(started, release)
-    http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
-    call = Call(method="GET", url="https://music.test/v1", audience="spotify-api")
-
-    async def first() -> Any:
-        return await http.request_response(call)
-
-    async def second() -> Any:
-        await started.wait()
-        return await http.request_response(call)
-
-    leading = asyncio.create_task(first())
+    http = GuardedHttp(inner, account_id="acct_a", profile="personal")
+    call = Call(method="POST", url="https://search.test/v1", audience="spotify-api")
+    leading = asyncio.create_task(http.request_response(call))
     await started.wait()
-    trailing = asyncio.create_task(second())
+    trailing = asyncio.create_task(http.request_response(call))
     await asyncio.sleep(0.01)
-    assert not trailing.done()
+    assert inner.slow_calls == 2, "the second call reached the sibling while the first ran"
     release.set()
     await leading
     await trailing
-    assert inner.slow_calls == 2
 
 
 async def test_calls_to_different_audiences_do_not_wait_on_each_other() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
     inner = _RoutingHttp(started, release)
-    http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
+    http = GuardedHttp(inner, account_id="acct_a", profile="personal")
     leading = asyncio.create_task(
         http.request_response(Call(method="GET", url="https://a.test/", audience="spotify-api"))
     )
@@ -226,7 +221,6 @@ async def test_a_credential_unavailable_response_drops_the_cached_probe() -> Non
     dropped: list[str] = []
     http = GuardedHttp(
         _StatusHttp(502, {"type": "https://example.test/problems/credential-unavailable"}),
-        ProviderLocks(),
         account_id="acct_a",
         profile="personal",
         on_disconnect=lambda: dropped.append("yes"),
@@ -243,7 +237,6 @@ async def test_a_502_that_is_not_a_missing_credential_does_not_drop_the_cache() 
     dropped: list[str] = []
     http = GuardedHttp(
         _StatusHttp(502, {"type": "https://example.test/problems/upstream-refused"}),
-        ProviderLocks(),
         account_id="acct_a",
         profile="personal",
         on_disconnect=lambda: dropped.append("yes"),
@@ -258,7 +251,6 @@ async def test_an_ordinary_outage_does_not_drop_the_cache() -> None:
     dropped: list[str] = []
     http = GuardedHttp(
         _StatusHttp(503, {"type": "https://example.test/problems/unavailable"}),
-        ProviderLocks(),
         account_id="acct_a",
         profile="personal",
         on_disconnect=lambda: dropped.append("yes"),
@@ -334,9 +326,9 @@ async def test_changing_a_setting_invalidates_cached_probes() -> None:
     assert gadget.probes == 2
 
 
-async def test_request_takes_the_same_per_audience_lock() -> None:
+async def test_request_returns_the_decoded_body() -> None:
     inner = _StatusHttp(200, {"ok": True})
-    http = GuardedHttp(inner, ProviderLocks(), account_id="acct_a", profile="personal")
+    http = GuardedHttp(inner, account_id="acct_a", profile="personal")
     body = await http.request(Call(method="GET", url="https://music.test/", audience="spotify-api"))
     assert body == {"ok": True}
 
@@ -361,7 +353,6 @@ async def test_a_malformed_502_body_does_not_drop_the_cache() -> None:
 
     http = GuardedHttp(
         Inner(),
-        ProviderLocks(),
         account_id="acct_a",
         profile="personal",
         on_disconnect=lambda: dropped.append("yes"),
@@ -375,7 +366,6 @@ async def test_a_malformed_502_body_does_not_drop_the_cache() -> None:
 async def test_without_a_disconnect_hook_a_missing_credential_is_still_returned() -> None:
     http = GuardedHttp(
         _StatusHttp(502, {"type": "https://example.test/problems/credential-unavailable"}),
-        ProviderLocks(),
         account_id="acct_a",
         profile="personal",
     )
