@@ -91,6 +91,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- A page the family reads is summarised from at most 16,000 characters (`WSA_MAX_CONTENT_CHARS`). At web-search's general default of 40,000, the family's summarising model took longer than web-search's own minute, so every `research.open` came back with no summary after the step had already given up. A person's `max_content_chars` setting still wins.
 - A research step waits as long as its summary takes. A search is a fetch plus a summary the summarising model writes. It got the same 30 seconds as a music or repository step, while the client underneath would wait 90, so a search whose summary took 34 seconds was stopped. A research step now gets a minute at the default. The probe before each turn is a health check and keeps the shorter figure.
 - `--compare` counts only runs that are a verdict. A run that ended in `error` (a token that would not renew, a provider's session limit, a sandbox that could not be reached) was counted as a failure, so one evening's outage was listed as five regressions. An error now counts toward neither pass rates nor check rates. A scenario that was measured before and not now is listed as `not measured`, beside the skipped ones, because losing coverage still matters.
 
