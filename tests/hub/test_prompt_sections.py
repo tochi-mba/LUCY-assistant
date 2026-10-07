@@ -659,6 +659,17 @@ def test_memory_never_claims_nothing_is_deleted_and_names_the_operation_to_open_
     assert "`notes.openTopic`" in memory
 
 
+def test_memory_says_keeping_is_a_step_and_not_a_sentence() -> None:
+    """The bug, named: "i'm allergic to peanuts, worth remembering" -- "Noted.", no step, and
+    with announce off nothing said so. The fact died with the conversation. The section said
+    "keep it in that same turn", and the weakest model satisfied the clause half -- say so --
+    without the step half."""
+    memory = " ".join(section(render_all(CONTEXT), "memory").body.split())
+    assert "Keeping is a step, never a sentence" in memory
+    assert "keeps nothing" in memory
+    assert "binding it and writing is still this turn's work" in memory
+
+
 def test_show_from_is_for_reads_and_a_write_is_never_rerun_to_see_more() -> None:
     """The bug, named: "run the same step again" with show_from re-executes the step, and
     nothing limited the advice to reads -- for a write or a command it happened twice."""
