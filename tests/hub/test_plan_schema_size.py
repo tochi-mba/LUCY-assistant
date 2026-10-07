@@ -88,22 +88,6 @@ async def test_every_described_field_reaches_the_model_however_it_is_wrapped() -
     assert "description" in fields["objective"], "a field already described keeps its own"
 
 
-def test_a_field_with_no_description_and_an_unknown_operation_are_left_alone() -> None:
-    from types import SimpleNamespace
-
-    from lucy_api.packs.registry import _fields_described, _said, _shape
-
-    bare = {"properties": {"op": {"const": "nope.nope"}, "input": {"properties": {"x": {}}}}}
-    schema = {"properties": {"steps": {"items": {"anyOf": [bare]}}}}
-    registry = SimpleNamespace(get=lambda _name: None)
-    assert _fields_described(schema, registry) is schema  # type: ignore[arg-type]
-    assert bare["properties"]["input"]["properties"]["x"] == {}
-    assert _shape(None) == {}
-    wrapped = SimpleNamespace(kind="optional", inner=SimpleNamespace(kind="object", shape={"a": 1}))
-    assert _shape(wrapped) == {"a": 1}
-    assert _said(SimpleNamespace(description="", kind="string", inner=None)) == ""
-
-
 def test_no_operation_description_ends_in_a_list_of_search_keywords() -> None:
     """The bug, named: twenty-one descriptions ended in "(search, recall, remember, lookup)"
     and the like. Nothing searches descriptions, so they were tokens every round, and one

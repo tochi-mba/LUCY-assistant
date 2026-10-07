@@ -24,7 +24,7 @@ dependencies = [
     # The tz database, for the person's time zone: Windows ships none, and a slim image may not.
     "tzdata>=2025.1",
     "uvicorn[standard]>=0.30",
-    "weftai[all]==0.5.2",
+    "weftai[all]==0.6.0",
 ]
 
 [project.scripts]
