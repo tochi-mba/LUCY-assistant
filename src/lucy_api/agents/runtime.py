@@ -19,6 +19,7 @@ from lucy_api.agents.types import (
     capped_summary,
     declared_return,
 )
+from lucy_api.context.framing import unframe_result
 from lucy_api.context.scrub import fence
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import bind
@@ -61,6 +62,22 @@ def _resumes(row: dict[str, Any]) -> str:
     """The run this roster row continues, or nothing."""
     stored = row.get("delegation")
     return str(stored.get("resume_from") or "") if isinstance(stored, dict) else ""
+
+
+def _unframed(item: dict[str, Any]) -> object:
+    """A transcript item's content with the hub's own result frame taken off its summary.
+
+    The transcript stores each tool result as the harness framed it, `<result ...>` fences
+    and all. Handed back verbatim inside `agents.read`'s payload, those fences were escaped
+    by the parent's scrubber and announced as an injection attempt -- rightly, since a marker
+    cannot be trusted *because* it looks like ours -- so every read of a helper that had used
+    a tool accused it of attacking. The whole read crosses the boundary in one frame of its
+    own; the stored one comes off here, and nothing inside it is touched.
+    """
+    content = item.get("content")
+    if not isinstance(content, dict) or not isinstance(content.get("summary"), str):
+        return content
+    return {**content, "summary": unframe_result(content["summary"])}
 
 
 def _earlier_runs(rows: list[dict[str, Any]], latest: str) -> frozenset[str]:
@@ -456,7 +473,7 @@ class ChildRuntime:
         items = [
             {
                 "said_by": str(item["role"]),
-                "text": readable(str(item.get("type") or "message"), item.get("content")),
+                "text": readable(str(item.get("type") or "message"), _unframed(item)),
             }
             for item in rows
             if str(item.get("agent_id") or "") in family

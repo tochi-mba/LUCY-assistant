@@ -75,6 +75,7 @@ exactly two quotation marks however many lines it spans, and both of them are ou
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -209,6 +210,31 @@ def frame_result(body: str, origin: Origin, *, trust: Trust = Trust.untrusted) -
     lines.append(_line(closing.format(source=source)))
     lines.append("</result>")
     return "\n".join(lines)
+
+
+RESULT_OPEN = re.compile(r'<result source="[^"<>]*" trust="[^"<>]*">')
+"""Exactly the opening line `frame_result` writes, and nothing looser."""
+
+
+def unframe_result(text: str) -> str:
+    """Take the hub's own frame off a result it framed earlier, for one that crosses again.
+
+    A helper's transcript stores each tool result as `frame_result` rendered it, fences and
+    all. Handing those lines back inside another result -- `agents.read` -- made the parent's
+    scrubber escape them and announce an injection attempt, rightly: it cannot trust a marker
+    *because* it looks like ours. So the reader takes its own wrapper off first, and the one
+    frame the payload crosses the boundary in is the outer one. Only the exact shape this
+    module writes is removed -- the opening tag, the closing sentence, the closing tag and
+    the indent -- and only once, from the outside: anything inside, an attacker's imitation
+    included, stays as it was stored, escapes and all.
+    """
+    lines = text.split("\n")
+    if not RESULT_OPEN.fullmatch(lines[0]) or lines[-1] != "</result>":
+        return text
+    body = lines[1:-1]
+    if body and body[-1].startswith(f"{INDENT}Reported by "):
+        body = body[:-1]
+    return "\n".join(line.removeprefix(INDENT) for line in body)
 
 
 def as_trust(value: object) -> Trust:

@@ -129,6 +129,35 @@ async def test_a_helper_does_not_see_the_parent_transcript(store: SessionStore) 
     assert parent_items[0]["content"] == "parent secret"
 
 
+async def test_a_read_transcript_carries_no_result_fences_of_its_own(store: SessionStore) -> None:
+    """The bug, named: a helper's transcript holds its tool results as the harness framed
+    them, `<result ...>` fences and all. `agents.read` handed those fences back inside its
+    own payload, the scrubber at the parent's boundary rightly escaped them -- it cannot
+    trust a marker *because* it looks like ours -- and every read of a working helper was
+    announced to Lucy as an injection attempt."""
+    session = await a_session(store)
+    provider = ScriptedProvider(
+        [
+            plans({"steps": [{"id": "s", "op": "capabilities.list", "input": {}}]}),
+            speaks("done"),
+        ]
+    )
+    child, capabilities, _agents = runtime_for(store, provider)
+    parent = parent_context(session, capabilities=capabilities)
+    finished = await child.run(parent, objective="Look this up", role="researcher")
+
+    read = await child.transcript(parent, str(finished["agent_id"]))
+
+    texts = [item["text"] for item in read["items"]]
+    steps = [text for text in texts if text.startswith("[step s: capabilities.list")]
+    assert steps, "the tool result is still in the transcript"
+    assert "capabilities" in steps[0], "its payload is still readable"
+    assert "Reported by" not in steps[0], "the frame's closing line went with it"
+    whole = json.dumps(read, ensure_ascii=False)
+    assert "<result" not in whole, "the hub's own fences do not re-cross the boundary"
+    assert "</result" not in whole
+
+
 async def test_an_oversized_return_is_clipped_and_named(store: SessionStore) -> None:
     session = await a_session(store)
     huge = "word " * (RESULT_TOKEN_CAP + 200)
