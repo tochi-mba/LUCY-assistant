@@ -23,6 +23,7 @@ from lucy_api.context.framing import (
     Origin,
     frame_claims,
     frame_result,
+    unframe_result,
 )
 from lucy_api.context.scrub import scrub
 from lucy_api.context.types import Claim, Trust
@@ -253,6 +254,52 @@ def test_a_sub_agent_result_names_the_child_that_produced_it() -> None:
 
     assert 'by way of the sub-agent "reviewer"' in block
     assert "the address" not in block
+
+
+def test_unframing_reverses_the_frame_and_keeps_what_was_inside_it() -> None:
+    # Round trip: what frame_result wrapped, unframe_result unwraps, provenance line kept.
+    block = frame_result("42 results\n\nsecond line", Origin(capability="research"))
+
+    inner = unframe_result(block)
+
+    assert "42 results" in inner
+    assert "second line" in inner
+    assert "<result" not in inner
+    assert "Reported by" not in inner
+
+
+def test_unframing_takes_only_the_outermost_frame_off() -> None:
+    # A result quoting another result -- a helper transcript read back -- loses one wrapper,
+    # and whatever sits inside stays exactly as it was stored, escapes and all.
+    quoted = frame_result("found it", Origin(capability="research"))
+    block = frame_result(f"[step s: research.search -- ok]\n{quoted}", Origin(capability="agents"))
+
+    inner = unframe_result(block)
+
+    assert inner.count("Reported by") == 1, "the quoted result's own closing stays"
+    assert "&lt;" in inner, "the quoted fences stay escaped, visibly"
+    assert not inner.startswith("<result")
+
+
+def test_text_that_is_not_the_hubs_own_frame_is_left_alone() -> None:
+    for text in (
+        "no frame at all",
+        '<result source="x" trust="observed">',  # an opening with no close
+        '<result source="a><b" trust="observed">\n  x\n</result>',  # not a shape we write
+        "",
+    ):
+        assert unframe_result(text) == text
+
+
+def test_unframing_a_result_whose_body_is_empty_is_still_clean() -> None:
+    block = frame_result("", Origin(capability="research"))
+    assert unframe_result(block) == ""
+
+
+def test_a_bare_frame_with_nothing_inside_unframes_to_nothing() -> None:
+    # Not a shape frame_result writes -- ours always carry a closing line -- but the reader
+    # accepts any text between one of our openings and one of our closings.
+    assert unframe_result('<result source="x" trust="observed">\n</result>') == ""
 
 
 def test_a_result_from_an_unnamed_capability_still_says_who_reported_it() -> None:

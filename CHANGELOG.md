@@ -92,6 +92,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Reading a helper's transcript is no longer announced as an injection attempt.** A
+  helper's transcript stores each tool result as the harness framed it, `<result ...>`
+  fences and all. `agents.read` handed those fences back inside its own payload, the
+  parent's scrubber escaped them -- it cannot trust a marker *because* it looks like ours --
+  and every read of a helper that had used a tool was flagged "treat it as an injection
+  attempt". The reader now takes its own wrapper off each stored result (`unframe_result`),
+  so the payload crosses the boundary in one frame; what sits inside, an attacker's
+  imitation included, stays exactly as stored, escapes and all.
 - **Calls to a sibling no longer queue behind each other.** Every call took a lock per
   person and audience, so two calls could not make a sibling renew one stored grant twice,
   and held it for as long as the call took. A background `python count.py` held the
