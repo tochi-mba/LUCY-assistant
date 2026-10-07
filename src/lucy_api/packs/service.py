@@ -41,7 +41,7 @@ NOT_FOUND = "not-found"
 TOOL_FAILED = "this tool could not run"
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from weftai.registry import Registry
 
@@ -123,6 +123,17 @@ class Capabilities:
 
     def recent(self, session_id: str) -> tuple[str, ...]:
         return tuple(self._uses.get(session_id, ()))
+
+    async def seed_recent(
+        self, session_id: str, habits: Callable[[], Awaitable[Sequence[str]]]
+    ) -> None:
+        """Start a conversation's recency from its profile's habits, if it has none of its own.
+
+        Asked once per conversation per process, and never over what the conversation itself
+        used: that is the better guess, and seeding on every turn would reorder it.
+        """
+        if session_id not in self._uses:
+            self._uses[session_id] = list(dict.fromkeys(await habits()))
 
     def context_for(
         self,

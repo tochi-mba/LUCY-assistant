@@ -31,6 +31,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- A new conversation starts with what its profile has been using bound. Which capabilities are bound is decided by recency, and recency belonged to each conversation alone, in memory. So every new session started cold: asked to play a song, Lucy first spent a whole round binding music and reading its page, about 15,000 tokens and 50 seconds on clyde:haiku. A conversation's recency is now seeded from the capabilities its profile used successfully in the last 14 days, read from the recorded steps (incognito conversations excluded). Its own use still comes first, and how many capabilities are bound is unchanged. Recency also survives a restart.
 - weftai 0.6.0. Its schema converter keeps every field's description, so the hub's interim `_fields_described` patch is gone, and a test holds that every described field still reaches the model. 0.6.0 also adds a native step `note` (at most 200 characters) and MCP-style operation annotations. The hub still takes its own step fields off a plan before execution, so plans run as before.
 
 - Safety and the tool idiom now come straight after identity in the system prompt. They are the two sections that cannot be turned off, and they used to sit fourth and fifth, behind about 1,150 tokens of tone and style, in the middle of the prompt where a small model gives least weight. Memory now comes before lessons, which refer to it. The person's own preferences still close the band.
