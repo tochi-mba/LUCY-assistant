@@ -80,14 +80,58 @@ async def test_a_command_run_with_wake_asks_to_be_woken_on_this_persons_behalf()
                     "input": {"command": "build", "wait": False, "wake": True},
                 },
                 {"id": "b", "op": "workspace.run", "input": {"command": "build", "wait": False}},
+                {
+                    "id": "c",
+                    "op": "workspace.run",
+                    "input": {"command": "build", "wait": False, "wake": False},
+                },
             ]
         }
         result = await capabilities.execute(plan, context)
-        asked, quiet = (step["data"]["work_id"] for step in result["steps"])
+        asked, unsaid, declined = (step["data"]["work_id"] for step in result["steps"])
         finished = {record.id: record for record in work._records.values()}
         assert finished[asked].wake is True
         assert finished[asked].account_id == "acct-a"
-        assert finished[quiet].wake is False
+        assert finished[unsaid].wake is True, "unsaid, the person's wake_by_default decides"
+        assert finished[declined].wake is False
+    finally:
+        await work.shutdown()
+
+
+async def test_a_command_follows_the_persons_wake_rules() -> None:
+    """The bug, named: "run it and tell me when it's done" ran a command that never woke
+    anyone -- workspace.run hard-wired wake to false over the person's `wake_by_default` -- and
+    one that did wake ignored their quiet hours, which watches and check-ins kept."""
+    from dataclasses import replace
+
+    from lucy_api.work.quiet import QUIET_TAG
+
+    fake = FakeEnvironmentsClient()
+    fake.seed(Environment("env-1", "Conversation", profile="personal"))
+    fake.script("build", Ran(command="build", exit_code=0, output="ok", state="idle"))
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=fake)], work=work)
+    context = capabilities.context_for(scope())
+    context.policy = replace(context.policy, wake_by_default=False, quiet_hours="23:00-07:00")
+    await capabilities.probe(context)
+    try:
+        plan = {
+            "steps": [
+                {"id": "a", "op": "workspace.run", "input": {"command": "build", "wait": False}},
+                {
+                    "id": "b",
+                    "op": "workspace.run",
+                    "input": {"command": "build", "wait": False, "wake": True},
+                },
+            ]
+        }
+        result = await capabilities.execute(plan, context)
+        unsaid, asked = (step["data"]["work_id"] for step in result["steps"])
+        finished = {record.id: record for record in work._records.values()}
+        assert finished[unsaid].wake is False, "the person turned waking off by default"
+        assert finished[unsaid].tags == {}
+        assert finished[asked].wake is True
+        assert QUIET_TAG in finished[asked].tags, "a waking command keeps their quiet hours"
     finally:
         await work.shutdown()
 

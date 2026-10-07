@@ -57,7 +57,7 @@ from lucy_api.packs.workspace import confined_path
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, Brief, Check, Kind, UnknownWorkError, new_id, watch
-from lucy_api.work.quiet import QUIET_TAG
+from lucy_api.work.quiet import quiet_tags
 from lucy_api.work.watch import (
     DEFAULT_EVERY_SECONDS,
     MAX_EVERY_SECONDS,
@@ -535,7 +535,7 @@ def _begin(
                 timeout_seconds=lifetime,
                 account_id=context.account_id,
                 wake=wake,
-                tags={QUIET_TAG: quiet.tag()} if quiet is not None else {},
+                tags=quiet_tags(quiet, wake=wake),
             ),
             work_id=work_id,
         )
