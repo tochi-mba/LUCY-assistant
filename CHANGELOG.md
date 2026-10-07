@@ -31,6 +31,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- weftai 0.6.0. Its schema converter keeps every field's description, so the hub's interim `_fields_described` patch is gone, and a test holds that every described field still reaches the model. 0.6.0 also adds a native step `note` (at most 200 characters) and MCP-style operation annotations. The hub still takes its own step fields off a plan before execution, so plans run as before.
 - **The length the person chose is one of their choices, said last, and never cut first.** It
   was appended to the behaviour section, the one closest to its ceiling, where a line at the
   end is the first cut, and it made behaviour differ between profiles, so nothing after it
