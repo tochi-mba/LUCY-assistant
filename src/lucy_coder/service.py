@@ -39,6 +39,7 @@ MAX_ALLOWED_TOOLS = 10
 
 NO_SUCH_TASK = "no such task"
 NOT_A_DIRECTORY = "directory does not exist on this machine: {path}"
+NOT_ABSOLUTE = "directory must be an absolute path on this machine, not {path!r}"
 BAD_RUN_LEVEL = "run_level must be one of plan, ask, edits, full"
 BAD_MODEL = "model must be a Claude model name or alias, such as sonnet"
 BAD_TOOLS = "allow_tools takes up to 10 permission rules, such as Write or Bash(npm test:*)"
@@ -89,6 +90,9 @@ class CoderService:
             raise RefusedError(422, BAD_RUN_LEVEL)
         if model and not MODEL_NAME.fullmatch(model):
             raise RefusedError(422, BAD_MODEL)
+        if not Path(directory).is_absolute():
+            # Relative, it would mean wherever this bridge was started -- its own checkout.
+            raise RefusedError(422, NOT_ABSOLUTE.format(path=directory))
         if not await asyncio.to_thread(Path(directory).is_dir):
             # The allowlist is the hub's to enforce from the person's settings; existence
             # is the bridge's, because only the host knows its own disk.
