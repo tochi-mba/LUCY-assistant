@@ -123,6 +123,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A background command stopped at its ceiling is a failed piece of work, and the start
+  notice says the ceiling.** A script run with `wait: false` was killed by the sandbox at
+  the default 60 seconds; the work registry recorded it as `succeeded` (the command had
+  returned an answer, however it ended), `work.result` said so, and the notice that
+  started it had never said how long it had, so Lucy promised "I'll wake you when it's
+  done" for a script that could not finish. A command the sandbox stopped now ends as
+  failed, with the ceiling in its detail and its output still readable, and the start
+  notice names the ceiling so the model can say it.
 - **Decision events name the turn they were made in.** With the decision service live,
   every `lucy.decision.*` event carried no turn id: the emitter read the id off a request
   prepared before the turn row existed. It now reads the turn the supervisor bound around

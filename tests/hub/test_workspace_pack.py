@@ -755,3 +755,81 @@ async def test_an_exact_only_profile_refuses_an_edit_the_default_ladder_would_ap
     assert forgiving["steps"][0]["data"]["notice"] == (
         "matched approximately (whitespace), not exactly; check the diff."
     ), "an approximate edit is never taken for an exact one"
+
+
+async def test_a_background_command_stopped_at_its_ceiling_is_failed_work_that_says_so() -> None:
+    """The bug, named: a script run with `wait: false` was killed by the sandbox at the default
+    sixty seconds; the registry recorded it as succeeded, `work.result` said so over an exit
+    code of 137, and the notice that started it never said how long the command had, so the
+    model promised a wake "when it's done" for a script that could not finish."""
+    from lucy_api.work import State
+
+    fake, _capabilities, _context = setup()
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=fake)], work=work)
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct-a",
+            profile="personal",
+            session_id="sess-a",
+            workspace=WorkspaceScope("env-1", "sess-a", ready=True),
+            permission_mode="auto",
+        )
+    )
+    await capabilities.probe(context)
+    fake.script(
+        "python slow.py",
+        Ran(command="python slow.py", exit_code=137, output="tick 30\n", state="timed_out"),
+    )
+    try:
+        result = await capabilities.execute(
+            {
+                "steps": [
+                    {
+                        "id": "run",
+                        "op": "workspace.run",
+                        "input": {"command": "python slow.py", "wait": False, "timeout_ms": 5000},
+                    }
+                ]
+            },
+            context,
+        )
+        started = result["steps"][0]["data"]
+        assert "stopped after 5s if it has not ended" in started["notice"]
+        finished = await work.wait(started["work_id"], 5)
+        assert finished.state is State.failed
+        assert (
+            finished.detail == "stopped at its 5s ceiling, exit code 137; the output so far is kept"
+        )
+        assert finished.payload["timed_out"] is True
+        assert finished.payload["output"] == "tick 30\n", "what it printed is still readable"
+    finally:
+        await work.shutdown()
+
+
+async def test_a_waited_command_stopped_at_its_ceiling_still_returns_what_it_printed() -> None:
+    fake, _capabilities, _context = setup()
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=fake)], work=work)
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct-a",
+            profile="personal",
+            session_id="sess-a",
+            workspace=WorkspaceScope("env-1", "sess-a", ready=True),
+            permission_mode="auto",
+        )
+    )
+    await capabilities.probe(context)
+    fake.script("sleep 99", Ran(command="sleep 99", exit_code=137, output="", state="timed_out"))
+    try:
+        result = await capabilities.execute(
+            {"steps": [{"id": "run", "op": "workspace.run", "input": {"command": "sleep 99"}}]},
+            context,
+        )
+        payload = result["steps"][0]["data"]
+        assert payload["timed_out"] is True
+        assert payload["exit_code"] == 137
+        assert payload["work_id"].startswith("wrk_")
+    finally:
+        await work.shutdown()
