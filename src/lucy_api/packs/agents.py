@@ -24,8 +24,8 @@ from lucy_api.context.types import Trust
 from lucy_api.packs.base import Availability, Permission, SetupPlan
 from lucy_api.packs.base import State as PackState
 from lucy_api.prompt.docs import capability_doc
-from lucy_api.work.quiet import quiet_tags
 from lucy_api.work.registry import AtCapacityError, Registry
+from lucy_api.work.subscriptions import waking_tags
 from lucy_api.work.types import Brief, Kind, State, WorkError
 
 if TYPE_CHECKING:
@@ -471,9 +471,14 @@ async def _spawn(  # noqa: PLR0913 - spawn is the brief plus the depth the paren
             # helpers do not, because their parent is still running and is the one that
             # will read them. A member of a group wakes it once, with its group.
             wake=depth == 0,
-            # A helper that finishes inside the person's quiet hours is told when they end,
-            # as a watch's ending is; without the tag it woke them at 3am.
-            tags=quiet_tags(context.policy.quiet, wake=depth == 0),
+            # Quiet hours and the person's standing consent ride on the helper, so the turn
+            # its ending opens waits out the night and acts with the authority they allowed.
+            tags=await waking_tags(
+                context.subscriptions,
+                quiet=context.policy.quiet,
+                wake=depth == 0,
+                timeout_seconds=_deadline(context),
+            ),
             group=team,
         ),
         work_id=agent_id,
@@ -540,6 +545,15 @@ async def _reopen(
             timeout_seconds=_deadline(context),
             account_id=context.account_id,
             wake=depth == 0,
+            # A continued helper's ending wakes the session exactly as a fresh one's does,
+            # so it carries the same quiet hours and consent; assembled by hand here, it
+            # carried neither.
+            tags=await waking_tags(
+                context.subscriptions,
+                quiet=context.policy.quiet,
+                wake=depth == 0,
+                timeout_seconds=_deadline(context),
+            ),
         ),
         work_id=new_id,
         discard=(new_id, task_id),

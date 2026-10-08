@@ -92,6 +92,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A waking command, watch or helper carries the consent the person gave.** Only a
+  subscription recorded standing consent, so the turn any other ending opened was prepared
+  with no authority and none of the person's settings: the model probed every sibling-backed
+  capability unreachable and told the person their own workspace "is not usable this turn".
+  Every waking brief now records the same keyring grant a subscription does (`waking_tags`),
+  the waker prepares the turn under it with the same STANDING/NO_STANDING sentence, and with
+  `act_unattended` off the work is tagged withheld, the words a subscription uses. A
+  continued helper also carries the quiet hours and consent a fresh one does; assembled by
+  hand, its brief carried neither.
 - **An exact one-minute check-in survives recording consent.** The minimum delay is now
   validated against the clock sample that calculated the deadline. Previously, elapsed
   time before validation made a valid 60-second request look shorter than the minimum.

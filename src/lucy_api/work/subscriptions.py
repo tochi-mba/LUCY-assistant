@@ -51,9 +51,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from lucy_api.core.errors import LucyError, absent, conflict
 from lucy_api.net.signing import verify
 from lucy_api.sessions.sql_store import encoded, identifier, row_value
-from lucy_api.work.quiet import QUIET_TAG
+from lucy_api.work.quiet import QUIET_TAG, quiet_tags
 from lucy_api.work.types import Brief, Handle, Kind, Record, State, WorkError
-from lucy_api.work.wake import CONSENT_TAG, WITHHELD
+from lucy_api.work.wake import CONSENT_TAG, GRANT_TAG, WITHHELD
 from lucy_api.work.watch import clip
 
 if TYPE_CHECKING:
@@ -740,6 +740,20 @@ class SubscriptionSeam:
             requested_at=requested_at,
         )
 
+    async def standing_tags(self, timeout_seconds: float) -> dict[str, str]:
+        """The consent a waking command, watch or helper carries, as a subscription carries it.
+
+        Subscriptions recorded standing consent and their woken turns acted under it; waking
+        work of every other kind recorded nothing, so the turn its ending opened ran with no
+        authority and none of the person's settings -- the model probed every sibling-backed
+        capability unreachable and told the person their own workspace was unavailable. With
+        `act_unattended` off the work says so instead, the words a subscription uses.
+        """
+        if self._withheld:
+            return {CONSENT_TAG: WITHHELD}
+        grant_id = await self._consented(timeout_seconds)
+        return {GRANT_TAG: grant_id} if grant_id else {}
+
     async def _consented(self, timeout_seconds: float) -> str:
         """Record standing consent for a lifetime, or ``""`` when there is none to record."""
         if self._consent is None:
@@ -758,6 +772,25 @@ class SubscriptionSeam:
     def abandon(self, opened: Opened) -> None:
         """Give up on a subscription the sibling never accepted: it ends cancelled."""
         self._subscriptions.abandon(opened)
+
+
+async def waking_tags(
+    seam: SubscriptionSeam | None,
+    *,
+    quiet: QuietHours | None,
+    wake: bool,
+    timeout_seconds: float,
+) -> dict[str, str]:
+    """Everything a piece of work that may wake the session carries for the turn it opens.
+
+    The quiet-hours window, and the standing consent the person's settings allow. One
+    function, because each call site that assembled these by hand forgot one of them: a
+    command carried no consent, and a reopened helper lost even the quiet hours.
+    """
+    tags = quiet_tags(quiet, wake=wake)
+    if wake and seam is not None:
+        tags.update(await seam.standing_tags(timeout_seconds))
+    return tags
 
 
 def governed(seam: SubscriptionSeam | None, policy: TurnPolicy) -> SubscriptionSeam | None:
@@ -860,7 +893,7 @@ def _tags(
     # The hub's own tags are written last, so nothing passed in can stand in for them.
     tags = {**(extra or {}), "capability": capability, "subscription": subscription_id}
     if grant_id:
-        tags["grant"] = grant_id
+        tags[GRANT_TAG] = grant_id
     if due_at is not None:
         tags["due"] = repr(float(due_at))
     return tags

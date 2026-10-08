@@ -383,6 +383,24 @@ async def test_a_woken_turn_with_consent_is_authorized_and_told_what_it_covers(
     assert harness.woken == 1
 
 
+async def test_a_finished_command_with_consent_is_woken_under_it_too(
+    store: SessionStore,
+) -> None:
+    """The bug, named: only a subscription's ending was asked for its grant, so a background
+    command's wake turn ran with no authority and none of the person's settings."""
+    harness = Harness(store)
+    lending = Lending(carries=True, prepared="authority")
+    harness.waker.attach(harness.wake, lending)
+    session = await a_session(store)
+
+    await harness.waker.on_finished(a_record(session, kind=Kind.command))
+
+    [turn] = await harness.turns(session)
+    assert lending.authorized == [(turn["id"], "authority")]
+    [item] = await harness.items(session)
+    assert str(item["content"]).endswith(STANDING + "]")
+
+
 async def test_consent_that_no_longer_works_is_said_and_nothing_is_lent(
     store: SessionStore,
 ) -> None:

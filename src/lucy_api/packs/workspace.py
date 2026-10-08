@@ -33,7 +33,7 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, StillRunningError
-from lucy_api.work.quiet import quiet_tags
+from lucy_api.work.subscriptions import waking_tags
 from lucy_api.work.types import Brief, Kind
 from lucy_api.workspace.scratch import (
     IGNORE_ALL,
@@ -657,6 +657,12 @@ class WorkspacePack:
         registry = context.work
         if registry is None:
             return await work()
+        tags = await waking_tags(
+            context.subscriptions,
+            quiet=context.policy.quiet,
+            wake=command.wake,
+            timeout_seconds=deadline,
+        )
         try:
             handle = registry.start(
                 work(),
@@ -668,7 +674,7 @@ class WorkspacePack:
                     timeout_seconds=deadline,
                     account_id=context.account_id,
                     wake=command.wake,
-                    tags=quiet_tags(context.policy.quiet, wake=command.wake),
+                    tags=tags,
                 ),
             )
         except AtCapacityError as exc:

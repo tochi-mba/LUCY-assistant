@@ -40,7 +40,8 @@ from lucy_api.core.errors import LucyError
 from lucy_api.packs.http import PackHttp
 from lucy_api.packs.probes import GuardedHttp
 from lucy_api.turn.supervisor import PreparedTurn
-from lucy_api.work.types import Kind, Record
+from lucy_api.work.types import Record
+from lucy_api.work.wake import GRANT_TAG
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -199,9 +200,12 @@ class Standing:
 
 
 def _grant_of(ending: Ending) -> str:
-    if not isinstance(ending, Record) or ending.kind is not Kind.subscription:
-        return ""
-    return ending.tags.get("grant", "")
+    """The consent this ending carries, whatever kind of work recorded it.
+
+    Only a subscription's was read before, so a waking command, watch or helper opened its
+    turn with no authority even when the person's `act_unattended` said it could have some.
+    """
+    return ending.tags.get(GRANT_TAG, "") if isinstance(ending, Record) else ""
 
 
 __all__ = ["REFUSED", "Standing"]

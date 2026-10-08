@@ -57,7 +57,7 @@ from lucy_api.packs.workspace import confined_path
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
 from lucy_api.work import AtCapacityError, Brief, Check, Kind, UnknownWorkError, new_id, watch
-from lucy_api.work.quiet import quiet_tags
+from lucy_api.work.subscriptions import waking_tags
 from lucy_api.work.watch import (
     DEFAULT_EVERY_SECONDS,
     MAX_EVERY_SECONDS,
@@ -307,7 +307,7 @@ class WatchPack:
             probe = self._file_probe(context, target, pattern)
         if isinstance(probe, dict):
             return probe
-        return _begin(context, registry, probe, raw, sleep=self._sleep)
+        return await _begin(context, registry, probe, raw, sleep=self._sleep)
 
     async def _command(
         self, context: PackContext, registry: Registry, raw: dict[str, Any]
@@ -328,7 +328,7 @@ class WatchPack:
                 client, context.workspace_environment_id, context.workspace_path, command, pattern
             )
 
-        return _begin(context, registry, probe, raw, sleep=self._sleep)
+        return await _begin(context, registry, probe, raw, sleep=self._sleep)
 
     def _url_probe(
         self, target: str, raw: dict[str, Any], pattern: re.Pattern[str] | None
@@ -507,7 +507,7 @@ async def _command_check(
 # --------------------------------------------------------------------------------------
 
 
-def _begin(
+async def _begin(
     context: PackContext, registry: Registry, probe: Probe, raw: dict[str, Any], *, sleep: Sleep
 ) -> dict[str, Any]:
     objective = " ".join(str(raw.get("objective") or "").split())
@@ -520,6 +520,9 @@ def _begin(
     wake = wake if isinstance(wake, bool) else policy.wake_by_default
     quiet = policy.quiet if wake else None
     work_id = new_id()
+    tags = await waking_tags(
+        context.subscriptions, quiet=quiet, wake=wake, timeout_seconds=lifetime
+    )
 
     def progress(note: str) -> None:
         registry.progress(work_id, note)
@@ -535,7 +538,7 @@ def _begin(
                 timeout_seconds=lifetime,
                 account_id=context.account_id,
                 wake=wake,
-                tags=quiet_tags(quiet, wake=wake),
+                tags=tags,
             ),
             work_id=work_id,
         )
