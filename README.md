@@ -454,6 +454,16 @@ python scripts/genenv.py          # writes .env.family; never prints the values
 make images && make up            # host ports 8000–8009; up reuses the build cache
 ```
 
+### The Claude Code bridge (optional, host-run)
+
+With `lucy.claude_code_delegation` on, Lucy can hand a whole task to a real Claude Code
+session on this machine: `src/lucy_coder/` is a small host-run service (127.0.0.1:8012,
+`make coder`) that wraps the `claude` CLI, keeps one durable row and one JSONL transcript
+per task under `var/coder/`, and answers only keyring tokens minted for the `coder-api`
+audience. The hub finds it through `coder_api_base_url` in the gitignored
+`docker-compose.local.yml`, the same overlay that points at clyde; no URL means the
+capability is simply absent. ADR-0017 holds the design and the three switches.
+
 Re-running `genenv.py` refuses to overwrite `.env.family` unless you pass `--force`. A
 refresh with `--force` keeps `KEYRING_MASTER_KEY`, because it decrypts every credential
 already stored in keyring; `--rotate-master-key` replaces it too, and makes those credentials
