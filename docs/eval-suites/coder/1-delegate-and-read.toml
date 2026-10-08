@@ -1,0 +1,20 @@
+summary = "Delegate one small task to Claude Code on its card, then read back what it did."
+tags = ["coder"]
+requires = ["coder"]
+
+[[turns]]
+say = "have claude code create a file called hello.txt containing the word hi, in my scratch folder."
+approve = "yes"
+timeout_seconds = 300
+
+[turns.expect]
+approvals = ["coder.delegate"]
+ran = ["coder.delegate"]
+
+[[turns]]
+say = "what did claude code do?"
+timeout_seconds = 240
+
+[turns.expect]
+ran = ["coder.read"]
+reply_matches = ['(?i)hello\.txt']

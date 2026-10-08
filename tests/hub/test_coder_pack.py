@@ -341,3 +341,23 @@ def test_tail_chars_reads_as_a_whole_number_or_nothing() -> None:
     assert coder_module._tail_chars("lots") == 0
     assert coder_module._tail_chars(None) == 0
     assert coder_module._tail_chars(-5) == 0
+
+
+async def test_a_person_the_hub_cannot_act_for_yet_is_unavailable_not_broken() -> None:
+    from lucy_api.packs.context import NoBrokerError
+
+    fake, capabilities, context = wired()
+    fake.down = NoBrokerError("no broker")
+    availability = (await capabilities.probe(context)).get("coder").availability
+    assert availability.state is State.unavailable
+    assert availability.detail == "cannot act for this person yet"
+
+
+def test_without_an_injected_client_the_pack_speaks_http_to_its_bridge() -> None:
+    from lucy_api.clients.coder import HttpCoderClient
+
+    pack = CoderPack("http://coder.test/")
+    context = Capabilities([pack]).context_for(a_scope())
+    client = pack._client(context)
+    assert isinstance(client, HttpCoderClient)
+    assert pack.base_url == "http://coder.test", "a trailing slash is not doubled"
