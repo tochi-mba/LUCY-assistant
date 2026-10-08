@@ -342,7 +342,9 @@ async def _checkin(registry: Registry, seam: SubscriptionSeam | None, given: Any
     if isinstance(due_at, str):
         return _refusal("invalid", due_at)
     try:
-        opened = await seam.checkin(objective=objective, due_at=due_at, delay_seconds=due_at - now)
+        opened = await seam.checkin(
+            objective=objective, due_at=due_at, delay_seconds=due_at - now, requested_at=now
+        )
     except LucyError as exc:
         return _refusal("invalid", str(exc))
     return {

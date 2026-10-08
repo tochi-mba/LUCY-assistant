@@ -557,6 +557,34 @@ async def test_work_checkin_opens_one_and_work_list_shows_when_it_is_due(
     await harness.registry.shutdown()
 
 
+async def test_a_minimum_checkin_survives_time_spent_recording_consent(
+    store: SessionStore,
+) -> None:
+    clock = Clock()
+    harness = Harness(store, clock)
+    session = await a_session(store)
+
+    async def slow_consent(lifetime: float) -> str:
+        clock.advance(0.1)
+        return await harness.consent(lifetime)
+
+    context = a_context(harness, session)
+    context.subscriptions = SubscriptionSeam(
+        harness.subscriptions,
+        account_id=ACCOUNT,
+        session_id=session,
+        profile="personal",
+        consent=slow_consent,
+    )
+    result = await run(checkin(in_seconds=MIN_CHECKIN_SECONDS), context)
+    data = result["steps"][0]["data"]
+    assert data["in_seconds"] == MIN_CHECKIN_SECONDS
+    assert data["due_at"] == "2026-10-01T18:01:00+00:00"
+    assert len(await rows(store)) == 1
+    await harness.subscriptions.aclose()
+    await harness.registry.shutdown()
+
+
 async def test_work_checkin_takes_a_moment_with_its_offset(store: SessionStore) -> None:
     clock = Clock()
     harness = Harness(store, clock)

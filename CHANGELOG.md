@@ -92,6 +92,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **An exact one-minute check-in survives recording consent.** The minimum delay is now
+  validated against the clock sample that calculated the deadline. Previously, elapsed
+  time before validation made a valid 60-second request look shorter than the minimum.
 - **A profile's habits no longer crowd memory out of a new conversation.** Seeding a new
   session's recency from its profile's habits (2026-10-07) could fill every `KEEP_RECENT`
   slot: with music, research, settings and workspace as the habits, `notes` -- first in
