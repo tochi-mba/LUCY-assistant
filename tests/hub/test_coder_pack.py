@@ -586,3 +586,64 @@ async def test_a_task_that_failed_is_failed_work_with_the_bridges_sentence() -> 
         await registry.shutdown()
     assert raised.value.payload["state"] == "failed", "the row is still there to read"
     assert raised.value.payload["resumable"] is True
+
+
+async def test_cancelling_the_work_item_stops_the_bridge_task_too() -> None:
+    """The bug, named: told to stop, Lucy cancelled the work handle she could see. That
+    stopped the hub's watching; the Claude Code task behind it would have run on."""
+    fake = FakeCoderClient()
+    fake.seed(
+        CoderTask(
+            id="tsk_1", title="t", brief="b", directory=FOLDER, run_level="full", state="running"
+        )
+    )
+    registry = Registry(now=lambda: datetime.now(UTC))
+    original = coder_module.asyncio.sleep
+
+    async def forever(_seconds: float) -> None:
+        await original(3600)
+
+    coder_module.asyncio.sleep = forever  # type: ignore[assignment]
+    try:
+        watching = asyncio.ensure_future(coder_module._settled(fake, registry, "tsk_1", "wrk_1"))
+        for _ in range(50):
+            if fake.tasks_by_id["tsk_1"].state == "running" and watching.get_coro().cr_frame:
+                break
+            await original(0.01)
+        await original(0.05)
+        watching.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await watching
+    finally:
+        coder_module.asyncio.sleep = original  # type: ignore[assignment]
+        await registry.shutdown()
+    assert fake.cancelled == ["tsk_1"], "the bridge was told to stop as well"
+
+
+async def test_a_bridge_that_is_gone_does_not_turn_a_cancel_into_a_crash() -> None:
+    fake = FakeCoderClient()
+    fake.seed(
+        CoderTask(
+            id="tsk_1", title="t", brief="b", directory=FOLDER, run_level="full", state="running"
+        )
+    )
+    registry = Registry(now=lambda: datetime.now(UTC))
+    original = coder_module.asyncio.sleep
+
+    async def forever(_seconds: float) -> None:
+        await original(3600)
+
+    async def refuse(task_id: str) -> CoderTask:
+        raise DownstreamError("gone", status=503)
+
+    fake.cancel = refuse  # type: ignore[method-assign]
+    coder_module.asyncio.sleep = forever  # type: ignore[assignment]
+    try:
+        watching = asyncio.ensure_future(coder_module._settled(fake, registry, "tsk_1", "wrk_1"))
+        await original(0.05)
+        watching.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await watching
+    finally:
+        coder_module.asyncio.sleep = original  # type: ignore[assignment]
+        await registry.shutdown()

@@ -130,6 +130,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   settings promise as "explores and reports, and changes nothing". The bridge now passes
   `--disallowedTools Write,Edit,NotebookEdit,Bash,PowerShell` for every `plan` turn;
   reading, searching and fetching stay, and every other mode keeps the person's own tools.
+
+- **Stopping a delegation's work item stops the Claude Code task behind it.** Told to stop,
+  Lucy cancelled the work handle she could see (`work.cancel`), which stopped the hub's
+  watching and nothing else; the task would have run on. The poller now tells the bridge
+  to cancel the task when its own work is cancelled, so either handle stops both; a bridge
+  that is gone is let go rather than turned into a crash.
 - **What the first live Claude Code delegation found.** The catalogue (`GET /v1/capabilities`)
   and the model tools (`GET /v1/tools`) probed with a default policy, so a capability the
   person had switched on read as disabled there while every conversation had it ready;
