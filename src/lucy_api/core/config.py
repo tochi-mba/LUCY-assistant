@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     """The audience of whatever answers at `repos_api_base_url`: Github-api's own name by
     default. The capability is `repos`; the audience is the implementation's, as for music."""
 
+    coder_api_base_url: str = ""
+    """The Claude Code bridge (`src/lucy_coder`, host-run). Empty is the operator's switch:
+    no bridge is deployed and the `coder` capability probes `not_configured`. The URL --
+    `http://host.docker.internal:8012` on Docker Desktop -- belongs in the gitignored
+    `docker-compose.local.yml`, never in the shipped compose file (ADR-0017)."""
+
     extra_services: dict[str, ExtraSibling] = Field(default_factory=dict)
     """Operator-local siblings, keyed by capability id. Empty means none are wired."""
 

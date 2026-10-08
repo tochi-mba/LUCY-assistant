@@ -168,6 +168,12 @@ class TurnPolicy:
     """Whether a watch wakes the session when the model does not say."""
     watch_default_minutes: int = 5
     """How long a watch lives when the model does not say."""
+    claude_code_delegation: bool = False
+    """Whether Lucy may hand a task to Claude Code on the person's machine (ADR-0017)."""
+    claude_code_directories: tuple[str, ...] = ()
+    """The only folders a delegated task may run in; empty means delegation is off."""
+    claude_code_run_level: str = "edits"
+    """`plan | edits | full`, the bridge's permission mode for every delegated turn."""
     conventions: Conventions = NOTHING_CHOSEN
     """The person's time zone, language, units, clock and currency, from `common`."""
     manner: Manner = AS_AUTHORED
@@ -357,6 +363,13 @@ class TurnPolicy:
             wake_by_default=_flag(read("wake_by_default", True), True),
             watch_default_minutes=_clamp(
                 read("watch_default_minutes", 5), 5, minimum=1, maximum=60
+            ),
+            claude_code_delegation=_flag(read("claude_code_delegation", False), False),
+            claude_code_directories=_names(read("claude_code_directories", [])),
+            claude_code_run_level=_text(
+                read("claude_code_run_level", "edits"),
+                "edits",
+                allowed=frozenset({"plan", "edits", "full"}),
             ),
             approval_policy=_text(
                 read("approval_policy", "destructive_always_asks"),

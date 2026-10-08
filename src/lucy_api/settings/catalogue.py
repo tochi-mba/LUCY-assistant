@@ -783,6 +783,44 @@ def _unattended_knobs() -> tuple[Knob, ...]:
             maximum=60,
             unavailable=OnUnavailable.USE_DEFAULT,
         ),
+        # Claude Code delegation (ADR-0017). Every one is the person's alone: the hub's
+        # own catalogue wins over a stale settings-api (packs/settings.py), so a service
+        # that forgot to say `never` still cannot let a model loosen these.
+        _bool(
+            "claude_code_delegation",
+            False,
+            "Whether Lucy may hand a whole task to Claude Code on your machine.",
+            "Off, the capability is absent and Lucy can only tell you where to turn it on. "
+            "On, every task still needs your yes on its own card. An outage lands on off.",
+            unavailable=OnUnavailable.USE_DEFAULT,
+            agent=AgentAccess.NEVER,
+        ),
+        Knob(
+            key="claude_code_directories",
+            summary="The folders on your machine a delegated Claude Code task may work in.",
+            value_type=ValueType.STR_LIST,
+            default=(),
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "Absolute paths. A task runs in exactly one of them; any other folder is "
+                "refused before anything reaches your machine. Empty means delegation is "
+                "off. An outage lands on empty."
+            ),
+            agent=AgentAccess.NEVER,
+        ),
+        Knob(
+            key="claude_code_run_level",
+            summary="How much a delegated Claude Code task may do without asking anyone.",
+            value_type=ValueType.ENUM,
+            default="edits",
+            on_unavailable=OnUnavailable.USE_DEFAULT,
+            description=(
+                "`plan` reads and reports; `edits` changes files in its folder; `full` runs "
+                "commands without further prompts. The card for each task names its level."
+            ),
+            choices=("plan", "edits", "full"),
+            agent=AgentAccess.NEVER,
+        ),
     )
 
 

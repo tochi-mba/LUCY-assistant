@@ -623,6 +623,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **Lucy can delegate a whole task to Claude Code on your machine** (ADR-0017). The `coder`
+  capability -- `coder.delegate`, `coder.message`, `coder.read`, `coder.list`,
+  `coder.cancel` -- talks to the host-run bridge (`src/lucy_coder`). Three switches, none
+  of them Lucy's: the operator sets `coder_api_base_url` (only in the gitignored
+  `docker-compose.local.yml`; empty means absent), the person turns on
+  `lucy.claude_code_delegation` and lists `lucy.claude_code_directories` (anything else is
+  refused; never a prefix match), and every task and follow-up needs their yes on its own
+  card, in every mode. Each delegated turn is tracked as work that wakes the session with
+  their standing consent and narrates hub-written progress, never Claude Code's words;
+  everything it returns is untrusted. `coder-api` joins the exchange audiences.
 - A new baseline, `docs/baselines/clyde-haiku-2026-10-07.json`: main 002d293 with the family locked at 147b448, two runs of every scenario on clyde:haiku. All 14 runs and 214 checks pass, and research passes for the first time. Measure changes against this one.
 - Web search has a fallback that answers. Google returned a captcha to automated searches after twenty to fifty seconds, past the hub's thirty-second step, so research failed without failing over, and no other backend was configured. The family now runs SearXNG: a pinned image on the family network only, never published on the host, with JSON on and its public-instance limiter off. Web-search tries it first and falls back to Google. A person's `search_backend` still decides. `scripts/genenv.py` writes `SEARXNG_SECRET`, so no secret is committed. SearXNG's per-engine timeout is raised from 3s to 8s, because at 3s every engine timed out on a slow uplink and was then suspended.
 - **A scenario can come back another day.** A turn with `new_session = true` is said in a fresh

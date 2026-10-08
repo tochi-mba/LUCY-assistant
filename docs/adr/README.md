@@ -22,5 +22,6 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0014](0014-claude-code-tools-through-a-bridge.md) | *Proposed:* Claude Code may use tools only through a turn-scoped Lucy bridge, never its own built-ins |
 | [0015](0015-jobs-and-signals.md) | Work a sibling finishes is a durable subscription, ended by a signed signal; a woken turn acts under standing consent |
 | [0016](0016-repos-capability-and-port-8011.md) | `repos` is the capability and GitHub its provider; Github-api on 8011; a grant may be limited to one repository |
+| [0017](0017-lucy-delegates-tasks-to-claude-code.md) | Lucy hands whole tasks to Claude Code on the host through a loopback bridge; three switches, a card for every task |
 
 There is no 0012. The number was never used, and numbers are not reused.
