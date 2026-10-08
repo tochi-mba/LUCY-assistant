@@ -156,3 +156,39 @@ async def test_container_uses_configured_adapter_and_real_settings():
         assert any(row["type"] == "lucy.decision.made" for row in events)
     finally:
         await container.aclose()
+
+
+async def test_a_decision_event_names_the_turn_it_was_made_in() -> None:
+    """The bug, named: every decision event in the live family carried no turn id, because
+    the emitter read the id off a request prepared before the turn row existed. The
+    supervisor binds the claimed turn around the run; the event must read it from there."""
+    from lucy_api.core.logging import bind
+
+    keyring = FakeKeyring()
+    container = build_container(
+        build_settings(laya_base_url="http://localhost:8010"), transport=keyring.transport()
+    )
+    try:
+        await container.preferences.aclose()
+        container.preferences = FakeSettingsClient({"lucy": {"decisions": True}})
+        container.decider = Answerer(["needed"])
+        await container.start()
+        session = await container.store.create("acct_a", CreateSession(), "create")
+        prepared = await container.prepare_turn(
+            PackRequest(
+                caller=VerifiedCaller(account_id="acct_a", audience="lucy-api"),
+                user_token="verified",
+                profile="personal",
+                session_id=session["id"],
+            ),
+            session,
+        )
+        with bind(session_id=session["id"], turn_id="trn_claimed"):
+            await prepared.pack_context.decide.ask(
+                CAPABILITIES, "play music", [noul("needed", "Is it needed?")]
+            )
+        events = await container.store.records("acct_a", session["id"], "events")
+        made = [row for row in events if row["type"] == "lucy.decision.made"]
+        assert [row["turn_id"] for row in made] == ["trn_claimed"]
+    finally:
+        await container.aclose()
