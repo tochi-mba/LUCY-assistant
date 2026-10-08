@@ -43,6 +43,16 @@ tool that needs permission is refused and reported (`permission_denials`); the p
 to that tool comes back as `--allowedTools` on the next turn. That is the normal user's
 "approve the prompt", with a card instead of a keypress."""
 
+PLAN_DISALLOWED = "Write,Edit,NotebookEdit,Bash,PowerShell"
+"""What a `plan` turn may not use, whatever the person's own Claude Code allowlist says.
+
+Claude Code's plan mode guides the model; it does not disarm tools the person has allowed
+in their own settings. On the live smoke (2026-10-08) a plan-mode session read twenty files
+with PowerShell and then wrote numbers.txt with it, no prompt, no denial. `plan` is
+promised to the person as read-only -- explores and reports, changes nothing -- so the
+bridge takes the writing tools and both shells away for it. Reading, searching and
+fetching stay."""
+
 MODES = ("plan", "ask", "edits", "full")
 """The modes from most to least careful. The person's `claude_code_run_level` is a ceiling
 on this order, which the hub enforces before any call reaches the bridge."""
@@ -193,6 +203,7 @@ class ClaudeRunner:
             str(self._budget),
             "--permission-mode",
             RUN_LEVELS.get(run_level, RUN_LEVELS["edits"]),
+            *(["--disallowedTools", PLAN_DISALLOWED] if run_level == "plan" else []),
             *(["--resume", session_id] if resume else ["--session-id", session_id]),
             *(["--model", model] if model else []),
             # One comma-separated argument: the flag is variadic, and a list would swallow

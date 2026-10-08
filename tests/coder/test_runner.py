@@ -363,3 +363,21 @@ def test_a_malformed_denial_list_is_no_denials() -> None:
     assert _denials(None) == []
     assert _denials("Write") == []
     assert _denials([{"tool_name": "Bash"}]) == [{"tool": "Bash", "input": ""}]
+
+
+async def test_plan_mode_takes_the_writing_tools_and_the_shells_away(workdir: str) -> None:
+    """The bug, named: a plan-mode session wrote numbers.txt through PowerShell with no
+    prompt and no denial, because plan mode guides the model and the person's own
+    allowlist still armed the shell. `plan` is promised as read-only, so the bridge
+    makes it so."""
+    from lucy_coder.runner import PLAN_DISALLOWED
+
+    await one_turn(a_runner(), workdir, run_level="plan")
+    argv = json.loads((Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"]
+    assert argv[argv.index("--disallowedTools") + 1] == PLAN_DISALLOWED
+    for tool in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
+        assert tool in PLAN_DISALLOWED.split(",")
+
+    await one_turn(a_runner(), workdir, run_level="edits")
+    argv = json.loads((Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"]
+    assert "--disallowedTools" not in argv, "every other mode keeps the person's own tools"

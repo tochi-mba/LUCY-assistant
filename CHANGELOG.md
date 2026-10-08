@@ -123,6 +123,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A `plan` delegation is read-only whatever the person's own Claude Code allowlist says.**
+  Claude Code's plan mode guides the model; it does not disarm tools the person has allowed
+  in their own settings. On the live smoke a plan-mode session read twenty files with
+  PowerShell and then wrote `numbers.txt` with it -- no prompt, no denial -- in a mode the
+  settings promise as "explores and reports, and changes nothing". The bridge now passes
+  `--disallowedTools Write,Edit,NotebookEdit,Bash,PowerShell` for every `plan` turn;
+  reading, searching and fetching stay, and every other mode keeps the person's own tools.
 - **What the first live Claude Code delegation found.** The catalogue (`GET /v1/capabilities`)
   and the model tools (`GET /v1/tools`) probed with a default policy, so a capability the
   person had switched on read as disabled there while every conversation had it ready;
