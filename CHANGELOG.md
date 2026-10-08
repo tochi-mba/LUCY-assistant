@@ -135,6 +135,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   out. A timeout now rests the decider for thirty seconds across every turn in the process,
   with the skip reason `cooling`, so a shadow run shows how often the service fell behind
   instead of hiding it in a wall of timeouts.
+
+- **A plan that reaches for a ready capability loads it.** "Play X" on a fresh session,
+  where music was ready but held back, was refused as an invalid plan: an `error` item in
+  front of the person and a round spent on the `capabilities.use` step the refusal asked
+  for. Reaching for the capability is the same signal that step sends, so the plan now
+  loads it and runs against the real operations; `capabilities.use` remains for loading
+  one ahead of time.
 - **A `plan` delegation is read-only whatever the person's own Claude Code allowlist says.**
   Claude Code's plan mode guides the model; it does not disarm tools the person has allowed
   in their own settings. On the live smoke a plan-mode session read twenty files with

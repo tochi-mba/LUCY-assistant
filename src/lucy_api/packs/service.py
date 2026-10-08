@@ -272,12 +272,13 @@ class Capabilities:
         registry = self.registry_for(catalogue, context.session_id)
         held = _held_back(stripped, deferred, set(registry.names()))
         if held:
-            message = NOT_LOADED.format(capability=held)
-            return {
-                "issues": [{"code": "capability_not_loaded", "message": message}],
-                "text": message,
-                "steps": [],
-            }
+            # Reaching for a ready capability is the model saying it needs it, the same
+            # signal `capabilities.use` sends; the plan then runs against the real
+            # operations. Refusing it instead cost a round and put an "invalid plan" error
+            # in front of the person for an ordinary "play X" on a fresh session.
+            self.remember_use(context.session_id, held)
+            bound, deferred = self.bound_for(catalogue, context.session_id)
+            registry = self.registry_for(catalogue, context.session_id)
         limits = limits_for(bound, context.policy)
         # The gate asks a person about a write before anything runs, so a plan that could
         # not run is refused first: a bad reference or a malformed step is the model's to
@@ -358,18 +359,12 @@ class Capabilities:
         return result
 
 
-NOT_LOADED = (
-    "{capability} is ready but not loaded: add a capabilities.use step for it, and call this "
-    "in your next plan."
-)
-"""What a plan naming a held-back capability's operation is told, in one line.
-
-weftai's own issue listed every operation the turn could call -- fifty to a hundred and thirty
-names -- for the model to search for the one it meant, and never said the fix."""
-
-
 def _held_back(plan: dict[str, Any], deferred: Sequence[str], callable_now: set[str]) -> str:
-    """The first deferred capability a plan reaches for, or empty when it reaches for none."""
+    """The first deferred capability a plan reaches for, or empty when it reaches for none.
+
+    Found, it is loaded and the plan runs: weftai's own issue for the unbound operation listed
+    every operation the turn could call -- fifty to a hundred and thirty names -- and the
+    one-line "add a capabilities.use step" that replaced it still cost the round."""
     steps = plan.get("steps") if isinstance(plan, dict) else None
     for step in steps if isinstance(steps, list) else ():
         name = str(step.get("op") or "") if isinstance(step, dict) else ""
