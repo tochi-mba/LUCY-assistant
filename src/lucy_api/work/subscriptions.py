@@ -308,15 +308,19 @@ class Subscriptions:
         due_at: float,
         grant_id: str = "",
         tags: Mapping[str, str] | None = None,
+        requested_at: float | None = None,
     ) -> Opened:
         """Open a check-in: a subscription this process ends at `due_at`, waking the session.
+
+        The pack supplies its clock sample as `requested_at`, so time spent recording
+        consent cannot turn an exact one-minute request into a too-short request.
 
         Raises:
             LucyError: 400 when the time is sooner than a check-in is for, or further away
                 than one may live, or the session already has as many waiting as it may.
                 The message names the bound.
         """
-        delay = due_at - self._clock()
+        delay = due_at - (self._clock() if requested_at is None else requested_at)
         if delay < MIN_CHECKIN_SECONDS:
             raise LucyError(CHECKIN_TOO_SOON, TOO_SOON, 400)
         if delay > MAX_LIFETIME_SECONDS:
@@ -710,11 +714,19 @@ class SubscriptionSeam:
             tags=self._tags(),
         )
 
-    async def checkin(self, *, objective: str, due_at: float, delay_seconds: float) -> Opened:
+    async def checkin(
+        self,
+        *,
+        objective: str,
+        due_at: float,
+        delay_seconds: float,
+        requested_at: float | None = None,
+    ) -> Opened:
         """Open a check-in at `due_at` for this turn's person and session, with consent.
 
         `delay_seconds` is how far away that is by the caller's clock; consent is recorded
         for that long plus the grace a late check-in gets, so the turn it opens can act.
+        `requested_at` carries that clock sample through the consent write for validation.
         """
         grant_id = await self._consented(delay_seconds + CHECKIN_GRACE_SECONDS)
         return await self._subscriptions.checkin(
@@ -725,6 +737,7 @@ class SubscriptionSeam:
             due_at=due_at,
             grant_id=grant_id,
             tags=self._tags(),
+            requested_at=requested_at,
         )
 
     async def _consented(self, timeout_seconds: float) -> str:
