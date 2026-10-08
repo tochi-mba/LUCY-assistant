@@ -586,6 +586,7 @@ class ChildRuntime:
                     items=mine,
                     capabilities=tuple(item.pack.id for item in bound),
                     deferred=deferred,
+                    deferred_titles=self.capabilities.titles(catalogue, deferred),
                     # The helper's own mode, not the conversation's. Read from the row, a
                     # helper in an `auto` conversation was told "permission mode auto" by its
                     # live block while its brief said read-only, and every write it tried on

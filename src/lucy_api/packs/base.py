@@ -130,6 +130,11 @@ class Permission:
     """Whether a call, by its arguments, needs the person's yes to that call alone: neither
     `auto` nor a standing grant covers it. A setting declared `with_approval` is the case --
     "you can manage my settings" is not approval to lower a memory floor."""
+    refuses: Callable[[Mapping[str, object]], str] | None = None
+    """A sentence when a call, by its arguments, can never run -- so it is refused before
+    anyone is asked. A setting declared `never` is the case: the card used to be shown, the
+    person said yes, and the write was refused anyway, a question whose yes changed nothing.
+    Empty means the ordinary gate decides."""
 
 
 @dataclass(frozen=True, slots=True)

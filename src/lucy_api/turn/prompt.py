@@ -8,7 +8,7 @@ apart: both ask the same function, and a bug in one is a bug in both.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -27,6 +27,8 @@ from lucy_api.prompt.sections import PromptContext, prompt_version, render_all
 from lucy_api.turn.readable import readable
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from lucy_api.context.build import Live
     from lucy_api.context.types import Assembled
 
@@ -39,6 +41,8 @@ class SessionView:
     items: list[dict[str, Any]]
     capabilities: tuple[str, ...] = ()
     deferred: tuple[str, ...] = ()
+    deferred_titles: Mapping[str, str] = field(default_factory=dict)
+    """What each deferred id is called, so the model can match a person's words to it."""
     advertised: tuple[str, ...] = ()
     session: dict[str, Any] | None = None
     compactions: list[dict[str, Any]] | None = None
@@ -228,6 +232,7 @@ def _prompt_context(view: SessionView) -> PromptContext:
     return PromptContext(
         capabilities=view.capabilities,
         deferred=view.deferred,
+        deferred_titles=view.deferred_titles,
         advertised=view.advertised,
         response_style=view.response_style,
         preferences=view.preferences,

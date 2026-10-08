@@ -392,6 +392,7 @@ class TurnSupervisor:
                 items=ordered,
                 capabilities=callable_now,
                 deferred=deferred,
+                deferred_titles=self._capabilities.titles(catalogue, deferred),
                 advertised=advertised,
                 session=session,
                 compactions=compact,

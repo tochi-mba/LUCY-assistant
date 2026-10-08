@@ -790,3 +790,30 @@ def test_a_section_about_a_capability_is_sent_only_when_the_capability_is_here()
 def test_what_a_section_requires_is_part_of_the_prompt_version() -> None:
     [*rest, last] = BUILTIN
     assert prompt_version((*rest, replace(last, requires="music"))) != prompt_version(BUILTIN)
+
+
+def test_a_deferred_capability_is_named_so_the_persons_words_can_find_it() -> None:
+    """The bug, named: "have claude code create the files" met a deferred list reading
+    `coder, repos, watch`; the model reached for its own sandbox and then a helper, and
+    only the person's correction sent it to `capabilities.use coder`."""
+    rendered = render_all(
+        PromptContext(
+            capabilities=("help",),
+            deferred=("coder", "repos", "watch"),
+            deferred_titles={"coder": "Claude Code", "repos": "Repositories", "watch": "Watch"},
+        )
+    )
+    text = " ".join(section(rendered, "capabilities").body.split())
+    assert "coder (Claude Code), repos (Repositories), watch." in text
+    assert "watch (Watch)" not in text, "a title that is the id again adds nothing"
+
+
+def test_workspace_says_it_has_no_drive_of_theirs_and_names_the_way_to_their_machine() -> None:
+    """The bug, named: asked for Claude Code, the model ran a sandbox script writing to
+    C:/Users/them/... and told the person their files were made; the sandbox had grown a
+    folder of that name and nothing was on their machine."""
+    from lucy_api.prompt.docs import capability_doc
+
+    page = capability_doc("workspace").read_text(encoding="utf-8")
+    assert "It has no `C:` drive" in page
+    assert "reached only through Claude Code delegation (`coder`)" in page
