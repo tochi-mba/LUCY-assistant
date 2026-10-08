@@ -69,6 +69,13 @@ WAKE_INPUT = "wake"
 """The input type recorded on a turn a piece of work opened. Not a client input: the one
 write path refuses it, because a client that could submit a wake could speak as the harness."""
 
+GRANT_TAG = "grant"
+"""The tag that carries recorded standing consent on any work that wakes the session.
+
+Subscriptions always wrote it; a waking command, watch or helper wrote nothing, so the
+turn its ending opened was prepared with no authority at all -- no settings, no siblings,
+a model told its own workspace "is not usable this turn"."""
+
 CONSENT_TAG = "consent"
 WITHHELD = "withheld"
 """`consent: withheld` marks work opened for somebody who said a turn Lucy opens on her own
@@ -379,6 +386,7 @@ def _team(team: Team) -> dict[str, Any]:
 
 __all__ = [
     "CONSENT_TAG",
+    "GRANT_TAG",
     "NOTICE_KIND",
     "NOTICE_ROLE",
     "NO_STANDING",

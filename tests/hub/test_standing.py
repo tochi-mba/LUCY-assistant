@@ -135,13 +135,20 @@ async def test_consent_is_a_grant_for_this_hub_alone_for_the_lifetime_asked() ->
     ]
 
 
-def test_only_a_subscription_opened_with_consent_carries_any() -> None:
+def test_any_work_opened_with_consent_carries_it_and_work_without_carries_none() -> None:
+    """The bug, named: only a subscription's grant was read, so a background command's wake
+    turn was prepared with no authority and none of the person's settings -- the model told
+    the person their own workspace "is not usable this turn"."""
     standing = Standing(Container())  # type: ignore[arg-type]
     assert standing.carries(a_subscription(grant="dgt_1"))
     assert not standing.carries(a_subscription())
-    helper = a_subscription(grant="dgt_1")
-    helper.kind = Kind.helper
-    assert not standing.carries(helper)
+    for kind in (Kind.helper, Kind.command, Kind.watch):
+        granted = a_subscription(grant="dgt_1")
+        granted.kind = kind
+        assert standing.carries(granted), f"a waking {kind.value} acts as the person allowed"
+        bare = a_subscription()
+        bare.kind = kind
+        assert not standing.carries(bare)
     assert not standing.carries(Team(session_id="ses_1", group="g", members=()))
 
 

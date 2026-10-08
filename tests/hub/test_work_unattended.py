@@ -30,6 +30,7 @@ from lucy_api.work import Kind, Record, Registry, State, Waker, wake_line
 from lucy_api.work.quiet import QUIET_TAG, QuietHours
 from lucy_api.work.subscriptions import (
     REPORT_ONLY_ADVICE,
+    STANDING_MARGIN_SECONDS,
     Subscriptions,
     SubscriptionSeam,
     governed,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 ACCOUNT = "acct_unattended"
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 REPORT_ONLY = TurnPolicy(act_unattended=False)
+CONSENTING = TurnPolicy(act_unattended=True)
 
 
 @pytest.fixture
@@ -117,6 +119,50 @@ async def test_with_act_unattended_off_a_waking_subscription_asks_no_consent(
     assert record.tags[CONSENT_TAG] == WITHHELD
     assert "grant" not in record.tags
     assert seam.advice() == REPORT_ONLY_ADVICE
+    await seams.close()
+
+
+async def test_a_waking_commands_tags_record_the_same_consent_a_subscription_gets(
+    store: SessionStore,
+) -> None:
+    """The bug, named: only subscriptions recorded standing consent, so the turn a finished
+    background command opened ran with no authority and none of the person's settings."""
+    seams = Seams(store)
+    session = await a_session(store)
+    seam = seams.seam(session).under(CONSENTING)
+
+    tags = await seam.standing_tags(240)
+
+    assert tags == {"grant": "dgt_1"}
+    assert seams.consents == [240 + STANDING_MARGIN_SECONDS], "for as long as the work may live"
+    await seams.close()
+
+
+async def test_with_act_unattended_off_a_waking_command_says_why_it_carries_none(
+    store: SessionStore,
+) -> None:
+    seams = Seams(store)
+    session = await a_session(store)
+    seam = seams.seam(session).under(REPORT_ONLY)
+
+    assert await seam.standing_tags(240) == {CONSENT_TAG: WITHHELD}
+    assert seams.consents == []
+    await seams.close()
+
+
+async def test_consent_that_cannot_be_recorded_leaves_the_work_bare(
+    store: SessionStore,
+) -> None:
+    seams = Seams(store)
+    session = await a_session(store)
+    seam = seams.seam(session).under(CONSENTING)
+
+    async def refused(lifetime: float) -> str:
+        raise RuntimeError("keyring is down")
+
+    seam._consent = refused
+
+    assert await seam.standing_tags(240) == {}
     await seams.close()
 
 

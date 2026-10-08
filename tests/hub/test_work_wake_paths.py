@@ -136,6 +136,87 @@ async def test_a_command_follows_the_persons_wake_rules() -> None:
         await work.shutdown()
 
 
+class Standing:
+    """A seam as `waking_tags` uses it: the consent the person's settings allow, recorded."""
+
+    def __init__(self, tags: dict[str, str]) -> None:
+        self.given: list[float] = []
+        self._tags = tags
+
+    async def standing_tags(self, timeout_seconds: float) -> dict[str, str]:
+        self.given.append(timeout_seconds)
+        return dict(self._tags)
+
+
+async def test_a_waking_command_carries_the_consent_the_person_gave() -> None:
+    """The bug, named: only a subscription recorded standing consent, so the turn a finished
+    background command opened was prepared with no authority and none of the person's
+    settings -- the model probed every sibling-backed capability unreachable and told the
+    person their own workspace "is not usable this turn"."""
+    fake = FakeEnvironmentsClient()
+    fake.seed(Environment("env-1", "Conversation", profile="personal"))
+    fake.script("build", Ran(command="build", exit_code=0, output="ok", state="idle"))
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=fake)], work=work)
+    context = capabilities.context_for(scope())
+    consent = Standing({"grant": "dgt_7"})
+    context.subscriptions = consent  # type: ignore[assignment] - the one method waking_tags uses
+    await capabilities.probe(context)
+    try:
+        plan = {
+            "steps": [
+                {
+                    "id": "a",
+                    "op": "workspace.run",
+                    "input": {"command": "build", "wait": False, "wake": True},
+                },
+                {
+                    "id": "b",
+                    "op": "workspace.run",
+                    "input": {"command": "build", "wait": False, "wake": False},
+                },
+            ]
+        }
+        result = await capabilities.execute(plan, context)
+        asked, declined = (step["data"]["work_id"] for step in result["steps"])
+        finished = {record.id: record for record in work._records.values()}
+        assert finished[asked].tags == {"grant": "dgt_7"}
+        assert consent.given == [finished[asked].timeout_seconds], (
+            "consent lives as long as the work may"
+        )
+        assert finished[declined].tags == {}, "work that wakes nobody records no consent"
+    finally:
+        await work.shutdown()
+
+
+async def test_a_helper_and_a_continued_helper_carry_the_same_consent() -> None:
+    """A continued helper's ending wakes the session exactly as a fresh one's does; assembled
+    by hand, its brief carried neither the quiet hours nor the consent."""
+    from lucy_api.packs.agents import _reopen
+
+    class Reopens(Helpers):
+        async def reopen(
+            self, parent: Any, agent_id: str, *, return_schema: str = ""
+        ) -> dict[str, Any]:
+            return {"agent_id": "agt_again", "task_id": 2, "objective": "Find it", "role": "r"}
+
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities((AgentsPack(),), work=work)
+    context = capabilities.context_for(scope())
+    context.child = Reopens()
+    context.subscriptions = Standing({"grant": "dgt_8"})  # type: ignore[assignment]
+    try:
+        top = await _spawn(work, context, depth=0, objective="Find the date", role="researcher")
+        await work.wait(top["id"], 5)
+        continued = await _reopen(work, context, agent_id=top["id"], depth=0)
+        await work.wait(str(continued["id"]), 5)
+        records = {record.id: record for record in work._records.values()}
+        assert records[top["id"]].tags == {"grant": "dgt_8"}
+        assert records[str(continued["id"])].tags == {"grant": "dgt_8"}
+    finally:
+        await work.shutdown()
+
+
 async def test_a_helper_started_by_the_main_thread_wakes_and_a_helpers_helper_does_not() -> None:
     work = Registry(now=lambda: datetime.now(UTC))
     capabilities = Capabilities((AgentsPack(),), work=work)
