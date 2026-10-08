@@ -810,15 +810,17 @@ def _unattended_knobs() -> tuple[Knob, ...]:
         ),
         Knob(
             key="claude_code_run_level",
-            summary="How much a delegated Claude Code task may do without asking anyone.",
+            summary="The most a delegated Claude Code task may do without asking anyone.",
             value_type=ValueType.ENUM,
             default="edits",
             on_unavailable=OnUnavailable.USE_DEFAULT,
             description=(
-                "`plan` reads and reports; `edits` changes files in its folder; `full` runs "
-                "commands without further prompts. The card for each task names its level."
+                "A ceiling, plan < ask < edits < full. `plan` reads and reports; `ask` brings "
+                "every permission prompt back to you; `edits` changes files in its folder; "
+                "`full` runs commands without further prompts. Lucy may plan first and carry "
+                "the plan out at your level, never above it."
             ),
-            choices=("plan", "edits", "full"),
+            choices=("plan", "ask", "edits", "full"),
             agent=AgentAccess.NEVER,
         ),
     )

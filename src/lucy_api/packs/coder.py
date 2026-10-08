@@ -26,7 +26,13 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from weftai.operation import define_operation
-from weftai.schema.spec import integer_schema, object_schema, string_schema
+from weftai.schema.spec import (
+    array_schema,
+    enum_schema,
+    integer_schema,
+    object_schema,
+    string_schema,
+)
 from weftai.schema.types import value
 
 from lucy_api.auth.exchange import ExchangeError
@@ -87,6 +93,35 @@ BRIEF_FIELD = (
 )
 DIRECTORY_FIELD = "One folder from the person's claude_code_directories list, written out."
 TITLE_FIELD = "A short name for the task, for lists and the live block."
+
+MODES = ("plan", "ask", "edits", "full")
+"""Claude Code's permission modes, most careful first. `ask` is its own default mode: a
+tool that needs permission is refused and brought back rather than prompted. The person's
+`claude_code_run_level` is a ceiling on this order."""
+
+ABOVE_CEILING = (
+    "The person lets Claude Code run at most at `{ceiling}`; `{mode}` is above that. Use "
+    "`{ceiling}` or a more careful mode, or tell them where to change the setting."
+)
+PLAN_ALLOWS_NOTHING = (
+    "Plan mode is read-only, so allowing a tool does nothing there. Resume at `ask` or "
+    "above to let it use what it was refused."
+)
+MODE_FIELD = (
+    "Claude Code's permission mode for this turn: plan (read-only, proposes a plan), ask "
+    "(anything needing permission is refused and brought back), edits (changes files in "
+    "its folder), full (runs commands unprompted). At most the person's level; omitted, "
+    "their level."
+)
+MODEL_FIELD = "A Claude model alias or name for this task; omit for their Claude Code default."
+ALLOW_FIELD = (
+    "Tools this turn may use that the last one was refused, as Claude Code names them: "
+    '"Write", "Bash(npm test:*)". Only what the person said yes to.'
+)
+REFUSED_TOOLS = (
+    "Claude Code was refused {count} tool call(s): {tools}. Tell the person what it wanted; "
+    "with their yes, coder.message with allow_tools {rules} lets it carry on."
+)
 
 _LIVE = frozenset({"queued", "running"})
 
@@ -172,13 +207,16 @@ class CoderPack:
                     "name": "coder.delegate",
                     "description": (
                         "Hand one whole task to Claude Code on the person's machine, only "
-                        f"when they asked for it. It runs at their chosen level ({level})."
+                        f"when they asked for it. Their level is {level}; plan first when "
+                        "the task is large, then carry the plan out with coder.message."
                     ),
                     "input": object_schema(
                         {
                             "brief": string_schema().describe(BRIEF_FIELD),
                             "directory": string_schema().describe(DIRECTORY_FIELD),
                             "title": string_schema().describe(TITLE_FIELD).optional(),
+                            "mode": enum_schema(*MODES).describe(MODE_FIELD).optional(),
+                            "model": string_schema().describe(MODEL_FIELD).optional(),
                         }
                     ),
                     "output": value(object_schema({})),
@@ -190,13 +228,18 @@ class CoderPack:
                 {
                     "name": "coder.message",
                     "description": (
-                        "Send a follow-up into a delegated task's session: steer it, or "
-                        "resume one that finished. It runs when the current turn ends."
+                        "Send a follow-up into a delegated task's session: steer it, answer "
+                        "its question, carry out its plan in another mode, or let it use a "
+                        "tool it was refused. It runs when the current turn ends."
                     ),
                     "input": object_schema(
                         {
                             "task": task,
                             "text": string_schema().describe("What to tell it."),
+                            "mode": enum_schema(*MODES).describe(MODE_FIELD).optional(),
+                            "allow_tools": array_schema(string_schema())
+                            .describe(ALLOW_FIELD)
+                            .optional(),
                         }
                     ),
                     "output": value(object_schema({})),
@@ -260,6 +303,13 @@ class CoderPack:
         title = str(run.input.get("title") or "").strip()
         if not brief:
             return {"status": "invalid", "message": "write the task as a brief, in sentences"}
+        ceiling = context.policy.claude_code_run_level
+        mode = str(run.input.get("mode") or ceiling)
+        if not _within(mode, ceiling):
+            return {
+                "status": "refused",
+                "message": ABOVE_CEILING.format(ceiling=ceiling, mode=mode),
+            }
         allowed = _allowed(directory, context.policy.claude_code_directories)
         if allowed is None:
             return {
@@ -272,8 +322,9 @@ class CoderPack:
         task = await self._client(context).start(
             brief=brief,
             directory=allowed,
-            run_level=context.policy.claude_code_run_level,
+            run_level=mode,
             title=title,
+            model=str(run.input.get("model") or "").strip(),
         )
         return await self._tracked(context, task)
 
@@ -283,7 +334,23 @@ class CoderPack:
         text = str(run.input.get("text") or "").strip()
         if not task_id or not text:
             return {"status": "invalid", "message": "name the task, and say what to tell it"}
-        task = await self._client(context).message(task_id, text)
+        client = self._client(context)
+        ceiling = context.policy.claude_code_run_level
+        asked = str(run.input.get("mode") or "")
+        if asked and not _within(asked, ceiling):
+            return {
+                "status": "refused",
+                "message": ABOVE_CEILING.format(ceiling=ceiling, mode=asked),
+            }
+        # Unsaid, the session keeps the mode it has -- unless the person has since lowered
+        # their ceiling below it, and then it resumes at the ceiling.
+        current = asked or (await client.get(task_id)).run_level
+        mode = current if _within(current, ceiling) else ceiling
+        allow = tuple(str(rule) for rule in run.input.get("allow_tools") or ())
+        if allow and mode == "plan":
+            return {"status": "refused", "message": PLAN_ALLOWS_NOTHING}
+        changed = bool(asked) or mode != current
+        task = await client.message(task_id, text, mode=mode if changed else "", allow_tools=allow)
         return await self._tracked(context, task)
 
     async def _read(self, run: RunContext[PackContext]) -> dict[str, Any]:
@@ -397,11 +464,37 @@ def _row(task: CoderTask, *, tail: bool = False) -> dict[str, Any]:
         row["detail"] = task.detail
     if task.result:
         row["result"] = task.result
-    if task.advice:
-        row["advice"] = task.advice
+    if task.model:
+        row["model"] = task.model
+    if task.permission_denials:
+        row["permission_denials"] = list(task.permission_denials)
+    advice = _denial_advice(task.permission_denials) or task.advice
+    if advice:
+        row["advice"] = advice
     if tail and task.transcript_tail:
         row["transcript_tail"] = task.transcript_tail
     return row
+
+
+def _denial_advice(denials: tuple[dict[str, str], ...]) -> str:
+    """The hub's sentence about what Claude Code was refused, and how a yes lets it.
+
+    Only the tool names reach it -- never the refused input, which is the program's words
+    -- and the rules are bare names: a person's yes to "Bash" in general is theirs to narrow
+    if they want, by saying so.
+    """
+    tools = sorted({denial["tool"] for denial in denials if denial.get("tool")})
+    if not tools:
+        return ""
+    rules = "[" + ", ".join(f'"{tool}"' for tool in tools) + "]"
+    return REFUSED_TOOLS.format(count=len(denials), tools=", ".join(tools), rules=rules)
+
+
+def _within(mode: str, ceiling: str) -> bool:
+    """Whether `mode` is the person's level or more careful. An unknown mode never is."""
+    if mode not in MODES or ceiling not in MODES:
+        return False
+    return MODES.index(mode) <= MODES.index(ceiling)
 
 
 def _allowed(directory: str, listed: tuple[str, ...]) -> str | None:

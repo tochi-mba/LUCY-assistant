@@ -173,7 +173,7 @@ class TurnPolicy:
     claude_code_directories: tuple[str, ...] = ()
     """The only folders a delegated task may run in; empty means delegation is off."""
     claude_code_run_level: str = "edits"
-    """`plan | edits | full`, the bridge's permission mode for every delegated turn."""
+    """`plan | ask | edits | full`: the most a delegated turn may run at, a ceiling."""
     conventions: Conventions = NOTHING_CHOSEN
     """The person's time zone, language, units, clock and currency, from `common`."""
     manner: Manner = AS_AUTHORED
@@ -369,7 +369,7 @@ class TurnPolicy:
             claude_code_run_level=_text(
                 read("claude_code_run_level", "edits"),
                 "edits",
-                allowed=frozenset({"plan", "edits", "full"}),
+                allowed=frozenset({"plan", "ask", "edits", "full"}),
             ),
             approval_policy=_text(
                 read("approval_policy", "destructive_always_asks"),

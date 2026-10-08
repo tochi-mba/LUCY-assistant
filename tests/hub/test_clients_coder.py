@@ -112,3 +112,22 @@ async def test_the_fake_records_and_cancels_like_the_bridge() -> None:
         await fake.start(brief="b", directory="C:/x", run_level="plan", title="")
     with pytest.raises(RuntimeError):
         await fake.ready()
+
+
+async def test_mode_tools_and_model_cross_only_when_given() -> None:
+    http = FakeHttp(
+        Answer(status_code=201, body=ROW),
+        Answer(status_code=201, body=ROW),
+        Answer(body=ROW),
+        Answer(body={**ROW, "permission_denials": [{"tool": "Write", "input": "{}"}, "junk"]}),
+    )
+    client = HttpCoderClient(http, "http://coder.test")
+    await client.start(brief="b", directory="C:/x", run_level="plan", title="", model="sonnet")
+    await client.start(brief="b", directory="C:/x", run_level="plan", title="")
+    await client.message("tsk_1", "go")
+    denied = await client.message("tsk_1", "go", mode="ask", allow_tools=("Write",))
+    assert http.calls[0].json["model"] == "sonnet"
+    assert "model" not in http.calls[1].json
+    assert http.calls[2].json == {"text": "go"}
+    assert http.calls[3].json == {"text": "go", "mode": "ask", "allow_tools": ["Write"]}
+    assert denied.permission_denials == ({"tool": "Write", "input": "{}"},)
