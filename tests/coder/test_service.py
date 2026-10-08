@@ -343,3 +343,25 @@ async def test_a_turn_ending_with_a_message_already_queued_goes_straight_back_to
         assert body["result"] == "first answer"
     finally:
         await service.aclose()
+
+
+async def test_progress_never_writes_over_a_task_that_is_no_longer_running(
+    store: TaskStore, workdir: str
+) -> None:
+    """A late stream event after a cancel, or for a row that vanished, changes nothing --
+    deterministic here, where the live race only sometimes reaches it."""
+    from lucy_coder.runner import Counters
+
+    service = a_service(store, max_live=0)
+    try:
+        task = await service.start(
+            account_id=ACCOUNT, brief="one", directory=workdir, run_level="edits", title="1"
+        )
+        late = Counters(tool_uses=9, last_tool="Bash", last_text="too late")
+        service._progress(task.id, late)
+        service._progress("tsk_gone", late)
+        row = store.get(ACCOUNT, task.id)
+        assert row is not None
+        assert (row.tool_uses, row.last_tool) == (0, ""), "a queued row is not overwritten"
+    finally:
+        await service.aclose()
