@@ -64,6 +64,9 @@ async def list_capabilities(
     pack_ctx = container.pack_context(
         PackRequest(caller=acting.caller, user_token=acting.token, profile=profile, session_id="")
     )
+    # Their settings, as a turn reads them: a capability the person switched on (Claude
+    # Code delegation) probed as "disabled" here while every conversation had it ready.
+    pack_ctx.policy = await container.lucy_policy(acting.token, profile)
     catalogue = await container.capabilities.probe(pack_ctx)
     return {"data": container.capabilities.listings(catalogue)}
 
@@ -103,6 +106,7 @@ async def list_model_tools(
         )
     )
     _attach_workspace(pack_ctx, row)
+    pack_ctx.policy = await container.lucy_policy(acting.token, resolved_profile)
     with bind(session_id=session or None):
         catalogue = await container.capabilities.probe(pack_ctx)
     return container.capabilities.tools(catalogue, session)

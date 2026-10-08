@@ -77,6 +77,7 @@ def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch) ->
     assert loaded.port == 9999
     assert loaded.audience == "coder-api"
     assert Settings().max_live_tasks == 2, "the owner's number is the default"
+    assert Settings().turn_budget_usd == 3.0, "a first turn's cache build fits under it"
 
 
 def test_counters_ignore_blocks_that_are_neither_tools_nor_words() -> None:

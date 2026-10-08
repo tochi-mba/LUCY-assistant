@@ -103,7 +103,8 @@ async def test_a_spent_budget_is_a_failure_that_names_the_cap(workdir: str) -> N
     outcome, _counters, _lines = await one_turn(a_runner(budget=0.5), workdir, script="budget")
 
     assert not outcome.ok
-    assert "$0.50 budget" in outcome.detail
+    assert "$0.50 per-turn budget (CODER_TURN_BUDGET_USD)" in outcome.detail
+    assert "a message resumes it" in outcome.detail
     assert outcome.cost_usd == pytest.approx(0.22), "what it spent is still accounted"
 
 
