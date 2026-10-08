@@ -501,3 +501,23 @@ async def test_esc_then_a_message_carries_on_in_the_same_session(
     finally:
         _os.environ.pop("FAKE_CLAUDE", None)
         await service.aclose()
+
+
+async def test_a_relative_folder_is_refused_before_it_can_mean_the_bridges_own(
+    store: TaskStore,
+) -> None:
+    """`.` in the person's list would have run Claude Code in whatever folder the bridge was
+    started from -- its own checkout."""
+    service = a_service(store)
+    try:
+        for relative in (".", "src", "../elsewhere"):
+            with pytest.raises(RefusedError, match="must be an absolute path"):
+                await service.start(
+                    account_id=ACCOUNT,
+                    brief="x",
+                    directory=relative,
+                    run_level="edits",
+                    title="",
+                )
+    finally:
+        await service.aclose()
