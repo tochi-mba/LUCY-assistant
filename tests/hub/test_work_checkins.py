@@ -673,3 +673,62 @@ async def test_a_seam_without_consent_still_opens_a_checkin_that_cannot_act(
     assert opened.handle.id == record.id
     await harness.subscriptions.aclose()
     await harness.registry.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("inputs", "message"),
+    [
+        ({"in_seconds": 10}, TOO_SOON),
+        ({"in_seconds": 8 * 86400}, TOO_FAR),
+        ({"in_seconds": 0}, IN_THE_PAST),
+        ({"at": "2026-10-01T19:00:00"}, NEEDS_OFFSET),
+        ({}, ONE_TIME),
+    ],
+    ids=["too-soon", "too-far", "now", "naive", "neither"],
+)
+async def test_a_check_in_that_could_never_open_is_refused_before_any_card(
+    store: SessionStore, inputs: dict[str, Any], message: str
+) -> None:
+    """The bug, named: "pause after 10 seconds" raised an approval card, and the person's
+    yes was answered with "a check-in is at least 60 seconds away". A question whose yes
+    changes nothing is not asked."""
+    from lucy_api.packs.service import Capabilities
+    from lucy_api.permissions.gate import PermissionGate
+
+    harness = Harness(store, Clock())
+    session = await a_session(store)
+    context = a_context(harness, session, mode="ask")
+    catalogue = await Capabilities((WorkPack(),)).probe(context)
+
+    verdict = PermissionGate().inspect(
+        checkin(**inputs), mode="ask", grants={}, catalogue=catalogue
+    )
+
+    assert (verdict.allowed, verdict.denied) == (False, True), "refused, not asked"
+    assert verdict.message == message
+    assert verdict.permission == "work.checkin"
+    await harness.registry.shutdown()
+
+
+@pytest.mark.parametrize(
+    "inputs", [{"in_seconds": 600}, {"in_seconds": "soon"}], ids=["fine", "not a number"]
+)
+async def test_a_check_in_the_step_may_still_open_is_asked_about_as_before(
+    store: SessionStore, inputs: dict[str, Any]
+) -> None:
+    """A good time gets its card; a time that is not a number is the step's to refuse, with
+    the schema's own sentence, rather than the gate's."""
+    from lucy_api.packs.service import Capabilities
+    from lucy_api.permissions.gate import PermissionGate
+
+    harness = Harness(store, Clock())
+    session = await a_session(store)
+    context = a_context(harness, session, mode="ask")
+    catalogue = await Capabilities((WorkPack(),)).probe(context)
+
+    verdict = PermissionGate().inspect(
+        checkin(**inputs), mode="ask", grants={}, catalogue=catalogue
+    )
+
+    assert (verdict.allowed, verdict.denied) == (False, False), "a card, as before"
+    await harness.registry.shutdown()

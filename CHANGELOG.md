@@ -142,6 +142,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   for. Reaching for the capability is the same signal that step sends, so the plan now
   loads it and runs against the real operations; `capabilities.use` remains for loading
   one ahead of time.
+
+- **A check-in that could never open is refused before any card.** "Pause after 10
+  seconds" raised an approval card, and the person's yes was answered with "a check-in is
+  at least 60 seconds away". The time bounds, the one-of-`at`-or-`in_seconds` rule and
+  the offset rule are now checked by the gate first, with the same sentences, so a
+  question whose yes changes nothing is not asked; the step checks again when it runs.
 - **A `plan` delegation is read-only whatever the person's own Claude Code allowlist says.**
   Claude Code's plan mode guides the model; it does not disarm tools the person has allowed
   in their own settings. On the live smoke a plan-mode session read twenty files with

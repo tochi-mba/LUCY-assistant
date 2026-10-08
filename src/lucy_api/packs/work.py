@@ -37,9 +37,15 @@ from lucy_api.packs.base import Availability, Permission, SetupPlan, State
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import State as WorkState
 from lucy_api.work import StillRunningError, UnknownWorkError
+from lucy_api.work.subscriptions import (
+    MAX_LIFETIME_SECONDS,
+    MIN_CHECKIN_SECONDS,
+    TOO_FAR,
+    TOO_SOON,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     from weftai.operation import AnyOperation, RunContext
@@ -138,6 +144,7 @@ class WorkPack:
                 ),
                 risk="write",
                 covers=("work.checkin",),
+                refuses=_premature,
             ),
         )
 
@@ -357,6 +364,28 @@ async def _checkin(registry: Registry, seam: SubscriptionSeam | None, given: Any
         )
         + seam.advice(),
     }
+
+
+def _premature(arguments: Mapping[str, object]) -> str:
+    """Why a check-in could never open as asked, before anyone is asked to approve it.
+
+    "Pause after 10 seconds" raised a card; the person's yes was answered with "a check-in
+    is at least 60 seconds away". A question whose yes changes nothing is not asked: the
+    time is checked here on the wall clock, and again against the registry's clock when
+    the step runs. A time that is not a number is left to the step's own validation.
+    """
+    now = datetime.now(UTC).timestamp()
+    try:
+        due_at = _due_time(now, arguments.get("at"), arguments.get("in_seconds"))
+    except (TypeError, ValueError):
+        return ""
+    if isinstance(due_at, str):
+        return due_at
+    if due_at - now < MIN_CHECKIN_SECONDS:
+        return TOO_SOON
+    if due_at - now > MAX_LIFETIME_SECONDS:
+        return TOO_FAR
+    return ""
 
 
 def _due_time(now: float, at: object, in_seconds: object) -> float | str:
