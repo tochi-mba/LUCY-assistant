@@ -384,3 +384,30 @@ def test_the_customisation_settings_are_read_and_clamped() -> None:
     assert wild.workspace_edit_matching == "fuzzy"
     negative = _Resolved({"delete_archived_sessions_after_days": -5})
     assert TurnPolicy.from_resolved(negative).delete_archived_sessions_after_days == 0
+
+
+def test_claude_code_delegation_reads_the_persons_three_switches() -> None:
+    """ADR-0017: off, no folders and `edits` unless the person said otherwise."""
+    unset = TurnPolicy.from_resolved(_Resolved({}))
+    assert unset.claude_code_delegation is False
+    assert unset.claude_code_directories == ()
+    assert unset.claude_code_run_level == "edits"
+
+    chosen = TurnPolicy.from_resolved(
+        _Resolved(
+            {
+                "claude_code_delegation": True,
+                "claude_code_directories": ["C:/code/tool", "", 7, "D:/site"],
+                "claude_code_run_level": "plan",
+            }
+        )
+    )
+    assert chosen.claude_code_delegation is True
+    assert chosen.claude_code_directories == ("C:/code/tool", "D:/site"), "only real paths"
+    assert chosen.claude_code_run_level == "plan"
+
+    garbled = TurnPolicy.from_resolved(
+        _Resolved({"claude_code_delegation": "yes", "claude_code_run_level": "root"})
+    )
+    assert garbled.claude_code_delegation is False, "only a real true turns it on"
+    assert garbled.claude_code_run_level == "edits", "an unknown level is never looser"

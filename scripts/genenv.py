@@ -72,6 +72,10 @@ KEYRING_CONSUMERS: tuple[tuple[str, str], ...] = (
 # allowlist, never inferred from URLs or the service-token map. Adding a sibling does not
 # silently give the hub authority to call it for a person.
 LUCY_EXCHANGE_AUDIENCES: tuple[str, ...] = (
+    # The Claude Code bridge (src/lucy_coder, ADR-0017). Like memory-api it only verifies
+    # keyring's JWTs and never calls /v1/internal, so it is an audience and not a consumer.
+    # Inert unless the operator sets coder_api_base_url; the person's settings gate the rest.
+    "coder-api",
     "environments-api",
     "github-api",
     # Lucy itself: a woken turn mints a token for the hub under the standing consent the

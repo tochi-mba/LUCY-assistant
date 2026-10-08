@@ -842,6 +842,7 @@ def build_container(
                 persona_base_url=settings.persona_api_base_url,
                 repos_base_url=settings.repos_api_base_url,
                 repos_audience=settings.repos_api_audience,
+                coder_base_url=settings.coder_api_base_url,
             ),
             WatchPack(settings.environments_api_base_url, fetch=httpx_fetch(outbound)),
             McpPack(mcp_servers, httpx_call(outbound)),
