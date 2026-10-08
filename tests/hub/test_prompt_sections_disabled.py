@@ -284,11 +284,11 @@ async def test_a_model_cannot_write_a_setting_only_the_person_may_change(key: st
 
     result = await capabilities.execute(_set("lucy", key, ["helpers"]), context)
 
-    step = result["steps"][0]
+    [refused] = result["issues"]
     assert fake.writes == []
-    assert step["status"] == "error"
-    assert f"lucy.{key} can only be changed by the person" in step["error"]
-    assert "Tell them where to change it." in step["error"]
+    assert refused["code"] == "permission_denied", "refused before any card, never asked"
+    assert f"lucy.{key} can only be changed by the person" in refused["message"]
+    assert "Tell them where to change it." in refused["message"]
 
 
 async def test_the_same_key_in_another_namespace_is_that_namespace_s_business() -> None:
