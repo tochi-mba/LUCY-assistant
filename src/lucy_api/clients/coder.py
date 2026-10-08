@@ -43,6 +43,10 @@ class CoderTask:
     resumable: bool = False
     advice: str = ""
     transcript_tail: str = ""
+    model: str = ""
+    permission_denials: tuple[dict[str, str], ...] = ()
+    """What its last turn was refused -- each a tool and a clipped input -- in `ask` mode,
+    where a tool that needs permission is refused headless rather than prompted."""
 
     @property
     def live(self) -> bool:
@@ -63,14 +67,16 @@ class CoderClient(Protocol):
     async def ready(self) -> Readiness: ...
 
     async def start(
-        self, *, brief: str, directory: str, run_level: str, title: str
+        self, *, brief: str, directory: str, run_level: str, title: str, model: str = ""
     ) -> CoderTask: ...
 
     async def get(self, task_id: str, *, tail_chars: int = 0) -> CoderTask: ...
 
     async def tasks(self) -> tuple[CoderTask, ...]: ...
 
-    async def message(self, task_id: str, text: str) -> CoderTask: ...
+    async def message(
+        self, task_id: str, text: str, *, mode: str = "", allow_tools: tuple[str, ...] = ()
+    ) -> CoderTask: ...
 
     async def cancel(self, task_id: str) -> CoderTask: ...
 
@@ -83,12 +89,13 @@ class HttpCoderClient:
         payload = await self._api.send("GET", "/healthy")
         return Readiness(ready=text(payload, "status") == "ok")
 
-    async def start(self, *, brief: str, directory: str, run_level: str, title: str) -> CoderTask:
-        payload = await self._api.send(
-            "POST",
-            "/v1/tasks",
-            body={"brief": brief, "directory": directory, "run_level": run_level, "title": title},
-        )
+    async def start(
+        self, *, brief: str, directory: str, run_level: str, title: str, model: str = ""
+    ) -> CoderTask:
+        body = {"brief": brief, "directory": directory, "run_level": run_level, "title": title}
+        if model:
+            body["model"] = model
+        payload = await self._api.send("POST", "/v1/tasks", body=body)
         return _task(payload)
 
     async def get(self, task_id: str, *, tail_chars: int = 0) -> CoderTask:
@@ -102,10 +109,20 @@ class HttpCoderClient:
         payload = await self._api.send("GET", "/v1/tasks")
         return tuple(_task(row) for row in rows(payload, "tasks"))
 
-    async def message(self, task_id: str, text_body: str) -> CoderTask:
-        payload = await self._api.send(
-            "POST", f"/v1/tasks/{segment(task_id)}/message", body={"text": text_body}
-        )
+    async def message(
+        self,
+        task_id: str,
+        text_body: str,
+        *,
+        mode: str = "",
+        allow_tools: tuple[str, ...] = (),
+    ) -> CoderTask:
+        body: dict[str, Any] = {"text": text_body}
+        if mode:
+            body["mode"] = mode
+        if allow_tools:
+            body["allow_tools"] = list(allow_tools)
+        payload = await self._api.send("POST", f"/v1/tasks/{segment(task_id)}/message", body=body)
         return _task(payload)
 
     async def cancel(self, task_id: str) -> CoderTask:
@@ -142,6 +159,12 @@ def _task(payload: Any) -> CoderTask:
         resumable=flag(payload, "resumable"),
         advice=text(payload, "advice"),
         transcript_tail=text(payload, "transcript_tail"),
+        model=text(payload, "model"),
+        permission_denials=tuple(
+            {"tool": text(row, "tool"), "input": text(row, "input")}
+            for row in rows(payload, "permission_denials")
+            if isinstance(row, dict)
+        ),
     )
 
 
@@ -153,6 +176,7 @@ class FakeCoderClient:
         self.tasks_by_id: dict[str, CoderTask] = {}
         self.started: list[dict[str, str]] = []
         self.messages: list[tuple[str, str]] = []
+        self.follow_ups: list[dict[str, Any]] = []
         self.cancelled: list[str] = []
         self.down: Exception | None = None
 
@@ -164,7 +188,9 @@ class FakeCoderClient:
             raise self.down
         return self.readiness
 
-    async def start(self, *, brief: str, directory: str, run_level: str, title: str) -> CoderTask:
+    async def start(
+        self, *, brief: str, directory: str, run_level: str, title: str, model: str = ""
+    ) -> CoderTask:
         if self.down is not None:
             raise self.down
         made = CoderTask(
@@ -174,9 +200,16 @@ class FakeCoderClient:
             directory=directory,
             run_level=run_level,
             state="running",
+            model=model,
         )
         self.started.append(
-            {"brief": brief, "directory": directory, "run_level": run_level, "title": title}
+            {
+                "brief": brief,
+                "directory": directory,
+                "run_level": run_level,
+                "title": title,
+                "model": model,
+            }
         )
         self.tasks_by_id[made.id] = made
         return made
@@ -188,8 +221,16 @@ class FakeCoderClient:
     async def tasks(self) -> tuple[CoderTask, ...]:
         return tuple(self.tasks_by_id.values())
 
-    async def message(self, task_id: str, text_body: str) -> CoderTask:
+    async def message(
+        self,
+        task_id: str,
+        text_body: str,
+        *,
+        mode: str = "",
+        allow_tools: tuple[str, ...] = (),
+    ) -> CoderTask:
         self.messages.append((task_id, text_body))
+        self.follow_ups.append({"task": task_id, "mode": mode, "allow_tools": allow_tools})
         return self.tasks_by_id[task_id]
 
     async def cancel(self, task_id: str) -> CoderTask:

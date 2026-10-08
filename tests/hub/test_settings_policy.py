@@ -406,6 +406,9 @@ def test_claude_code_delegation_reads_the_persons_three_switches() -> None:
     assert chosen.claude_code_directories == ("C:/code/tool", "D:/site"), "only real paths"
     assert chosen.claude_code_run_level == "plan"
 
+    asking = TurnPolicy.from_resolved(_Resolved({"claude_code_run_level": "ask"}))
+    assert asking.claude_code_run_level == "ask", "Claude Code's own default mode"
+
     garbled = TurnPolicy.from_resolved(
         _Resolved({"claude_code_delegation": "yes", "claude_code_run_level": "root"})
     )

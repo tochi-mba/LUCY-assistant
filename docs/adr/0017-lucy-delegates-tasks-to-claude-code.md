@@ -70,8 +70,31 @@ off, no folders, no looser than `edits`. A folder is allowed by exact membership
 normalising case and separators: never a prefix (`C:/repos` must not allow
 `C:/repos-secret`) and never resolved on the hub's own disk, which cannot see the host's.
 
-Run levels map to `--permission-mode`: `plan` → `plan`, `edits` → `acceptEdits` (the
-default), `full` → `bypassPermissions`. The card names the level each task will run at.
+**Lucy uses Claude Code the way a person at the keyboard does** (the owner's words: "like a
+normal user"). Every behaviour here was checked against the real CLI before it was built:
+
+* **Modes per turn**, most careful first: `plan` → `plan`, `ask` → `default`, `edits` →
+  `acceptEdits`, `full` → `bypassPermissions`. `claude_code_run_level` is a *ceiling* on
+  that order (default `edits`): Lucy may run a turn at the person's level or more
+  carefully, never above, and the hub refuses anything above before a card is shown. A
+  follow-up may change the mode, so a large task plans first and, on the person's yes, is
+  carried out at their level in the same session. If the person lowers the ceiling, a
+  session above it resumes at the ceiling.
+* **Approving a prompt.** Headless there is nobody to answer Claude Code's permission
+  prompts, so in `ask` (and for whatever `edits` still asks about) a tool that needs
+  permission is refused, and the result record lists it in `permission_denials`. The row
+  keeps the tool and a clipped input; Lucy gets a hub-written sentence naming only the tool
+  names, and a follow-up's `allow_tools` -- on its own card -- resumes with exactly those
+  rules (`--allowedTools`). Plan mode refuses `allow_tools`: it is read-only.
+* **Questions back.** A turn that ends in a question ends `idle` with the question as its
+  answer; Lucy relays it and the person's answer is the next message.
+* **Model per task** (`--model`), only when the person named one; otherwise Claude Code's
+  own default. The person's own defaults are never changed.
+* **Esc, not delete.** Cancelling a running turn leaves the session resumable; a message
+  carries on. A task cancelled before it ever ran stays over.
+
+The card for every turn shows the brief or message, the folder, the mode and any tools it
+would allow.
 
 ## Alternatives rejected
 
@@ -99,6 +122,12 @@ default), `full` → `bypassPermissions`. The card names the level each task wil
   process-group kill instead of `taskkill /T` (the runner names the seam).
 * **Plan mode explores before it answers**: a trivial plan-only task cost $0.22 in the
   spike, so the per-turn budget ($1 by default) is set for real work, not for "pong".
+* **The CLI is found, never shelled.** On Windows npm puts `claude.cmd` on PATH; the bridge
+  follows it to the native binary it forwards to and refuses a bare script shim, because
+  through cmd.exe a brief's `&`, `|`, `^` and `%` would be shell syntax on the person's
+  machine.
+* **A concurrent `--resume` is the bridge's problem.** The CLI runs a second turn on a
+  busy session rather than refusing; the bridge queues follow-ups inside the task.
 
 ## What would change our minds
 

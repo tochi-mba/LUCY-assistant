@@ -163,4 +163,4 @@ def test_no_assistant_may_change_any_claude_code_switch() -> None:
     own catalogue says so, so a stale settings-api cannot loosen them either."""
     for key in ("claude_code_delegation", "claude_code_directories", "claude_code_run_level"):
         assert knob(key).agent is AgentAccess.NEVER, key
-    assert knob("claude_code_run_level").choices == ("plan", "edits", "full")
+    assert knob("claude_code_run_level").choices == ("plan", "ask", "edits", "full")
