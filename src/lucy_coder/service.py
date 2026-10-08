@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lucy_coder.runner import Counters, TurnOutcome
+from lucy_coder.runner import MODES, Counters, TurnOutcome
 from lucy_coder.tasks import LIVE, SNIPPET_CHARS, Task, TaskState
 
 if TYPE_CHECKING:
@@ -25,15 +26,28 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-RUN_LEVELS_ALLOWED = ("plan", "edits", "full")
+RUN_LEVELS_ALLOWED = MODES
+
+MODEL_NAME = re.compile(r"\A[a-z0-9][a-z0-9.\-\[\]]{0,63}\Z")
+"""A model name or alias as `--model` takes one: `sonnet`, `claude-opus-5-5`, `opus[1m]`."""
+
+TOOL_RULE = re.compile(r"\A[A-Za-z][A-Za-z0-9_]{0,99}(\([^()\r\n]{1,200}\))?\Z")
+"""One permission rule as `--allowedTools` takes it: `Write`, `Bash(npm test:*)`,
+`mcp__server__tool`. Nothing that could be a second flag or a second rule."""
+
+MAX_ALLOWED_TOOLS = 10
 
 NO_SUCH_TASK = "no such task"
 NOT_A_DIRECTORY = "directory does not exist on this machine: {path}"
-BAD_RUN_LEVEL = "run_level must be one of plan, edits, full"
+BAD_RUN_LEVEL = "run_level must be one of plan, ask, edits, full"
+BAD_MODEL = "model must be a Claude model name or alias, such as sonnet"
+BAD_TOOLS = "allow_tools takes up to 10 permission rules, such as Write or Bash(npm test:*)"
+PLAN_ALLOWS_NOTHING = "plan mode is read-only; allowing a tool needs ask, edits or full"
 EMPTY_BRIEF = "say what the task is, in at least a sentence"
 ALREADY_OVER = "this task is {state}; start a new one, or message it to resume the session"
 QUEUED_BEHIND = "queued behind {count} running task(s); it starts on its own"
 MESSAGE_QUEUED = "the task is mid-turn; your message runs when this turn ends"
+INTERRUPTED_BY_PERSON = "interrupted by the person; a message resumes the session"
 
 
 class RefusedError(Exception):
@@ -59,13 +73,22 @@ class CoderService:
 
     # ------------------------------------------------------------------ starting
 
-    async def start(
-        self, *, account_id: str, brief: str, directory: str, run_level: str, title: str
+    async def start(  # noqa: PLR0913 - a delegation: brief, place, level, name, model
+        self,
+        *,
+        account_id: str,
+        brief: str,
+        directory: str,
+        run_level: str,
+        title: str,
+        model: str = "",
     ) -> Task:
         if not brief.strip():
             raise RefusedError(422, EMPTY_BRIEF)
         if run_level not in RUN_LEVELS_ALLOWED:
             raise RefusedError(422, BAD_RUN_LEVEL)
+        if model and not MODEL_NAME.fullmatch(model):
+            raise RefusedError(422, BAD_MODEL)
         if not await asyncio.to_thread(Path(directory).is_dir):
             # The allowlist is the hub's to enforce from the person's settings; existence
             # is the bridge's, because only the host knows its own disk.
@@ -77,18 +100,43 @@ class CoderService:
             directory=directory,
             run_level=run_level,
             title=title.strip() or brief.strip()[:60],
+            model=model,
         )
         self._pump()
         return (await self._fresh(account_id, task.id)) or task
 
-    async def message(self, account_id: str, task_id: str, text: str) -> tuple[Task, str]:
-        """Queue one follow-up turn. Returns the task and a sentence about when it runs."""
+    async def message(
+        self,
+        account_id: str,
+        task_id: str,
+        text: str,
+        *,
+        mode: str = "",
+        allow_tools: tuple[str, ...] = (),
+    ) -> tuple[Task, str]:
+        """Queue one follow-up turn. Returns the task and a sentence about when it runs.
+
+        `mode` changes the session's permission mode from this turn on -- plan first, then
+        carry the plan out at `edits` -- and `allow_tools` lets this turn use tools the last
+        one was refused. Both are what a person does at the keyboard; the hub has already
+        checked them against the person's ceiling and shown them on a card.
+        """
         if not text.strip():
             raise RefusedError(422, "say what to tell it")
+        if mode and mode not in MODES:
+            raise RefusedError(422, BAD_RUN_LEVEL)
+        if len(allow_tools) > MAX_ALLOWED_TOOLS or not all(
+            TOOL_RULE.fullmatch(rule) for rule in allow_tools
+        ):
+            raise RefusedError(422, BAD_TOOLS)
         task = await self._found(account_id, task_id)
+        if allow_tools and (mode or task.run_level) == "plan":
+            raise RefusedError(422, PLAN_ALLOWS_NOTHING)
         if task.state in {TaskState.failed, TaskState.cancelled} and not task.resumable:
             raise RefusedError(409, ALREADY_OVER.format(state=task.state.value))
-        task.queued_messages.append(text.strip())
+        task.queued_messages.append(
+            {"text": text.strip(), "mode": mode, "allow_tools": list(allow_tools)}
+        )
         if task.state in {TaskState.idle, TaskState.failed, TaskState.cancelled}:
             # A resumable ended task comes back to life; its next turn is the message's.
             task.state = TaskState.queued
@@ -103,8 +151,14 @@ class CoderService:
         task = await self._found(account_id, task_id)
         if task.state not in LIVE:
             return task
+        if task.state is TaskState.running:
+            # Esc, not delete: the session Claude Code was in still exists, so a message
+            # carries on from where it stopped, as it would at the keyboard.
+            task.resumable = True
+            task.detail = INTERRUPTED_BY_PERSON
+        else:
+            task.detail = "cancelled by the person before it started"
         task.state = TaskState.cancelled
-        task.detail = "cancelled by the person"
         task.queued_messages = []
         await asyncio.to_thread(self._store.save, task)
         await self._runner.cancel(task_id)
@@ -145,12 +199,15 @@ class CoderService:
             task = self._store.next_queued()
             if task is None:
                 return
-            prompt = task.queued_messages.pop(0) if task.turns else task.brief
+            entry: dict[str, Any] = task.queued_messages.pop(0) if task.turns else {}
+            prompt = str(entry.get("text") or task.brief)
+            task.run_level = str(entry.get("mode") or task.run_level)
+            allow = tuple(str(rule) for rule in entry.get("allow_tools") or ())
             resume = task.turns > 0
             task.state = TaskState.running
             self._store.save(task)
             turn = asyncio.get_running_loop().create_task(
-                self._run_turn(task, prompt, resume=resume),
+                self._run_turn(task, prompt, resume=resume, allow=allow),
                 name=f"coder-turn-{task.id}",
             )
             self._turns[task.id] = turn
@@ -159,7 +216,9 @@ class CoderService:
     def _live(self) -> int:
         return self._store.live_count()
 
-    async def _run_turn(self, task: Task, prompt: str, *, resume: bool) -> None:
+    async def _run_turn(
+        self, task: Task, prompt: str, *, resume: bool, allow: tuple[str, ...]
+    ) -> None:
         counters = Counters(on_change=lambda seen: self._progress(task.id, seen))
         outcome = await self._runner.run_turn(
             task_id=task.id,
@@ -170,6 +229,8 @@ class CoderService:
             run_level=task.run_level,
             counters=counters,
             transcribe=lambda line: self._store.append_transcript(task.id, line),
+            model=task.model,
+            allow_tools=allow,
         )
         await asyncio.to_thread(self._settle, task.id, outcome)
         self._pump()
@@ -182,6 +243,7 @@ class CoderService:
         task.turns += outcome.num_turns or 1
         task.cost_usd += outcome.cost_usd
         task.resumable = True
+        task.denials = outcome.denials
         if not outcome.ok:
             task.state = TaskState.failed
             task.detail = outcome.detail

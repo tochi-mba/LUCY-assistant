@@ -304,3 +304,61 @@ def _executable(path: Path, content: str) -> Path:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+async def test_a_refused_tool_comes_back_named_with_its_input_clipped(workdir: str) -> None:
+    """In `ask` mode a tool that needs permission is refused headless; the turn still
+    succeeds, and the refusal is what lets the person say yes to it next."""
+    from lucy_coder.tasks import DENIAL_INPUT_CHARS
+
+    outcome, _counters, _lines = await one_turn(
+        a_runner(), workdir, script="denied", run_level="ask"
+    )
+
+    assert outcome.ok
+    [denial] = outcome.denials
+    assert denial["tool"] == "Write"
+    assert '"file_path": "denied.txt"' in denial["input"]
+    assert len(denial["input"]) <= DENIAL_INPUT_CHARS
+    argv = json.loads((Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"]
+    assert argv[argv.index("--permission-mode") + 1] == "default", "ask is the CLI default"
+
+
+async def test_a_model_and_allowed_tools_reach_the_cli_as_one_argument_each(
+    workdir: str,
+) -> None:
+    runner = a_runner()
+    os.environ["FAKE_CLAUDE"] = "answers"
+    try:
+        await runner.run_turn(
+            task_id="tsk_1",
+            prompt="go on",
+            cwd=workdir,
+            session_id="ses-1",
+            resume=True,
+            run_level="ask",
+            counters=Counters(),
+            transcribe=lambda _line: None,
+            model="sonnet",
+            allow_tools=("Write", "Bash(npm test:*)"),
+        )
+    finally:
+        del os.environ["FAKE_CLAUDE"]
+    argv = json.loads((Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"]
+    assert argv[argv.index("--model") + 1] == "sonnet"
+    assert argv[argv.index("--allowedTools") + 1] == "Write,Bash(npm test:*)"
+
+
+async def test_no_model_and_no_tools_add_no_flags(workdir: str) -> None:
+    await one_turn(a_runner(), workdir)
+    argv = json.loads((Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"]
+    assert "--model" not in argv
+    assert "--allowedTools" not in argv
+
+
+def test_a_malformed_denial_list_is_no_denials() -> None:
+    from lucy_coder.runner import _denials
+
+    assert _denials(None) == []
+    assert _denials("Write") == []
+    assert _denials([{"tool_name": "Bash"}]) == [{"tool": "Bash", "input": ""}]
