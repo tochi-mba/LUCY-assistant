@@ -45,6 +45,7 @@ from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.work import Brief, Kind, new_id
 from lucy_api.work.subscriptions import waking_tags
+from lucy_api.work.types import WorkError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -62,6 +63,14 @@ POLL_SECONDS = 5.0
 """How often the work item asks the bridge whether the task has settled. Polling matches
 watches; the bridge is one small GET away and signals would need a per-sibling signal URL
 (rejected for v1 in ADR-0017)."""
+
+POLL_MISSES = 12
+"""Consecutive unanswered polls -- a minute at five seconds -- before tracking gives up."""
+
+BRIDGE_SILENT = (
+    "the Claude Code bridge stopped answering, so tracking stopped; the task may still be "
+    "running on their machine. coder.read {task_id} checks it once the bridge is back."
+)
 
 TASK_SECONDS = 50 * 60.0
 """The work item's own ceiling: past the bridge's 45-minute turn clock plus slack, so the
@@ -436,8 +445,19 @@ async def _settled(
     Progress is hub-written sentences from counters -- "14 tool uses, last: Edit" -- never
     Claude Code's own text, because `progress` reaches the live block unfenced.
     """
+    missed = 0
     while True:
-        task = await client.get(task_id)
+        try:
+            task = await client.get(task_id)
+        except (DownstreamError, TransportError) as exc:
+            # A bridge restart takes seconds; the task itself keeps running on the host.
+            # Give up only after a stretch of silence, and say where the task still is.
+            missed += 1
+            if missed >= POLL_MISSES:
+                raise WorkError(BRIDGE_SILENT.format(task_id=task_id)) from exc
+            await asyncio.sleep(POLL_SECONDS)
+            continue
+        missed = 0
         if not task.live:
             return _row(task)
         if task.tool_uses:

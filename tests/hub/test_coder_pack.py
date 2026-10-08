@@ -502,3 +502,59 @@ def test_the_ceiling_order_and_unknown_modes() -> None:
     assert not _within("full", "edits")
     assert not _within("root", "full"), "an unknown mode is never within"
     assert not _within("plan", "nonsense"), "nor is anything under an unknown ceiling"
+
+
+class Flaky:
+    """A bridge that misses some polls, then answers -- or never does."""
+
+    def __init__(self, misses: int, then: CoderTask | None) -> None:
+        self.misses = misses
+        self.then = then
+        self.asked = 0
+
+    async def get(self, task_id: str, *, tail_chars: int = 0) -> CoderTask:
+        del task_id, tail_chars
+        self.asked += 1
+        if self.asked <= self.misses or self.then is None:
+            raise DownstreamError("bridge restarting", status=503)
+        return self.then
+
+
+async def _no_wait(_seconds: float) -> None:
+    return None
+
+
+async def test_tracking_rides_out_a_bridge_restart() -> None:
+    from lucy_api.work.types import WorkError  # noqa: F401 - the failure path's type
+
+    done = CoderTask(
+        id="tsk_1", title="t", brief="b", directory=FOLDER, run_level="edits", state="idle"
+    )
+    flaky = Flaky(misses=3, then=done)
+    registry = Registry(now=lambda: datetime.now(UTC))
+    original = coder_module.asyncio.sleep
+    coder_module.asyncio.sleep = _no_wait  # type: ignore[assignment]
+    try:
+        payload = await coder_module._settled(flaky, registry, "tsk_1", "wrk_1")  # type: ignore[arg-type]
+    finally:
+        coder_module.asyncio.sleep = original  # type: ignore[assignment]
+        await registry.shutdown()
+    assert payload["state"] == "idle"
+    assert flaky.asked == 4
+
+
+async def test_tracking_gives_up_after_a_minute_of_silence_and_says_where_the_task_is() -> None:
+    from lucy_api.work.types import WorkError
+
+    flaky = Flaky(misses=0, then=None)
+    registry = Registry(now=lambda: datetime.now(UTC))
+    original = coder_module.asyncio.sleep
+    coder_module.asyncio.sleep = _no_wait  # type: ignore[assignment]
+    try:
+        with pytest.raises(WorkError, match="may still be running") as raised:
+            await coder_module._settled(flaky, registry, "tsk_9", "wrk_1")  # type: ignore[arg-type]
+    finally:
+        coder_module.asyncio.sleep = original  # type: ignore[assignment]
+        await registry.shutdown()
+    assert "coder.read tsk_9" in str(raised.value)
+    assert flaky.asked == coder_module.POLL_MISSES
