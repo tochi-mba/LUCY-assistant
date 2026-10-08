@@ -380,3 +380,21 @@ async def test_calling_a_held_back_capability_before_loading_it_says_how_to_load
     assert result["text"] == NOT_LOADED.format(capability=held_back)
     assert result["issues"][0]["code"] == "capability_not_loaded"
     assert result["steps"] == []
+
+
+def test_titles_are_looked_up_for_the_deferred_ids_and_unknown_ids_are_skipped() -> None:
+    from lucy_api.packs.coder import CoderPack
+    from lucy_api.packs.help import HelpPack
+    from lucy_api.sessions.scope import SessionScope
+
+    capabilities = Capabilities([HelpPack(), CoderPack("")])
+    context = capabilities.context_for(
+        SessionScope(account_id="acct_a", profile="personal", session_id="ses_a")
+    )
+    import asyncio
+
+    catalogue = asyncio.run(capabilities.probe(context))
+    assert capabilities.titles(catalogue, ("coder", "help", "nothing")) == {
+        "coder": "Claude Code",
+        "help": "Help",
+    }

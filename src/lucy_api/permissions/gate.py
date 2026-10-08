@@ -177,16 +177,22 @@ class PermissionGate:
                 continue
             raw_input = step.get("input")
             arguments = raw_input if isinstance(raw_input, dict) else {}
-            verdict = _decide(
-                permission,
-                mode=mode,
-                grants=grants,
-                floors=floors,
-                once=grants.get(once_key(name, arguments)),
-                tally=_tally(permission, arguments),
-                writes=_effects(name, catalogue) in WRITE_EFFECTS,
-                each=permission.each_call is not None and permission.each_call(arguments),
-            )
+            never = permission.refuses(arguments) if permission.refuses is not None else ""
+            if never:
+                # Refused outright, before any card: a question whose yes changes nothing
+                # is not asked. The model reads why and tells the person where to go.
+                verdict = Verdict(False, never, permission.id, permission.title, denied=True)
+            else:
+                verdict = _decide(
+                    permission,
+                    mode=mode,
+                    grants=grants,
+                    floors=floors,
+                    once=grants.get(once_key(name, arguments)),
+                    tally=_tally(permission, arguments),
+                    writes=_effects(name, catalogue) in WRITE_EFFECTS,
+                    each=permission.each_call is not None and permission.each_call(arguments),
+                )
             if not verdict.allowed:
                 item = Blocked(
                     permission=verdict.permission,

@@ -145,6 +145,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   (`CODER_TURN_BUDGET_USD`) and that a message resumes the task, and the default rises to
   $3: a session's first turn builds its prompt cache, and creating a one-line file cost
   $0.82.
+
+- **"Claude Code" finds the coder capability, and a never-setting is refused before any
+  card.** Asked to have Claude Code make files, Lucy twice reached elsewhere first -- a
+  sandbox script writing to `C:/Users/...` (which grows a folder of that name inside the
+  sandbox and lands nothing on the person's machine, while the reply said the files were
+  made) and then a helper -- because the deferred list read `coder, repos, watch`, bare ids.
+  Deferred capabilities now carry their titles (`coder (Claude Code)`), and the workspace
+  page says the sandbox has no drive of theirs and names delegation as the way to their
+  machine. Separately, asked to add `C:/` to `claude_code_directories`, Lucy was given a
+  card, the person said yes, and the write was refused anyway: a setting no assistant may
+  change is now refused before anyone is asked (`Permission.refuses`), with the sentence
+  that says where to change it.
 - **The Claude Code bridge finds the real `claude`, and never runs a brief through a
   shell.** On Windows an npm install puts `claude.cmd` on PATH, a script a bare name cannot
   launch, so the bridge reported "not installed" on a machine where Claude Code worked --

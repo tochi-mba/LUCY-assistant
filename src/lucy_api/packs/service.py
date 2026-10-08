@@ -201,6 +201,15 @@ class Capabilities:
             tuple(name for name in deferred if name not in selected),
         )
 
+    def titles(self, catalogue: Catalogue, names: Sequence[str]) -> dict[str, str]:
+        """Each named capability's title, for a list a model reads as bare ids.
+
+        "coder" told the model nothing; asked for Claude Code it reached for its own sandbox
+        and a helper before a person's correction sent it to `capabilities.use coder`.
+        """
+        by_id = {item.pack.id: item.pack.title for item in catalogue.bound}
+        return {name: by_id[name] for name in names if name in by_id}
+
     def listings(self, catalogue: Catalogue) -> list[dict[str, Any]]:
         return [
             {

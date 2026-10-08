@@ -112,8 +112,9 @@ async def test_a_sibling_setting_is_asked_about_until_its_declaration_is_known()
     freely = await capabilities.execute(set_step("search", "max_results", 8), context)
     assert not freely["issues"], "declared freely: auto changes it"
     never = await capabilities.execute(set_step("user", "erasure_mode", "immediate"), context)
-    assert not never["issues"], "never is not asked about: a yes would change nothing"
-    assert never["steps"][0]["status"] == "error"
+    [refused] = never["issues"]
+    assert refused["code"] == "permission_denied", "declared never: refused, never asked"
+    assert "never by an assistant, even with approval" in refused["message"]
     assert fake.writes == [("search", "max_results", 8)]
 
 
@@ -277,3 +278,30 @@ async def test_describe_lists_one_capability_briefly_and_get_gives_it_in_full() 
         "prompt_sections_disabled": "never",
         "default_market": "freely",
     }
+
+
+async def test_a_never_setting_is_refused_before_any_card_is_shown() -> None:
+    """The bug, named: asked to add C:/ to claude_code_directories -- a setting no assistant
+    may change -- Lucy was given a card, the person said yes, and the write was refused
+    anyway. A question whose yes changes nothing is not asked."""
+    fake, capabilities, context = setup()
+    await capabilities.probe(context)
+
+    result = await capabilities.execute(
+        set_step("lucy", "claude_code_directories", ["C:/"]), context
+    )
+
+    [refused] = result["issues"]
+    assert refused["code"] == "permission_denied", "refused outright, never a card"
+    assert "never by an assistant, even with approval" in refused["message"]
+    assert "lucy.claude_code_directories" in refused["message"]
+    assert fake.writes == []
+
+
+def test_the_refusal_names_only_a_setting_known_to_be_never() -> None:
+    pack = SettingsPack("https://settings.test", client=FakeSettingsPackClient())
+    assert "never by an assistant" in pack._never(
+        {"namespace": "lucy", "key": "claude_code_delegation"}
+    )
+    assert pack._never({"namespace": "lucy", "key": "max_llm_turns"}) == ""
+    assert pack._never({"namespace": "spotify", "key": "unseen"}) == "", "unseen is asked"

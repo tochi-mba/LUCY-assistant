@@ -62,7 +62,7 @@ heading and its own notice. That is the cheaper of the two mistakes.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.resources import files
 from itertools import accumulate, takewhile
 from typing import TYPE_CHECKING
@@ -113,6 +113,7 @@ class PromptContext:
     """
 
     deferred: tuple[str, ...] = ()
+    deferred_titles: Mapping[str, str] = field(default_factory=dict)
     """Ready, and held back to keep the schema small. Named so the model can ask for one."""
 
     advertised: tuple[str, ...] = ()
@@ -254,9 +255,10 @@ def _capabilities(context: PromptContext) -> str:
     if context.capabilities:
         lines.append(f"Ready now: {', '.join(context.capabilities)}.")
     if context.deferred:
+        named = ", ".join(_named(name, context.deferred_titles) for name in context.deferred)
         lines.append(
             "Ready but not loaded this turn, to keep this list short: "
-            f"{', '.join(context.deferred)}. To use one, bind it by name with "
+            f"{named}. To use one, bind it by name with "
             "capabilities.use; its operations are callable in your very next plan, in this "
             "same turn. Bind only the one the work needs: each one bound spends room."
         )
@@ -267,6 +269,12 @@ def _capabilities(context: PromptContext) -> str:
             "(`capabilities.setup` returns it) rather than working around them."
         )
     return "\n".join(lines)
+
+
+def _named(name: str, titles: Mapping[str, str]) -> str:
+    """`coder (Claude Code)`: the id to bind, and the words a person would use for it."""
+    title = titles.get(name, "")
+    return f"{name} ({title})" if title and title.casefold() != name.casefold() else name
 
 
 def _framed_notes(notes: Sequence[Claim], omitted: int = 0) -> str:

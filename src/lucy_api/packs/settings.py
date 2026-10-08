@@ -37,6 +37,11 @@ ADDRESSED = "As settings.describe lists it."
 """Where a namespace and a key come from: describe's rows, service names and all."""
 
 
+NEVER_SENTENCE = (
+    "{namespace}.{key} can only be changed by the person, in their settings, and never by an "
+    "assistant, even with approval. Tell them where to change it."
+)
+
 MAY_WRITE = frozenset({AgentAccess.WITH_APPROVAL.value, AgentAccess.FREELY.value})
 """What a setting must declare before a model may write it. Anything else -- `never`, or a
 service that did not say -- is the person's to change: settings-api's own rule is that a
@@ -92,8 +97,23 @@ class SettingsPack:
                 risk="write",
                 covers=("settings.set",),
                 each_call=self._needs_a_yes,
+                refuses=self._never,
             ),
         )
+
+    def _never(self, arguments: Mapping[str, object]) -> str:
+        """The sentence for a setting no assistant may change, or nothing.
+
+        Decided from the hub's own catalogue and from what settings-api declared on rows
+        already read; a setting never seen is not refused here, it is asked about, and the
+        write itself still checks.
+        """
+        namespace = str(arguments.get("namespace") or "")
+        key = str(arguments.get("key") or "")
+        access = _own(namespace, key) or self._declared.get((namespace, key), "")
+        if access != AgentAccess.NEVER.value:
+            return ""
+        return NEVER_SENTENCE.format(namespace=namespace, key=key)
 
     def _needs_a_yes(self, arguments: Mapping[str, object]) -> bool:
         """Whether changing this setting needs the person's yes to that change alone.
@@ -231,11 +251,7 @@ class SettingsPack:
             client = self._client(run.ctx)
             access = (await client.get(namespace, key, profile=run.ctx.profile)).agent
         if access not in MAY_WRITE:
-            message = (
-                f"{namespace}.{key} can only be changed by the person, in their settings, and "
-                "never by an assistant, even with approval. Tell them where to change it."
-            )
-            raise SettingsRefusedError(message)
+            raise SettingsRefusedError(NEVER_SENTENCE.format(namespace=namespace, key=key))
         setting = await self._client(run.ctx).set(
             namespace,
             key,
