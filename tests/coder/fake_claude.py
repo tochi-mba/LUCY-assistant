@@ -96,6 +96,29 @@ def main() -> None:
             }
         )
         return
+    if script == "denied":
+        # What `ask` mode does headless: the write is refused, not prompted, and the result
+        # says so -- the shape the 2.1.280 CLI was observed to return.
+        line(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "num_turns": 1,
+                "total_cost_usd": 0.01,
+                "result": "The Write tool needs permission to create denied.txt.",
+                "permission_denials": [
+                    {
+                        "tool_name": "Write",
+                        "tool_use_id": "toolu_1",
+                        "tool_input": {"file_path": "denied.txt", "content": "hi" * 400},
+                    },
+                    "not a denial",
+                ],
+                "session_id": session,
+            }
+        )
+        return
     if script == "signed-out-result":
         line(
             {

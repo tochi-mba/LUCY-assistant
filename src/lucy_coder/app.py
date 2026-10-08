@@ -31,10 +31,13 @@ class NewTask(BaseModel):
     directory: str = Field(min_length=1, max_length=1_024)
     run_level: str = "edits"
     title: str = Field(default="", max_length=TITLE_CHARS_MAX)
+    model: str = Field(default="", max_length=64)
 
 
 class Message(BaseModel):
     text: str = Field(min_length=1, max_length=MESSAGE_CHARS_MAX)
+    mode: str = Field(default="", max_length=16)
+    allow_tools: list[str] = Field(default_factory=list, max_length=10)
 
 
 def create_app(settings: Settings, service: CoderService, verifier: TokenVerifier) -> FastAPI:
@@ -83,6 +86,7 @@ def create_app(settings: Settings, service: CoderService, verifier: TokenVerifie
             directory=body.directory,
             run_level=body.run_level,
             title=body.title,
+            model=body.model,
         )
         return task.public()
 
@@ -102,7 +106,13 @@ def create_app(settings: Settings, service: CoderService, verifier: TokenVerifie
 
     @app.post("/v1/tasks/{task_id}/message")
     async def message(task_id: str, body: Message, who: Caller) -> dict[str, Any]:
-        task, advice = await service.message(who.account_id, task_id, body.text)
+        task, advice = await service.message(
+            who.account_id,
+            task_id,
+            body.text,
+            mode=body.mode,
+            allow_tools=tuple(body.allow_tools),
+        )
         return {**task.public(), "advice": advice}
 
     @app.post("/v1/tasks/{task_id}/cancel")

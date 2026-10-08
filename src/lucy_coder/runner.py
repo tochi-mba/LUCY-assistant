@@ -21,19 +21,31 @@ import json
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from lucy_coder.tasks import DENIAL_INPUT_CHARS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 RUN_LEVELS = {
     "plan": "plan",
+    "ask": "default",
     "edits": "acceptEdits",
     "full": "bypassPermissions",
 }
-"""The person's `claude_code_run_level` values, mapped to `--permission-mode`."""
+"""Claude Code's permission modes as Lucy names them, mapped to `--permission-mode`.
+
+`ask` is Claude Code's default mode. Headless there is nobody to answer its prompts, so a
+tool that needs permission is refused and reported (`permission_denials`); the person's yes
+to that tool comes back as `--allowedTools` on the next turn. That is the normal user's
+"approve the prompt", with a card instead of a keypress."""
+
+MODES = ("plan", "ask", "edits", "full")
+"""The modes from most to least careful. The person's `claude_code_run_level` is a ceiling
+on this order, which the hub enforces before any call reaches the bridge."""
 
 NOT_INSTALLED = (
     "Claude Code is not installed on this machine, or is not on PATH; install it and run"
@@ -103,6 +115,7 @@ class TurnOutcome:
     cost_usd: float = 0.0
     num_turns: int = 0
     session_id: str = ""
+    denials: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -158,6 +171,8 @@ class ClaudeRunner:
         run_level: str,
         counters: Counters,
         transcribe: Callable[[str], None],
+        model: str = "",
+        allow_tools: tuple[str, ...] = (),
     ) -> TurnOutcome:
         """One ``claude -p`` turn, streamed into ``transcribe`` and ``counters``."""
         try:
@@ -176,6 +191,10 @@ class ClaudeRunner:
             "--permission-mode",
             RUN_LEVELS.get(run_level, RUN_LEVELS["edits"]),
             *(["--resume", session_id] if resume else ["--session-id", session_id]),
+            *(["--model", model] if model else []),
+            # One comma-separated argument: the flag is variadic, and a list would swallow
+            # whatever followed it.
+            *(["--allowedTools", ",".join(allow_tools)] if allow_tools else []),
         ]
         try:
             process = await asyncio.create_subprocess_exec(
@@ -249,6 +268,7 @@ class ClaudeRunner:
         cost = float(final.get("total_cost_usd") or 0.0)
         turns = int(final.get("num_turns") or 0)
         session = str(final.get("session_id") or session_id)
+        denials = _denials(final.get("permission_denials"))
         if not final.get("is_error"):
             return TurnOutcome(
                 ok=True,
@@ -256,6 +276,7 @@ class ClaudeRunner:
                 cost_usd=cost,
                 num_turns=turns,
                 session_id=session,
+                denials=denials,
             )
         subtype = str(final.get("subtype") or "error")
         said = _clip(str(final.get("result") or ""), 400)
@@ -268,7 +289,13 @@ class ClaudeRunner:
             # honest one; the subtype alone would hide it.
             detail = said or subtype
         return TurnOutcome(
-            ok=False, detail=detail, result=said, cost_usd=cost, num_turns=turns, session_id=session
+            ok=False,
+            detail=detail,
+            result=said,
+            cost_usd=cost,
+            num_turns=turns,
+            session_id=session,
+            denials=denials,
         )
 
     async def _kill(self, process: asyncio.subprocess.Process) -> None:
@@ -327,6 +354,25 @@ def doctor(command: list[str], *, timeout_seconds: float = 30) -> str:
     if probe.returncode != 0:
         return f"`claude --version` failed (exit {probe.returncode})"
     return ""
+
+
+def _denials(raw: object) -> list[dict[str, str]]:
+    """What the turn was refused, as the row keeps it: the tool and a clipped input."""
+    if not isinstance(raw, list):
+        return []
+    kept: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        given = item.get("tool_input")
+        shown = json.dumps(given, ensure_ascii=False) if given is not None else ""
+        kept.append(
+            {
+                "tool": str(item.get("tool_name") or ""),
+                "input": _clip(shown, DENIAL_INPUT_CHARS),
+            }
+        )
+    return kept
 
 
 def _looks_signed_out(text: str) -> bool:

@@ -8,6 +8,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **The Claude Code bridge drives a session the way a person at the keyboard does.**
+  - *Modes per turn*: `plan`, `ask` (Claude Code's default mode), `edits` and `full`. A
+    follow-up may change the mode, so a task can plan first and, on the person's yes,
+    carry the plan out at `edits` in the same session. The mode sticks for later turns,
+    and the row shows the level it runs at now.
+  - *Approving a prompt*: headless, a tool that needs permission is refused, not
+    prompted. The refusal (`permission_denials`, with the tool and a clipped input) now
+    lands on the row. A follow-up's `allow_tools` (up to ten permission rules, such as
+    `Write` or `Bash(npm test:*)`) resumes the session with exactly those allowed. Plan
+    mode refuses `allow_tools`, because it is read-only.
+  - *Model per task*: `model` passes `--model` (an alias or a full name, validated). If
+    none is given, Claude Code's own default applies.
+  - *Esc, not delete*: cancelling a running turn leaves the session resumable, and a
+    message carries on from where it stopped. A task cancelled before it ever started
+    stays over.
+  - Existing task tables gain the new columns in place, so an upgraded bridge keeps its
+    rows.
 - **The Claude Code bridge (`src/lucy_coder/`).** A small host-run service (127.0.0.1:8012,
   `make coder`) that lets Lucy delegate a whole task to a real Claude Code session on this
   machine: it wraps the `claude` CLI headless (stream-json), keeps one durable SQLite row

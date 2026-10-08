@@ -120,7 +120,7 @@ async def test_a_follow_up_waits_out_the_turn_then_resumes_the_session(
         fresh, advice = await service.message(ACCOUNT, task.id, "also add a test")
         assert fresh.state is TaskState.running
         assert "mid-turn" in advice
-        assert fresh.queued_messages == ["also add a test"]
+        assert fresh.queued_messages == [{"text": "also add a test", "mode": "", "allow_tools": []}]
 
         os.environ["FAKE_CLAUDE"] = "answers"
         await service.cancel(ACCOUNT, task.id)
@@ -245,24 +245,27 @@ async def test_cancel_is_idempotent_and_a_cancelled_task_refuses_messages_until_
     finally:
         await service.aclose()
 
-    fresh_store_task = store.create(
-        account_id=ACCOUNT, brief="never ran", directory=workdir, run_level="edits", title="q"
-    )
     blocked = a_service(store, max_live=1)
-    try:
-        # Occupy the only slot so the new task stays queued, then cancel it unrun.
-        import os as _os
+    import os as _os
 
-        _os.environ["FAKE_CLAUDE"] = "hangs"
+    _os.environ["FAKE_CLAUDE"] = "hangs"
+    try:
+        # The first takes the only slot and hangs there; the second waits, unrun.
         holder = await blocked.start(
             account_id=ACCOUNT, brief="hold", directory=workdir, run_level="edits", title="h"
         )
-        del holder
-        cancelled = await blocked.cancel(ACCOUNT, fresh_store_task.id)
+        waiting = await blocked.start(
+            account_id=ACCOUNT, brief="never ran", directory=workdir, run_level="edits", title="q"
+        )
+        assert (await blocked.get(ACCOUNT, holder.id))["state"] == "running"
+        assert (await blocked.get(ACCOUNT, waiting.id))["state"] == "queued"
+
+        cancelled = await blocked.cancel(ACCOUNT, waiting.id)
         assert cancelled.state is TaskState.cancelled
-        assert cancelled.resumable is False
+        assert cancelled.resumable is False, "it never had a session to resume"
+        assert cancelled.detail == "cancelled by the person before it started"
         with pytest.raises(RefusedError, match="this task is cancelled"):
-            await blocked.message(ACCOUNT, fresh_store_task.id, "hello?")
+            await blocked.message(ACCOUNT, waiting.id, "hello?")
     finally:
         _os.environ.pop("FAKE_CLAUDE", None)
         await blocked.aclose()
@@ -290,7 +293,8 @@ async def test_a_turn_that_ends_after_its_cancel_does_not_overwrite_the_ending(
             await asyncio.sleep(0.05)
         body = await service.get(ACCOUNT, task.id)
         assert body["state"] == "cancelled"
-        assert body["detail"] == "cancelled by the person"
+        assert body["detail"] == "interrupted by the person; a message resumes the session"
+        assert body["resumable"] is True, "Esc, not delete: the session is still there"
     finally:
         _os.environ.pop("FAKE_CLAUDE", None)
         await service.aclose()
@@ -364,4 +368,136 @@ async def test_progress_never_writes_over_a_task_that_is_no_longer_running(
         assert row is not None
         assert (row.tool_uses, row.last_tool) == (0, ""), "a queued row is not overwritten"
     finally:
+        await service.aclose()
+
+
+def _argv(workdir: str) -> list[str]:
+    import json as _json
+    from pathlib import Path as _Path
+
+    return list(_json.loads((_Path(workdir) / "argv.json").read_text(encoding="utf-8"))["argv"])
+
+
+async def test_plan_first_then_carry_it_out_in_the_same_session(
+    store: TaskStore, workdir: str
+) -> None:
+    """The normal user's flow: plan mode explores and proposes; on their yes the same session
+    resumes at `edits` and does it. The mode sticks for the turns after."""
+    service = a_service(store)
+    try:
+        task = await service.start(
+            account_id=ACCOUNT,
+            brief="plan a --version flag",
+            directory=workdir,
+            run_level="plan",
+            title="v",
+        )
+        await settled(service, task.id)
+        argv = _argv(workdir)
+        assert argv[argv.index("--permission-mode") + 1] == "plan"
+
+        await service.message(ACCOUNT, task.id, "looks good, do it", mode="edits")
+        body = await settled(service, task.id)
+        argv = _argv(workdir)
+        assert argv[argv.index("--permission-mode") + 1] == "acceptEdits"
+        assert "--resume" in argv
+        assert body["run_level"] == "edits", "the row says the level it runs at now"
+
+        await service.message(ACCOUNT, task.id, "and update the readme")
+        await settled(service, task.id)
+        argv = _argv(workdir)
+        assert argv[argv.index("--permission-mode") + 1] == "acceptEdits", "a mode sticks"
+    finally:
+        await service.aclose()
+
+
+async def test_a_refused_tool_is_on_the_row_and_a_yes_resumes_with_it_allowed(
+    store: TaskStore, workdir: str
+) -> None:
+    import os as _os
+
+    _os.environ["FAKE_CLAUDE"] = "denied"
+    service = a_service(store)
+    try:
+        task = await service.start(
+            account_id=ACCOUNT,
+            brief="write denied.txt",
+            directory=workdir,
+            run_level="ask",
+            title="d",
+            model="sonnet",
+        )
+        body = await settled(service, task.id)
+        assert [denial["tool"] for denial in body["permission_denials"]] == ["Write"]
+        assert body["model"] == "sonnet"
+
+        _os.environ["FAKE_CLAUDE"] = "answers"
+        await service.message(ACCOUNT, task.id, "approved - go ahead", allow_tools=("Write",))
+        body = await settled(service, task.id)
+        argv = _argv(workdir)
+        assert argv[argv.index("--allowedTools") + 1] == "Write"
+        assert argv[argv.index("--model") + 1] == "sonnet", "the task's model holds"
+        assert body["permission_denials"] == [], "this turn was refused nothing"
+    finally:
+        _os.environ.pop("FAKE_CLAUDE", None)
+        await service.aclose()
+
+
+async def test_what_a_follow_up_may_ask_for_is_checked(store: TaskStore, workdir: str) -> None:
+    service = a_service(store)
+    try:
+        with pytest.raises(RefusedError, match="model must be"):
+            await service.start(
+                account_id=ACCOUNT,
+                brief="x",
+                directory=workdir,
+                run_level="edits",
+                title="",
+                model="--dangerously",
+            )
+        task = await service.start(
+            account_id=ACCOUNT, brief="x", directory=workdir, run_level="plan", title=""
+        )
+        await settled(service, task.id)
+        with pytest.raises(RefusedError, match="run_level must be one of"):
+            await service.message(ACCOUNT, task.id, "go", mode="yolo")
+        too_many = tuple(f"T{index}" for index in range(11))
+        for bad in (("Write --dangerously-skip",), ("Bash(a)(b)",), too_many):
+            with pytest.raises(RefusedError, match="allow_tools takes"):
+                await service.message(ACCOUNT, task.id, "go", allow_tools=bad)
+        with pytest.raises(RefusedError, match="plan mode is read-only"):
+            await service.message(ACCOUNT, task.id, "go", allow_tools=("Write",))
+        with pytest.raises(RefusedError, match="plan mode is read-only"):
+            await service.message(ACCOUNT, task.id, "go", mode="plan", allow_tools=("Write",))
+    finally:
+        await service.aclose()
+
+
+async def test_esc_then_a_message_carries_on_in_the_same_session(
+    store: TaskStore, workdir: str
+) -> None:
+    import os as _os
+
+    _os.environ["FAKE_CLAUDE"] = "hangs"
+    service = a_service(store, timeout=60)
+    try:
+        task = await service.start(
+            account_id=ACCOUNT, brief="one", directory=workdir, run_level="edits", title="1"
+        )
+        for _ in range(100):
+            if service._turns:
+                break
+            await asyncio.sleep(0.05)
+        stopped = await service.cancel(ACCOUNT, task.id)
+        assert stopped.resumable is True
+        for _ in range(200):
+            if not service._turns:
+                break
+            await asyncio.sleep(0.05)
+
+        _os.environ["FAKE_CLAUDE"] = "answers"
+        revived, _advice = await service.message(ACCOUNT, task.id, "sorry, carry on")
+        assert revived.state in {TaskState.queued, TaskState.running}
+    finally:
+        _os.environ.pop("FAKE_CLAUDE", None)
         await service.aclose()

@@ -23,6 +23,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+DENIAL_INPUT_CHARS = 300
+"""How much of a refused tool call's input a row keeps: enough to say what was asked."""
+
 RESULT_CHARS = 20_000
 """The most of a turn's final answer a row keeps. The transcript holds the rest."""
 
@@ -69,8 +72,16 @@ class Task:
     tool_uses: int = 0
     last_tool: str = ""
     last_text: str = ""
-    queued_messages: list[str] = field(default_factory=list)
+    queued_messages: list[dict[str, Any]] = field(default_factory=list)
+    """Follow-ups waiting for the session: each a text, and optionally the mode and the tools
+    allowed for the turn it starts."""
     resumable: bool = False
+    model: str = ""
+    """The model the task asked for (`--model`), or empty for Claude Code's own default."""
+    denials: list[dict[str, str]] = field(default_factory=list)
+    """What the last turn was refused: each a tool and a clipped account of its input. In
+    `ask` mode a tool that needs permission is refused headless rather than prompted, and
+    this is how the person gets to say yes to it."""
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -92,6 +103,8 @@ class Task:
             "last_text": self.last_text,
             "queued_messages": len(self.queued_messages),
             "resumable": self.resumable,
+            "model": self.model,
+            "permission_denials": self.denials,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -116,6 +129,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     last_text TEXT NOT NULL DEFAULT '',
     queued_messages TEXT NOT NULL DEFAULT '[]',
     resumable INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL DEFAULT '',
+    denials TEXT NOT NULL DEFAULT '[]',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -137,12 +152,20 @@ class TaskStore:
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.execute(SCHEMA)
+            _add_missing_columns(self._db)
             self._db.commit()
 
     # ------------------------------------------------------------------ writing
 
-    def create(
-        self, *, account_id: str, brief: str, directory: str, run_level: str, title: str
+    def create(  # noqa: PLR0913 - a task is its brief, place, level, name and model
+        self,
+        *,
+        account_id: str,
+        brief: str,
+        directory: str,
+        run_level: str,
+        title: str,
+        model: str = "",
     ) -> Task:
         task = Task(
             id=f"tsk_{uuid.uuid4().hex[:16]}",
@@ -153,13 +176,15 @@ class TaskStore:
             directory=directory,
             run_level=run_level,
             state=TaskState.queued,
+            model=model,
             created_at=self._now(),
             updated_at=self._now(),
         )
         with self._lock:
             self._db.execute(
                 "INSERT INTO tasks (id, account_id, session_id, title, brief, directory,"
-                " run_level, state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " run_level, state, model, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     task.id,
                     task.account_id,
@@ -169,6 +194,7 @@ class TaskStore:
                     task.directory,
                     task.run_level,
                     task.state.value,
+                    task.model,
                     task.created_at,
                     task.updated_at,
                 ),
@@ -183,7 +209,7 @@ class TaskStore:
             self._db.execute(
                 "UPDATE tasks SET state=?, detail=?, result=?, turns=?, cost_usd=?,"
                 " tool_uses=?, last_tool=?, last_text=?, queued_messages=?, resumable=?,"
-                " updated_at=? WHERE id=?",
+                " run_level=?, denials=?, updated_at=? WHERE id=?",
                 (
                     task.state.value,
                     task.detail,
@@ -195,6 +221,8 @@ class TaskStore:
                     task.last_text,
                     json.dumps(task.queued_messages),
                     int(task.resumable),
+                    task.run_level,
+                    json.dumps(task.denials),
                     task.updated_at,
                     task.id,
                 ),
@@ -292,8 +320,30 @@ def _task(row: sqlite3.Row) -> Task:
         tool_uses=row["tool_uses"],
         last_tool=row["last_tool"],
         last_text=row["last_text"],
-        queued_messages=list(json.loads(row["queued_messages"])),
+        queued_messages=[_queued(item) for item in json.loads(row["queued_messages"])],
         resumable=bool(row["resumable"]),
+        model=row["model"],
+        denials=list(json.loads(row["denials"])),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+def _queued(item: Any) -> dict[str, Any]:
+    """One queued follow-up; a bare string is how rows from before modes stored it."""
+    return item if isinstance(item, dict) else {"text": str(item)}
+
+
+ADDED_COLUMNS = (
+    ("model", "TEXT NOT NULL DEFAULT ''"),
+    ("denials", "TEXT NOT NULL DEFAULT '[]'"),
+)
+"""Columns later than the first table, added in place so an existing var/coder keeps its
+rows: a bridge upgraded mid-week still finds last Monday's tasks."""
+
+
+def _add_missing_columns(db: sqlite3.Connection) -> None:
+    present = {str(row[1]) for row in db.execute("PRAGMA table_info(tasks)")}
+    for name, declaration in ADDED_COLUMNS:
+        if name not in present:
+            db.execute(f"ALTER TABLE tasks ADD COLUMN {name} {declaration}")
