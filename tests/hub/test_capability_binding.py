@@ -381,7 +381,7 @@ async def test_calling_a_held_back_capability_loads_it_and_runs_the_plan() -> No
 
     assert not result.get("issues"), result
     [ran] = result["steps"]
-    assert ran["op"] == f"{held_back}.ping"
+    assert ran["id"] == f"ping_{held_back}"
     assert held_back in _bound(capabilities, context), "loaded for the next plan as well"
     assert capabilities.recent(SESSION)[0] == held_back
 
