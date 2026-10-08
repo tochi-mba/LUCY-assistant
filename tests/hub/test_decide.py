@@ -240,3 +240,67 @@ def test_every_declared_use_tightens_or_says_why_not() -> None:
 def test_the_topic_use_tightens() -> None:
     assert TOPIC.tightens
     assert TOPIC.setting == "decision_topic"
+
+
+# --- a slow decider is left alone -----------------------------------------------------------
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_a_timeout_rests_the_decider_and_the_next_ask_says_so() -> None:
+    """The bug, named: with a CPU-bound decision service that runs one call at a time, every
+    turn kept queueing calls the hub had already abandoned, so even a one-question call
+    waited tens of seconds behind them and every decision timed out."""
+    from lucy_api.decide import Cooldown
+
+    clock = Clock()
+    cooldown = Cooldown(30.0, clock=clock)
+    slow = Scripted(answers(("topic", "home", 0.9)), delay=0.2)
+    emit = Recorder()
+    decisions = Decisions(
+        slow,  # type: ignore[arg-type]
+        enabled=[TOPIC.id],
+        shadow=False,
+        timeout_ms=10,
+        emit=emit,
+        cooldown=cooldown,
+    )
+    assert (await decisions.ask(TOPIC, "one", [])).empty
+    assert (await decisions.ask(TOPIC, "two", [])).empty
+    assert emit.reasons() == [Skip.TIMEOUT, Skip.COOLING]
+    assert slow.calls == 1, "the second ask never reached the decider"
+
+
+async def test_the_rest_is_shared_by_every_turn_and_ends() -> None:
+    from lucy_api.decide import Cooldown
+
+    clock = Clock()
+    cooldown = Cooldown(30.0, clock=clock)
+    slow = Scripted(answers(("topic", "home", 0.9)), delay=0.2)
+    first = Decisions(slow, enabled=[TOPIC.id], shadow=False, timeout_ms=10, cooldown=cooldown)  # type: ignore[arg-type]
+    await first.ask(TOPIC, "state", [])
+    quick = Scripted(answers(("topic", "home", 0.9)))
+    emit = Recorder()
+    later = Decisions(quick, enabled=[TOPIC.id], shadow=False, emit=emit, cooldown=cooldown)  # type: ignore[arg-type]
+    assert (await later.ask(TOPIC, "state", [])).empty
+    clock.now += 30.0
+    assert (await later.ask(TOPIC, "state", [])).choice("topic") == "home"
+    assert emit.reasons() == [Skip.COOLING, ""]
+    assert quick.calls == 1
+
+
+async def test_a_bare_decisions_has_its_own_rest() -> None:
+    """Without a shared cooldown a `Decisions` still rests after its own timeout, so the
+    unit never depends on the container to be safe."""
+    slow = Scripted(answers(("topic", "home", 0.9)), delay=0.2)
+    emit = Recorder()
+    decisions = Decisions(slow, enabled=[TOPIC.id], shadow=False, timeout_ms=10, emit=emit)  # type: ignore[arg-type]
+    await decisions.ask(TOPIC, "one", [])
+    await decisions.ask(TOPIC, "two", [])
+    assert emit.reasons() == [Skip.TIMEOUT, Skip.COOLING]

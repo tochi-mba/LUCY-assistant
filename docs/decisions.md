@@ -47,7 +47,12 @@ settings surface and Settings-api. Settings apply when the next turn is prepared
   the model decides whether to keep it, and the memory write policy and approvals decide
   whether it is kept. Never asked in an incognito session, with `memory_write_policy=never`,
   or when notes cannot be reached.
-- `decision_timeout_ms=1000`: per-call ceiling, bounded to 50–5,000 ms.
+- `decision_timeout_ms=1000`: per-call ceiling, bounded to 50–5,000 ms. A call that
+  times out also rests the decider for thirty seconds across every turn in the
+  process (skip reason `cooling`): a service that runs one call at a time still
+  finishes the abandoned call, and asking again right away only makes every answer
+  later. A shadow run with many `cooling` skips means the service is too slow for
+  the ceiling, not that decisions are off.
 - `decision_max_per_turn=8`: call budget, bounded to 1–32.
 
 Enable the master first, inspect shadow results, then explicitly turn shadow mode off
