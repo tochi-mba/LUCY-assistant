@@ -6,6 +6,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ## [Unreleased]
 
+### Added
+
+- **The Claude Code bridge (`src/lucy_coder/`).** A small host-run service (127.0.0.1:8012,
+  `make coder`) that lets Lucy delegate a whole task to a real Claude Code session on this
+  machine: it wraps the `claude` CLI headless (stream-json), keeps one durable SQLite row
+  and one JSONL transcript per task under `var/coder/`, runs at most two sessions at once
+  with the rest queued, queues follow-up messages so one session never runs two turns
+  concurrently, and answers only keyring tokens minted for the `coder-api` audience. Every
+  way a turn can end is a sentence on the row: the CLI missing or signed out, a session
+  limit, the per-turn budget (`error_max_budget_usd`), the bridge's own 45-minute wall
+  clock, a cancel, or the bridge restarting mid-run. The hub-side capability, settings and
+  ADR follow separately; without them the bridge is inert deployment glue (ADR-0009's
+  pattern, like clyde).
+
 ### Security
 
 - **The hub says in its own voice what it caught.** The scrubber's marker on a result went

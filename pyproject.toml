@@ -32,6 +32,9 @@ dependencies = [
 # container calls. Installing the wheel globally (uv tool install) puts both on PATH.
 lucy = "lucy_api.cli:main"
 lucy-api = "lucy_api.__main__:main"
+# The Claude Code bridge is host-run deployment glue (ADR-0017); it ships in the checkout,
+# not in the wheel, and this entry point exists so `uv run lucy-coder` works from the root.
+lucy-coder = "lucy_coder.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/tochi-mba/LUCY-assistant"
@@ -150,8 +153,8 @@ addopts = "-ra --strict-markers --strict-config"
 
 [tool.coverage.run]
 branch = true
-source = ["lucy_api", "lucy_signals"]
-omit = ["src/lucy_api/__main__.py"]
+source = ["lucy_api", "lucy_coder", "lucy_signals"]
+omit = ["src/lucy_api/__main__.py", "src/lucy_coder/__main__.py"]
 
 [tool.coverage.report]
 fail_under = 100

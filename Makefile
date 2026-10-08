@@ -77,6 +77,9 @@ evals: ## Hold the regression conversations with a real model: make evals MODEL=
 	@test -n "$(MODEL)" || { echo "MODEL is required: make evals MODEL=clyde:haiku"; exit 2; }
 	$(UV) run python -m lucy_api.cli.main eval run --model $(MODEL) $(if $(SUITE),--suite $(SUITE)) $(EVAL_ARGS)
 
+coder: ## Serve the Claude Code bridge on 127.0.0.1:8012 (host-run, like clyde)
+	$(UV) run python -m lucy_coder
+
 run: ## Serve the hub on :8000 with reload
 	$(UV) run uvicorn lucy_api.api.app:create_app --factory --reload --port 8000
 
