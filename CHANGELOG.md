@@ -123,6 +123,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **Decision events name the turn they were made in.** With the decision service live,
+  every `lucy.decision.*` event carried no turn id: the emitter read the id off a request
+  prepared before the turn row existed. It now reads the turn the supervisor bound around
+  the run, so a conversation's shadow results can be read turn by turn beside what each
+  turn did.
 - **A `plan` delegation is read-only whatever the person's own Claude Code allowlist says.**
   Claude Code's plan mode guides the model; it does not disarm tools the person has allowed
   in their own settings. On the live smoke a plan-mode session read twenty files with

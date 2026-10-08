@@ -61,6 +61,7 @@ from lucy_api.context.fields import FIELDS, feed_setting_key
 from lucy_api.context.policy import ALLOW_UNKNOWN, HIDE_PERSONAL, MASTER, ExplicitFlags
 from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError, model_unavailable, settings_unavailable
+from lucy_api.core.logging import current_context
 from lucy_api.core.standing import Standing
 from lucy_api.decide import USES, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
@@ -560,12 +561,16 @@ class Container:
         pack_context.subscriptions = governed(pack_context.subscriptions, policy)
 
         async def decision_event(name: str, fields: dict[str, Any]) -> None:
+            # A turn is prepared before its row exists, so the request carries no turn id
+            # yet. The supervisor binds the claimed turn around the whole run; that is the
+            # turn a decision belongs to, and what lets a person read the shadow results
+            # of one conversation turn side by side with what the turn did.
             await self.events.emit(
                 request.session_id,
                 NewEvent(
                     name,
                     fields,
-                    turn_id=request.turn_id or None,
+                    turn_id=current_context().turn_id or request.turn_id or None,
                 ),
             )
 
