@@ -37,6 +37,9 @@ class Skip(StrEnum):
     NO_DECIDER = "no_decider"
     """No decision model is configured, so there was nothing to ask."""
     TIMEOUT = "timeout"
+    COOLING = "cooling"
+    """A recent call timed out, so the decider is left alone for a while: a decider that is
+    too slow gets slower when every turn keeps queueing work it has already given up on."""
     MALFORMED = "malformed"
     TURN_BUDGET = "turn_budget"
     """`lucy.decision_max_per_turn` is spent; every later use falls open for this turn."""

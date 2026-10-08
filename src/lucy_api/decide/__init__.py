@@ -33,6 +33,35 @@ async def _silent(name: str, fields: dict[str, Any]) -> None:
     _ = name, fields
 
 
+COOLDOWN_SECONDS = 30.0
+"""How long a decider is left alone after a call times out.
+
+A timeout does not stop the decider working: a service that runs one call at a time
+finishes the call the hub abandoned, and every later call waits behind it. Asking again
+right away makes every answer later, so for a while after a timeout the hub does not ask.
+Thirty seconds clears a backlog of a few abandoned calls without hiding a slow service for
+long; the skip reason names it, so a shadow run shows how often it happened.
+"""
+
+
+class Cooldown:
+    """Process-wide: the decider is one service, however many turns are asking it."""
+
+    def __init__(
+        self, seconds: float = COOLDOWN_SECONDS, *, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.seconds = seconds
+        self._clock = clock
+        self._until = 0.0
+
+    @property
+    def active(self) -> bool:
+        return self._clock() < self._until
+
+    def trip(self) -> None:
+        self._until = self._clock() + self.seconds
+
+
 class Decisions:
     """One main turn's decisions, held on `PackContext.decide`.
 
@@ -50,6 +79,7 @@ class Decisions:
         timeout_ms: int = 1000,
         max_per_turn: int = 8,
         emit: Emit | None = None,
+        cooldown: Cooldown | None = None,
     ) -> None:
         self.decider = decider or NullDecider()
         self.enabled = frozenset(enabled)
@@ -57,6 +87,7 @@ class Decisions:
         self.timeout_ms = timeout_ms
         self.max_per_turn = max_per_turn
         self._emit = emit or _silent
+        self.cooldown = cooldown or Cooldown()
         self._spent = 0
         self.request_text = ""
         self._cache: dict[str, Answers] = {}
@@ -118,6 +149,7 @@ class Decisions:
                 self.decider.decide(state, questions), self.timeout_ms / 1000
             )
         except TimeoutError:
+            self.cooldown.trip()
             await self._skip(use, Skip.TIMEOUT)
             return Answers()
         except Exception:
@@ -162,6 +194,8 @@ class Decisions:
             return Skip.OFF
         if isinstance(self.decider, NullDecider):
             return Skip.NO_DECIDER
+        if self.cooldown.active:
+            return Skip.COOLING
         return None
 
     async def disagreed(self, use: Use, *, decided: str, fallback: str) -> None:
@@ -186,10 +220,12 @@ class Decisions:
 
 
 __all__ = [
+    "COOLDOWN_SECONDS",
     "DISAGREED",
     "MADE",
     "SKIPPED",
     "USES",
+    "Cooldown",
     "Decisions",
     "Direction",
     "Emit",

@@ -63,7 +63,7 @@ from lucy_api.context.sources import Sources
 from lucy_api.core.errors import LucyError, model_unavailable, settings_unavailable
 from lucy_api.core.logging import current_context
 from lucy_api.core.standing import Standing
-from lucy_api.decide import USES, Decisions
+from lucy_api.decide import USES, Cooldown, Decisions
 from lucy_api.mcp.outbound import httpx_call, httpx_listing
 from lucy_api.mcp.servers import McpServers
 from lucy_api.memory.index import MemoryIndex
@@ -200,6 +200,9 @@ class Container:
     environment_override: EnvironmentsClient | None = None
     memory_topics: TopicListing | None = None
     decider: Decider = field(default_factory=NullDecider)
+    cooldown: Cooldown = field(default_factory=Cooldown)
+    """Shared by every turn: the decider is one service, and a timeout in any turn
+    rests it for all of them."""
     started_at: float = field(default_factory=time.monotonic)
     _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     _sweeping: asyncio.Task[None] | None = None
@@ -581,6 +584,7 @@ class Container:
             timeout_ms=policy.decision_timeout_ms,
             max_per_turn=policy.decision_max_per_turn,
             emit=decision_event,
+            cooldown=self.cooldown,
         )
         pack_context.max_subagent_turns = policy.max_subagent_turns
         pack_context.defaults = await self._pack_defaults(request.user_token, request.profile)
