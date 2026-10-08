@@ -32,7 +32,7 @@ from lucy_api.packs.context import NoBrokerError
 from lucy_api.packs.http import DownstreamError as TransportError
 from lucy_api.prompt.docs import capability_doc
 from lucy_api.sessions.scope import ConfinementError
-from lucy_api.work import AtCapacityError, StillRunningError
+from lucy_api.work import AtCapacityError, StillRunningError, WorkError
 from lucy_api.work.subscriptions import waking_tags
 from lucy_api.work.types import Brief, Kind
 from lucy_api.workspace.scratch import (
@@ -82,9 +82,19 @@ already killed, or had finished within its margin, was reported as perhaps still
 and its output thrown away. Outlasting the call means it always gets to end on its own.
 """
 STARTED = (
-    "The command is running as {work_id}. A notice arrives when it ends; read its output then "
-    "with work.result. Carry on, or finish your answer."
+    "The command is running as {work_id}; it is stopped after {seconds}s if it has not ended. "
+    "A notice arrives when it ends; read its output then with work.result. Carry on, or "
+    "finish your answer."
 )
+STOPPED_AT_CEILING = (
+    "stopped at its {seconds}s ceiling, exit code {exit_code}; the output so far is kept"
+)
+"""How a command the sandbox killed ends as work: failed, in one sentence the notice carries.
+
+It used to end as succeeded -- the command had returned an answer, however it ended -- so
+`work.result` said "succeeded" over an exit code of 137, and nothing had told the model how
+long the command had, so it promised a wake "when it's done" for a script that could not
+finish inside the minute it was given."""
 STILL_RUNNING = (
     "The command is still running after {seconds}s and has not been stopped. A notice arrives "
     "when it ends; then work.result reads its output."
@@ -628,6 +638,7 @@ class WorkspacePack:
         The only place a command meets the sandbox, the work registry and the output cap.
         """
         deadline = command.timeout_ms / 1000 + EXEC_MARGIN_SECONDS + OUTLAST_EXEC_SECONDS
+        seconds = f"{command.timeout_ms / 1000:.0f}"
         wait_seconds = context.within_step(
             deadline if command.wait_seconds is None else command.wait_seconds
         )
@@ -644,7 +655,7 @@ class WorkspacePack:
             shown = _shown(result.output, tail=result.tail)
             cut = len(result.output) - len(shown) + result.output_truncated_bytes
             omitted = cut + result.output_dropped_bytes
-            return {
+            ran = {
                 "command": result.command,
                 "exit_code": result.exit_code,
                 "output": shown,
@@ -653,6 +664,12 @@ class WorkspacePack:
                 "output_dropped_bytes": omitted,
                 "notice": _output_notice(omitted, cut, tail=result.tail),
             }
+            if result.timed_out:
+                raise WorkError(
+                    STOPPED_AT_CEILING.format(seconds=seconds, exit_code=result.exit_code),
+                    payload=ran,
+                )
+            return ran
 
         registry = context.work
         if registry is None:
@@ -683,7 +700,7 @@ class WorkspacePack:
             return {
                 "status": "running",
                 "work_id": handle.id,
-                "notice": STARTED.format(work_id=handle.id),
+                "notice": STARTED.format(work_id=handle.id, seconds=seconds),
             }
         try:
             finished = await registry.wait(handle.id, wait_seconds)
