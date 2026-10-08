@@ -53,7 +53,10 @@ NOT_INSTALLED = (
 )
 TIMED_OUT = "ran past the bridge's {minutes:.0f}-minute ceiling and was stopped"
 NO_ANSWER = "the claude process ended (exit {code}) without a result record; its last words: {said}"
-BUDGET_SPENT = "stopped by its ${budget:.2f} budget before it finished"
+BUDGET_SPENT = (
+    "stopped by the bridge's ${budget:.2f} per-turn budget (CODER_TURN_BUDGET_USD) before it "
+    "finished; a message resumes it, and the next turn gets a fresh budget"
+)
 
 SIGN_IN_MARKERS = ("not logged in", "/login", "sign in", "authentication_error", "api key")
 """Fragments of the CLI's own wording for a missing login, matched case-insensitively.

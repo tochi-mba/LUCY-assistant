@@ -72,6 +72,8 @@ BRIDGE_SILENT = (
     "running on their machine. coder.read {task_id} checks it once the bridge is back."
 )
 
+TASK_FAILED = "the task failed: {detail}"
+
 TASK_SECONDS = 50 * 60.0
 """The work item's own ceiling: past the bridge's 45-minute turn clock plus slack, so the
 honest ending always comes from the bridge, and `timed_out` here means the bridge is gone."""
@@ -459,6 +461,10 @@ async def _settled(
             continue
         missed = 0
         if not task.live:
+            if task.state == "failed":
+                # The notice says failed and why, instead of "succeeded" for a poll that
+                # merely finished; the row is still readable through work.result.
+                raise WorkError(TASK_FAILED.format(detail=task.detail), payload=_row(task))
             return _row(task)
         if task.tool_uses:
             registry.progress(

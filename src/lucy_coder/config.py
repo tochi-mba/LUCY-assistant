@@ -55,9 +55,12 @@ class Settings(BaseSettings):
     max_live_tasks: PositiveInt = 2
     """How many Claude Code sessions run at once; the rest queue. The owner chose two."""
 
-    turn_budget_usd: PositiveFloat = 1.0
+    turn_budget_usd: PositiveFloat = 3.0
     """`--max-budget-usd` for each turn. The CLI ends the turn honestly when it is spent
-    (`subtype: error_max_budget_usd`), which this service reports as the task failing."""
+    (`subtype: error_max_budget_usd`), which this service reports as the task failing.
+    Three dollars, because the first turn of a session builds its prompt cache: creating a
+    one-line file cost $0.82 on the live smoke, and a cap of one would have made every
+    first turn a coin toss."""
 
     turn_timeout_seconds: PositiveFloat = 2_700.0
     """The bridge's own wall clock per turn: 45 minutes, then the process tree is killed.

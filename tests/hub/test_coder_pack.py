@@ -558,3 +558,31 @@ async def test_tracking_gives_up_after_a_minute_of_silence_and_says_where_the_ta
         await registry.shutdown()
     assert "coder.read tsk_9" in str(raised.value)
     assert flaky.asked == coder_module.POLL_MISSES
+
+
+async def test_a_task_that_failed_is_failed_work_with_the_bridges_sentence() -> None:
+    """The bug, named: the smoke's task died on its budget, and the wake notice read
+    "coder (job) - Create hello.txt - succeeded", because the poll had finished."""
+    from lucy_api.work.types import WorkError
+
+    fake = FakeCoderClient()
+    fake.seed(
+        CoderTask(
+            id="tsk_1",
+            title="t",
+            brief="b",
+            directory=FOLDER,
+            run_level="edits",
+            state="failed",
+            detail="stopped by the bridge's $0.50 per-turn budget",
+            resumable=True,
+        )
+    )
+    registry = Registry(now=lambda: datetime.now(UTC))
+    try:
+        with pytest.raises(WorkError, match="the task failed: stopped by") as raised:
+            await coder_module._settled(fake, registry, "tsk_1", "wrk_1")
+    finally:
+        await registry.shutdown()
+    assert raised.value.payload["state"] == "failed", "the row is still there to read"
+    assert raised.value.payload["resumable"] is True

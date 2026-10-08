@@ -91,3 +91,47 @@ async def test_notes_are_listed_as_unavailable_when_memory_cannot_be_reached(
     )
 
     assert response.status_code == 404
+
+
+async def test_the_listing_and_the_tools_probe_with_the_persons_own_settings(
+    keyring: Any,
+) -> None:
+    """The bug, named: both routes probed with a default policy, so Claude Code delegation
+    read "disabled" in the listing for a person who had switched it on, while every
+    conversation of theirs had it ready."""
+    from asgi_lifespan import LifespanManager
+    from conftest import build_settings
+    from httpx import ASGITransport
+    from httpx import AsyncClient as Client
+    from settings_client.testing import FakeSettingsClient
+
+    from lucy_api.api.app import create_app
+    from lucy_api.clients.environments import FakeEnvironmentsClient
+
+    app = create_app(
+        build_settings(coder_api_base_url="http://coder.test"), transport=keyring.transport()
+    )
+    async with (
+        LifespanManager(app),
+        Client(transport=ASGITransport(app=app), base_url="http://test") as http,
+    ):
+        await app.state.container.preferences.aclose()
+        preferences = FakeSettingsClient()
+        preferences.seed(
+            "lucy",
+            {"claude_code_delegation": True, "claude_code_directories": ["C:/code"]},
+            profile="personal",
+        )
+        app.state.container.preferences = preferences
+        app.state.container.environment_override = FakeEnvironmentsClient()
+
+        listed = await http.get("/v1/capabilities", headers=bearer())
+        coder = next(item for item in listed.json()["data"] if item["id"] == "coder")
+        # Switched on, so the probe went past the person's switches to the bridge itself,
+        # which the test has no answer from; before, the switches read as off.
+        assert coder["state"] == "unavailable", coder
+        assert "could not be reached" in coder["detail"]
+
+        tools = await http.get("/v1/tools", headers=bearer())
+        assert tools.status_code == 200
+        assert ("lucy", "personal") in preferences.asked

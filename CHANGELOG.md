@@ -123,6 +123,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **What the first live Claude Code delegation found.** The catalogue (`GET /v1/capabilities`)
+  and the model tools (`GET /v1/tools`) probed with a default policy, so a capability the
+  person had switched on read as disabled there while every conversation had it ready;
+  both now read the person's own settings. A delegated task that failed was woken as a
+  job that "succeeded" because the poll had finished; it is now failed work with the
+  bridge's sentence. That sentence names whose knob the per-turn budget is
+  (`CODER_TURN_BUDGET_USD`) and that a message resumes the task, and the default rises to
+  $3: a session's first turn builds its prompt cache, and creating a one-line file cost
+  $0.82.
 - **The Claude Code bridge finds the real `claude`, and never runs a brief through a
   shell.** On Windows an npm install puts `claude.cmd` on PATH, a script a bare name cannot
   launch, so the bridge reported "not installed" on a machine where Claude Code worked --
