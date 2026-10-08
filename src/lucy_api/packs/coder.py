@@ -23,6 +23,7 @@ a report from another program: untrusted, framed, data.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from weftai.operation import define_operation
@@ -447,6 +448,20 @@ async def _settled(
     Progress is hub-written sentences from counters -- "14 tool uses, last: Edit" -- never
     Claude Code's own text, because `progress` reaches the live block unfenced.
     """
+    try:
+        return await _polled(client, registry, task_id, work_id)
+    except asyncio.CancelledError:
+        # `work.cancel` on the handle must stop the task, not only the watching: the
+        # person said stop to the work they can see, and the bridge task behind it would
+        # otherwise run on. Stopping is idempotent on the bridge; a dead bridge is let go.
+        with contextlib.suppress(DownstreamError, TransportError):
+            await client.cancel(task_id)
+        raise
+
+
+async def _polled(
+    client: CoderClient, registry: Registry, task_id: str, work_id: str
+) -> dict[str, Any]:
     missed = 0
     while True:
         try:
