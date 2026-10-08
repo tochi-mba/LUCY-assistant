@@ -18,9 +18,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -50,6 +52,45 @@ way, so a marker that drifts costs clarity, not correctness.
 """
 
 SIGNED_OUT = "Claude Code is signed out on this machine; run `claude` once to sign in"
+
+ONLY_A_SHIM = (
+    "Claude Code was found only as a script shim ({shim}), and the bridge never runs a "
+    "brief through a shell; set CODER_CLAUDE_COMMAND to the claude executable itself"
+)
+
+SHIMS = frozenset({".cmd", ".bat", ".ps1"})
+"""Script launchers the bridge refuses to run. Through cmd.exe, a brief the model wrote
+would meet `&`, `|`, `^` and `%` as syntax -- command injection on the person's machine."""
+
+NPM_NATIVE = Path("node_modules") / "@anthropic-ai" / "claude-code" / "bin"
+"""Where npm's `claude.cmd` shim keeps the native binary it forwards to, beside the shim."""
+
+
+class ClaudeNotFoundError(Exception):
+    """No runnable claude; the message is the sentence a person should read."""
+
+
+def resolve_command(command: list[str]) -> list[str]:
+    """The configured command with its program made something runnable without a shell.
+
+    A bare name is looked up on PATH. A native executable is used as it is. An npm script
+    shim (`claude.cmd` on Windows) is followed to the native binary it forwards to; a shim
+    with no binary behind it is refused with a sentence, never run through cmd.exe.
+
+    Raises:
+        ClaudeNotFoundError: nothing runnable, with the sentence that says why.
+    """
+    program, *rest = command
+    found = shutil.which(program)
+    if found is None:
+        raise ClaudeNotFoundError(NOT_INSTALLED)
+    path = Path(found)
+    if path.suffix.lower() not in SHIMS:
+        return [str(path), *rest]
+    native = path.parent / NPM_NATIVE / f"{path.stem}.exe"
+    if native.is_file():
+        return [str(native), *rest]
+    raise ClaudeNotFoundError(ONLY_A_SHIM.format(shim=path.name))
 
 
 @dataclass
@@ -119,8 +160,12 @@ class ClaudeRunner:
         transcribe: Callable[[str], None],
     ) -> TurnOutcome:
         """One ``claude -p`` turn, streamed into ``transcribe`` and ``counters``."""
+        try:
+            program = resolve_command(self._command)
+        except ClaudeNotFoundError as exc:
+            return TurnOutcome(ok=False, detail=str(exc), session_id=session_id)
         argv = [
-            *self._command,
+            *program,
             "-p",
             prompt,
             "--output-format",
@@ -264,8 +309,12 @@ TREE_KILL = taskkill_tree if sys.platform == "win32" else no_tree_kill
 def doctor(command: list[str], *, timeout_seconds: float = 30) -> str:
     """One sentence on whether the CLI answers, for `/ready`. Empty means healthy."""
     try:
-        probe = subprocess.run(  # noqa: S603 - the configured binary, --version only
-            [*command, "--version"],
+        program = resolve_command(command)
+    except ClaudeNotFoundError as exc:
+        return str(exc)
+    try:
+        probe = subprocess.run(  # noqa: S603 - the resolved binary, --version only
+            [*program, "--version"],
             capture_output=True,
             check=False,
             timeout=timeout_seconds,

@@ -106,6 +106,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The Claude Code bridge finds the real `claude`, and never runs a brief through a
+  shell.** On Windows an npm install puts `claude.cmd` on PATH, a script a bare name cannot
+  launch, so the bridge reported "not installed" on a machine where Claude Code worked --
+  and running the shim through cmd.exe would have made `&`, `|`, `^` and `%` in a brief the
+  model wrote into shell syntax on the person's machine. The bridge now resolves the
+  command itself: a native program is used as found, an npm shim is followed to the binary
+  it forwards to, and a shim with nothing behind it is refused with a sentence that names
+  `CODER_CLAUDE_COMMAND`.
 - **A waking command, watch or helper carries the consent the person gave.** Only a
   subscription recorded standing consent, so the turn any other ending opened was prepared
   with no authority and none of the person's settings: the model probed every sibling-backed

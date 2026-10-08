@@ -210,3 +210,95 @@ async def test_killing_a_process_that_already_ended_is_nothing(workdir: str) -> 
     runner = a_runner()
     await runner._kill(done)
     assert done.returncode is not None
+
+
+def test_a_native_program_is_used_as_found(tmp_path: Path) -> None:
+    from lucy_coder.runner import resolve_command
+
+    program = tmp_path / ("claude.exe" if os.name == "nt" else "claude")
+    program.write_text("", encoding="utf-8")
+    program.chmod(0o755)
+    os.environ["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
+    try:
+        found, flag = resolve_command(["claude", "--x"])
+        assert found.casefold() == str(program).casefold(), "PATHEXT may change the case"
+        assert flag == "--x"
+    finally:
+        os.environ["PATH"] = os.environ["PATH"].split(os.pathsep, 1)[1]
+
+
+def test_an_npm_shim_is_followed_to_the_binary_it_forwards_to(tmp_path: Path) -> None:
+    """The bug, named: on this machine `claude` is npm's claude.cmd. A bare name could not
+    be launched without a shell, and through cmd.exe a brief the model wrote would meet
+    `&` and `|` as syntax. The shim's own binary is run instead, with no shell between."""
+    from lucy_coder.runner import NPM_NATIVE, SHIMS, resolve_command
+
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo off", encoding="utf-8")
+    native = tmp_path / NPM_NATIVE / "claude.exe"
+    native.parent.mkdir(parents=True)
+    native.write_text("", encoding="utf-8")
+    assert ".cmd" in SHIMS
+    if os.name != "nt":
+        pytest.skip("PATHEXT shims are a Windows lookup")
+    os.environ["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
+    try:
+        [found] = resolve_command(["claude"])
+        assert found.casefold() == str(native).casefold()
+    finally:
+        os.environ["PATH"] = os.environ["PATH"].split(os.pathsep, 1)[1]
+
+
+def test_a_shim_with_nothing_behind_it_is_refused_never_run_through_a_shell(
+    tmp_path: Path,
+) -> None:
+    from lucy_coder.runner import ClaudeNotFoundError, resolve_command
+
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo off", encoding="utf-8")
+    with pytest.raises(ClaudeNotFoundError, match=r"only as a script shim \(claude.cmd\)"):
+        resolve_command([str(shim)])
+
+
+async def test_a_turn_and_the_doctor_both_say_a_shim_is_not_enough(
+    tmp_path: Path, workdir: str
+) -> None:
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo off", encoding="utf-8")
+    runner = ClaudeRunner([str(shim)], budget_usd=0.5, timeout_seconds=5)
+    outcome = await runner.run_turn(
+        task_id="tsk_1",
+        prompt="anything & del everything",
+        cwd=workdir,
+        session_id="ses-1",
+        resume=False,
+        run_level="edits",
+        counters=Counters(),
+        transcribe=lambda _line: None,
+    )
+    assert not outcome.ok
+    assert "script shim" in outcome.detail
+    assert "script shim" in doctor([str(shim)])
+
+
+async def test_a_found_program_that_will_not_execute_reads_as_not_installed(
+    tmp_path: Path, workdir: str
+) -> None:
+    """Found on the path but corrupt, or not a program at all: the OS refuses to run it,
+    and the person reads the same sentence as a missing install."""
+    broken = tmp_path / "claude-broken.exe"
+    broken.write_text("this is not a program", encoding="utf-8")
+    broken.chmod(0o755)  # executable by mode, so POSIX lookup finds it and exec refuses it
+    runner = ClaudeRunner([str(broken)], budget_usd=0.5, timeout_seconds=5)
+    outcome = await runner.run_turn(
+        task_id="tsk_1",
+        prompt="anything",
+        cwd=workdir,
+        session_id="ses-1",
+        resume=False,
+        run_level="edits",
+        counters=Counters(),
+        transcribe=lambda _line: None,
+    )
+    assert outcome.detail == NOT_INSTALLED
+    assert doctor([str(broken)]) == NOT_INSTALLED
