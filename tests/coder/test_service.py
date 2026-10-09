@@ -521,3 +521,38 @@ async def test_a_relative_folder_is_refused_before_it_can_mean_the_bridges_own(
                 )
     finally:
         await service.aclose()
+
+
+async def test_a_resumed_turn_does_not_show_the_last_turn_s_answer_or_refusals(
+    store: TaskStore, workdir: str
+) -> None:
+    """The bug, named: a follow-up's result and a read while it ran echoed the previous
+    turn's answer and permission denials, so Lucy told the person the old answer twice and
+    asked for a yes to a refusal that was already over."""
+    os.environ["FAKE_CLAUDE"] = "denied"
+    service = a_service(store, timeout=60)
+    try:
+        task = await service.start(
+            account_id=ACCOUNT,
+            brief="write denied.txt",
+            directory=workdir,
+            run_level="ask",
+            title="d",
+        )
+        body = await settled(service, task.id)
+        assert body["permission_denials"]
+        assert body["result"]
+
+        os.environ["FAKE_CLAUDE"] = "hangs"
+        await service.message(ACCOUNT, task.id, "append a second line")
+        running = await service.get(ACCOUNT, task.id)
+        assert running["state"] == "running"
+        assert running["result"] == "", "the last turn's answer is not this turn's"
+        assert running["permission_denials"] == [], "nor are its refusals"
+        assert running["turns"] == body["turns"], "the session's counters stay"
+
+        os.environ["FAKE_CLAUDE"] = "answers"
+        await service.cancel(ACCOUNT, task.id)
+    finally:
+        os.environ.pop("FAKE_CLAUDE", None)
+        await service.aclose()
