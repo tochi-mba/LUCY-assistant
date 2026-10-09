@@ -201,8 +201,7 @@ class Container:
     memory_topics: TopicListing | None = None
     decider: Decider = field(default_factory=NullDecider)
     cooldown: Cooldown = field(default_factory=Cooldown)
-    """Shared by every turn: the decider is one service, and a timeout in any turn
-    rests it for all of them."""
+    """Shared by every turn: the decider is one service, and a timeout anywhere rests it."""
     started_at: float = field(default_factory=time.monotonic)
     _workspace_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     _sweeping: asyncio.Task[None] | None = None
@@ -564,18 +563,10 @@ class Container:
         pack_context.subscriptions = governed(pack_context.subscriptions, policy)
 
         async def decision_event(name: str, fields: dict[str, Any]) -> None:
-            # A turn is prepared before its row exists, so the request carries no turn id
-            # yet. The supervisor binds the claimed turn around the whole run; that is the
-            # turn a decision belongs to, and what lets a person read the shadow results
-            # of one conversation turn side by side with what the turn did.
-            await self.events.emit(
-                request.session_id,
-                NewEvent(
-                    name,
-                    fields,
-                    turn_id=current_context().turn_id or request.turn_id or None,
-                ),
-            )
+            # A turn is prepared before its row exists, so the request has no turn id yet;
+            # the supervisor binds the claimed turn around the run, and that is the one.
+            turn_id = current_context().turn_id or request.turn_id or None
+            await self.events.emit(request.session_id, NewEvent(name, fields, turn_id=turn_id))
 
         pack_context.decide = Decisions(
             self.decider,
