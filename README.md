@@ -602,6 +602,7 @@ private; its callers continue using the canonical public workflow. The
 | Running the hub | [docs/operations.md](docs/operations.md) |
 | Testing the hub | [docs/testing.md](docs/testing.md) |
 | The `lucy` command | [docs/cli.md](docs/cli.md) |
+| The web client: a face, streamed text and approval cards | [LUCY-ui](https://github.com/tochi-mba/LUCY-ui) ([ADR-0018](docs/adr/0018-web-client-is-a-sibling-repository.md)) |
 | Conversation regressions (`lucy eval`) | [docs/evals.md](docs/evals.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | The tool layer: plans, references, approvals | [docs/tools.md](docs/tools.md) |
