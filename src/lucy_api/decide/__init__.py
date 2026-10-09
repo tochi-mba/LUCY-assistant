@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -18,6 +19,8 @@ from weftai.decisions import Answers, AnyQuestion, Decider, NullDecider
 from lucy_api.context.scrub import scrub
 from lucy_api.core.logging import scrub as redact_credentials
 from lucy_api.decide.types import USES, Direction, Skip, Use
+
+logger = logging.getLogger(__name__)
 
 Emit = Callable[[str, dict[str, Any]], Awaitable[None]]
 """How a decision reaches the stream: an event name and its fields, never the state text."""
@@ -86,11 +89,22 @@ class Decisions:
         self.shadow = shadow
         self.timeout_ms = timeout_ms
         self.max_per_turn = max_per_turn
-        self._emit = emit or _silent
+        self._sink = emit or _silent
         self.cooldown = cooldown or Cooldown()
         self._spent = 0
         self.request_text = ""
         self._cache: dict[str, Answers] = {}
+
+    async def _emit(self, name: str, fields: dict[str, Any]) -> None:
+        """To the stream, and to the log at INFO.
+
+        The event is the durable record; the log line is what an operator watching
+        `docker logs` in shadow mode sees. Without it a shadow run showed the calls going
+        out and nothing coming back, and the only way to read a verdict was the database.
+        Fields are the event's: use, reason or answers, never the state text.
+        """
+        logger.info(name, extra={"decision": fields})
+        await self._sink(name, fields)
 
     @property
     def spent(self) -> int:

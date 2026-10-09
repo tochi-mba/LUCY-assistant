@@ -8,12 +8,13 @@ sees with no decider at all. Everything else in this file is a consequence of th
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
 from weftai.decisions import Answer, Answers, AnyQuestion, NullDecider, noul
 
-from lucy_api.decide import DISAGREED, MADE, Decisions
+from lucy_api.decide import DISAGREED, MADE, SKIPPED, Decisions
 from lucy_api.decide.types import USES, Skip, Use
 
 TOPIC = Use("topic", "decision_topic", "tighten", "test fallback", "test use")
@@ -304,3 +305,21 @@ async def test_a_bare_decisions_has_its_own_rest() -> None:
     await decisions.ask(TOPIC, "one", [])
     await decisions.ask(TOPIC, "two", [])
     assert emit.reasons() == [Skip.TIMEOUT, Skip.COOLING]
+
+
+async def test_every_decision_event_is_also_a_log_line(caplog: pytest.LogCaptureFixture) -> None:
+    """The bug, named: a shadow run's `docker logs` showed the calls going out and nothing
+    coming back; the only way to read a verdict was the events table."""
+    import logging
+
+    emit = Recorder()
+    with caplog.at_level(logging.INFO, logger="lucy_api.decide"):
+        await live(Scripted(answers(("topic", "home", 0.9))), emit).ask(
+            TOPIC, "state", [noul("a", "Is it?")]
+        )
+        await live(NullDecider(), emit).ask(TOPIC, "state", [])
+    lines = [(r.getMessage(), getattr(r, "decision", None)) for r in caplog.records]
+    assert [name for name, _ in lines] == [MADE, SKIPPED]
+    assert lines[0][1]["use"] == TOPIC.id
+    assert lines[1][1]["reason"] == Skip.NO_DECIDER
+    assert "state" not in json.dumps([f for _, f in lines]), "never the state text"
