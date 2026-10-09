@@ -647,3 +647,46 @@ async def test_a_bridge_that_is_gone_does_not_turn_a_cancel_into_a_crash() -> No
     finally:
         coder_module.asyncio.sleep = original  # type: ignore[assignment]
         await registry.shutdown()
+
+
+async def test_a_plan_mode_task_says_nothing_was_written_and_how_to_carry_it_out() -> None:
+    """The bug, named: a plan-mode task's row said "idle" with a result, and the model sent
+    "execute the plan" to it three times with no `mode` -- each turn read-only by design,
+    nothing written, a few dollars each -- because nothing on the row said so."""
+    from lucy_api.packs.coder import PLANNED_ONLY
+
+    fake, capabilities, context = wired()
+    fake.seed(
+        CoderTask(
+            id="tsk_p",
+            title="t",
+            brief="b",
+            directory=FOLDER,
+            run_level="plan",
+            state="idle",
+            result="1. add the file 2. run the tests",
+            advice="message it to resume",
+        )
+    )
+    fake.seed(
+        CoderTask(
+            id="tsk_r",
+            title="t",
+            brief="b",
+            directory=FOLDER,
+            run_level="plan",
+            state="running",
+        )
+    )
+    context.grants["coder.control"] = Grant("coder.control", "allow", "personal")
+    await capabilities.probe(context)
+    plan = {
+        "steps": [
+            {"id": "p", "op": "coder.read", "input": {"task": "tsk_p"}},
+            {"id": "r", "op": "coder.read", "input": {"task": "tsk_r"}},
+        ]
+    }
+    over, running = (step["data"] for step in (await capabilities.execute(plan, context))["steps"])
+    assert over["advice"] == PLANNED_ONLY
+    assert "`mode`" in PLANNED_ONLY
+    assert "advice" not in running, "a turn still running has nothing to carry out yet"

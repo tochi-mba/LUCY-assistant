@@ -130,6 +130,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   `result` and `permission_denials`, so Lucy told the person the old answer twice and asked
   for a yes to a refusal that was already over. The bridge clears both when a turn starts;
   turns and cost stay, as the session's.
+
+- **A plan-mode Claude Code task says nothing was written, and how to carry the plan out.**
+  Told to plan first and then carry it out, the model sent "execute the plan" to the
+  plan-mode task three times with no `mode`, each turn read-only by design and a few dollars
+  each, because nothing on the task's row said so. `coder.read` and `coder.message` now carry
+  that sentence on every plan-mode task whose turn is over.
 - **A background command stopped at its ceiling is a failed piece of work, and the start
   notice says the ceiling.** A script run with `wait: false` was killed by the sandbox at
   the default 60 seconds; the work registry recorded it as `succeeded` (the command had

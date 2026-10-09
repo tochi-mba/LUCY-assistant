@@ -130,6 +130,16 @@ ALLOW_FIELD = (
     "Tools this turn may use that the last one was refused, as Claude Code names them: "
     '"Write", "Bash(npm test:*)". Only what the person said yes to.'
 )
+PLANNED_ONLY = (
+    "This turn ran in plan: it read and planned, and nothing was written. Put the plan in your "
+    "reply and end the turn; on the person's yes, coder.message with `mode` at their level "
+    "carries it out in this same session. A message without `mode` stays in plan."
+)
+"""Said on every plan-mode task whose turn is over.
+
+The page says it, and the model still sent "execute the plan" with no `mode`, three times,
+at a few dollars a turn, each one read-only by design. The row is what the model reads
+when it decides what to do next, so the row says it."""
 REFUSED_TOOLS = (
     "Claude Code was refused {count} tool call(s): {tools}. Tell the person what it wanted; "
     "with their yes, coder.message with allow_tools {rules} lets it carry on."
@@ -509,12 +519,16 @@ def _row(task: CoderTask, *, tail: bool = False) -> dict[str, Any]:
         row["model"] = task.model
     if task.permission_denials:
         row["permission_denials"] = list(task.permission_denials)
-    advice = _denial_advice(task.permission_denials) or task.advice
+    advice = _denial_advice(task.permission_denials) or _plan_advice(task) or task.advice
     if advice:
         row["advice"] = advice
     if tail and task.transcript_tail:
         row["transcript_tail"] = task.transcript_tail
     return row
+
+
+def _plan_advice(task: CoderTask) -> str:
+    return PLANNED_ONLY if task.run_level == "plan" and task.state not in _LIVE else ""
 
 
 def _denial_advice(denials: tuple[dict[str, str], ...]) -> str:
