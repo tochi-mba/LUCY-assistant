@@ -208,6 +208,13 @@ class CoderService:
             task.run_level = str(entry.get("mode") or task.run_level)
             allow = tuple(str(rule) for rule in entry.get("allow_tools") or ())
             resume = task.turns > 0
+            if resume:
+                # The row's answer and refusals are the last turn's. Left on it while the
+                # next turn runs, a read mid-turn echoed them as this turn's, and the hub
+                # told the person the old answer twice and asked for a yes to a refusal
+                # that was over. The counters stay: turns and cost are the session's.
+                task.result = ""
+                task.denials = []
             task.state = TaskState.running
             self._store.save(task)
             turn = asyncio.get_running_loop().create_task(

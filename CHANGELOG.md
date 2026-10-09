@@ -125,6 +125,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A resumed Claude Code turn no longer shows the last turn's answer and refusals.** A
+  follow-up's result, and `coder.read` while the new turn ran, echoed the previous turn's
+  `result` and `permission_denials`, so Lucy told the person the old answer twice and asked
+  for a yes to a refusal that was already over. The bridge clears both when a turn starts;
+  turns and cost stay, as the session's.
 - **A background command stopped at its ceiling is a failed piece of work, and the start
   notice says the ceiling.** A script run with `wait: false` was killed by the sandbox at
   the default 60 seconds; the work registry recorded it as `succeeded` (the command had
