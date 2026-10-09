@@ -30,7 +30,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from weftai.plan.validate import validate_plan
+from weftai.plan.validate import SessionView, ValidateOptions, validate_plan
 from weftai.refs import parse_ref
 
 if TYPE_CHECKING:
@@ -68,13 +68,24 @@ class Replay:
     """Approved calls that cannot run, each with the sentence that says why."""
 
 
-def would_run(plan: Mapping[str, Any], registry: Registry[Any], *, max_steps: int) -> bool:
+def would_run(
+    plan: Mapping[str, Any],
+    registry: Registry[Any],
+    *,
+    max_steps: int,
+    session: SessionView | None = None,
+) -> bool:
     """Whether the executor would run this plan, checked the way it checks one.
 
     Its shape, ids, operations, inputs and references; not who may run it, which is the
-    gate's question and comes after this one.
+    gate's question and comes after this one. `session` is the same stored-results view the
+    executor will resolve against: without it, a plan naming a stored result reads as
+    invalid here and the gate never inspects what the executor then runs.
     """
-    return validate_plan(plan, registry, {"maxSteps": max_steps, "allowWrites": True})["ok"]
+    options: ValidateOptions = {"maxSteps": max_steps, "allowWrites": True}
+    if session is not None:
+        options["session"] = session
+    return validate_plan(plan, registry, options)["ok"]
 
 
 def references(value: object) -> tuple[str, ...]:
