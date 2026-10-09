@@ -62,6 +62,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The workspace page names the shell and says to watch rather than poll.** Asked to wait for a background command to write a file, the model wrote a bash loop that slept and looked, then explained the failure of a trailing `&` with a confident paragraph about Windows PowerShell. The page now says commands run in bash on Linux and that waiting for a file or a command is what a watch is for.
 - A new conversation starts with what its profile has been using bound. Which capabilities are bound is decided by recency, and recency belonged to each conversation alone, in memory. So every new session started cold: asked to play a song, Lucy first spent a whole round binding music and reading its page, about 15,000 tokens and 50 seconds on clyde:haiku. A conversation's recency is now seeded from the capabilities its profile used successfully in the last 14 days, read from the recorded steps (incognito conversations excluded). Its own use still comes first, and how many capabilities are bound is unchanged. Recency also survives a restart.
 - weftai 0.6.0. Its schema converter keeps every field's description, so the hub's interim `_fields_described` patch is gone, and a test holds that every described field still reaches the model. 0.6.0 also adds a native step `note` (at most 200 characters) and MCP-style operation annotations. The hub still takes its own step fields off a plan before execution, so plans run as before.
 
