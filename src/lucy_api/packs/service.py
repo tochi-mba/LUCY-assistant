@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from weftai.results import create_memory_store
+from weftai.results.session import session_view
+
 from lucy_api.clients.music import AUDIENCE as MUSIC_AUDIENCE
 from lucy_api.clients.repos import AUDIENCE as REPOS_AUDIENCE
 from lucy_api.core.errors import LucyError, conflict
@@ -106,6 +109,11 @@ class Capabilities:
         self.child: ChildRuntime | None = None
         self.probes = probes if probes is not None else ProbeCache()
         self._uses: dict[str, list[str]] = {}
+        # One store for every plan, keyed by session inside it: "results stay available by
+        # name" is a promise the schema makes the model, and a store that died with each
+        # plan broke it -- `$find` from the last plan was an invalid reference, and the
+        # model was told the name was wrong rather than that the result was gone.
+        self._results = create_memory_store()
 
     def forget_probes(self, account_id: str, profile: str, pack_id: str | None = None) -> None:
         """Drop cached availability so the next turn asks the pack again."""
@@ -248,6 +256,7 @@ class Capabilities:
         context.step_seconds = limits["stepTimeoutMs"] / 1000
         return build_runtime(
             self.registry_for(catalogue, session_id),
+            self._results,
             limits=limits,
             policy=context.policy,
         )
@@ -282,9 +291,9 @@ class Capabilities:
         limits = limits_for(bound, context.policy)
         # The gate asks a person about a write before anything runs, so a plan that could
         # not run is refused first: a bad reference or a malformed step is the model's to
-        # repair, and nobody should be asked to approve it. The runtime checks the plan
-        # again with its own result store, which is new for every plan, so nothing stored
-        # could make a reference valid there that was invalid here.
+        # repair, and nobody should be asked to approve it. Checked against the same
+        # stored-results view the runtime resolves with, so the two cannot disagree about
+        # which references are real.
         verdict = (
             PermissionGate().inspect(
                 plan,
@@ -293,7 +302,12 @@ class Capabilities:
                 catalogue=catalogue,
                 floors=Floors.of(context),
             )
-            if would_run(stripped, registry, max_steps=limits["maxSteps"])
+            if would_run(
+                stripped,
+                registry,
+                max_steps=limits["maxSteps"],
+                session=session_view(self._results, context.session_id),
+            )
             else None
         )
         if verdict is not None and not verdict.allowed:
