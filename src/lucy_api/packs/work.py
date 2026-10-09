@@ -62,6 +62,17 @@ coming back and saying "still going" costs a sentence, and holding a turn open f
 minutes costs the person the whole conversation.
 """
 
+WORK_ID = (
+    "The id written out (wrk_...), from a result you already have; never a $step. A step "
+    "in this same plan cannot hand you one: to run something and wait for it, give "
+    "workspace.run `wait_seconds` instead."
+)
+"""Said on every field that takes a work id.
+
+Three of the first nine plan errors stored live were `$run_calc` in `work_id`: the model
+had just been taught that `$step` passes a result along, wanted to run and wait in one
+plan, and nothing said an id field takes the id itself, or how to do what it meant."""
+
 MAX_WAIT_SECONDS = 120.0
 """The longest `work.wait` will hold a turn open.
 
@@ -230,13 +241,7 @@ class WorkPack:
                         "deliberate: a large result stays out of the conversation until you "
                         "ask for it."
                     ),
-                    "input": object_schema(
-                        {
-                            "work_id": string_schema().describe(
-                                "The id handed back when the work started."
-                            )
-                        }
-                    ),
+                    "input": object_schema({"work_id": string_schema().describe(WORK_ID)}),
                     "output": value(object_schema({})),
                     "effects": "read",
                     "run": run_result,
@@ -252,7 +257,7 @@ class WorkPack:
                     ),
                     "input": object_schema(
                         {
-                            "work_id": string_schema().describe("The id to wait for."),
+                            "work_id": string_schema().describe(WORK_ID),
                             "seconds": number_schema()
                             .optional()
                             .describe(f"How long to wait, at most {MAX_WAIT_SECONDS:.0f}."),
@@ -301,9 +306,7 @@ class WorkPack:
                         "Stop something that is running. Safe to call twice; the second call "
                         "changes nothing."
                     ),
-                    "input": object_schema(
-                        {"work_id": string_schema().describe("The id to stop.")}
-                    ),
+                    "input": object_schema({"work_id": string_schema().describe(WORK_ID)}),
                     "output": value(object_schema({})),
                     "effects": "write",
                     "run": run_cancel,

@@ -222,7 +222,9 @@ class CoderPack:
 
     def operations(self, context: PackContext) -> Sequence[AnyOperation]:
         level = context.policy.claude_code_run_level
-        task = string_schema().describe("The task id coder.delegate returned.")
+        task = string_schema().describe(
+            "The task id written out (tsk_...), from a result you already have; never a $step."
+        )
         return (
             define_operation(
                 {
