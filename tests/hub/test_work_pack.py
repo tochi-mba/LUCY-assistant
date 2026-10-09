@@ -420,3 +420,21 @@ def test_stopping_something_and_coming_back_later_are_permissions_a_person_can_r
 def test_it_has_no_setup_because_there_is_nothing_to_connect() -> None:
     assert WorkPack().setup() is None
     assert WorkPack().docs == capability_doc("work")
+
+
+def test_every_work_id_field_says_it_takes_the_id_and_how_to_run_and_wait() -> None:
+    """The bug, named: three of the first nine plan errors stored live were `$run_calc` in a
+    `work_id`. The model wanted to run and wait in one plan; the field said only "The id to
+    wait for", and weftai refused the plan in front of the person."""
+    from lucy_api.packs.work import WORK_ID
+
+    context = a_context(Registry(now=lambda: datetime.now(UTC)))
+    described = {
+        operation.name: operation.input.shape["work_id"].description
+        for operation in WorkPack().operations(context)
+        if "work_id" in getattr(operation.input, "shape", {})
+    }
+    assert set(described) >= {"work.result", "work.wait", "work.cancel"}
+    assert set(described.values()) == {WORK_ID}
+    assert "never a $step" in WORK_ID
+    assert "wait_seconds" in WORK_ID
