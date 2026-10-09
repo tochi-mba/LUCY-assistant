@@ -425,7 +425,7 @@ async def test_the_model_is_warned_before_it_runs_out_rather_than_after() -> Non
 
 
 async def test_a_malformed_plan_is_handed_back_for_correction() -> None:
-    corrected = {"steps": []}
+    corrected = {"steps": [{"id": "again", "op": "research.search", "input": {"query": "x"}}]}
     usage = Usage(input_tokens=10, output_tokens=5)
     provider = ScriptedProvider(
         [plans(PLAN, usage=usage), plans(corrected, usage=usage), speaks("Done.", usage=usage)]
@@ -707,7 +707,9 @@ async def test_every_gated_write_in_the_plan_is_named_so_a_subset_can_be_answere
 
 
 async def test_a_parked_write_without_a_step_still_names_the_permission() -> None:
-    provider = ScriptedProvider([plans({"steps": []}), speaks("this round must not run")])
+    # A step that names no operation: the issue is all the gate said.
+    nameless = {"steps": [{"id": "x"}]}
+    provider = ScriptedProvider([plans(nameless), speaks("this round must not run")])
     waiting = {
         "issues": [
             {
@@ -960,3 +962,38 @@ async def test_a_plan_that_lands_on_the_cap_is_where_the_turn_stops() -> None:
     )
     assert outcome.termination is Termination.max_budget
     assert provider.remaining == 1
+
+
+async def test_a_plan_with_no_steps_is_a_spoken_reply_not_an_invalid_plan() -> None:
+    """The bug, named: "what's 17 times 23, and what's my cat called?" came back as a plan
+    with `steps: []` beside the answer; it was refused as malformed, an error reached the
+    person, and a repair round was spent on a reply that needed no tool."""
+    ran: list[object] = []
+
+    async def execute(plan: object) -> object:
+        ran.append(plan)
+        return ok_result()
+
+    provider = ScriptedProvider([plans({"steps": []}, text="391. Your cat is Marmalade.")])
+    log = Transcript()
+
+    outcome = await run_turn(turn(provider, execute=execute, append=log.append))
+
+    assert ran == [], "nothing was run"
+    assert log.kinds() == ["message"], "no error item"
+    assert log.items[0][2] == "391. Your cat is Marmalade."
+    assert len(outcome.rounds) == 1, "no repair round"
+
+
+async def test_a_plan_with_no_steps_and_no_words_is_an_empty_reply() -> None:
+    """The same as saying nothing, which already has its own path -- not an invalid plan."""
+    provider = ScriptedProvider([plans({"steps": []}), speaks("Here you go.")])
+    log = Transcript()
+
+    await run_turn(turn(provider, execute=executor(ok_result()), append=log.append))
+
+    assert all(
+        content.get("code") != "invalid_plan"
+        for kind, _role, content in log.items
+        if kind == "error" and isinstance(content, dict)
+    )
