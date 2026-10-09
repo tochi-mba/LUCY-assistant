@@ -8,6 +8,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Added
 
+- **A web client, in its own repository.** [LUCY-ui](https://github.com/tochi-mba/LUCY-ui)
+  gives Lucy a face in the browser: an animated face whose mood follows the conversation,
+  streamed text, and approval cards answered in place, on the native event stream with no hub
+  change. Its headed mode lets a coding agent drive a conversation from a terminal while a
+  person watches and answers its cards. ADR-0018 records why it is a sibling repository, why it
+  reads the native stream, and why it reaches the hub through a same-origin proxy.
 - **The Claude Code bridge drives a session the way a person at the keyboard does.**
   - *Modes per turn*: `plan`, `ask` (Claude Code's default mode), `edits` and `full`. A
     follow-up may change the mode, so a task can plan first and, on the person's yes,
