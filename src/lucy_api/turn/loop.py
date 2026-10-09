@@ -331,6 +331,11 @@ async def _after_reply(cycle: _Cycle, reply: Reply) -> Outcome | None:
     turn = cycle.turn
     if turn.object_answer and reply.plan is not None and "steps" not in reply.plan:
         reply = replace(reply, text=json.dumps(reply.plan, ensure_ascii=False), plan=None)
+    if isinstance(reply.plan, dict) and reply.plan.get("steps") == []:
+        # A plan with nothing in it is the model saying there is nothing to run: "what's 17
+        # times 23" needs no tool. Refused as malformed, it put an error in front of the
+        # person and spent a repair round on a reply that was already right.
+        reply = replace(reply, plan=None)
     outcome = cycle.outcome
     spent = outcome.spent
     outcome.spent = _add(spent, reply, turn.clock() - cycle.started)

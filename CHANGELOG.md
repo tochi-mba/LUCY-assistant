@@ -127,6 +127,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A plan with no steps is a spoken reply.** "What's 17 times 23, and what's my cat called?" came back as a plan with `steps: []` beside a correct answer; it was refused as malformed, an `invalid_plan` error reached the person, and a repair round was spent on a reply that needed no tool. An empty plan now means nothing to run, and the words are the reply.
 - **A resumed Claude Code turn no longer shows the last turn's answer and refusals.** A
   follow-up's result, and `coder.read` while the new turn ran, echoed the previous turn's
   `result` and `permission_denials`, so Lucy told the person the old answer twice and asked
