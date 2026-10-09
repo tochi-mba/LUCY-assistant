@@ -73,18 +73,16 @@ def would_run(
     registry: Registry[Any],
     *,
     max_steps: int,
-    session: SessionView | None = None,
+    session: SessionView,
 ) -> bool:
     """Whether the executor would run this plan, checked the way it checks one.
 
     Its shape, ids, operations, inputs and references; not who may run it, which is the
     gate's question and comes after this one. `session` is the same stored-results view the
-    executor will resolve against: without it, a plan naming a stored result reads as
+    executor will resolve against. Without it, a plan naming a stored result reads as
     invalid here and the gate never inspects what the executor then runs.
     """
-    options: ValidateOptions = {"maxSteps": max_steps, "allowWrites": True}
-    if session is not None:
-        options["session"] = session
+    options: ValidateOptions = {"maxSteps": max_steps, "allowWrites": True, "session": session}
     return validate_plan(plan, registry, options)["ok"]
 
 
