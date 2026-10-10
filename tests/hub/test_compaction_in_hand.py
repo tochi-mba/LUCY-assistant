@@ -302,7 +302,7 @@ async def test_compaction_still_happens_when_the_figures_cannot_be_read(
     session = await new_session(http, "in-hand-blind")
     await turns(container.store, session, 6)
 
-    async def unavailable(*_args: object) -> SessionView:
+    async def unavailable(*_args: object, **_kwargs: object) -> SessionView:
         raise LucyError("settings-unavailable", "settings could not be reached", 503)
 
     monkeypatch.setattr("lucy_api.api.routers.economy.session_view", unavailable)

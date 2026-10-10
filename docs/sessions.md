@@ -101,7 +101,9 @@ they like:
   `warn_at_percent`, `compact_at_percent`, `tokens_until_compaction`,
   `summarised_turns` and `state` (`ok`, `warning`, `compacting`, `over`). Every model round
   also emits it as `lucy.context.status`, so a client following the conversation can show
-  it without asking. `lucy context` and `/context` inside `lucy talk` print it.
+  it without asking. `lucy context` and `/context` inside `lucy talk` print it. It counts
+  capabilities as the hub last found them, up to an hour ago, rather than asking each
+  sibling again; only a capability it has no answer for is asked.
 - **Compact now.** `POST /v1/sessions/{id}/compact`, optionally with
   `{"keep_recent_turns": n}` (0-100; omitted, `history_turns_kept` decides). The answer
   carries `context_before` and `context_after`. Asking again with nothing new to cover is a

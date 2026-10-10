@@ -135,6 +135,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The window gauge no longer asks every sibling again to count tokens.**
+  `GET /v1/sessions/{id}/context/window` took 6.1 s on its first read and 88 ms after.
+  Profiled in the hub's own container, the cold read was the capability probes: a keyring
+  token exchange per sibling, which keyring answers one at a time (2.3 s for seven), then
+  each sibling's reply, the slowest a search service waking from idle. The gauge only counts
+  what a turn would send, so it now takes each capability as the hub last found it, up to an
+  hour ago, and asks only about one it has no answer for; a turn still asks again after
+  fifteen seconds. A probe that found a credential missing also dropped every other
+  capability's cached answer, so for anybody with one capability not connected the cache
+  emptied on every probe round. A probe's own finding no longer drops the rest; a step's
+  still does.
 - **A plan with no steps is a spoken reply.** "What's 17 times 23, and what's my cat called?" came back as a plan with `steps: []` beside a correct answer; it was refused as malformed, an `invalid_plan` error reached the person, and a repair round was spent on a reply that needed no tool. An empty plan now means nothing to run, and the words are the reply.
 
 - **A step's result stays available to the next plan, as the schema promises.** The plan
