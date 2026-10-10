@@ -20,7 +20,8 @@ person cannot ask a question that had nothing to do with it.
 Availability is cached per (account, profile, pack) for a few seconds so a conversation
 that never mentions music does not wait on music's devices list every turn. Operations
 still run locally on a hit, because they close over this turn's context. A connect,
-disconnect, settings write, or 502 naming a missing credential drops the row.
+disconnect, settings write, or a step's 502 naming a missing credential drops the row. The
+window gauge takes an answer up to an hour old (`packs/probes.py`, `KNOWN_SECONDS`).
 
 ## Why an unusable capability is *absent* rather than present-and-failing
 
@@ -54,6 +55,7 @@ from weftai import create_formatter, create_registry, create_runtime, standard_o
 from lucy_api.model.types import SAY, SAY_DESCRIPTION
 from lucy_api.packs.base import Availability, Bound, Catalogue, State
 from lucy_api.packs.collections import ALL as COLLECTIONS
+from lucy_api.packs.probes import probing
 from lucy_api.packs.spoken import spoken
 from lucy_api.packs.steplog import step_hooks
 from lucy_api.settings.policy import ALWAYS_ON, TurnPolicy
@@ -146,9 +148,16 @@ def _ceiling(pack_id: str, seconds: float) -> float:
 
 
 async def probe_all(
-    packs: Sequence[CapabilityPack], context: PackContext, *, seconds: float = PROBE_SECONDS
+    packs: Sequence[CapabilityPack],
+    context: PackContext,
+    *,
+    seconds: float = PROBE_SECONDS,
+    within: float | None = None,
 ) -> Catalogue:
     """Probe every capability at once, tolerating any of them failing.
+
+    A cached answer younger than `within` seconds stands in for a probe; `None` is the
+    cache's own TTL, which is what a turn takes.
 
     A probe is a network call to somebody else's service, so it gets a timeout. A capability
     that does not answer in time is unavailable for this turn rather than a turn that does
@@ -166,14 +175,19 @@ async def probe_all(
         cached = None
         if context.probes is not None:
             cached = context.probes.get(
-                context.account_id, context.profile, pack.id, session_id=context.session_id
+                context.account_id,
+                context.profile,
+                pack.id,
+                session_id=context.session_id,
+                within=within,
             )
         if cached is not None:
             availability = cached
         else:
             try:
-                async with asyncio.timeout(_ceiling(pack.id, seconds)):
-                    availability = await pack.probe(context)
+                with probing():
+                    async with asyncio.timeout(_ceiling(pack.id, seconds)):
+                        availability = await pack.probe(context)
             except TimeoutError:
                 availability = Availability(
                     state=State.unavailable,

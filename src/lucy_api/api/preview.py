@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from lucy_api.core.container import PackRequest
+from lucy_api.packs.probes import KNOWN_SECONDS
 from lucy_api.turn.prompt import SessionView, conversation_order, schema_tokens, view_limits
 
 if TYPE_CHECKING:
@@ -18,8 +19,15 @@ if TYPE_CHECKING:
     from lucy_api.core.container import Container
 
 
-async def session_view(acting: ActingAs, container: Container, session_id: str) -> SessionView:
-    """The view a turn would assemble from, for the verified caller's session."""
+async def session_view(
+    acting: ActingAs, container: Container, session_id: str, *, fresh: bool = True
+) -> SessionView:
+    """The view a turn would assemble from, for the verified caller's session.
+
+    `fresh=False` is for a figure rather than a prompt -- the window gauge -- and takes each
+    capability as the hub last found it, up to `KNOWN_SECONDS` ago, instead of asking every
+    sibling again. A capability the hub has no answer for is still asked.
+    """
     store = container.store
     session = await store.get(acting.account_id, session_id)
     items = await store.records(acting.account_id, session_id, "items")
@@ -36,7 +44,9 @@ async def session_view(acting: ActingAs, container: Container, session_id: str) 
         ),
         session,
     )
-    catalogue = await container.capabilities.probe(prepared.pack_context)
+    catalogue = await container.capabilities.probe(
+        prepared.pack_context, within=None if fresh else KNOWN_SECONDS
+    )
     ready = tuple(item.pack.id for item in catalogue.ready())
     visible = {str(turn["id"]) for turn in turns}
     parent_items = [row for row in items if not row.get("agent_id")]
