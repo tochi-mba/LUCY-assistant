@@ -119,7 +119,7 @@ async def _gauge_view(
     compaction still happens and the figures are `null` rather than invented.
     """
     try:
-        return await session_view(acting, container, session_id)
+        return await session_view(acting, container, session_id, fresh=False)
     except LucyError:
         return None
 
@@ -152,13 +152,14 @@ async def compactions(
         "of the window, the percentage, where the warning and automatic compaction sit, how "
         "many tokens are left before it runs, how many opening turns are read as a summary, "
         "and `state` (`ok`, `warning`, `compacting`, `over`). The cheap half of "
-        "`GET /context`: no prompt text."
+        "`GET /context`: no prompt text, and capabilities as the hub last found them (up to "
+        "an hour ago) rather than asked again."
     ),
 )
 async def context_window(
     acting: ActingAsDep, container: ContainerDep, session_id: SessionId
 ) -> dict[str, Any]:
-    view = await session_view(acting, container, session_id)
+    view = await session_view(acting, container, session_id, fresh=False)
     listed = await list_compactions(container.store, acting.account_id, session_id)
     return {
         **window_report(view),

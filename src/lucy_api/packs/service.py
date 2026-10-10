@@ -188,8 +188,9 @@ class Capabilities:
             probes=self.probes,
         )
 
-    async def probe(self, context: PackContext) -> Catalogue:
-        catalogue = await probe_all(self.packs, context)
+    async def probe(self, context: PackContext, *, within: float | None = None) -> Catalogue:
+        """Every capability's availability: cached up to `within` seconds old, else asked."""
+        catalogue = await probe_all(self.packs, context, within=within)
         context.catalogue = catalogue
         return catalogue
 

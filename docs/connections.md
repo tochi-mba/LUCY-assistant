@@ -90,10 +90,14 @@ pause are declared writes, covered by the `music.control` permission, which asks
 of them runs unless the person already allowed it.
 
 Probe answers are cached per person, profile and capability for fifteen seconds, so a
-conversation that never mentions music does not wait on a devices list every turn. Starting
+conversation that never mentions music does not wait on a devices list every turn. The window
+gauge (`GET /v1/sessions/{id}/context/window`) takes an answer up to an hour old: it only
+counts tokens, and asking every sibling again cost its first read six seconds. Starting
 a connection, opening its link, a poll that sees it settle, a disconnect, a settings write,
-or a `502` naming a missing credential drops the cache, so connecting or disconnecting shows
-on the next turn. Two calls that need the same expiring grant at once must not both
+or a step's `502` naming a missing credential drops the cache, so connecting or disconnecting
+shows on the next turn. A probe's own `502` does not: the probe's answer already says the
+credential is missing, and dropping every other capability's answer with it emptied the
+cache on each probe round of anybody with one capability not connected. Two calls that need the same expiring grant at once must not both
 refresh it -- RFC 9700 tells the authorization server to treat that as replay and revoke
 the chain -- and keyring, which holds every grant, renews one grant once however many ask.
 The hub's calls to a sibling run side by side: until 2026-10-07 they took a lock per person
