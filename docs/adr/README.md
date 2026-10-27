@@ -24,5 +24,6 @@ These are **family** decisions. A service's own ADRs stay in that service.
 | [0016](0016-repos-capability-and-port-8011.md) | `repos` is the capability and GitHub its provider; Github-api on 8011; a grant may be limited to one repository |
 | [0017](0017-lucy-delegates-tasks-to-claude-code.md) | Lucy hands whole tasks to Claude Code on the host through a loopback bridge; three switches, a card for every task |
 | [0018](0018-web-client-is-a-sibling-repository.md) | The web client is the sibling repository LUCY-ui, reading the native stream through a same-origin proxy; headed conversations are named, not flagged |
+| [0019](0019-turns-of-different-conversations-run-at-once.md) | Turns of different conversations run at once, up to `LUCY_MAX_CONCURRENT_TURNS`; one conversation still runs one turn at a time |
 
 There is no 0012. The number was never used, and numbers are not reused.

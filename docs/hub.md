@@ -12,7 +12,9 @@ where to start when something goes wrong. Read it with the code open.
    (`core/container.py`, `prepare_turn`). Nothing thinks yet; the request returns `202`.
 2. **Claimed.** `turn/supervisor.py` claims queued turns in order, picks up what was prepared
    for each, and runs it -- with the session and turn ids bound onto every log line written
-   while it runs.
+   while it runs. Turns of different conversations run at once, up to
+   `LUCY_MAX_CONCURRENT_TURNS`; one conversation's turns run one after another
+   ([ADR-0019](adr/0019-turns-of-different-conversations-run-at-once.md)).
 3. **A round.** `turn/loop.py` (`run_turn`) builds the prompt (`turn/prompt.py`, then
    `context/`; the fixed text is `prompt/defaults/*.md`), asks the model (`model/`, one adapter
    per wire dialect), and reads the reply (`model/wire.py`, `said_and_planned`): words for the

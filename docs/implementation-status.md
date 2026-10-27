@@ -44,12 +44,13 @@ machine is listed as in progress, however finished it looks.
   profile-wide scopes are exclusive. Settings-api passed its full `make check` on this
   machine.
 - **M1 durable sessions and the live turn runner.** Sessions, append-only items, idempotent
-  `POST /inputs`, durable queued turns, the in-process single-writer supervisor,
-  provider-backed model/tool rounds, real context projection, and resumable native SSE are
-  wired. Queued user inputs retain conversational order even when assistant output is
-  appended later. A process restart fails turns left `running` (they are not replayed,
-  because a tool that already ran must not run again) and then drains what was still
-  queued. Turns parked on a person (`input_required`, `auth_required`) survive the restart.
+  `POST /inputs`, durable queued turns, the in-process supervisor (one writer per
+  conversation, several conversations at once), provider-backed model/tool rounds, real
+  context projection, and resumable native SSE are wired. Queued user inputs retain
+  conversational order even when assistant output is appended later. A process restart fails
+  turns left `running` (they are not replayed, because a tool that already ran must not run
+  again) and then drains what was still queued. Turns parked on a person (`input_required`,
+  `auth_required`) survive the restart.
 - **Initial live prompt feeds.** Persona identity, pinned persona data, pinned account
   fields, current playback, active playback device, and safe attached-workspace state are
   fetched once per turn with entry-level provenance and per-field settings. Account pins

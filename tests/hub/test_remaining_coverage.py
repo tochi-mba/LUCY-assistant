@@ -480,7 +480,8 @@ async def test_a_closed_supervisor_does_not_claim_work(sessions_store: SessionSt
         EventEmitter(SqlEventLog(sessions_store), Snapshot()),
     )
     running._closed = True
-    await running._drain()
+    await running._claim()
+    assert running._claiming is None
 
 
 async def test_workspace_bootstrap_skips_existing_files_and_survives_a_git_outage() -> None:

@@ -864,6 +864,7 @@ def build_container(
         capabilities,
         agents=agents,
         on_status=after_turn(webhooks.notify, waker, store),
+        max_concurrent=settings.max_concurrent_turns,
     )
     exchange = KeyringExchange(
         base_url=settings.keyring_base_url,
