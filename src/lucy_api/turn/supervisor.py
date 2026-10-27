@@ -4,6 +4,11 @@ The HTTP request records intent and returns.  This supervisor owns the work afte
 point, which is why closing an SSE connection cannot cancel a turn and why a restart can
 claim work that was queued before it began.  It is intentionally a small scheduler: SQLite
 is the queue, the session row is the lock, and the loop remains in :mod:`lucy_api.turn.loop`.
+
+Turns of different conversations run at once, up to `LUCY_MAX_CONCURRENT_TURNS`; turns of one
+conversation never do, because the claim query will not start a turn in a session that has
+one running. One at a time across every conversation, as it was, held a message to a fresh
+conversation 56.5 seconds behind somebody else's turn (ADR-0019).
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from lucy_api.agents.restart import announce_interrupted
 from lucy_api.context.build import Live
 from lucy_api.context.scrub import scrub
 from lucy_api.context.sources import Sources
+from lucy_api.core.config import MAX_CONCURRENT_TURNS
 from lucy_api.core.errors import LucyError
 from lucy_api.core.logging import allow_message_content, bind
 from lucy_api.decide.uses import Recovery, suggest_capabilities
@@ -152,7 +158,13 @@ def _spend(result: Any) -> TurnSpend:
 
 
 class TurnSupervisor:
-    """Drain durable queued turns without a broker or a second writer process."""
+    """Run durable queued turns, several conversations at once, without a broker or a
+    second writer process.
+
+    One task claims: it fills free slots with the oldest runnable turns and stops when the
+    queue or the slots run out. Each claimed turn is a task of its own, and a turn that ends
+    wakes the claimer, so the slot it frees goes to the next queued turn.
+    """
 
     def __init__(  # noqa: PLR0913,PLR0917 - on_status is the webhook fan-out
         self,
@@ -163,11 +175,19 @@ class TurnSupervisor:
         agents: AgentStore | None = None,
         on_status: Callable[[str, str, str, str], Awaitable[None]] | None = None,
         sleeper: Callable[[float], Awaitable[None]] | None = None,
+        *,
+        max_concurrent: int = MAX_CONCURRENT_TURNS,
     ) -> None:
         from lucy_api.packs.service import (  # noqa: PLC0415 - packs imports turn
             Capabilities as Installed,
         )
 
+        if max_concurrent < 1:
+            message = (
+                f"max_concurrent is {max_concurrent}, so no turn could ever run; "
+                "LUCY_MAX_CONCURRENT_TURNS must be at least 1"
+            )
+            raise ValueError(message)
         self._store = store
         self._models = models
         self._events = events
@@ -175,7 +195,12 @@ class TurnSupervisor:
         self._agents = agents
         self._on_status = on_status
         self._sleeper = sleeper or asyncio.sleep
-        self._task: asyncio.Task[None] | None = None
+        self._max_concurrent = max_concurrent
+        self._claiming: asyncio.Task[None] | None = None
+        self._woken = False
+        """A wake that arrived while the claimer was asking the store, kept so it is not lost."""
+        self._running: dict[str, asyncio.Task[None]] = {}
+        """Each running turn's task, by turn id."""
         self._closed = False
         self._prepared: dict[str, PreparedTurn] = {}
 
@@ -202,47 +227,84 @@ class TurnSupervisor:
         return bool(self._models.providers)
 
     def wake(self) -> None:
-        """Ensure one drainer is running; repeated calls coalesce into that task."""
-        if (
-            self._closed
-            or not self.configured
-            or (self._task is not None and not self._task.done())
-        ):
+        """Ensure one claimer is running; repeated calls coalesce into that task.
+
+        A call that arrives while the claimer is asking the store is remembered, and the
+        claimer asks again before it stops: the turn that call was about may have been
+        committed just after the store answered "nothing queued".
+        """
+        if self._closed or not self.configured:
             return
-        self._task = asyncio.create_task(self._drain(), name="lucy-turn-supervisor")
+        if self._claiming is not None and not self._claiming.done():
+            self._woken = True
+            return
+        self._claiming = asyncio.create_task(self._claim(), name="lucy-turn-supervisor")
 
     async def aclose(self) -> None:
-        """Stop scheduling new work; already recorded turns remain resumable."""
+        """Stop claiming and stop the turns still running; queued turns stay queued.
+
+        A turn stopped here is still `running` in the store, and the next process's `start`
+        fails it, as it would after a crash: a tool that already ran must not run again.
+        """
         self._closed = True
         self._prepared.clear()
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+        tasks = [task for task in (self._claiming, *self._running.values()) if task is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def join(self) -> None:
-        """Wait for currently scheduled work. Useful to deterministic in-process tests."""
-        if self._task is not None:
-            await self._task
+        """Wait until nothing is being claimed and no turn is running.
 
-    async def _drain(self) -> None:
-        while not self._closed:
+        Looked at again after every wait, because a turn that ends gives its slot to the next
+        queued one: two messages queued to one conversation are two turns, one after the
+        other, and deterministic in-process tests mean both.
+        """
+        while pending := [
+            task
+            for task in (self._claiming, *self._running.values())
+            if task is not None and not task.done()
+        ]:
+            await asyncio.gather(*pending)
+
+    async def _claim(self) -> None:
+        """Fill the free slots with the oldest runnable queued turns, then stop.
+
+        The claim query starts no turn in a conversation that has one running, so the slots
+        only ever hold turns of different conversations, and they are taken in created order.
+        """
+        while not self._closed and len(self._running) < self._max_concurrent:
+            self._woken = False
             row = await self._store.claim_next_turn()
             if row is None:
+                if self._woken:
+                    continue
                 return
             claimed = ClaimedTurn.from_row(row)
-            began = time.perf_counter()
-            # Every line this turn writes -- its model calls, its steps, the helpers it starts,
-            # which inherit this context -- says which conversation and turn it belongs to.
-            with bind(session_id=claimed.session_id, turn_id=claimed.id):
-                try:
-                    await self._run(claimed)
-                finally:
-                    logger.info(
-                        "turn_ended",
-                        extra={"duration_ms": round((time.perf_counter() - began) * 1000, 3)},
-                    )
-                    await self._events.publish_persisted(claimed.session_id)
+            self._running[claimed.id] = asyncio.create_task(
+                self._turn(claimed), name=f"lucy-turn-{claimed.id}"
+            )
+
+    async def _turn(self, claimed: ClaimedTurn) -> None:
+        """Run one claimed turn in its own task, then give its slot to the next one."""
+        began = time.perf_counter()
+        # Every line this turn writes -- its model calls, its steps, the helpers it starts,
+        # which inherit this context -- says which conversation and turn it belongs to.
+        with bind(session_id=claimed.session_id, turn_id=claimed.id):
+            try:
+                await self._run(claimed)
+            except Exception:
+                # A turn that breaks must not take the others with it: they share the
+                # process now. Its row stays `running`, which the next restart fails.
+                logger.exception("turn_crashed")
+            finally:
+                logger.info(
+                    "turn_ended",
+                    extra={"duration_ms": round((time.perf_counter() - began) * 1000, 3)},
+                )
+                await self._events.publish_persisted(claimed.session_id)
+                self._running.pop(claimed.id, None)
+                self.wake()
 
     async def _run(self, claimed: ClaimedTurn) -> None:  # noqa: PLR0915 - one turn is one function
         prepared = self._prepared.pop(claimed.id, None)

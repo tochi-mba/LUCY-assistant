@@ -146,6 +146,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
   capability's cached answer, so for anybody with one capability not connected the cache
   emptied on every probe round. A probe's own finding no longer drops the rest; a step's
   still does.
+- **A conversation's turn no longer waits for every other conversation's.** Measured on the
+  live hub, a message to a fresh conversation was accepted in 0.12 s and its turn started
+  56.5 s later: the supervisor ran one turn at a time across every conversation of every
+  account, so it waited behind a background tester's turn in another conversation. Turns of
+  different conversations now run at once, up to `LUCY_MAX_CONCURRENT_TURNS` (default 4);
+  one conversation still runs one turn at a time, which the claim query already guaranteed.
+  Turns are claimed in the order they were queued, a slot a turn frees goes to the next one,
+  a wake that arrives while the supervisor is asking for work is no longer lost, and a turn
+  that breaks is logged as `turn_crashed` instead of stopping the turns behind it. ADR-0019.
 - **A plan with no steps is a spoken reply.** "What's 17 times 23, and what's my cat called?" came back as a plan with `steps: []` beside a correct answer; it was refused as malformed, an `invalid_plan` error reached the person, and a repair round was spent on a reply that needed no tool. An empty plan now means nothing to run, and the words are the reply.
 
 - **A step's result stays available to the next plan, as the schema promises.** The plan

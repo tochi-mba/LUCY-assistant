@@ -55,6 +55,15 @@ failure should say what to write instead: "extra inputs are not permitted" names
 
 ENV_FILE = Path(".env")
 
+MAX_CONCURRENT_TURNS = 4
+"""How many conversations may each have a turn running at once, by default.
+
+Enough that a person's message is not held behind a background run, a woken turn and a
+second window at once; few enough that one process's model calls, sibling calls and its one
+SQLite writer stay well inside what they can serve. A turn's own helpers are not counted:
+they run inside the turn that started them.
+"""
+
 
 class LogFormat(StrEnum):
     JSON = "json"
@@ -198,6 +207,16 @@ class Settings(BaseSettings):
     http_timeout_seconds: PositiveFloat = 10.0
     """How long to wait on a sibling service. Ten seconds is right for a service that is
     either up or down; it is not right for a model, which has its own setting below."""
+
+    max_concurrent_turns: PositiveInt = MAX_CONCURRENT_TURNS
+    """How many conversations may each have a turn running at once, in this process.
+
+    One conversation never runs two turns at once: that is the claim query's rule, not this
+    number's. This caps the rest, so a turn waits only behind other conversations' turns, and
+    only once this many are running. Before it, every turn of every conversation waited for
+    every other, and a message to a fresh conversation started 56.5 seconds after it was
+    accepted (ADR-0019).
+    """
 
     model_timeout_seconds: PositiveFloat = 120.0
     """How long to wait on one model call.
