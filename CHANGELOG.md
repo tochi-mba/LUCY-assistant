@@ -135,6 +135,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **The Claude Code bridge starts beside the hub's keys in the shared `.env`.** It refused
+  every key without its own prefix, so `make coder` failed with 22 errors once the
+  checkout's `.env` held the hub's settings. Typos under `CODER_` are still refused, now in
+  `.env` as well as the environment.
 - **The window gauge no longer asks every sibling again to count tokens.**
   `GET /v1/sessions/{id}/context/window` took 6.1 s on its first read and 88 ms after.
   Profiled in the hub's own container, the cold read was the capability probes: a keyring

@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -78,6 +79,25 @@ def test_load_settings_reads_the_environment(monkeypatch: pytest.MonkeyPatch) ->
     assert loaded.audience == "coder-api"
     assert Settings().max_live_tasks == 2, "the owner's number is the default"
     assert Settings().turn_budget_usd == 3.0, "a first turn's cache build fits under it"
+
+
+def test_the_bridge_starts_beside_the_hubs_keys_in_a_shared_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The bug: `extra="forbid"` with an env file refused every unprefixed key in it, so the
+    # hub's LAYA_* keys in the checkout's .env stopped `make coder` with 22 errors.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LAYA_API_KEY=x\nLUCY_THING=y\nCODER_PORT=8123\nEMPTY\n")
+    assert load_settings().port == 8123
+
+
+def test_a_typo_under_the_prefix_in_env_file_is_still_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("CODER_PROT=8123\n")
+    with pytest.raises(RuntimeError, match="CODER_PROT"):
+        load_settings()
 
 
 def test_counters_ignore_blocks_that_are_neither_tools_nor_words() -> None:

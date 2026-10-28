@@ -2,7 +2,9 @@
 
 Every knob is an environment variable prefixed ``CODER_``. Unknown variables under the
 prefix are rejected rather than ignored, so a typo fails at startup instead of being a
-setting that silently never applied -- the family's rule, copied from the siblings.
+setting that silently never applied -- the family's rule, copied from the siblings. The
+check covers the environment and ``.env`` alike, and only the prefix: ``.env`` is the
+checkout's shared file, and the hub's own keys in it are not this service's business.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Annotated
 
+from dotenv import dotenv_values
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,7 +34,10 @@ class Settings(BaseSettings):
         env_prefix=ENV_PREFIX,
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="forbid",
+        # Not "forbid": with an env file that refuses every unprefixed key in it, so the
+        # hub's own keys in the shared .env stopped the bridge starting. Typos under the
+        # prefix are still refused, by `check_for_unknown_env_vars`.
+        extra="ignore",
         hide_input_in_errors=True,
     )
 
@@ -84,6 +90,7 @@ def check_for_unknown_env_vars(environ: Mapping[str, str] | None = None) -> None
 
 
 def load_settings() -> Settings:
-    """Load settings and refuse unknown env vars under the prefix."""
-    check_for_unknown_env_vars()
+    """Load settings and refuse unknown variables under the prefix, in the environment or `.env`."""
+    from_file = {key: value or "" for key, value in dotenv_values(".env").items()}
+    check_for_unknown_env_vars({**from_file, **os.environ})
     return Settings()
