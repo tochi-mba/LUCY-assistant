@@ -807,6 +807,67 @@ async def test_a_background_command_stopped_at_its_ceiling_is_failed_work_that_s
         await work.shutdown()
 
 
+async def test_a_background_command_that_dies_is_failed_work_with_its_exit_code() -> None:
+    """The bug, named: a sieve that asked for more memory than the sandbox has died with a
+    MemoryError in six seconds and the notice said "succeeded"; the model then went to read
+    the file it never wrote. Only the ceiling kill had been made a failure."""
+    from lucy_api.work import State
+
+    fake, _capabilities, _context = setup()
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities([WorkspacePack("https://workspace.test", client=fake)], work=work)
+    context = capabilities.context_for(
+        SessionScope(
+            account_id="acct-a",
+            profile="personal",
+            session_id="sess-a",
+            workspace=WorkspaceScope("env-1", "sess-a", ready=True),
+            permission_mode="auto",
+        )
+    )
+    await capabilities.probe(context)
+    fake.script(
+        "python sieve.py",
+        Ran(command="python sieve.py", exit_code=1, output="MemoryError\n", state="exited"),
+    )
+    try:
+        result = await capabilities.execute(
+            {
+                "steps": [
+                    {
+                        "id": "run",
+                        "op": "workspace.run",
+                        "input": {"command": "python sieve.py", "wait": False},
+                    }
+                ]
+            },
+            context,
+        )
+        finished = await work.wait(result["steps"][0]["data"]["work_id"], 5)
+        assert finished.state is State.failed
+        assert finished.detail.startswith("ended with exit code 1 after ")
+        assert "read it with work.result" in finished.detail
+        assert "MemoryError" not in finished.detail, "the program's words never reach the notice"
+        assert finished.payload["exit_code"] == 1
+        assert finished.payload["output"] == "MemoryError\n", "what it printed is still readable"
+    finally:
+        await work.shutdown()
+
+
+async def test_a_waited_command_that_fails_still_returns_its_output_and_exit_code() -> None:
+    """A test run or a build that fails is an ordinary answer when waited for: the model reads
+    `exit_code` and the output itself, as before."""
+    fake, capabilities, context = setup()
+    fake.script("pytest", Ran(command="pytest", exit_code=1, output="1 failed\n", state="exited"))
+    result = await capabilities.execute(
+        {"steps": [{"id": "run", "op": "workspace.run", "input": {"command": "pytest"}}]},
+        context,
+    )
+    data = result["steps"][0]["data"]
+    assert data["exit_code"] == 1
+    assert data["output"] == "1 failed\n"
+
+
 async def test_a_waited_command_stopped_at_its_ceiling_still_returns_what_it_printed() -> None:
     fake, _capabilities, _context = setup()
     work = Registry(now=lambda: datetime.now(UTC))

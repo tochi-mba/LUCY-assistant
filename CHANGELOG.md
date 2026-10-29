@@ -146,6 +146,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A background command that dies is failed work, with its exit code.** A sieve
+  that asked for 2.4 GB in a 2 GiB sandbox died with a MemoryError in six seconds and the
+  notice said "succeeded", so the model went to read the file it never wrote. Only the
+  sandbox's own kill had been made a failure; the command's exit code was never read. A
+  nonzero exit now ends as `failed`, "ended with exit code N after Ns", output kept for
+  `work.result`. A waited command still returns its output and exit code as an answer.
 - **A refusal a Claude Code turn routed around no longer reads as a blocker.** The row's
   advice told the model to relay the refusal even when the same turn ended with a result,
   so a finished task was described as "waiting for your permission". A refused turn that

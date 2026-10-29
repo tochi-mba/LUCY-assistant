@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import posixpath
+import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from weftai.operation import define_operation
 from weftai.schema.spec import (
@@ -89,6 +90,18 @@ STARTED = (
 STOPPED_AT_CEILING = (
     "stopped at its {seconds}s ceiling, exit code {exit_code}; the output so far is kept"
 )
+ENDED_WITH_ERROR = (
+    "ended with exit code {exit_code} after {seconds}s; what it printed is kept, read it "
+    "with work.result before saying what happened"
+)
+"""How a background command that died ends as work: failed, with the exit code.
+
+Found live: a sieve of 300 million asked for 2.4 GB in a sandbox with 2 GiB, died with a
+MemoryError in six seconds, and the notice said "succeeded". The model, told it had
+succeeded, went to read the file it never wrote. Only the sandbox's own kill (the ceiling)
+had been made a failure; a command's own exit code was not read at all. The sentence
+carries no output, which is the program's words and reaches the model fenced, through
+`work.result`."""
 """How a command the sandbox killed ends as work: failed, in one sentence the notice carries.
 
 It used to end as succeeded -- the command had returned an answer, however it ended -- so
@@ -669,11 +682,27 @@ class WorkspacePack:
                     STOPPED_AT_CEILING.format(seconds=seconds, exit_code=result.exit_code),
                     payload=ran,
                 )
+            if result.exit_code:
+                raise WorkError(
+                    ENDED_WITH_ERROR.format(
+                        exit_code=result.exit_code, seconds=f"{time.monotonic() - began:.0f}"
+                    ),
+                    payload=ran,
+                )
             return ran
 
+        async def answered() -> dict[str, Any]:
+            # No registry to carry the ending: the payload is the whole answer, as it was.
+            # `work()` raises only with `ran` as the payload, so the cast holds.
+            try:
+                return await work()
+            except WorkError as exc:
+                return cast("dict[str, Any]", exc.payload)
+
+        began = time.monotonic()
         registry = context.work
         if registry is None:
-            return await work()
+            return await answered()
         tags = await waking_tags(
             context.subscriptions,
             quiet=context.policy.quiet,
