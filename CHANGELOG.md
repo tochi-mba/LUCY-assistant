@@ -135,6 +135,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Fixed
 
+- **A refusal a Claude Code turn routed around no longer reads as a blocker.** The row's
+  advice told the model to relay the refusal even when the same turn ended with a result,
+  so a finished task was described as "waiting for your permission". A refused turn that
+  still produced a result now gets a calmer sentence: read the result first.
 - **The Claude Code bridge starts beside the hub's keys in the shared `.env`.** It refused
   every key without its own prefix, so `make coder` failed with 22 errors once the
   checkout's `.env` held the hub's settings. Typos under `CODER_` are still refused, now in

@@ -467,6 +467,33 @@ async def test_a_refused_tool_reaches_lucy_as_the_hubs_sentence_and_a_yes_allows
     assert fake.follow_ups[-1]["allow_tools"] == ("Write",)
 
 
+async def test_a_refusal_the_turn_routed_around_gets_the_calmer_sentence() -> None:
+    # The bug, named: a task was refused one Bash path, recreated the script elsewhere and
+    # reported success in the same turn, and the advice still said to tell the person what
+    # it wanted -- so the model told them the finished task was waiting on permission.
+    fake, capabilities, context = wired(level="ask")
+    fake.seed(
+        CoderTask(
+            id="tsk_1",
+            title="t",
+            brief="b",
+            directory=FOLDER,
+            run_level="ask",
+            state="idle",
+            result="done: 68 numbers, lists match",
+            permission_denials=({"tool": "Bash", "input": '{"command": "python x.py"}'},),
+        )
+    )
+    await capabilities.probe(context)
+    read = (
+        await capabilities.execute(
+            {"steps": [{"id": "r", "op": "coder.read", "input": {"task": "tsk_1"}}]}, context
+        )
+    )["steps"][0]["data"]
+    assert "still finished the turn with a result" in read["advice"]
+    assert "Tell the person what it wanted" not in read["advice"]
+
+
 async def test_allowing_a_tool_in_plan_mode_is_refused_as_meaningless() -> None:
     fake, capabilities, context = wired(level="plan")
     seeded(fake, "plan")

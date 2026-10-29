@@ -145,6 +145,17 @@ REFUSED_TOOLS = (
     "with their yes, coder.message with allow_tools {rules} lets it carry on."
 )
 
+REFUSED_BUT_FINISHED = (
+    "Claude Code was refused {count} tool call(s): {tools}, and still finished the turn with "
+    "a result. Read the result first; raise the refusal with the person only if something "
+    "looks missing, and their yes via coder.message with allow_tools {rules} covers a next turn."
+)
+"""Said instead of ``REFUSED_TOOLS`` when the turn produced a result anyway.
+
+Found live: a task was refused one Bash path, routed around it in the same turn and
+reported success, and the urgent sentence still made the model tell the person the task
+was "waiting for your permission"."""
+
 _LIVE = frozenset({"queued", "running"})
 
 
@@ -521,7 +532,7 @@ def _row(task: CoderTask, *, tail: bool = False) -> dict[str, Any]:
         row["model"] = task.model
     if task.permission_denials:
         row["permission_denials"] = list(task.permission_denials)
-    advice = _denial_advice(task.permission_denials) or _plan_advice(task) or task.advice
+    advice = _denial_advice(task) or _plan_advice(task) or task.advice
     if advice:
         row["advice"] = advice
     if tail and task.transcript_tail:
@@ -533,18 +544,21 @@ def _plan_advice(task: CoderTask) -> str:
     return PLANNED_ONLY if task.run_level == "plan" and task.state not in _LIVE else ""
 
 
-def _denial_advice(denials: tuple[dict[str, str], ...]) -> str:
+def _denial_advice(task: CoderTask) -> str:
     """The hub's sentence about what Claude Code was refused, and how a yes lets it.
 
     Only the tool names reach it -- never the refused input, which is the program's words
     -- and the rules are bare names: a person's yes to "Bash" in general is theirs to narrow
-    if they want, by saying so.
+    if they want, by saying so. A turn that was refused something and still ended with a
+    result gets the calmer sentence: the refusal was routed around, not a blocker.
     """
+    denials = task.permission_denials
     tools = sorted({denial["tool"] for denial in denials if denial.get("tool")})
     if not tools:
         return ""
     rules = "[" + ", ".join(f'"{tool}"' for tool in tools) + "]"
-    return REFUSED_TOOLS.format(count=len(denials), tools=", ".join(tools), rules=rules)
+    sentence = REFUSED_BUT_FINISHED if task.result and task.state == "idle" else REFUSED_TOOLS
+    return sentence.format(count=len(denials), tools=", ".join(tools), rules=rules)
 
 
 def _within(mode: str, ceiling: str) -> bool:
