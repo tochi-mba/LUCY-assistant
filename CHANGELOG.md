@@ -68,6 +68,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The helpers page says a helper is not Claude Code.** Asked to "have claude code" verify
+  something, with coder ready, the model spawned its own sandbox helper and titled the card
+  "Spawn Claude Code". The page now says a helper lives in Lucy's sandbox, cannot see the
+  person's computer, and that "Claude Code" or a named folder of theirs means coder.
+
 - **Every decision event is also a log line.** A shadow run's `docker logs` showed the calls going out and nothing coming back; the only way to read a verdict was the events table. `lucy.decision.made/skipped/disagreed` now log at INFO with the event's own bounded fields, never the state text.
 
 - **A work id field says it takes the id itself, and how to run and wait.** Three of the first nine plan errors stored live were `$run_calc` in a `work_id`: the model wanted to run something and wait for it in one plan, and the field said only "The id to wait for". `work.result`, `work.wait` and `work.cancel` now say the id is written out, never a `$step`, and that `workspace.run` with `wait_seconds` is how to run and wait together; `coder.*` task fields say the same.
