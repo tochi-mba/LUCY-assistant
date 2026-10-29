@@ -68,6 +68,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 
 ### Changed
 
+- **The workspace page says how big the sandbox is.** Asked to count primes below 300
+  million, the model wrote a sieve as a Python list of 300 million booleans, 2.4 GB in a
+  sandbox that allows 2 GiB, and nothing it had read said so. The page now names the
+  default limits (2 GiB, 900 CPU-seconds, 256 processes, the command ceiling) and says to
+  size a job before starting it: `bytearray` or `numpy` over a list, split or sample a long
+  job.
+
 - **The helpers page says a helper is not Claude Code.** Asked to "have claude code" verify
   something, with coder ready, the model spawned its own sandbox helper and titled the card
   "Spawn Claude Code". The page now says a helper lives in Lucy's sandbox, cannot see the
