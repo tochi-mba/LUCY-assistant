@@ -350,6 +350,27 @@ async def test_a_child_is_not_offered_spawn() -> None:
     assert pack.operations(parent_context("ses_x", capabilities=Capabilities((pack,)))) == ()
     assert pack.setup() is None
     assert pack.docs == capability_doc("agents")
+
+
+def test_every_helper_id_field_says_it_is_written_out_never_a_step() -> None:
+    """The bug, named: a live plan put `$spawn_coder` in `agents.read`'s `id`, which takes
+    no reference, and the plan was refused in front of the person. The field now says the
+    handle is written out and that the spawn's notice, not a same-plan read, is the way."""
+    pack = AgentsPack()
+    work = Registry(now=lambda: datetime.now(UTC))
+    capabilities = Capabilities((pack,), work=work)
+    context = capabilities.context_for(
+        SessionScope(account_id=ACCOUNT, profile="personal", session_id="ses_x")
+    )
+    described = {
+        operation.name: operation.input.shape["id"].description
+        for operation in pack.operations(context)
+        if "id" in getattr(operation.input, "shape", {})
+    }
+    assert {"agents.read", "agents.message"} <= set(described)
+    for sentence in described.values():
+        assert "never a $step" in sentence
+    assert "notice comes to you" in described["agents.read"]
     assert pack.permissions()[0].id == "agents.delegate"
 
 

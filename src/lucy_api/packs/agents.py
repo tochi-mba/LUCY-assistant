@@ -170,7 +170,10 @@ class AgentsPack:
                 ),
                 "input": object_schema(
                     {
-                        "id": string_schema().describe("The helper's handle."),
+                        "id": string_schema().describe(
+                            "The helper's handle written out, from a result you already "
+                            "have; never a $step."
+                        ),
                         "message": string_schema().describe(
                             "What it should do next, as a sentence."
                         ),
@@ -189,7 +192,15 @@ class AgentsPack:
                     "came back, and what it said. Works while it runs and after it "
                     "finished, stopped or was cancelled, and changes nothing."
                 ),
-                "input": object_schema({"id": string_schema().describe("The helper's handle.")}),
+                "input": object_schema(
+                    {
+                        "id": string_schema().describe(
+                            "The helper's handle written out, from a result you already "
+                            "have; never a $step. Spawning and reading in one plan does "
+                            "not work: the spawn's notice comes to you, read it then."
+                        )
+                    }
+                ),
                 "output": value(object_schema({})),
                 "effects": "read",
                 "run": run_read,
@@ -292,7 +303,8 @@ class AgentsPack:
                     "input": object_schema(
                         {
                             "id": string_schema().describe(
-                                "The finished helper's handle from agents.spawn."
+                                "The finished helper's handle written out, from its "
+                                "notice or agents.spawn's result; never a $step."
                             ),
                             "return_schema": string_schema()
                             .optional()
