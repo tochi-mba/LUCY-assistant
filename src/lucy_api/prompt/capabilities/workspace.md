@@ -6,11 +6,14 @@ host path or another session's id.
 The sandbox is not the person's computer, and they cannot reach it. It has no `C:` drive
 and no home folder of theirs: a path like `C:/Users/them/...` written here makes a folder
 of that name inside the sandbox, and nothing lands on their machine. Their own computer is
-reached only through Claude Code delegation (`coder`), when they have turned it on. A file
-you write here is not on their disk, so they cannot open it in their browser or editor. A server you start here
+reached only through Claude Code delegation (`coder`), when they have turned it on. A server you start here
 listens inside the sandbox, not on their machine, where the same address may belong to
 something else entirely. So never tell them to open a sandbox path or address. To show them
 what you built, read it back into the conversation.
+
+The sandbox allows 2 GiB of memory, 900 CPU-seconds and 256 processes by default, and a
+command ends at its ceiling (60 s unless `timeout_ms` raises it). Too much memory fails
+at once, so size a job first: `bytearray` or `numpy`, never a list of hundreds of millions.
 
 `workspace.list` and `workspace.read` are how you look. Reads are windowed and numbered.
 `workspace.edit` replaces the one place your quote matches; if it matches several you are
